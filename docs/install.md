@@ -11,10 +11,13 @@ OpenMotion runs as a hosted **Streamable HTTP MCP** service with **OAuth 2.1** a
 ## Agent rules
 
 1. **Derive `LANG` first** from the user's latest message (supported: `zh`, `en`, `ja`, `ko`, `fr`, `es`, `pt`; normalize `zh-CN` → `zh`, default `en`).
-2. **Reuse an existing working connection**: if `openmotion_get_project` is already available in this session for this target origin, skip Steps 1–2 and jump straight to [Step 3: Verify & Onboarding](#installation-success-reply) (or continue the user's creative brief).
-3. **Never install a local runtime**: do not run `git clone`, `npm install`, `npx @openmotion/app`, `docker compose`, or local stdio `mcp.ts`.
-4. **Configure only the current host**: preserve unrelated MCP servers, Skills, and settings. Never mention setup steps for unrelated clients in user-facing replies.
-5. **Never narrate internal onboarding mechanics**: never tell the user you are running "onboarding / 引导 / 中文模板引导", opening the template library, fetching three templates, or using a visualization skill to build preview cards—neither while waiting for authorization nor in progress updates before the final reply. Execute those steps silently and deliver only the final welcome and cards cleanly.
+2. **Detect Mode A (pure setup) vs Mode B (task-driven handoff)**:
+   - **Mode A (pure setup)**: the user only asked to connect or install OpenMotion (no specific `projectId`, `templateId`, `skillId`, reference video, or creative brief). Finish with [Installation-success reply](#installation-success-reply).
+   - **Mode B (task-driven handoff)**: the user's message already carries a specific `projectId`, `templateId`, `skillId`, reference video, or creative brief. After connecting and authorizing against the exact target `<ORIGIN>/mcp`, **skip `/api/onboarding/prepare` and the three onboarding template cards** and resume the user's task directly.
+3. **Reuse an existing working connection (after verifying origin)**: if `openmotion_get_project` is already available in this session for `https://motion.open-design.ai/mcp`, skip Steps 1–2 and go straight to Step 3 (Mode A: onboarding; Mode B: continue the user's task directly). If the existing `openmotion` server points to a different origin than the target deployment, update/configure it for `https://motion.open-design.ai/mcp` first.
+4. **Never install a local runtime**: do not run `git clone`, `npm install`, `npx @openmotion/app`, `docker compose`, or local stdio `mcp.ts`.
+5. **Configure only the current host**: preserve unrelated MCP servers, Skills, and settings. Never mention setup steps for unrelated clients in user-facing replies.
+6. **Never narrate internal onboarding mechanics**: never tell the user you are running "onboarding / 引导 / 中文模板引导", opening the template library, fetching three templates, or using a visualization skill to build preview cards—neither while waiting for authorization nor in progress updates before the final reply. Execute those steps silently and deliver only the final welcome and cards cleanly.
 
 ## Step 1: Add the Cloud MCP server
 
@@ -54,26 +57,28 @@ Use **only** the row matching the current host (skip if `openmotion` already poi
 > **HARD GATE — Never run Onboarding while login is still pending:**
 > If the user still needs to sign in or approve access in the browser, **end your turn after sending the short login guidance** and wait for their reply. Do **NOT** call `/api/onboarding/prepare`, do **NOT** claim OpenMotion is connected (`🎉 OpenMotion 连接好啦`), and do **NOT** mention or print the welcome message or template recommendations in the same reply as a pending login prompt.
 
-## Step 3: Verify connection & Onboarding
+## Step 3: Verify connection & Continue (Mode A Onboarding / Mode B Task)
 
 Run this section **only after authorization is complete** (already `"o_auth"` / `Connected`, `mcp login` exited `0`, or the user confirmed authorization). **Run verification, `/api/onboarding/prepare`, template-library opening, and card preparation silently**—do not send progress commentary announcing "I will open the template library", "I will show three onboarding templates", or "I will use a visualization skill to make preview cards".
 
 1. **If `openmotion_get_project` is already available in this session**:
-   - Call `openmotion_get_project({})` once to verify workspace access (`projects: []` is normal for a newly authorized OAuth client — projects created by the Agent are accessible immediately, and older web projects can be granted per-project in Studio **Project → Agent access**).
-   - Proceed directly to [Installation-success reply](#installation-success-reply) in this conversation.
+   - **Mode A (pure setup)**: call `openmotion_get_project({})` once to verify workspace access (an authorized OAuth client can access all of your projects in the selected workspace), then proceed directly to [Installation-success reply](#installation-success-reply) in this conversation.
+   - **Mode B (task-driven handoff)**: do **not** run `/api/onboarding/prepare` or show generic onboarding template cards—call `openmotion_get_project` (or `openmotion_get_template` / `openmotion_get_skill` as requested) and continue the user's exact project, template, or brief directly.
 2. **If registration and authorization succeeded, but this installation session has not loaded `openmotion_*` tools yet**:
    - Confirm registration/auth (`codex mcp list --json` showing `"auth_status": "o_auth"`, or `claude mcp get openmotion`). Do **not** reinstall or restart the host.
    - **Auto-handoff to a ready session when the host supports creating and switching conversations (e.g. Codex Desktop)** — skip this if the current conversation was already started as a handoff:
      1. Discover host thread tools via `tool_search` (or scan visible tools) for `create_thread`, `send_message_to_thread`, `navigate_to_codex_page`, `set_thread_title`, and `list_projects`.
      2. Preserve the current workspace/project container (use the same project/workspace target if this chat is project-scoped; stay projectless if projectless).
-     3. Create a new conversation (optional title: `OpenMotion`) and send **one short natural handoff message** in `LANG` so the new session loads all `openmotion_*` tools and runs verification + onboarding automatically (make sure the new thread actually contains this message—if `create_thread` does not take an initial message, call `send_message_to_thread` immediately):
-        - `zh`: `OpenMotion 已连接完成，请按 https://motion.open-design.ai/install.md 验证连接并开始创作。`
-        - `en` (or localize to `LANG`): `OpenMotion is connected. Follow https://motion.open-design.ai/install.md to verify the connection and get started.`
+     3. Create a new conversation (optional title: `OpenMotion`) and send the handoff message in `LANG` so the new session loads all `openmotion_*` tools (make sure the new thread actually contains this message—if `create_thread` does not take an initial message, call `send_message_to_thread` immediately):
+        - **Mode A (pure setup)**:
+          - `zh`: `OpenMotion 已连接完成，请按 https://motion.open-design.ai/install.md 验证连接并开始创作。`
+          - `en` (or localize to `LANG`): `OpenMotion is connected. Follow https://motion.open-design.ai/install.md to verify the connection and get started.`
+        - **Mode B (task-driven handoff)**: forward the user's **complete original task/prompt verbatim** (preserving `projectId`, `templateId`, `skillId`, URLs, and all requirements) prefixed with one short status line (e.g. `OpenMotion 云端 MCP（https://motion.open-design.ai/mcp）已连接完成，请直接继续以下任务（跳过新建模板引导）：` / `OpenMotion Cloud MCP (https://motion.open-design.ai/mcp) is connected. Continue directly with the task below (skip onboarding cards):`). Never drop the user's task context during auto-handoff.
      4. Call `navigate_to_codex_page` (or the host's switch tool) to move the user straight into the new conversation.
      5. In this installation conversation, reply with one brief confirmation (e.g., `OpenMotion 已完成连接并授权，已为你切换到新的创作对话。`) and stop—do **not** duplicate onboarding cards here.
    - **Fallback (when the host has no conversation-creation/switch tool, e.g. `codex_app` disabled or Claude Code CLI, or if thread creation fails)**:
-     - Proceed directly to [Installation-success reply](#installation-success-reply) in this conversation using the cloud onboarding API below.
-     - **Do NOT append any technical caveat** about tools not being loaded yet or telling the user to open a new conversation during the onboarding reply.
+     - **Mode A (pure setup)**: proceed directly to [Installation-success reply](#installation-success-reply) in this conversation using the cloud onboarding API below. **Do NOT append any technical caveat** about tools not being loaded yet or telling the user to open a new conversation during the onboarding reply.
+     - **Mode B (task-driven handoff)**: do **not** run onboarding cards and do **not** fall back to authoring local HTML without OpenMotion MCP—briefly confirm in `LANG` that OpenMotion is connected and authorized, and ask the user to paste their task into a new conversation where `openmotion_*` tools are loaded.
 
 <!-- installation-onboarding:start -->
 ## Installation-success reply
@@ -157,4 +162,4 @@ When there is no right-hand browser pane (or opening failed/is unconfirmed), rep
 
 - **OAuth callback timeout (`ERR_CONNECTION_REFUSED`)**: the local login command timed out before you clicked **Allow / 同意授权**. Re-run the login command and approve promptly.
 - **`401 Unauthorized` on `/mcp`**: token expired or revoked—re-run OAuth login (or create a fresh PAT in **Settings → Account → Personal Access Tokens**).
-- **Missing older web projects**: open the project in `https://motion.open-design.ai` → **Agent access** and grant your connected client access (projects created by the Agent are granted automatically).
+- **`PROJECT_NOT_FOUND` for an existing web project**: check that your connected MCP server URL matches the exact origin of the project URL (for example `https://motion.open-design.ai/mcp` vs a staging/test origin) and that you selected the matching workspace during OAuth login. Re-run OAuth login to switch workspaces if needed.

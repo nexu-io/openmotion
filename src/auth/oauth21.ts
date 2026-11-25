@@ -660,8 +660,8 @@ function escapeHtml(text: string): string {
 }
 
 const SCOPE_DESCRIPTIONS: Readonly<Record<string, { title: string; detail: string }>> = {
-  'projects:read': { title: '查看已授权的视频项目', detail: '读取画面、时间轴与版本历史' },
-  'projects:write': { title: '编辑已授权的视频项目', detail: '修改场景、文案、动画并保存版本' },
+  'projects:read': { title: '查看工作区中的视频项目', detail: '读取画面、时间轴与版本历史' },
+  'projects:write': { title: '编辑工作区中的视频项目', detail: '修改场景、文案、动画并保存版本' },
   'assets:read': { title: '读取工作区素材', detail: '访问素材库与项目中的媒体文件' },
   'assets:write': { title: '上传与导入工作区素材', detail: '导入新的图片、音频和视频素材' },
   'exports:write': { title: '发起视频渲染与导出', detail: '提交导出任务并下载成片' },
@@ -682,8 +682,8 @@ function summarizeConsentScopes(scopes: readonly string[]): ConsentPermissionGro
     remaining.delete('projects:read');
     remaining.delete('projects:write');
     groups.push({
-      title: '查看并编辑已授权的视频项目',
-      detail: '仅限该应用新建及你在网页中手动授权的项目',
+      title: '查看并编辑当前工作区的视频项目',
+      detail: '读取、创建和修改你在所选工作区中的视频项目与版本历史',
     });
   }
 

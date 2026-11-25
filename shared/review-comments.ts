@@ -91,10 +91,19 @@ export function reviewCommentsPrompt(input: { projectId?: string; dataDirectory?
       { name: 'openmotion_manage_project', arguments: { action: 'comments', operation: 'list', projectId } },
     ] : []),
   ];
+  const origin = (() => {
+    if (!input.previewUrl) return null;
+    try { return new URL(input.previewUrl).origin; } catch { return null; }
+  })();
+  const isCloud = Boolean(input.dataDirectory?.startsWith('workspace:'));
   return [
     'Read and process the selected OpenMotion review comments in their existing project. For editing requests, make the requested source changes; for explicit status-only or deletion requests, change only the requested comment records.',
     input.dataDirectory ? `Workspace: ${input.dataDirectory}` : 'Use the connected OpenMotion workspace.',
-    input.previewUrl ? `Studio: ${input.previewUrl}\nIf the MCP tools are unavailable, use this running Studio’s MCP · Connect Agent page to connect to the same workspace. Do not create a replacement workspace or treat a browser URL as an MCP endpoint.` : '',
+    input.previewUrl
+      ? isCloud && origin
+        ? `Studio: ${input.previewUrl}\nMCP endpoint: ${origin}/mcp\nConnection guide: ${origin}/install.md\nIf the MCP tools are unavailable for this endpoint, follow ${origin}/install.md to connect and authorize via OAuth 2.1 (skip generic template onboarding and continue directly with these comments). Do not create a replacement workspace or treat a browser URL as an MCP endpoint.`
+        : `Studio: ${input.previewUrl}\nIf the MCP tools are unavailable, use this running Studio’s MCP · Connect Agent page to connect to the same workspace. Do not create a replacement workspace or treat a browser URL as an MCP endpoint.`
+      : '',
     projectId ? `Project ID: ${projectId}` : 'Identify the project with me before making changes. List projects with openmotion_get_project({}); follow nextCursor with cursor until the requested project is found. Never choose another project just because it is first in the list.',
     input.sourceRevision ? `Project revision when copied: ${input.sourceRevision} (a snapshot, not a write guard for future edits).` : '',
     'Discover the actual MCP tool names in the connected Agent (host prefixes may differ). Run these read-only requests in order. Compare the returned dataDirectory with the workspace above before using a project ID; a mismatch or inaccessible workspace requires reconnecting, not editing another installation.',

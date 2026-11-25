@@ -12,7 +12,6 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useToast } from '../hooks/useToast';
 import { SettingsDialog } from './settingsPrimitives';
-import { ProjectAgentGrantsDialog } from './ProjectAgentGrantsDialog';
 import { motionApi, type useWorkspace } from './useWorkspace';
 import { PROJECT_ARCHIVE_LIMITS, PROJECT_ARCHIVE_VALIDATION_UNAVAILABLE } from '../../../shared/project-archive';
 import type { ProjectLocation, ProjectManagementInput } from '../../../shared/project-management';
@@ -29,7 +28,6 @@ type ProjectMenuActions = {
   locked: boolean;
   exportProject: (projectId?: string) => Promise<void>;
   beginRename: (projectId: string, title: string, trigger: HTMLElement | null) => Promise<void>;
-  openAgentGrants?: (projectId: string, title: string, trigger: HTMLElement | null) => void;
   projectAction: (action: 'duplicate' | 'info' | 'reveal' | 'trash' | 'restore' | 'delete', projectId: string, title: string, trigger?: HTMLElement | null) => Promise<void>;
 };
 
@@ -38,7 +36,7 @@ export function useProjectArchives(
   waitForSaves: () => Promise<void>,
   disabled: boolean,
   onManagerOpen: () => void,
-  onOpenMcpSetup?: () => void,
+  _onOpenMcpSetup?: () => void,
 ) {
   const { t } = useI18n();
   const archiveErrorMessage = (error: unknown) => {
@@ -58,10 +56,6 @@ export function useProjectArchives(
   const [tab, setTab] = useState<'projects' | 'trash'>('projects');
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [deleteDraft, setDeleteDraft] = useState<{ projects: ProjectTarget[]; returnFocus?: HTMLElement | null } | null>(null);
-  const [grantsTarget, setGrantsTarget] = useState<{ projectId: string; title: string; returnFocus?: HTMLElement | null } | null>(null);
-  const openAgentGrants = (projectId: string, title: string, trigger: HTMLElement | null) => {
-    setGrantsTarget({ projectId, title, returnFocus: trigger });
-  };
   const returnFocus = useRef<HTMLElement | null>(null);
   const showManager = () => {
     returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -226,7 +220,7 @@ export function useProjectArchives(
     } finally { acting.current = false; setBusy(null); }
   }
   const locked = disabled || Boolean(busy);
-  const actions: ProjectMenuActions = { locked, exportProject, beginRename, openAgentGrants, projectAction };
+  const actions: ProjectMenuActions = { locked, exportProject, beginRename, projectAction };
   const catalog = tab === 'trash' ? workspace.trashedProjects : workspace.projects;
   const filter = query.trim().toLocaleLowerCase();
   const visible = catalog.filter(project => project.title.toLocaleLowerCase().includes(filter));
@@ -306,13 +300,6 @@ export function useProjectArchives(
         <div className="om-settings-actions"><Button variant="ghost" type="button" className="om-button h-auto" onClick={() => setRenameDraft(null)}>{t('Cancel')}</Button><Button variant="ghost" className="om-button h-auto" data-primary disabled={locked || !name.trim()}>{t(busy === 'rename' ? 'Saving…' : 'Save')}</Button></div>
       </form>
     </SettingsDialog>}
-    {grantsTarget && <ProjectAgentGrantsDialog
-      projectId={grantsTarget.projectId}
-      projectTitle={grantsTarget.title}
-      onClose={() => setGrantsTarget(null)}
-      onOpenMcpSetup={onOpenMcpSetup}
-      returnFocus={grantsTarget.returnFocus}
-    />}
   </>;
   return { ...actions, open: opened, busy, showManager, chooseImport, manager };
 }
@@ -328,7 +315,6 @@ export function ProjectArchiveMenu({ projectId, title, trashed = false, archives
       <MenuItem icon={<RemixIcon name="delete-bin-line" size={14} />} tone="danger" onClick={() => void archives.projectAction('delete', projectId, title, trigger.current)}>{t('Delete permanently')}</MenuItem>
     </> : <>
       <MenuItem icon={<RemixIcon name="edit-line" size={14} />} onClick={() => void archives.beginRename(projectId, title, trigger.current)}>{t('Rename project')}</MenuItem>
-      {archives.openAgentGrants && <MenuItem icon={<RemixIcon name="plug-line" size={14} />} onClick={() => archives.openAgentGrants!(projectId, title, trigger.current)}>{t('Agent access')}</MenuItem>}
       <MenuItem icon={<RemixIcon name="file-copy-line" size={14} />} onClick={() => void archives.projectAction('duplicate', projectId, title)}>{t('Duplicate project')}</MenuItem>
       <MenuItem icon={<RemixIcon name="download-2-line" size={14} />} onClick={() => void archives.exportProject(projectId)}>{t('Export project')}</MenuItem>
       <MenuItem icon={<RemixIcon name="folder-open-line" size={14} />} onClick={() => void archives.projectAction('reveal', projectId, title)}>{t(revealLabel)}</MenuItem>

@@ -11,7 +11,13 @@ import {
   manualConnection,
   setupGuideUrl,
   setupPrompt,
+  templatePrompt,
 } from '../../shared/integration.ts';
+import { projectAgentPrompt } from '../../shared/project-agent-prompt.ts';
+import { platformExportPrompt } from '../../shared/platform-export.ts';
+import { reviewCommentsPrompt } from '../../shared/review-comments.ts';
+import { transcriptWorkflowPrompt } from '../../shared/transcript-workflow.ts';
+import { designProjectPrompt } from '../../shared/design-project.ts';
 import { onboardingSourceFiles, onboardingTemplateIds } from '../../shared/onboarding-templates.ts';
 import { phase1Tools } from '../../shared/phase1-tools.ts';
 import { createOnboardingRoutes } from '../../src/routes/onboarding.ts';
@@ -60,6 +66,9 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(body.includes(`${customOrigin}/install.md`), 'Handoff prompt must bind to APP_PUBLIC_ORIGIN');
     assert.ok(!body.includes('Workbench'), 'Login guidance must avoid internal Workbench jargon');
     assert.ok(body.includes('/mcp'));
+    assert.ok(body.includes('Mode A (pure setup)'));
+    assert.ok(body.includes('Mode B (task-driven handoff)'));
+    assert.ok(!body.includes('Project → Agent access'), 'Workspace-level OAuth must not instruct per-project Agent access grants');
     assert.ok(body.includes('🎉 OpenMotion 连接好啦，右侧就是模板库！'));
 
     const markers = [...body.matchAll(/<!-- installation-onboarding:start -->([\s\S]*?)<!-- installation-onboarding:end -->/g)];
@@ -334,6 +343,42 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     );
     assert.ok(setupPrompt(cloudInfo, 'codex', 'zh-CN').includes('https://motion.open-design.ai/install.md'));
     assert.ok(setupPrompt(cloudInfo, 'codex', 'en').includes('https://motion.open-design.ai/install.md'));
+
+    // Every cloud handoff prompt builder must point Agents to `<ORIGIN>/install.md`, never `/connect/guide` or `/mcp-setup`.
+    const handoffOutputs = [
+      projectAgentPrompt(cloudInfo, { id: 'proj-1', title: 'Launch Video' }, 'zh-CN'),
+      projectAgentPrompt(cloudInfo, { id: 'proj-1', title: 'Launch Video' }, 'en'),
+      platformExportPrompt({
+        target: 'shorts',
+        goal: 'shorten',
+        locale: 'zh-CN',
+        context: { info: cloudInfo, project: { id: 'proj-1', title: 'Launch Video' } },
+      }),
+      platformExportPrompt({
+        target: 'shorts',
+        goal: 'shorten',
+        locale: 'en',
+        workspace: cloudInfo,
+      }),
+      templatePrompt(cloudInfo, 'codex', { id: 'tpl-1', title: 'Template One' }, 'zh-CN'),
+      templatePrompt(cloudInfo, 'codex', { id: 'tpl-1', title: 'Template One' }, 'en'),
+      reviewCommentsPrompt({ projectId: 'proj-1', dataDirectory: cloudInfo.dataDirectory, previewUrl: cloudInfo.previewUrl }),
+      transcriptWorkflowPrompt(
+        { projectId: 'proj-1', sourcePaths: [], sourceLinks: '', targets: 'Shorts', languages: 'en', goal: 'highlights', notes: '' },
+        cloudInfo,
+        'en',
+      ),
+      designProjectPrompt(
+        { id: 'd-1', title: 'Landing', revision: 'r1', scenario: 'prototype' },
+        undefined,
+        { integration: cloudInfo, language: 'zh-CN' },
+      ),
+    ];
+    for (const output of handoffOutputs) {
+      assert.ok(output.includes('https://motion.open-design.ai/install.md'), `Missing /install.md in:\n${output}`);
+      assert.ok(!output.includes('/connect/guide'), `Unexpected legacy /connect/guide in:\n${output}`);
+      assert.ok(!output.includes('/mcp-setup'), `Unexpected SPA /mcp-setup in:\n${output}`);
+    }
   });
 
   it('renders the OpenMotion-styled OAuth consent page using the shared design system with escaped inputs', async () => {
@@ -384,7 +429,8 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(html.includes('Local application (127.0.0.1)'));
     assert.ok(html.includes('alice@example.com'));
     assert.ok(html.includes('换一个账号'));
-    assert.ok(html.includes('查看并编辑已授权的视频项目'));
+    assert.ok(html.includes('查看并编辑当前工作区的视频项目'));
+    assert.ok(!html.includes('仅限该应用新建及你在网页中手动授权的项目'));
     assert.ok(html.includes('查看详细权限标识 (7)'));
     assert.ok(html.includes('name="consent_token" value="tok-123"'));
     assert.ok(html.includes('value="approve"') && html.includes('value="deny"'));

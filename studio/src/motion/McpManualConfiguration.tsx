@@ -11,9 +11,11 @@ const instructions = {
   mcp: 'Merge the JSON into MCP settings, keep the other servers, then reload.',
 };
 
-export function McpManualConfiguration({ host, value, onCopy, children, streamableHttp }: {
+export function McpManualConfiguration({ host, value, onCopy, children, streamableHttp, desktop = false, oauth2 = false }: {
   host: IntegrationHost;
   streamableHttp: boolean;
+  desktop?: boolean;
+  oauth2?: boolean;
   value: string;
   onCopy: (value: string) => Promise<boolean>;
   children: ReactNode;
@@ -25,14 +27,18 @@ export function McpManualConfiguration({ host, value, onCopy, children, streamab
   const terminal = host === 'codex' || host === 'claude';
   const instruction = host === 'chatgpt'
     ? 'Add this Streamable HTTP URL in ChatGPT Settings -> Connectors and complete OAuth 2.1 authorization.'
-    : streamableHttp && host === 'mcp'
-      ? 'Merge this Streamable HTTP configuration into your client’s MCP settings and provide your Personal Access Token as OPENMOTION_TOKEN.'
-      : streamableHttp && terminal
-        ? 'Run this command to register the Streamable HTTP MCP endpoint, then sign in with OAuth 2.1 or a Personal Access Token.'
-        : instructions[host];
+    : streamableHttp && desktop
+      ? 'Add this Streamable HTTP URL in Claude Desktop Settings -> Connectors -> Add custom connector and complete OAuth 2.1 authorization.'
+      : streamableHttp && host === 'mcp'
+        ? oauth2
+          ? 'Merge this Streamable HTTP configuration into your client’s MCP settings, then sign in with OAuth 2.1 when prompted.'
+          : 'Merge this Streamable HTTP configuration into your client’s MCP settings and provide your Personal Access Token as OPENMOTION_TOKEN.'
+        : streamableHttp && terminal
+          ? 'Run this command to register the Streamable HTTP MCP endpoint, then sign in with OAuth 2.1 or a Personal Access Token.'
+          : instructions[host];
   const preview = terminal
     ? value.replace(/ +(?:--env |-- )[^\n]*/, ' …')
-    : value.split('\n', 4).join('\n');
+    : value.split('\n', streamableHttp ? 8 : 4).join('\n');
 
   useEffect(() => {
     if (!copied) return;

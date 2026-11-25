@@ -132,3 +132,30 @@ it('opens the existing connection guide without starting an Agent', async () => 
   expect(state.connect).toHaveBeenCalledOnce();
   expect(state.save).not.toHaveBeenCalled();
 });
+
+it('copies cloud Streamable HTTP MCP endpoint and /install.md guide instead of /connect/guide', async () => {
+  const previousInfo = state.info;
+  state.info = {
+    name: 'OpenMotion',
+    previewUrl: 'https://openmotion.powerformer.net',
+    dataDirectory: 'workspace:0d7f2912-a6d6-4a11-83bb-22c95aa764d9',
+    transport: {
+      type: 'streamable-http',
+      url: 'https://openmotion.powerformer.net/mcp',
+      auth: { mode: 'oidc', oauth2: true, pat: true },
+    } as never,
+  };
+  try {
+    const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+    await render();
+    await open();
+    await act(async () => button('Copy instruction').click());
+    const prompt = copy.mock.calls[0][0];
+    expect(prompt).toContain('MCP endpoint: https://openmotion.powerformer.net/mcp');
+    expect(prompt).toContain('Connection guide: https://openmotion.powerformer.net/install.md');
+    expect(prompt).not.toContain('/connect/guide');
+    expect(prompt).toContain('skip generic template onboarding');
+  } finally {
+    state.info = previousInfo;
+  }
+});

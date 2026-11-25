@@ -904,6 +904,50 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     assert.equal('plan' in publicStatus.providers[0]!, false);
     assert.equal('hasBalance' in publicStatus.providers[0]!, false);
 
+    // Public read-only cloud MCP discovery, install guide & connect routes work without authentication (no workspaceId leaked)
+    const publicIntegrationRes = await app.request('/connect/integration');
+    assert.equal(publicIntegrationRes.status, 200);
+    const publicIntegration = (await publicIntegrationRes.json()) as {
+      workspaceId?: string;
+      dataDirectory?: string;
+      transport?: { type?: string; url?: string };
+    };
+    assert.equal(publicIntegration.workspaceId, undefined);
+    assert.equal(publicIntegration.dataDirectory, '');
+    assert.equal(publicIntegration.transport?.type, 'streamable-http');
+    assert.equal(publicIntegration.transport?.url, 'https://motion.example.test/mcp');
+
+    const publicGuideAgentRes = await app.request('/connect/guide?host=mcp');
+    assert.equal(publicGuideAgentRes.status, 200);
+    assert.match(publicGuideAgentRes.headers.get('content-type') ?? '', /^text\/markdown/);
+    const publicGuideAgentBody = await publicGuideAgentRes.text();
+    assert.ok(publicGuideAgentBody.includes('https://motion.example.test/mcp'));
+    assert.ok(publicGuideAgentBody.includes('Mode B (task-driven handoff)'));
+
+    const publicGuideBrowserRes = await app.request('/connect/guide?host=codex', {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+    });
+    assert.equal(publicGuideBrowserRes.status, 302);
+    assert.equal(publicGuideBrowserRes.headers.get('location'), '/mcp-setup?host=codex');
+
+    const publicConfigRes = await app.request('/connect/config?host=codex');
+    assert.equal(publicConfigRes.status, 200);
+    assert.match(await publicConfigRes.text(), /https:\/\/motion\.example\.test\/mcp/);
+
+    // Unauthenticated /mcp returns 401 with structured authGuidance pointing to /install.md
+    const unauthMcpRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    assert.equal(unauthMcpRes.status, 401);
+    const unauthMcpBody = (await unauthMcpRes.json()) as {
+      authGuidance?: { preferred?: string; installGuideUrl?: string; connectPageUrl?: string };
+    };
+    assert.equal(unauthMcpBody.authGuidance?.preferred, 'oauth2.1');
+    assert.equal(unauthMcpBody.authGuidance?.installGuideUrl, 'https://motion.example.test/install.md');
+    assert.equal(unauthMcpBody.authGuidance?.connectPageUrl, 'https://motion.example.test/mcp-setup');
+
     // OAuth 2.1 discovery endpoints are public
     const prmRes = await app.request('/.well-known/oauth-protected-resource');
     assert.equal(prmRes.status, 200);
@@ -1387,7 +1431,8 @@ describe('Cloud API Entrypoint — Models, Account, Catalog, Integration & P2 Ro
 
     const guideRes = await app.request('/connect/guide?host=codex');
     assert.equal(guideRes.status, 200);
-    assert.match(await guideRes.text(), /motion\.example\.test/);
+    assert.match(guideRes.headers.get('content-type') ?? '', /^text\/markdown/);
+    assert.match(await guideRes.text(), /https:\/\/motion\.example\.test\/mcp/);
 
     // Public catalog listing on BOTH /api/templates and /motion-api/templates
     const apiTemplatesRes = await app.request('/api/templates');
@@ -3273,16 +3318,16 @@ describe('Cloud API Entrypoint — Unified Config & Cookie-less Preview Subdomai
 });
 
 // ---------------------------------------------------------------------------
-// 8. OAuth Agent Project Grant Enforcement on MCP Asset Import & Media Jobs
+// 8. OAuth Agent Workspace-Level Project Access & Cross-User Owner Isolation
 // ---------------------------------------------------------------------------
 
-describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & Media Jobs)', () => {
-  it('enforces project_grants across openmotion_import_assets and all openmotion_media job operations', async () => {
+describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Isolation', () => {
+  it('grants an OAuth agent full access to its own user projects without per-project grants while isolating other users', async () => {
     const fixture = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const { app, config, pgClient, authStore } = fixture;
 
-    // Seed workspace membership & OAuth bearer token for an external agent client
     const userId = config.DEV_USER_ID;
+    const otherUserId = randomUUID();
     const workspaceId = config.DEV_WORKSPACE_ID;
     const clientId = 'oauth-client-codex';
     authStore.seedWorkspace({
@@ -3305,7 +3350,7 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       refreshExpiresAt: null,
     });
 
-    // Create two projects owned by the user via dev session: projectA (granted) and projectB (ungranted)
+    // Create two web projects owned by the user (no project_grants rows!) and one owned by another user in the same workspace
     const createProj = async (title: string): Promise<string> => {
       const res = await app.request('/motion-api/projects', {
         method: 'POST',
@@ -3315,19 +3360,11 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       assert.equal(res.status, 201);
       return ((await res.json()) as { projectId: string }).projectId;
     };
-    const projectA = await createProj('Granted Project A');
-    const projectB = await createProj('Ungranted Project B');
-
-    // Grant projectA ONLY to `oauth-client-codex`
-    pgClient.seed('project_grants', {
-      id: randomUUID(),
-      project_id: projectA,
-      user_id: userId,
-      workspace_id: workspaceId,
-      client_id: clientId,
-      granted_at: new Date().toISOString(),
-      revoked_at: null,
-    });
+    const projectA = await createProj('Web Project A');
+    const projectB = await createProj('Web Project B');
+    const otherUserProject = await createProj('Other User Private Project');
+    const otherRow = pgClient.rows('projects').find(row => row.id === otherUserProject)!;
+    otherRow.owner_user_id = otherUserId;
 
     const agent: AuthContext = {
       authMode: 'oidc', authMethod: 'oauth_bearer', role: 'editor', scopes: DEFAULT_PAT_SCOPES,
@@ -3335,11 +3372,17 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
     };
     const sessionA = pgClient.rows('projects').find(row => row.id === projectA)!.session_id as string;
     const sessionB = pgClient.rows('projects').find(row => row.id === projectB)!.session_id as string;
+    const otherSession = otherRow.session_id as string;
     const workspace = fixture.services.workspace;
-    await assert.rejects(workspace.selectProject(agent, projectA, projectB), { code: 'PROJECT_GRANT_REQUIRED' });
-    await assert.rejects(workspace.openSessionForEditor(agent, sessionA, projectA, projectB), { code: 'PROJECT_GRANT_REQUIRED' });
-    await assert.rejects(workspace.openSessionForEditor(agent, sessionB, projectB, projectA), { code: 'PROJECT_GRANT_REQUIRED' });
+
+    // Same-user web projects are immediately accessible without manual per-project grants
     assert.equal((await workspace.openSessionForEditor(agent, sessionA, projectA, projectA)).projectId, projectA);
+    assert.equal((await workspace.openSessionForEditor(agent, sessionB, projectB, projectB)).projectId, projectB);
+
+    // Another user's project/session remains strictly isolated as NOT_FOUND
+    await assert.rejects(workspace.selectProject(agent, projectA, otherUserProject), { code: 'PROJECT_NOT_FOUND' });
+    await assert.rejects(workspace.openSessionForEditor(agent, otherSession, otherUserProject), { code: 'PROJECT_NOT_FOUND' });
+    await assert.rejects(workspace.openSessionForEditor(agent, otherSession), { code: 'SESSION_NOT_FOUND' });
 
     // Initialize an MCP session authenticated as `oauth_bearer`
     const mcpHeaders = {
@@ -3357,11 +3400,13 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
         params: {
           protocolVersion: '2025-06-18',
           capabilities: {},
-          clientInfo: { name: 'codex-grant-test', version: '1.0.0' },
+          clientInfo: { name: 'codex-workspace-test', version: '1.0.0' },
         },
       }),
     });
     assert.equal(initRes.status, 200);
+    const initJson = (await initRes.json()) as { result?: { instructions?: string } };
+    assert.match(initJson.result?.instructions ?? '', /https:\/\/motion\.example\.test/);
     const mcpSessionId = initRes.headers.get('mcp-session-id');
     assert.ok(mcpSessionId);
 
@@ -3386,46 +3431,43 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       };
     };
 
-    // 1. MCP openmotion_import_assets (prepare_upload & import) must reject ungranted projectB with PROJECT_GRANT_REQUIRED
-    const prepUngranted = await callTool(2, 'openmotion_import_assets', {
+    // 1. OAuth agent can immediately read & prepare_upload on web-created projectB without per-project grants
+    const readProjectB = await callTool(2, 'openmotion_get_project', { projectId: projectB });
+    assert.equal(readProjectB.result?.isError, undefined, JSON.stringify(readProjectB.result));
+    const prepProjectB = await callTool(3, 'openmotion_import_assets', {
       action: 'prepare_upload',
       projectId: projectB,
-      requestId: 'req_prep_ungranted_1',
+      requestId: 'req_prep_b_1',
       files: [{ itemId: 'file-1', filename: 'hero.png', bytes: 1024, mimeType: 'image/png' }],
     });
-    assert.equal(prepUngranted.result?.isError, true);
-    assert.match(JSON.stringify(prepUngranted.result), /PROJECT_GRANT_REQUIRED/);
+    assert.equal(prepProjectB.result?.isError, undefined, JSON.stringify(prepProjectB.result));
 
-    const importUngranted = await callTool(3, 'openmotion_import_assets', {
-      action: 'import',
-      projectId: projectB,
-      requestId: 'req_import_ungranted_1',
-      items: [
-        {
-          itemId: 'item-1',
-          source: { kind: 'url', url: 'https://93.184.216.34/sample.png' },
-        },
-      ],
-    });
-    assert.equal(importUngranted.result?.isError, true);
-    assert.match(JSON.stringify(importUngranted.result), /PROJECT_GRANT_REQUIRED/);
+    // 2. Accessing another user's project returns PROJECT_NOT_FOUND with environment diagnostics
+    const readOther = await callTool(4, 'openmotion_get_project', { projectId: otherUserProject });
+    assert.equal(readOther.result?.isError, true);
+    const errObj = readOther.result?.structuredContent?.error as {
+      code?: string;
+      details?: { serverOrigin?: string; installGuideUrl?: string; hint?: string };
+    };
+    assert.equal(errObj?.code, 'PROJECT_NOT_FOUND');
+    assert.equal(errObj?.details?.serverOrigin, 'https://motion.example.test');
+    assert.equal(errObj?.details?.installGuideUrl, 'https://motion.example.test/install.md');
+    assert.match(errObj?.details?.hint ?? '', /motion\.example\.test/);
 
-    // Granted projectA succeeds on prepare_upload
-    const prepGranted = await callTool(4, 'openmotion_import_assets', {
+    const prepOther = await callTool(5, 'openmotion_import_assets', {
       action: 'prepare_upload',
-      projectId: projectA,
-      requestId: 'req_prep_granted_1',
+      projectId: otherUserProject,
+      requestId: 'req_prep_other_1',
       files: [{ itemId: 'file-1', filename: 'hero.png', bytes: 1024, mimeType: 'image/png' }],
     });
-    assert.equal(prepGranted.result?.isError, undefined);
+    assert.equal(prepOther.result?.isError, true);
+    assert.match(JSON.stringify(prepOther.result), /PROJECT_NOT_FOUND/);
 
-    // 2. Seed media_generate jobs on both projectA (granted) and projectB (ungranted)
+    // 3. Media jobs on own projects are visible (with remoteTerminal); another user's jobs remain hidden
     const jobAId = randomUUID();
-    const jobBFailedId = randomUUID();
-    const jobBSavePendingId = randomUUID();
     const jobASavePendingId = randomUUID();
+    const jobOtherId = randomUUID();
     const nowIso = new Date().toISOString();
-
     pgClient.seed('jobs', {
       id: jobAId,
       workspace_id: workspaceId,
@@ -3438,7 +3480,7 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       save_pending: false,
       request_id: 'req_job_a',
       idempotency_key: 'req_job_a',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Granted prompt A' },
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Owner prompt A' },
       created_at: nowIso,
       updated_at: nowIso,
     });
@@ -3447,60 +3489,42 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       workspace_id: workspaceId,
       project_id: projectA,
       kind: 'media_generate',
-      state: 'completed',
-      stage: 'completed',
-      remote_id: null,
+      state: 'failed',
+      stage: 'failed',
+      remote_id: 'upstream-remote-a-save',
       remote_terminal: true,
       save_pending: true,
       request_id: 'req_job_a_save',
       idempotency_key: 'req_job_a_save',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Granted save A' },
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Owner save A' },
       created_at: nowIso,
       updated_at: nowIso,
     });
     pgClient.seed('jobs', {
-      id: jobBFailedId,
+      id: jobOtherId,
       workspace_id: workspaceId,
-      project_id: projectB,
+      project_id: otherUserProject,
       kind: 'media_generate',
       state: 'failed',
       stage: 'failed',
-      remote_id: 'upstream-remote-b',
+      remote_id: 'upstream-remote-other',
       remote_terminal: false,
       save_pending: false,
-      request_id: 'req_job_b',
-      idempotency_key: 'req_job_b',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Secret prompt B' },
-      created_at: nowIso,
-      updated_at: nowIso,
-    });
-    pgClient.seed('jobs', {
-      id: jobBSavePendingId,
-      workspace_id: workspaceId,
-      project_id: projectB,
-      kind: 'media_generate',
-      state: 'completed',
-      stage: 'completed',
-      remote_id: null,
-      remote_terminal: true,
-      save_pending: true,
-      request_id: 'req_job_b_save',
-      idempotency_key: 'req_job_b_save',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Secret save B' },
+      request_id: 'req_job_other',
+      idempotency_key: 'req_job_other',
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Secret prompt Other' },
       created_at: nowIso,
       updated_at: nowIso,
     });
 
-    // 2a. listJobs without projectId (both MCP openmotion_assets_use and REST /motion-api/models/jobs)
-    // must only return jobs from granted projectA (never projectB)
-    const listAllRes = await callTool(5, 'openmotion_assets_use', { action: 'jobs' });
+    const listAllRes = await callTool(6, 'openmotion_assets_use', { action: 'jobs' });
     assert.equal(listAllRes.result?.isError, undefined, JSON.stringify(listAllRes.result));
     const listedAll = (listAllRes.result?.structuredContent?.jobs ?? []) as Array<{ id: string; projectId: string; remoteTerminal?: boolean }>;
     assert.equal(listedAll.length, 2);
     assert.ok(listedAll.every((j) => j.projectId === projectA));
     assert.equal(listedAll.find((j) => j.id === jobAId)?.remoteTerminal, false);
     assert.equal(listedAll.find((j) => j.id === jobASavePendingId)?.remoteTerminal, true);
-    assert.doesNotMatch(JSON.stringify(listAllRes.result), /Secret prompt B|Secret save B/);
+    assert.doesNotMatch(JSON.stringify(listAllRes.result), /Secret prompt Other/);
 
     const restListAll = await app.request('/motion-api/models/jobs', {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
@@ -3512,59 +3536,41 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
     assert.equal(restListAllBody.jobs.find((j) => j.id === jobAId)?.remoteTerminal, false);
     assert.equal(restListAllBody.jobs.find((j) => j.id === jobASavePendingId)?.remoteTerminal, true);
 
-    // 2b. listJobs with non-UUID projectId must return empty (never fall back to workspace-wide list)
+    // 3b. listJobs with non-UUID projectId must return empty (never fall back to workspace-wide list)
     const restListBadId = await app.request('/motion-api/models/jobs?projectId=not-a-uuid', {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
     });
     assert.equal(restListBadId.status, 200);
-    const restListBadBody = (await restListBadId.json()) as { jobs: Array<unknown> };
-    assert.equal(restListBadBody.jobs.length, 0);
+    assert.equal(((await restListBadId.json()) as { jobs: unknown[] }).jobs.length, 0);
 
-    // 2c. listJobs with ungranted projectId must reject with PROJECT_GRANT_REQUIRED
-    const restListUngranted = await app.request(`/motion-api/models/jobs?projectId=${projectB}`, {
+    const restListOther = await app.request(`/motion-api/models/jobs?projectId=${otherUserProject}`, {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
     });
-    assert.equal(restListUngranted.status, 403);
-    assert.match(await restListUngranted.text(), /PROJECT_GRANT_REQUIRED/);
+    assert.equal(restListOther.status, 404);
 
-    // 2d. resume on ungranted projectB job must reject with PROJECT_GRANT_REQUIRED
-    const resumeUngranted = await callTool(8, 'openmotion_media_use', {
-      action: 'resume',
-      jobId: jobBFailedId,
-      requestId: 'req_resume_b_1',
-    });
-    assert.equal(resumeUngranted.result?.isError, true);
-    assert.match(JSON.stringify(resumeUngranted.result), /PROJECT_GRANT_REQUIRED/);
-
-    // 2e. retry_save on ungranted projectB job must reject with PROJECT_GRANT_REQUIRED
-    const retrySaveUngranted = await callTool(9, 'openmotion_media_use', {
-      action: 'retry_save',
-      jobId: jobBSavePendingId,
-    });
-    assert.equal(retrySaveUngranted.result?.isError, true);
-    assert.match(JSON.stringify(retrySaveUngranted.result), /PROJECT_GRANT_REQUIRED/);
-
-    // 2f. resume and retry_save on granted projectA jobs succeed
-    const resumeGranted = await callTool(10, 'openmotion_media_use', {
+    const resumeOwn = await callTool(7, 'openmotion_media_use', {
       action: 'resume',
       jobId: jobAId,
       requestId: 'req_resume_a_1',
     });
-    assert.equal(resumeGranted.result?.isError, undefined);
+    assert.equal(resumeOwn.result?.isError, undefined);
 
-    const retrySaveGranted = await callTool(11, 'openmotion_media_use', {
-      action: 'retry_save',
-      jobId: jobASavePendingId,
+    const resumeOther = await callTool(8, 'openmotion_media_use', {
+      action: 'resume',
+      jobId: jobOtherId,
+      requestId: 'req_resume_other_1',
     });
-    assert.equal(retrySaveGranted.result?.isError, undefined);
+    assert.equal(resumeOther.result?.isError, true);
+    assert.match(JSON.stringify(resumeOther.result), /PROJECT_NOT_FOUND/);
   });
 });
 
 describe('Cloud API Entrypoint — OAuth Agent Project Visibility', () => {
-  it('shows an OAuth agent only granted projects and their sessions across catalog, REST and MCP listings', async () => {
+  it('shows an OAuth agent all projects owned by its user while hiding other users projects across catalog, REST and MCP', async () => {
     const fixture = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const { app, config, pgClient, authStore } = fixture;
     const userId = config.DEV_USER_ID;
+    const otherUserId = randomUUID();
     const workspaceId = config.DEV_WORKSPACE_ID;
     const clientId = 'oauth-client-visibility';
     authStore.seedWorkspace({ userId, workspaceId, email: 'owner@example.test', displayName: 'Owner' });
@@ -3590,79 +3596,36 @@ describe('Cloud API Entrypoint — OAuth Agent Project Visibility', () => {
       assert.equal(res.status, 201);
       return ((await res.json()) as { projectId: string }).projectId;
     };
-    const projectA = await createProj('Granted Project A');
-    const projectB = await createProj('Ungranted Project B');
-    pgClient.seed('project_grants', {
-      id: randomUUID(),
-      project_id: projectA,
-      user_id: userId,
-      workspace_id: workspaceId,
-      client_id: clientId,
-      granted_at: new Date().toISOString(),
-      revoked_at: null,
-    });
+    const projectA = await createProj('Owner Web Project A');
+    const projectB = await createProj('Owner Web Project B');
+    const otherUserProject = await createProj('Other User Project C');
+    const otherRow = pgClient.rows('projects').find(row => row.id === otherUserProject)!;
+    otherRow.owner_user_id = otherUserId;
     const sessionA = pgClient.rows('projects').find(row => row.id === projectA)!.session_id as string;
-    const sessionB = pgClient.rows('projects').find(row => row.id === projectB)!.session_id as string;
+    const otherSession = otherRow.session_id as string;
 
     const workspace = fixture.services.workspace;
     const agent: AuthContext = {
       authMode: 'oidc', authMethod: 'oauth_bearer', role: 'editor', scopes: DEFAULT_PAT_SCOPES,
       clientId, userId, workspaceId,
     };
-    const owner: AuthContext = {
-      authMode: 'oidc', authMethod: 'session_cookie', role: 'owner', scopes: DEFAULT_PAT_SCOPES,
-      userId, workspaceId,
-    };
-
-    const ownerCatalog = await workspace.getCatalog(owner);
-    assert.deepEqual(new Set(ownerCatalog.projects.map(p => p.id)), new Set([projectA, projectB]));
-    assert.equal(ownerCatalog.activeId, projectB);
 
     const agentCatalog = await workspace.getCatalog(agent);
-    assert.deepEqual(agentCatalog.projects.map(p => p.id), [projectA]);
-    assert.equal(agentCatalog.activeId, projectA);
-    assert.deepEqual((agentCatalog.sessions ?? []).map(s => s.id), [sessionA]);
-
-    // Session detail carries the project conversation, so it follows the same grant.
+    assert.deepEqual(new Set(agentCatalog.projects.map(p => p.id)), new Set([projectA, projectB]));
     assert.equal((await workspace.getSession(agent, sessionA)).artifacts[0]?.projectId, projectA);
-    await assert.rejects(workspace.getSession(agent, sessionB), { code: 'SESSION_NOT_FOUND' });
-    await assert.rejects(workspace.renameSession(agent, sessionB, 'Renamed'), { code: 'SESSION_NOT_FOUND' });
-    await assert.rejects(workspace.appendMessage(agent, sessionB, { content: 'hello' }), { code: 'SESSION_NOT_FOUND' });
-    await assert.rejects(workspace.openSession(agent, sessionB), { code: 'SESSION_NOT_FOUND' });
-    assert.equal((await workspace.getSession(owner, sessionB)).artifacts[0]?.projectId, projectB);
-
-    // An auto-granted new project must not open an ungranted session's conversation.
-    await assert.rejects(
-      workspace.createProject(agent, { sessionId: sessionB, title: 'Probe' }),
-      { code: 'SESSION_NOT_FOUND' },
-    );
-    // Opening for the editor without a project never picks (or reveals) an ungranted one.
-    await assert.rejects(workspace.openSessionForEditor(agent, sessionB), { code: 'SESSION_NOT_FOUND' });
-
-    // Mixed session: an ungranted project C inside session A stays hidden and is never chosen.
-    const created = await app.request('/motion-api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Ungranted Project C', sessionId: sessionA }),
-    });
-    assert.equal(created.status, 201);
-    const projectC = ((await created.json()) as { projectId: string }).projectId;
-    await workspace.openSession(owner, sessionA, projectC);
-    const mixed = (await workspace.getCatalog(agent)).sessions?.find(s => s.id === sessionA);
-    assert.deepEqual(mixed?.artifacts.map(a => a.projectId), [projectA]);
-    assert.equal(mixed?.activeArtifactId, mixed?.artifacts[0]?.id);
-    const mixedDetail = await workspace.getSession(agent, sessionA);
-    assert.deepEqual(mixedDetail.artifacts.map(a => a.projectId), [projectA]);
-    assert.equal(mixedDetail.activeArtifactId, mixedDetail.artifacts[0]?.id);
-    assert.equal((await workspace.openSessionForEditor(agent, sessionA)).projectId, projectA);
-    await assert.rejects(workspace.openSession(agent, sessionA, projectC), { code: 'PROJECT_GRANT_REQUIRED' });
-    assert.equal((await workspace.getCatalog(owner)).activeId, projectA);
+    await assert.rejects(workspace.getSession(agent, otherSession), { code: 'SESSION_NOT_FOUND' });
+    await assert.rejects(workspace.renameSession(agent, otherSession, 'Renamed'), { code: 'SESSION_NOT_FOUND' });
+    await assert.rejects(workspace.appendMessage(agent, otherSession, { content: 'hello' }), { code: 'SESSION_NOT_FOUND' });
+    await assert.rejects(workspace.openSession(agent, otherSession), { code: 'SESSION_NOT_FOUND' });
 
     const restList = await app.request('/motion-api/projects', {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
     });
     assert.equal(restList.status, 200);
-    assert.deepEqual(((await restList.json()) as { projects: Array<{ id: string }> }).projects.map(p => p.id), [projectA]);
+    assert.deepEqual(
+      new Set(((await restList.json()) as { projects: Array<{ id: string }> }).projects.map(p => p.id)),
+      new Set([projectA, projectB]),
+    );
 
     const mcpHeaders = {
       Authorization: `Bearer ${rawAccessToken}`,
@@ -3696,9 +3659,8 @@ describe('Cloud API Entrypoint — OAuth Agent Project Visibility', () => {
     const listed = ((await listRes.json()) as {
       result?: { structuredContent?: { total?: number; activeId?: string; projects?: Array<{ id: string }> } };
     }).result?.structuredContent;
-    assert.equal(listed?.total, 1);
-    assert.equal(listed?.activeId, projectA);
-    assert.deepEqual(listed?.projects?.map(p => p.id), [projectA]);
+    assert.equal(listed?.total, 2);
+    assert.deepEqual(new Set(listed?.projects?.map(p => p.id)), new Set([projectA, projectB]));
 
     // A session the agent creates has no project yet and stays usable by ID.
     const agentSession = await workspace.createSession(agent, { title: 'Agent session' });

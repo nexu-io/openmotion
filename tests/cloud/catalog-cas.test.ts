@@ -1455,10 +1455,11 @@ describe('CatalogService Zero-Copy Cloning & Tenant Isolation', () => {
       authMethod: 'oauth_bearer',
       clientId: 'other-agent-client',
     });
-    await assert.rejects(
-      () => loadProjectOrThrow(pg.db, WID_A, agentClone.projectId, { auth: otherClientCtx }),
-      { code: 'PROJECT_GRANT_REQUIRED' },
-    );
+    // Workspace-level OAuth access allows another client authorized by the SAME user to access the project immediately.
+    const loadedBySameUserOtherClient = await loadProjectOrThrow(pg.db, WID_A, agentClone.projectId, {
+      auth: otherClientCtx,
+    });
+    assert.equal(loadedBySameUserOtherClient.id, agentClone.projectId);
 
     const otherUserAgentCtx = makeAuthContext({
       workspaceId: WID_A,

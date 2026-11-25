@@ -5,7 +5,7 @@
  * annotates, versions, exports and hands briefs to those Agents.
  */
 import type { ReviewAnnotation } from './review-comments.ts';
-import { guideUrl, setupGuideUrl, setupReadmeUrl, setupSkillUrl, type IntegrationInfo } from './integration.ts';
+import { cloudInstallGuideUrl, guideUrl, isCloudIntegration, isStreamableHttpTransport, setupGuideUrl, setupReadmeUrl, setupSkillUrl, type IntegrationInfo } from './integration.ts';
 
 export const DESIGN_API = '/motion-api/design';
 export const DESIGN_TOOL_NAMES = ['openmotion_design_catalog', 'openmotion_design_project', 'openmotion_design_edit', 'openmotion_design_comments'] as const;
@@ -152,9 +152,36 @@ function designMcpSetupLines(integration?: DesignPromptIntegration | null, local
   if (integration?.previewUrl) {
     try { origin = new URL(integration.previewUrl).origin; } catch { origin = integration.previewUrl; }
   }
+  const cloud = isCloudIntegration(integration);
+  const zh = locale === 'zh-CN';
+
+  if (cloud && origin) {
+    const mcpUrl = isStreamableHttpTransport(integration?.transport) ? integration.transport.url : `${origin}/mcp`;
+    const cloudGuide = cloudInstallGuideUrl(origin);
+    if (zh) {
+      return [
+        'MCP 接入（如果当前 Agent 尚未接入该环境的 OpenMotion 云端 MCP，请先完成以下步骤再继续）：',
+        '1. 先检查当前 Agent 是否已连接到下方 MCP 端点；如已连接，直接跳过接入并执行下方创作流程。',
+        `2. 未连接时，请按云端接入指引（${cloudGuide}）完成 Streamable HTTP MCP 接入与 OAuth 2.1 授权（不要安装 npm 包、克隆仓库或启动本地 stdio 服务；不要执行新建模板引导，完成后直接继续当前任务）。`,
+        `- 当前 Studio 地址：${origin}`,
+        integration?.dataDirectory ? `- 当前工作区：${integration.dataDirectory}` : null,
+        `- MCP 端点：${mcpUrl}`,
+        `- 云端接入指引：${cloudGuide}`,
+      ].filter((line): line is string => line !== null);
+    }
+    return [
+      'MCP setup (complete first if OpenMotion Cloud MCP is not yet connected to this endpoint):',
+      '1. Check whether this Agent is already connected to the MCP endpoint below. If connected, skip setup and continue with Workflow below.',
+      `2. Otherwise, follow the cloud connection guide (${cloudGuide}) to connect Streamable HTTP MCP and authorize via OAuth 2.1 (do not install an npm package, clone the repo, or start local stdio; skip generic template onboarding and continue directly with this task).`,
+      `- Studio URL: ${origin}`,
+      integration?.dataDirectory ? `- Workspace: ${integration.dataDirectory}` : null,
+      `- MCP endpoint: ${mcpUrl}`,
+      `- Cloud connection guide: ${cloudGuide}`,
+    ].filter((line): line is string => line !== null);
+  }
+
   const connectionGuide = origin ? guideUrl({ previewUrl: origin }, 'mcp') : null;
   const isDocker = integration?.deployment?.type === 'docker';
-  const zh = locale === 'zh-CN';
 
   if (zh) {
     return [

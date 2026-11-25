@@ -64,6 +64,22 @@ function buildWwwAuthenticateHeader(resourceMetadataUrl: string, error?: string)
   return parts.join(', ');
 }
 
+function buildMcpAuthGuidance(publicOrigin: string, resourceMetadataUrl: string) {
+  const origin = publicOrigin.replace(/\/+$/, '');
+  return {
+    preferred: 'oauth2.1' as const,
+    mcpUrl: `${origin}/mcp`,
+    installGuideUrl: `${origin}/install.md`,
+    connectPageUrl: `${origin}/mcp-setup`,
+    patSettingsUrl: `${origin}/settings/account#tokens`,
+    resourceMetadataUrl,
+    cli: {
+      codex: `codex mcp add openmotion --url '${origin}/mcp' && codex mcp login openmotion`,
+      claude: `claude mcp add --transport http --scope user openmotion '${origin}/mcp' && claude mcp login openmotion`,
+    },
+  };
+}
+
 async function resolveBearerAuth(
   deps: AuthMiddlewareDeps,
   oauthCfg: OAuth21Config,
@@ -242,6 +258,7 @@ export function createMcpBearerAuthMiddleware(deps: AuthMiddlewareDeps): Middlew
     const authHeader = c.req.header('authorization');
     const cookies = parseCookies(c.req.header('cookie'));
     const hasSessionCookie = Boolean(cookies[SESSION_COOKIE_NAME]);
+    const authGuidance = buildMcpAuthGuidance(deps.config.APP_PUBLIC_ORIGIN, oauthCfg.resourceMetadataUrl);
 
     // If an Authorization header is present, verify Bearer token strictly.
     if (authHeader !== undefined) {
@@ -249,7 +266,7 @@ export function createMcpBearerAuthMiddleware(deps: AuthMiddlewareDeps): Middlew
       if (!bearer) {
         c.header('WWW-Authenticate', buildWwwAuthenticateHeader(oauthCfg.resourceMetadataUrl, 'invalid_token'));
         return c.json(
-          { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Bearer token required for /mcp' },
+          { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Bearer token required for /mcp', authGuidance },
           401,
         );
       }
@@ -264,7 +281,7 @@ export function createMcpBearerAuthMiddleware(deps: AuthMiddlewareDeps): Middlew
         if (!rawAuth) {
           c.header('WWW-Authenticate', buildWwwAuthenticateHeader(oauthCfg.resourceMetadataUrl, 'invalid_token'));
           return c.json(
-            { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Invalid or expired bearer token' },
+            { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Invalid or expired bearer token', authGuidance },
             401,
           );
         }
@@ -291,6 +308,7 @@ export function createMcpBearerAuthMiddleware(deps: AuthMiddlewareDeps): Middlew
           code: 'UNAUTHORIZED',
           errorCode: 'auth_required',
           error: 'Browser session cookies are not accepted on /mcp. Provide an Authorization: Bearer token.',
+          authGuidance,
         },
         401,
       );
@@ -306,7 +324,7 @@ export function createMcpBearerAuthMiddleware(deps: AuthMiddlewareDeps): Middlew
 
     c.header('WWW-Authenticate', buildWwwAuthenticateHeader(oauthCfg.resourceMetadataUrl));
     return c.json(
-      { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Bearer authentication required for /mcp' },
+      { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Bearer authentication required for /mcp', authGuidance },
       401,
     );
   };

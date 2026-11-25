@@ -10,6 +10,7 @@ import { phase1Tools, validateInput } from '../shared/phase1-tools.ts';
 import {
   agentGuide,
   buildCloudIntegrationInfo,
+  claudeDesktopManualConnection,
   integrationConfig,
   isIntegrationInfo,
   isStreamableHttpTransport,
@@ -43,11 +44,14 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
   assert.equal(supportsChatgptCloud(localHttp), false);
   assert.throws(() => integrationConfig(localHttp, 'chatgpt'), /HTTPS/);
   assert.match(manualConnection(localHttp, 'codex', 'en'), /codex mcp add openmotion --url 'http:\/\/127\.0\.0\.1:4173\/mcp'/);
-  assert.match(manualConnection(localHttp, 'claude', 'en'), /claude mcp add --transport http openmotion 'http:\/\/127\.0\.0\.1:4173\/mcp'/);
+  assert.match(manualConnection(localHttp, 'claude', 'en'), /claude mcp add --transport http --scope user openmotion 'http:\/\/127\.0\.0\.1:4173\/mcp'/);
+  assert.match(claudeDesktopManualConnection(localHttp, 'en'), /public HTTPS Streamable HTTP URL/);
   assert.match(integrationConfig(localHttp, 'mcp').text, /"type": "http"/);
   assert.match(integrationConfig(localHttp, 'deepseek').text, /transport: streamable-http/);
   assert.doesNotMatch(setupPrompt(localHttp, 'codex', 'en'), /docker exec -i/);
   assert.match(setupPrompt(localHttp, 'codex', 'en'), /upload_ticket/);
+  assert.match(setupPrompt(localHttp, 'codex', 'en'), /Wait for my creative brief/);
+  assert.doesNotMatch(setupPrompt(localHttp, 'codex', 'en', undefined, { waitForBrief: false }), /Wait for my creative brief/);
 
   const cloudHttps = buildCloudIntegrationInfo({
     publicOrigin: 'https://motion.open-design.ai',
@@ -65,6 +69,8 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
   assert.match(chatgptCfg.text, /"authentication": "oauth2"/);
   assert.match(chatgptCfg.text, /https:\/\/motion\.open-design\.ai\/mcp/);
   assert.match(manualConnection(cloudHttps, 'chatgpt', 'en'), /OAuth 2\.1/);
+  assert.match(claudeDesktopManualConnection(cloudHttps, 'en'), /Settings -> Connectors -> Add custom connector/);
+  assert.match(claudeDesktopManualConnection(cloudHttps, 'en'), /https:\/\/motion\.open-design\.ai\/mcp/);
 });
 
 test('cloud clip move example uses the public edit contract in the handbook and guide', () => {

@@ -1,7 +1,7 @@
 import { Collapsible } from '@base-ui/react/collapsible';
 import { Button } from 'open-design-ui/button';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { integrationConfig, isStreamableHttpTransport, manualConnection, setupGuideUrl, setupPrompt, transcriptExamplePrompt, type IntegrationInfo } from '../../../shared/integration';
+import { claudeDesktopManualConnection, integrationConfig, isStreamableHttpTransport, manualConnection, setupGuideUrl, setupPrompt, transcriptExamplePrompt, type IntegrationInfo } from '../../../shared/integration';
 import { clipMoveExample, projectEditExample } from '../../../shared/clip-move-guide';
 import { projectFileExample } from '../../../shared/project-file-guide';
 import { reviewCommentsPrompt } from '../../../shared/review-comments';
@@ -38,7 +38,7 @@ import type { WorkspaceChrome } from './WorkspaceChromeContext';
 import { DesktopConnectPanel, type DesktopConnectAgentId } from './DesktopConnectPanel';
 import { useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
-import { isDesktopApp } from '../utils/platformHost';
+import { isDesktopApp, useHostCapabilities } from '../utils/platformHost';
 import './McpConnectionPage.css';
 
 type ConnectedAppEvidence = {
@@ -285,13 +285,15 @@ export function McpConnectionPage({
   };
 
   const isHttp = isStreamableHttpTransport(info?.transport);
+  const host = useHostCapabilities();
+  const hasLocalHostBridge = Boolean(host.bridge);
   const workspaceId = info?.workspaceId;
   const [agentAuthStatus, setAgentAuthStatus] = useState<AgentAuthorizationStatus>(EMPTY_AGENT_AUTH_STATUS);
   const authCheckController = useRef<AbortController | null>(null);
 
   const refreshAuthorizedAgents = useCallback(async () => {
     authCheckController.current?.abort();
-    if (!isHttp) {
+    if (!isHttp || !hasLocalHostBridge) {
       setAgentAuthStatus(EMPTY_AGENT_AUTH_STATUS);
       return;
     }
@@ -321,7 +323,7 @@ export function McpConnectionPage({
         authCheckController.current = null;
       }
     }
-  }, [isHttp, workspaceId]);
+  }, [isHttp, hasLocalHostBridge, workspaceId]);
 
   useEffect(() => {
     void refreshAuthorizedAgents();
@@ -333,13 +335,22 @@ export function McpConnectionPage({
   const supported = supportsConnection(client, info);
   const language = locale === 'zh-CN' ? 'zh-CN' : 'en';
   const prompt = setupPrompt(info, client.host, language, t).replace('MCP / CLI', agent);
-  const examplePrompt = supported ? prompt : setupPrompt(info, 'mcp', language, t).replace('MCP / CLI', t('your Agent'));
-  const manual = info ? manualConnection(info, client.host, language) : '';
+  const taskSetupPrompt = setupPrompt(info, client.host, language, t, { waitForBrief: false }).replace('MCP / CLI', agent);
+  const examplePrompt = supported
+    ? taskSetupPrompt
+    : setupPrompt(info, 'mcp', language, t, { waitForBrief: false }).replace('MCP / CLI', t('your Agent'));
+  const manual = info
+    ? desktop
+      ? claudeDesktopManualConnection(info, language)
+      : manualConnection(info, client.host, language)
+    : '';
   const cursorDeeplink = client.id === 'cursor' ? buildCursorDeeplink(info) : null;
-  const cloudConfig = info && httpTransport && supported ? integrationConfig(info, client.host) : null;
+  const cloudConfig = info && httpTransport && supported && !desktop ? integrationConfig(info, client.host) : null;
   const downloadConfig = cloudConfig
     ? { href: `data:${cloudConfig.contentType},${encodeURIComponent(cloudConfig.text)}`, filename: cloudConfig.filename }
-    : { href: `/connect/config?host=${client.host}`, filename: true as const };
+    : httpTransport && desktop
+      ? null
+      : { href: `/connect/config?host=${client.host}`, filename: true as const };
 
   type CopyReport = {
     kind: Parameters<typeof tracking.reportMcpCopyResult>[0];
@@ -540,7 +551,7 @@ export function McpConnectionPage({
             </h1>
 
             {httpTransport && (
-              <div className="om-settings-tags justify-center" data-mcp-endpoint>
+              <div className="om-settings-tags om-mcp-hero-endpoint" data-mcp-endpoint>
                 <span className="om-badge" data-active="true">Streamable HTTP · {httpTransport.url}</span>
                 <span className="om-badge">
                   {httpTransport.auth.mode === 'dev'
@@ -622,17 +633,21 @@ export function McpConnectionPage({
                           key={client.id}
                           host={client.host}
                           streamableHttp={Boolean(httpTransport)}
+                          desktop={desktop}
+                          oauth2={Boolean(httpTransport?.auth.oauth2)}
                           value={manual}
                           onCopy={value => copy(value, { kind: 'manual_config' })}
                         >
-                          <a
-                            className="om-mcp-manual-link"
-                            href={downloadConfig.href}
-                            download={downloadConfig.filename}
-                            onClick={() => click('mcp_setup', 'download_config', { setup_method: 'manual' })}
-                          >
-                            {t('Download configuration')}
-                          </a>
+                          {downloadConfig && (
+                            <a
+                              className="om-mcp-manual-link"
+                              href={downloadConfig.href}
+                              download={downloadConfig.filename}
+                              onClick={() => click('mcp_setup', 'download_config', { setup_method: 'manual' })}
+                            >
+                              {t('Download configuration')}
+                            </a>
+                          )}
                           <a
                             className="om-mcp-manual-link"
                             href={setupGuideUrl(info)}
@@ -674,7 +689,7 @@ export function McpConnectionPage({
                   </Collapsible.Panel>
                 </Collapsible.Root>
 
-                {info && isStreamableHttpTransport(info.transport) && (client.host === 'codex' || client.host === 'claude') && (
+                {info && isStreamableHttpTransport(info.transport) && hasLocalHostBridge && (client.host === 'codex' || client.host === 'claude') && (
                   <DesktopConnectPanel
                     mcpUrl={info.transport.url}
                     hasAuthorizedConnection={agentAuthStatus.authorized}

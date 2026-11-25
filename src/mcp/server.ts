@@ -102,6 +102,10 @@ export function createPerRequestMcpServer(options: CreatePerRequestMcpServerOpti
     : [];
 
   const registry = createToolRegistry(phase1Tools, 'phase1', extensions);
+  const envLine = `Connected cloud server origin: ${options.publicOrigin.replace(/\/+$/, '')} (workspace: ${options.auth.workspaceId}, auth: ${options.auth.authMode}).`;
+  const instructions = registry.instructions
+    ? `${registry.instructions}\n\n${envLine}`
+    : envLine;
 
   const server = new Server(
     {
@@ -114,7 +118,7 @@ export function createPerRequestMcpServer(options: CreatePerRequestMcpServerOpti
         tools: {},
         resources: {},
       },
-      instructions: registry.instructions ?? undefined,
+      instructions,
     },
   );
 

@@ -69,7 +69,7 @@ export type IntegrationInfo = {
 export function buildCloudIntegrationInfo(options: {
   publicOrigin: string;
   version: string;
-  workspaceId: string;
+  workspaceId?: string;
   authMode: 'oidc' | 'dev';
   oauth2Enabled?: boolean;
   patEnabled?: boolean;
@@ -82,11 +82,11 @@ export function buildCloudIntegrationInfo(options: {
   return {
     deployment: { type: 'cloud' },
     templateSource: 'catalog',
-    workspaceId: options.workspaceId,
+    ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
     name: 'OpenMotion',
     version: options.version,
     previewUrl: origin,
-    dataDirectory: `workspace:${options.workspaceId}`,
+    dataDirectory: options.workspaceId ? `workspace:${options.workspaceId}` : '',
     transport: {
       type: 'streamable-http',
       url: mcpUrl,
@@ -108,6 +108,40 @@ export function isStreamableHttpTransport(
   transport: IntegrationTransport | undefined | null,
 ): transport is StreamableHttpIntegrationTransport {
   return transport?.type === 'streamable-http';
+}
+
+export type PartialIntegrationHint = Partial<
+  Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory' | 'transport' | 'deployment'>
+>;
+
+export function isCloudIntegration(info: PartialIntegrationHint | null | undefined): boolean {
+  if (!info) return false;
+  if (isStreamableHttpTransport(info.transport)) return true;
+  if (info.deployment?.type === 'cloud') return true;
+  return Boolean(info.dataDirectory?.startsWith('workspace:'));
+}
+
+export function cloudInstallGuideUrl(originOrUrl: string): string {
+  try {
+    return `${new URL(originOrUrl).origin}/install.md`;
+  } catch {
+    return `${originOrUrl.replace(/\/+$/, '')}/install.md`;
+  }
+}
+
+/**
+ * Resolves the machine-readable connection guide URL to place inside Agent prompts:
+ * - Cloud Streamable HTTP deployments always point to `<ORIGIN>/install.md` (public Markdown).
+ * - Legacy local stdio workspaces keep `<ORIGIN>/connect/guide?host=...`.
+ */
+export function agentConnectionGuideUrl(
+  info: Pick<IntegrationInfo, 'previewUrl'> & PartialIntegrationHint,
+  host: IntegrationHost = 'mcp',
+): string {
+  if (isCloudIntegration(info)) {
+    return cloudInstallGuideUrl(info.previewUrl);
+  }
+  return guideUrl({ previewUrl: new URL(info.previewUrl).origin }, host);
 }
 
 export function supportsChatgptCloud(info: IntegrationInfo | null | undefined): boolean {
@@ -274,8 +308,8 @@ export function manualConnection(info: IntegrationInfo, host: IntegrationHost, l
         : `codex mcp add openmotion --url ${shellQuote(url)}\ncodex mcp get openmotion`;
     }
     return auth.oauth2
-      ? `claude mcp add --transport http openmotion ${shellQuote(url)} --scope user\nclaude mcp login openmotion\nclaude mcp get openmotion`
-      : `claude mcp add --transport http openmotion ${shellQuote(url)} --scope user\nclaude mcp get openmotion`;
+      ? `claude mcp add --transport http --scope user openmotion ${shellQuote(url)}\nclaude mcp login openmotion\nclaude mcp get openmotion`
+      : `claude mcp add --transport http --scope user openmotion ${shellQuote(url)}\nclaude mcp get openmotion`;
   }
 
   if (host === 'deepseek') return deepseekConfig(info);
@@ -286,6 +320,25 @@ export function manualConnection(info: IntegrationInfo, host: IntegrationHost, l
   const prefix = host === 'codex' ? 'codex mcp add openmotion' : 'claude mcp add --transport stdio openmotion';
   const environment = Object.entries(env).map(([key, value]) => `--env ${shellQuote(`${key}=${value}`)}`).join(' ');
   return `${prefix} ${environment} -- ${[command, ...args].map(shellQuote).join(' ')}\n${host === 'codex' ? 'codex' : 'claude'} mcp get openmotion`;
+}
+
+/**
+ * Claude Desktop remote MCP servers use Settings -> Connectors -> Add custom connector (OAuth 2.1)
+ * rather than raw HTTP entries in `claude_desktop_config.json`; local stdio stays JSON-based.
+ */
+export function claudeDesktopManualConnection(info: IntegrationInfo, locale: 'zh-CN' | 'en' = 'zh-CN') {
+  if (!isStreamableHttpTransport(info.transport)) {
+    return manualConnection(info, 'mcp', locale);
+  }
+  const { url, auth } = info.transport;
+  if (supportsChatgptCloud(info)) {
+    return locale === 'en'
+      ? `Open Claude Desktop (or Claude.ai) Settings -> Connectors -> Add custom connector\nURL: ${url}\nAuthentication: OAuth 2.1 (auto-discovered via ${auth.resourceMetadataUrl ?? url})`
+      : `在 Claude Desktop（或 Claude.ai）设置 -> Connectors -> Add custom connector 中添加远程连接器\nURL：${url}\n授权方式：OAuth 2.1（自动发现：${auth.resourceMetadataUrl ?? url}）`;
+  }
+  return locale === 'en'
+    ? `Current MCP endpoint: ${url}\nClaude Desktop remote Custom Connectors require a public HTTPS Streamable HTTP URL with OAuth 2.1 (Settings -> Connectors -> Add custom connector).\nUse Codex, Claude Code, Cursor, or DeepSeek Harness with this local HTTP endpoint, or deploy OpenMotion behind HTTPS.`
+    : `当前 MCP 地址：${url}\nClaude Desktop 远程连接器（设置 -> Connectors -> Add custom connector）需要公开 HTTPS Streamable HTTP 端点与 OAuth 2.1 授权。\n当前本地 HTTP 环境可先使用 Codex、Claude Code、Cursor 或 DeepSeek Harness，或将 OpenMotion 部署到 HTTPS 域名后接入。`;
 }
 
 export function apiDiscoveryCommand(info: IntegrationInfo) {
@@ -319,7 +372,9 @@ export function setupPrompt(
   locale: 'zh-CN' | 'en' = 'zh-CN',
   translate: (message: string, values: Record<string, string>) => string =
     (message, values) => message.replace(/\{(\w+)\}/g, (placeholder, key: string) => values[key] ?? placeholder),
+  options?: { waitForBrief?: boolean },
 ) {
+  const waitForBrief = options?.waitForBrief ?? true;
   if (info && isStreamableHttpTransport(info.transport)) {
     const mcpUrl = info.transport.url;
     const guide = setupGuideUrl(info);
@@ -329,15 +384,21 @@ export function setupPrompt(
         : `ChatGPT 云端需要公开 HTTPS Streamable HTTP MCP 端点与 OAuth 2.1 授权。当前端点：${mcpUrl}。`;
     }
     if (locale === 'zh-CN') {
-      return `请阅读 ${guide}，帮我将 ${hostNames[host]} 接入 OpenMotion 云端 MCP（${mcpUrl}）。
-不要安装 npm 包、克隆仓库、启动本地运行时或使用 docker exec。
-导入素材时使用 openmotion_import_assets 的 upload_ticket / url / library_asset 模式。
-等我给出创作要求后再创建或修改工程。`;
+      const lines = [
+        `请阅读 ${guide}，帮我将 ${hostNames[host]} 接入 OpenMotion 云端 MCP（${mcpUrl}）。`,
+        '不要安装 npm 包、克隆仓库、启动本地运行时或使用 docker exec。',
+        '导入素材时使用 openmotion_import_assets 的 upload_ticket / url / library_asset 模式。',
+      ];
+      if (waitForBrief) lines.push('等我给出创作要求后再创建或修改工程。');
+      return lines.join('\n');
     }
-    return `Follow ${guide} to connect ${hostNames[host]} to OpenMotion Cloud MCP (${mcpUrl}).
-Do not install an npm package, clone the repository, start a local runtime, or wrap commands with docker exec.
-Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).
-Wait for my creative brief before creating or modifying a project.`;
+    const lines = [
+      `Follow ${guide} to connect ${hostNames[host]} to OpenMotion Cloud MCP (${mcpUrl}).`,
+      'Do not install an npm package, clone the repository, start a local runtime, or wrap commands with docker exec.',
+      'Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).',
+    ];
+    if (waitForBrief) lines.push('Wait for my creative brief before creating or modifying a project.');
+    return lines.join('\n');
   }
 
   const onboarding = translate("Complete onboarding in this same turn: prepare the shared welcome and video cards (exactly three), then open the template library and present them. Use the same three recommendations as text only when card presentation is unsupported or fails. Do not send internal instructions as another user message. Wait for my creative brief before creating or changing a project.", {});
@@ -385,7 +446,7 @@ Follow the installation guide: {guide}
 }
 export function templatePrompt(info: IntegrationInfo, _host: IntegrationHost, template: { id: string; title: string }, locale = 'zh-CN') {
   const installUrl = isStreamableHttpTransport(info?.transport)
-    ? `${info.previewUrl.replace(/\/+$/, '')}/mcp-setup`
+    ? setupGuideUrl(info)
     : undefined;
   return formatTemplatePrompt(template, locale, installUrl);
 }

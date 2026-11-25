@@ -393,6 +393,26 @@ export class McpToolDispatcher {
         structuredContent: normalized,
       };
     } catch (error) {
+      if (
+        isCloudError(error) &&
+        (error.code === 'PROJECT_NOT_FOUND' || error.code === 'SESSION_NOT_FOUND')
+      ) {
+        const serverOrigin = this.config.APP_PUBLIC_ORIGIN.replace(/\/+$/, '');
+        return formatErrorResult(
+          new CloudError(error.code, error.message, {
+            status: error.status,
+            applied: error.applied ?? false,
+            details: {
+              ...error.details,
+              serverOrigin,
+              authMode: ctx.auth.authMode,
+              workspaceId: ctx.auth.workspaceId,
+              installGuideUrl: `${serverOrigin}/install.md`,
+              hint: `Connected to ${serverOrigin} (workspace:${ctx.auth.workspaceId}). Verify that your MCP server origin and signed-in workspace match the target project URL; if not, follow ${serverOrigin}/install.md to connect to the matching deployment.`,
+            },
+          }),
+        );
+      }
       return formatErrorResult(error);
     }
   }

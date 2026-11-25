@@ -9,13 +9,14 @@ Turn a reference, template or creative brief into an editable video project in O
 
 ## Connect once
 
-Discover the current host's OpenMotion MCP tools first. If connected, call `openmotion_get_project` to identify the workspace and resume existing work. Preserve projects, credentials, project/version identities and unrelated host settings. Do not reinstall or re-authenticate a working connection. Note that a newly authorized OAuth client only lists projects it created or projects explicitly granted in Studio; an empty project list is normal.
+Discover the current host's OpenMotion MCP tools first. If connected to the target deployment origin, call `openmotion_get_project` to identify the workspace and resume existing work. Preserve projects, credentials, project/version identities and unrelated host settings. Do not reinstall or re-authenticate a working connection. An authorized OAuth client can access all of your projects in the selected workspace.
 
-If OpenMotion is missing or disconnected, read the maintained [cloud connection guide](https://github.com/nexu-io/openmotion/blob/main/docs/install.md) (or `<ORIGIN>/install.md` if the user specifies a target deployment) and follow its current-host instructions:
+If OpenMotion is missing, disconnected, or pointed at a different deployment origin, read the maintained [cloud connection guide](https://github.com/nexu-io/openmotion/blob/main/docs/install.md) (or `<ORIGIN>/install.md` if the user specifies a target deployment) and follow its current-host instructions:
 - Connect directly to the remote **Streamable HTTP `/mcp`** endpoint (`https://motion.open-design.ai/mcp` by default) using **OAuth 2.1** (or a workspace Personal Access Token `om_pat_*` when OAuth 2.1 is unavailable).
 - Do **not** install an npm package, clone this repository, or start a local Studio/stdio backend.
 - Guide the user clearly through browser login + workspace consent (and wait for confirmation before verifying).
-- Complete the maintained onboarding flow in the guide using `/api/onboarding/prepare` (localized welcome, cloud template library link/tab, and three frozen curated preview cards via native MCP App, self-contained HTML visualization `/api/onboarding/cards.html`, DSH card, or text fallback). Derive onboarding language from the user's request (`zh`, `en`, `ja`, `ko`, `fr`, `es`, `pt`, else `en`).
+- Only for pure setup/install requests (no specific `projectId`, `templateId`, `skillId`, reference video, or creative brief), complete the maintained onboarding flow in the guide using `/api/onboarding/prepare` (localized welcome, cloud template library link/tab, and three frozen curated preview cards via native MCP App, self-contained HTML visualization `/api/onboarding/cards.html`, DSH card, or text fallback). Derive onboarding language from the user's request (`zh`, `en`, `ja`, `ko`, `fr`, `es`, `pt`, else `en`).
+- For task-driven handoffs (the user already supplied a `projectId`, `templateId`, `skillId`, reference video, or creative brief), skip onboarding cards after authorization and continue directly with the user's task (carrying the full task verbatim if auto-handing off to a fresh conversation).
 
 Installing this Skill with Skills CLI installs instructions only. Native tools must be discovered and `openmotion_get_project` must succeed in the calling host before claiming current-chat tool activation; if a fresh session needs a refresh or new chat after OAuth login, state that clearly without blocking onboarding.
 

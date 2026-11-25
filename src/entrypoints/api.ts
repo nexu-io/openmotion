@@ -38,7 +38,6 @@ import {
 import { commitProjectEdit } from '../services/project-edit.ts';
 import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
 import {
-  agentGuide,
   buildCloudIntegrationInfo,
   integrationConfig,
   integrationHost,
@@ -91,7 +90,7 @@ import type { StoragePort } from '../contracts/storage.ts';
 import { createDbHandle, type Database, type DbHandle } from '../db/client.ts';
 import { asInsert, asUpdate } from '../db/helpers.ts';
 import { jobs } from '../db/schema/jobs.ts';
-import { projectGrants, projects } from '../db/schema/projects.ts';
+import { projects } from '../db/schema/projects.ts';
 import { getConfig, type AppConfig } from '../infra/config.ts';
 import { createLogger, type Logger } from '../infra/logger.ts';
 import { QueueService } from '../infra/queues.ts';
@@ -123,6 +122,7 @@ import { createCatalogRoutes } from '../routes/catalog.ts';
 import { createExportRoutes } from '../routes/exports.ts';
 import { createModelRoutes, type MediaJobPort } from '../routes/models.ts';
 import { createOnboardingRoutes } from '../routes/onboarding.ts';
+import { renderCloudInstallGuide } from '../services/cloud-onboarding.ts';
 import { createProjectsRouter } from '../routes/projects.ts';
 import { createSessionsRouter } from '../routes/sessions.ts';
 import { AssetLibraryService } from '../services/asset-library-service.ts';
@@ -804,36 +804,15 @@ function createCloudMediaJobsPort(deps: {
         };
       }
 
-      if (!auth.clientId) {
-        return { jobs: [], total: 0, offset, limit };
-      }
-
-      const grantedRows = await deps.db
-        .select({ projectId: projectGrants.projectId })
-        .from(projectGrants)
-        .where(
-          and(
-            eq(projectGrants.workspaceId, auth.workspaceId),
-            eq(projectGrants.userId, auth.userId),
-            eq(projectGrants.clientId, auth.clientId),
-            isNull(projectGrants.revokedAt),
-          ),
-        );
-
-      const candidateProjectIds = [...new Set(grantedRows.map((row) => row.projectId))];
-      if (candidateProjectIds.length === 0) {
-        return { jobs: [], total: 0, offset, limit };
-      }
-
       const accessibleProjects = await deps.db
         .select({ id: projects.id, ownerUserId: projects.ownerUserId })
         .from(projects)
-        .where(and(eq(projects.workspaceId, auth.workspaceId), inArray(projects.id, candidateProjectIds)));
+        .where(eq(projects.workspaceId, auth.workspaceId));
 
-      const grantedProjectIds = accessibleProjects
+      const accessibleProjectIds = accessibleProjects
         .filter((project) => !project.ownerUserId || project.ownerUserId === auth.userId)
         .map((project) => project.id);
-      if (grantedProjectIds.length === 0) {
+      if (accessibleProjectIds.length === 0) {
         return { jobs: [], total: 0, offset, limit };
       }
 
@@ -844,7 +823,7 @@ function createCloudMediaJobsPort(deps: {
           and(
             eq(jobs.workspaceId, auth.workspaceId),
             eq(jobs.kind, 'media_generate'),
-            inArray(jobs.projectId, grantedProjectIds),
+            inArray(jobs.projectId, accessibleProjectIds),
           ),
         )
         .orderBy(desc(jobs.createdAt))
@@ -2461,11 +2440,11 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   // 6. Authenticated Cloud Integration, Runtime, Connect & Telemetry Endpoints
   // -------------------------------------------------------------------------
 
-  const buildIntegrationPayload = (auth: AuthContext) =>
+  const buildIntegrationPayload = (auth?: AuthContext) =>
     buildCloudIntegrationInfo({
       publicOrigin: config.APP_PUBLIC_ORIGIN,
       version: VERSION,
-      workspaceId: auth.workspaceId,
+      ...(auth ? { workspaceId: auth.workspaceId } : {}),
       authMode: config.AUTH_MODE,
       oauth2Enabled: true,
       patEnabled: true,
@@ -2480,9 +2459,16 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.get('/api/integration', authWithWelcome, (c) => {
     return c.json(buildIntegrationPayload(getAuthContext(c)));
   });
+  // Public read-only cloud MCP discovery (no workspaceId or private user data) so guests on
+  // `/mcp-setup` still receive the deployment's Streamable HTTP endpoint and `/install.md` guide.
+  app.get('/connect/integration', (c) => {
+    return c.json(buildIntegrationPayload(), 200, {
+      'Cache-Control': 'public, max-age=60',
+    });
+  });
 
-  app.get('/connect/config', authWithWelcome, (c) => {
-    const info = buildIntegrationPayload(getAuthContext(c));
+  app.get('/connect/config', (c) => {
+    const info = buildIntegrationPayload();
     const host = integrationHost(c.req.query('host') ?? null);
     const configFile = integrationConfig(info, host);
     return new Response(configFile.text, {
@@ -2490,19 +2476,38 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       headers: {
         'Content-Type': configFile.contentType,
         'Content-Disposition': `attachment; filename="${configFile.filename}"`,
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'public, max-age=60',
       },
     });
   });
 
-  app.get('/connect/guide', authWithWelcome, (c) => {
-    const info = buildIntegrationPayload(getAuthContext(c));
-    const host = integrationHost(c.req.query('host') ?? null);
-    return new Response(agentGuide(info, host), {
+  // Backwards-compatible `/connect/guide` entry:
+  // - Browser HTML navigation redirects to the interactive `/mcp-setup` page.
+  // - Agent / CLI / non-HTML requests receive the public origin-bound `/install.md` guide directly
+  //   without requiring authentication so legacy handoff links still install cleanly.
+  app.get('/connect/guide', async (c) => {
+    const accept = (c.req.header('accept') ?? '').toLowerCase();
+    const prefersHtml =
+      accept.includes('text/html') &&
+      !accept.includes('text/markdown') &&
+      !accept.includes('text/plain');
+    if (prefersHtml) {
+      const rawHost = c.req.query('host');
+      const target = rawHost
+        ? `/mcp-setup?host=${encodeURIComponent(integrationHost(rawHost))}`
+        : '/mcp-setup';
+      return c.redirect(target, 302);
+    }
+    const markdown = await renderCloudInstallGuide({
+      runtimeRoot,
+      publicOrigin: config.APP_PUBLIC_ORIGIN,
+    });
+    return new Response(markdown, {
       status: 200,
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-store',
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Cache-Control': 'public, max-age=60',
+        'X-Content-Type-Options': 'nosniff',
       },
     });
   });

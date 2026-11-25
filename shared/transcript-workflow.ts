@@ -1,13 +1,24 @@
-import type { IntegrationInfo } from './integration.ts';
+import { agentConnectionGuideUrl, isCloudIntegration, isStreamableHttpTransport, type IntegrationInfo, type PartialIntegrationHint } from './integration.ts';
 import type { TranscriptDocument } from './transcript.ts';
 
 export type TranscriptWorkflow = { projectId: string; sourcePaths: string[]; sourceLinks: string; targets: string; languages: string; goal: 'highlights' | 'adapt'; notes: string; transcript?: Pick<TranscriptDocument, 'id' | 'revision'> | null };
 /** A saved-project handoff composes public operations; it is not an automatic publishing job. */
-export function transcriptWorkflowPrompt(input: TranscriptWorkflow, info?: Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory'>, locale = 'en') {
+export function transcriptWorkflowPrompt(input: TranscriptWorkflow, info?: (Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory'> & PartialIntegrationHint), locale = 'en') {
   if (!input.projectId || !['highlights', 'adapt'].includes(input.goal)) throw new Error('Choose a source project and workflow goal');
+  const workspaceLines = info ? (() => {
+    const origin = new URL(info.previewUrl).origin;
+    const cloud = isCloudIntegration(info);
+    const mcpUrl = isStreamableHttpTransport(info.transport) ? info.transport.url : `${origin}/mcp`;
+    return [
+      info.dataDirectory ? `Workspace: ${info.dataDirectory}` : null,
+      `Project: ${origin}/#project/${encodeURIComponent(input.projectId)}`,
+      cloud ? `MCP endpoint: ${mcpUrl}` : null,
+      cloud ? `Connection guide: ${agentConnectionGuideUrl(info, 'mcp')} (if not connected to this endpoint, connect first and skip generic template onboarding)` : null,
+    ].filter(Boolean).join('\n');
+  })() : 'Read the connected workspace and confirm this exact project exists.';
   return `Use OpenMotion MCP to turn imported speech-led media into editable platform and language versions. Respond in ${locale}.
 Source projectId: ${input.projectId}
-${info ? `Workspace: ${info.dataDirectory}\nProject: ${new URL(info.previewUrl).origin}/#project/${encodeURIComponent(input.projectId)}` : 'Read the connected workspace and confirm this exact project exists.'}
+${workspaceLines}
 Imported source paths: ${JSON.stringify(input.sourcePaths)}
 ${input.transcript ? `Selected transcriptId: ${input.transcript.id}, observed transcript revision: ${input.transcript.revision}` : 'Discover saved transcripts first.'}
 Goal: ${input.goal === 'highlights' ? 'Select up to three self-contained highlights. Aim for 30–60 seconds, preserving meaning and context; do not pad short sources.' : 'Keep the complete story and adapt framing and caption layout.'}

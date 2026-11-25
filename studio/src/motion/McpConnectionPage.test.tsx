@@ -260,6 +260,31 @@ it('preserves cloud connection, manual download and project-file guidance on the
   }
 });
 
+it('loads public cloud MCP discovery via /connect/integration when unauthenticated guests visit /mcp-setup', async () => {
+  const publicCloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://openmotion.powerformer.net',
+    version: '1.0.0',
+    authMode: 'oidc',
+    tools: info.tools,
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url === '/connect/integration') return Response.json(publicCloud);
+    return new Response('', { status: 401 });
+  }));
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  setCachedCloudDisklessMode(true);
+  try {
+    await mount('zh-CN');
+    expect(document.querySelector('[data-mcp-endpoint]')?.textContent).toContain('https://openmotion.powerformer.net/mcp');
+    await act(async () => button('复制 Codex 安装指令').click());
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://openmotion.powerformer.net/install.md'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://openmotion.powerformer.net/mcp'));
+    expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('openmotion#quick-start'));
+  } finally {
+    setCachedCloudDisklessMode(null);
+  }
+});
+
 it('explains the HTTPS requirement on an HTTP-only ChatGPT workspace', async () => {
   const cloud = buildCloudIntegrationInfo({ publicOrigin: 'http://127.0.0.1:4173', version: '1', workspaceId: 'w', authMode: 'dev', tools: info.tools });
   vi.stubGlobal('fetch', vi.fn(async () => Response.json(cloud)));
@@ -679,4 +704,84 @@ it('wires real /motion-api/connections OAuth evidence and Check sign-in refresh 
   } finally {
     delete window.__OPENMOTION_HOST__;
   }
+});
+
+it('hides DesktopConnectPanel in ordinary cloud web browsers without a desktop or helper bridge', async () => {
+  const { buildCloudIntegrationInfo } = await import('../../../shared/integration');
+  const cloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://motion.open-design.ai',
+    version: '1.2.3',
+    workspaceId: 'ws-prod',
+    authMode: 'oidc',
+    oauth2Enabled: true,
+    patEnabled: true,
+    tools: info.tools,
+  });
+
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url.includes('template-catalog')) return Response.json({ items: [] });
+    return Response.json(cloud);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  await mount();
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(document.querySelector('[data-desktop-connect-panel]')).toBeNull();
+  expect(document.querySelector('[data-connect-script-form]')).toBeNull();
+  expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/motion-api/connections'))).toBe(false);
+});
+
+it('matches cloud manual configuration instructions to each client transport and auth mode', async () => {
+  const cloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://motion.open-design.ai',
+    version: '1.2.3',
+    workspaceId: 'ws-prod',
+    authMode: 'oidc',
+    oauth2Enabled: true,
+    patEnabled: true,
+    tools: info.tools,
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('template-catalog')) return Response.json({ items: [] });
+    return Response.json(cloud);
+  }));
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+
+  await mount('en', 'project');
+
+  // Claude Code uses canonical flag ordering matching install.md.
+  await act(async () => tab('Claude Code').click());
+  await act(async () => button('Manual setup').click());
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain(
+    "claude mcp add --transport http --scope user openmotion 'https://motion.open-design.ai/mcp'",
+  );
+
+  // Claude Desktop in cloud mode uses Settings -> Connectors -> Add custom connector (no openmotion.mcp.json).
+  await act(async () => tab('Claude Desktop').click());
+  await act(async () => button('Configure Claude Desktop').click());
+  expect(document.querySelector('.om-mcp-manual-title')?.textContent).toContain(
+    'Claude Desktop Settings -> Connectors -> Add custom connector',
+  );
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain('Add custom connector');
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).not.toContain('"mcpServers"');
+  expect(document.querySelector('a[download]')).toBeNull();
+
+  // Cursor / Other MCP clients with OAuth 2.1 do not tell users to provide OPENMOTION_TOKEN when JSON omits headers.
+  await act(async () => tab('Cursor').click());
+  await act(async () => button('Manual setup').click());
+  expect(document.querySelector('.om-mcp-manual-title')?.textContent).toContain('OAuth 2.1');
+  expect(document.querySelector('.om-mcp-manual-title')?.textContent).not.toContain('OPENMOTION_TOKEN');
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain('"url": "https://motion.open-design.ai/mcp"');
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).not.toContain('OPENMOTION_TOKEN');
+
+  // Developer drawer task examples omit "Wait for my creative brief" so they don't contradict the appended task.
+  await act(async () => (document.querySelector('#dev-drawer > button') as HTMLButtonElement).click());
+  const card = document.querySelector('[data-mcp-scenario="create"]')!;
+  await act(async () => card.querySelector('button')!.click());
+  expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.open-design.ai/install.md'));
+  expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('Wait for my creative brief'));
 });

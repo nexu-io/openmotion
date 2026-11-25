@@ -61,21 +61,28 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
   const detailClose = useRef<HTMLButtonElement>(null);
   const studioDefaults = useMemo<SkillParameters>(() => studioSkillDefaults(studio?.id), [studio]);
   const [parameters, setParameters] = useState<SkillParameters>(studioDefaults), [manualCopy, setManualCopy] = useState<{ text: string; surface: 'instruction' | 'command' } | null>(null);
-  // Same install guide as template instructions; cloud web points at /mcp-setup, local falls back to the repository guide.
+  // Same install guide as template instructions; cloud web points at /install.md, local falls back to the repository guide.
   const [cloudMcp, setCloudMcp] = useState(() => getCachedCloudDisklessMode());
   const [installUrl, setInstallUrl] = useState(() => (
     getCachedCloudDisklessMode() && typeof window !== 'undefined'
-      ? `${window.location.origin.replace(/\/+$/, '')}/mcp-setup`
+      ? `${window.location.origin.replace(/\/+$/, '')}/install.md`
       : setupGuideUrl(null)
   ));
   useEffect(() => {
     let cancelled = false;
-    motionApi<IntegrationInfo>('/integration').then(info => {
-      if (cancelled) return;
-      const isCloud = isStreamableHttpTransport(info.transport);
-      setCloudMcp(isCloud);
-      setInstallUrl(isCloud ? `${info.previewUrl.replace(/\/+$/, '')}/mcp-setup` : setupGuideUrl(info));
-    }).catch(() => {});
+    motionApi<IntegrationInfo>('/integration')
+      .catch(async () => {
+        const res = await fetch('/connect/integration');
+        if (!res.ok) throw new Error('Unavailable');
+        return res.json() as Promise<IntegrationInfo>;
+      })
+      .then(info => {
+        if (cancelled) return;
+        const isCloud = isStreamableHttpTransport(info.transport);
+        setCloudMcp(isCloud);
+        setInstallUrl(setupGuideUrl(info));
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
   const instruction = useRef<HTMLPreElement>(null), command = useRef<HTMLPreElement>(null), search = useRef<HTMLInputElement>(null);
