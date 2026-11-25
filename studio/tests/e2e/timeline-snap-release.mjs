@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// At the deepest zoom a snap the saved clip would miss must not move the clip, or it jumps on
-// release: card-c (31/30 s) is moved until its end is 4.8 px past card-d's start.
+// At the deepest zoom, moving card-c (31/30 s) near card-d must keep the same
+// landing through the save, even when the snapped start is a fractional second.
 import { launchStudioChrome } from "./chrome-executable.mjs";
 
 const STUDIO_URL = process.env.STUDIO_URL;
@@ -40,7 +40,7 @@ try {
 
   evidence.step = "zoom";
   // Deepest zoom, then card-d's start three quarters across, so the drag stays clear of the edges.
-  await page.$eval('input[aria-label="Timeline zoom"]', (input) => {
+  await page.$eval('input[data-studio-control="timeline-zoom"]', (input) => {
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
     setValue.call(input, "100");
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -93,6 +93,9 @@ try {
   await page.mouse.move(grabX, grabY);
   await page.mouse.down();
   for (const part of [0.25, 0.5, 0.75, 1]) {
+    // Starting the drag can scroll the selected clip into view. Keep the
+    // intended destination under the pointer while advancing the gesture.
+    await page.$eval("[data-timeline-scroll-viewport]", (viewport, left) => { viewport.scrollLeft = left; }, scroll0);
     await page.mouse.move(grabX + dx * part, grabY);
     await frames();
   }
@@ -106,12 +109,18 @@ try {
   await closeUp("landing-during", dDuring);
   await page.$eval(actorSel, (el) => (el.style.visibility = ""));
   evidence.step = "release";
+  const savedMove = page.waitForResponse(response => {
+    const path = new URL(response.url()).pathname;
+    const method = response.request().method();
+    return response.ok() && ((method === "POST" && /\/(text-edits\/batch|edits\/index\.html)$/.test(path)) ||
+      (method === "PUT" && path.endsWith("/files/index.html")));
+  });
   await page.mouse.up();
-  // Release first shows the drag's own start; the saved one is always a whole centisecond.
+  await savedMove;
   await page.waitForFunction(
     (sel, start) => {
-      const saved = Number(document.querySelector(sel)?.dataset.clipStart);
-      return saved !== start && Math.abs(saved * 100 - Math.round(saved * 100)) < 1e-6;
+      const value = document.querySelector(sel)?.dataset.clipStart;
+      return value !== undefined && Number(value) !== start;
     },
     { timeout: 10_000 },
     clipSelector("card-c"),
@@ -142,6 +151,9 @@ try {
     startToDAfterPx: afterPx,
     jumpPx: afterPx - duringPx,
   };
+  if (Math.abs(evidence.move.savedStart - (D_START_S - 1.033333)) * pps > JUMP_TOLERANCE_PX) {
+    failures.push("card-c did not snap its trailing edge to card-d");
+  }
   if (Math.abs(afterPx - duringPx) > JUMP_TOLERANCE_PX) {
     failures.push(`card-c jumped ${(afterPx - duringPx).toFixed(1)}px on release`);
   }

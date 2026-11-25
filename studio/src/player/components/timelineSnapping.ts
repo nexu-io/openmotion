@@ -6,6 +6,8 @@ export type TimelineSnapType = "beat" | "playhead" | "clip-edge" | "grid";
 export interface TimelineSnapTarget {
   time: number;
   type: TimelineSnapType;
+  startTracks?: number[];
+  endTracks?: number[];
 }
 
 /** The guide the canvas draws: the live move's snap target, else the live trim's. */
@@ -49,28 +51,32 @@ const TYPE_PRIORITY: Record<TimelineSnapType, number> = {
 const indexedTargets = new WeakSet<readonly TimelineSnapTarget[]>();
 
 export function collectTimelineSnapTargets(input: {
-  elements: ReadonlyArray<Pick<TimelineElement, "start" | "duration" | "key" | "id">>;
+  elements: ReadonlyArray<Pick<TimelineElement, "start" | "duration" | "key" | "id"> & { track?: number }>;
   playheadTime: number | null;
   beatTimes: readonly number[];
   excludeElementKey?: string | null;
   excludeElementKeys?: ReadonlySet<string>;
+  /** Moves need the exact authored edge and its lanes to resolve coincident cuts. */
+  forMove?: boolean;
 }): TimelineSnapTarget[] {
   const byTime = new Map<number, TimelineSnapTarget>();
-  const add = (time: number, type: TimelineSnapType) => {
+  const add = (time: number, type: TimelineSnapType, edge?: "startTracks" | "endTracks", track?: number) => {
     if (!Number.isFinite(time) || time < 0) return;
-    const rounded = Math.round(time * 1000) / 1000;
-    const existing = byTime.get(rounded);
-    if (!existing || TYPE_PRIORITY[type] < TYPE_PRIORITY[existing.type]) {
-      byTime.set(rounded, { time: rounded, type });
-    }
+    // Placement compares against the actual clip interval, including sub-millisecond edges.
+    const targetTime = input.forMove && type === "clip-edge" ? time : Math.round(time * 1000) / 1000;
+    const existing = byTime.get(targetTime);
+    const target = existing ?? { time: targetTime, type };
+    if (!existing) byTime.set(targetTime, target);
+    if (TYPE_PRIORITY[type] < TYPE_PRIORITY[target.type]) target.type = type;
+    if (input.forMove && edge && track !== undefined) (target[edge] ??= []).push(track);
   };
 
   for (const beat of input.beatTimes) add(beat, "beat");
   for (const el of input.elements) {
     if (input.excludeElementKeys?.has(el.key ?? el.id)) continue;
     if (input.excludeElementKey != null && (el.key ?? el.id) === input.excludeElementKey) continue;
-    add(el.start, "clip-edge");
-    add(el.start + el.duration, "clip-edge");
+    add(el.start, "clip-edge", "startTracks", el.track);
+    add(el.start + el.duration, "clip-edge", "endTracks", el.track);
   }
   if (input.playheadTime != null) add(input.playheadTime, "playhead");
 

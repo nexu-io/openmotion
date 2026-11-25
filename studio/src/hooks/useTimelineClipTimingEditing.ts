@@ -135,12 +135,12 @@ export function useTimelineClipTimingEditing({
         const authoredStart = toAuthoredStart(element, updates.start);
         const command = startChanged && !trackChanged && sdkSession && element.hfId &&
           !element.link && !element.implicitTextTiming && targetPath === activeCompPath && getCachedCloudDisklessMode()
-          ? planClipMove(sdkSession, element.hfId, Number(formatTimelineAttributeNumber(authoredStart))) : undefined;
+          ? planClipMove(sdkSession, element.hfId, authoredStart) : undefined;
         if (startChanged || trackChanged) {
           const liveAttrs: Array<[string, string]> = [];
           if (element.implicitTextTiming) liveAttrs.push(["data-duration", formatTimelineAttributeNumber(element.duration)]);
           if (startChanged)
-            liveAttrs.push(["data-start", command ? String(command.start) : formatTimelineAttributeNumber(authoredStart)]);
+            liveAttrs.push(["data-start", String(authoredStart)]);
           if (trackChanged) {
             liveAttrs.push(["data-track-index", formatTimelineAttributeNumber(updates.track)]);
           }

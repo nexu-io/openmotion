@@ -8,7 +8,6 @@
  */
 
 import type { ClipManifestClip } from "../lib/playbackTypes";
-import { roundToCenti } from "../../utils/rounding";
 
 export interface TimelineElement {
   id: string;
@@ -120,10 +119,9 @@ type SavedClip = RowClock & Pick<TimelineElement, "duration">;
 const authoredOffset = (element: RowClock) =>
   element.authoredStartIsMasterTime ? 0 : (element.parentCompositionStart ?? 0);
 
-/** Resizes preserve the opposite edge. Moves quantize the authored start and retain the duration. */
+/** Project the authored timing back onto the master clock for collision and guide checks. */
 export function savedClipEdges(element: SavedClip, start: number, resizedDuration?: number) {
-  const authoredStart = toAuthoredStart(element, start);
-  const savedStart = authoredOffset(element) + (resizedDuration === undefined ? roundToCenti(authoredStart) : authoredStart);
+  const savedStart = authoredOffset(element) + toAuthoredStart(element, start);
   return { start: savedStart, end: savedStart + (resizedDuration ?? element.duration) };
 }
 

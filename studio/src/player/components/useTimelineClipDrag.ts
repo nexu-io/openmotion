@@ -165,18 +165,19 @@ export function useTimelineClipDrag({
   const dragAudioTracksRef = useRef<ReadonlySet<number> | null>(null);
 
   const buildSnapTargets = useCallback(
-    (excludeElementKey: string | null, includeBeats: boolean, includePlayhead = true): TimelineSnapTarget[] => {
+    (excludeElementKey: string | null, includeBeats: boolean, gesture: "move" | "resize"): TimelineSnapTarget[] => {
       // Magnet off ⇒ no targets and no scan; do NOT cache so a mid-gesture toggle
       // back on starts scanning immediately (preserves the existing skip).
       if (!snapContextRef.current.enabled) return [];
-      const cacheKey = `${excludeElementKey ?? ""}|${includeBeats ? 1 : 0}|${includePlayhead ? 1 : 0}`;
+      const cacheKey = `${excludeElementKey ?? ""}|${includeBeats ? 1 : 0}|${gesture}`;
       const cached = snapTargetsCacheRef.current.get(cacheKey);
       if (cached) return cached;
       const targets = collectTimelineSnapTargets({
         elements: elementsRef.current,
-        playheadTime: includePlayhead ? usePlayerStore.getState().currentTime : null,
+        playheadTime: gesture === "resize" ? usePlayerStore.getState().currentTime : null,
         beatTimes: includeBeats ? snapContextRef.current.beatTimes : [],
         excludeElementKey,
+        forMove: gesture === "move",
         excludeElementKeys: gestureSelectedKeysRef.current,
       });
       snapTargetsCacheRef.current.set(cacheKey, targets);

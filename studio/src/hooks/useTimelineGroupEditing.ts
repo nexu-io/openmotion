@@ -262,7 +262,7 @@ export function useTimelineGroupEditing({
         const attrs: Array<[string, string]> = change.start === change.element.start ? [] : [
           [
             "data-start",
-            formatTimelineAttributeNumber(toAuthoredStart(change.element, change.start)),
+            String(toAuthoredStart(change.element, change.start)),
           ],
         ];
         if (change.element.implicitTextTiming) attrs.push(["data-duration", formatTimelineAttributeNumber(change.element.duration)]);

@@ -159,7 +159,7 @@ export function resolveZoneDropPlacement(input: {
   // Collision changes the lane, never the pointer's horizontal time. Search
   // upward inside the same kind zone, then open a lane above the aimed row.
   const safeStart = Math.max(minStart ?? 0, start);
-  if (input.origin?.track === desired && Math.abs(safeStart - input.origin.start) < 0.005)
+  if (input.origin?.track === desired && safeStart === input.origin.start)
     return { track: desired, insertRow: null, start: input.origin.start };
   const placement = resolveTimelinePlacement(openReelPlacementInput(elements, zoneTracks, input.blockedTracks), {
     targetTrackId: String(desired),

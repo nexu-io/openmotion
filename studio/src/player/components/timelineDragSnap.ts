@@ -1,5 +1,6 @@
 import { TIMELINE_SNAP_PX, type TimelineSnapTarget } from "./timelineSnapping";
 import { calculateSnap } from "./openreel/calculateSnap";
+import { TIMELINE_TIME_EPSILON_S } from "./timelineTimeBounds";
 
 const OPENREEL_DRAG_SNAP_PX = 40;
 type SnapClips = Parameters<typeof calculateSnap>[2][number]["clips"];
@@ -33,6 +34,7 @@ export function snapOpenReelMove(
   targets: readonly TimelineSnapTarget[],
   pixelsPerSecond: number,
   gridStep = 0,
+  desiredTrack?: number,
 ): { start: number; snapTime: number | null; snapType: TimelineSnapTarget["type"] | null; snapEdge?: "start" | "end" } {
   let projected = candidates.get(targets);
   if (!projected) {
@@ -66,10 +68,30 @@ export function snapOpenReelMove(
   const chosen = beat?.snapped ? beat : primary;
   const snapTime = chosen.snapPoint?.time ?? null;
   if (snapTime === null) return { start: chosen.time, snapTime, snapType: null };
+  const snapEdge = chosen.time === snapTime ? "start" : "end";
+  // A frame-aligned visual cut and a split audio edge can differ by a fraction
+  // of a millisecond. At an indistinguishable cut, join the peer on the aimed row.
+  if (clipEdge && desiredTrack !== undefined) {
+    const edgeTime = snapEdge === "start" ? rawTime : rawTime + duration;
+    const tolerance = Math.min(TIMELINE_TIME_EPSILON_S, 1 / pps);
+    let distance = OPENREEL_DRAG_SNAP_PX / pps;
+    let join: TimelineSnapTarget | undefined;
+    for (const edge of edges) {
+      const target = targets[Number(edge.id)];
+      const tracks = snapEdge === "start" ? target.endTracks : target.startTracks;
+      if (!tracks?.includes(desiredTrack) || (snapEdge === "end" && target.time < duration)) continue;
+      const fromPointer = Math.abs(target.time - edgeTime);
+      if (Math.abs(target.time - snapTime) <= tolerance && fromPointer < distance) {
+        join = target;
+        distance = fromPointer;
+      }
+    }
+    if (join) return { start: snapEdge === "start" ? join.time : join.time - duration, snapTime: join.time, snapType: "clip-edge", snapEdge };
+  }
   return {
     start: chosen.time,
     snapTime,
     snapType: beat?.snapped ? "beat" : clipEdge ? "clip-edge" : "grid",
-    snapEdge: chosen.time === snapTime ? "start" : "end",
+    snapEdge,
   };
 }
