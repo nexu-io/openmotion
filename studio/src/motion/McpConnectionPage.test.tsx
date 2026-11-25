@@ -262,7 +262,7 @@ it('preserves cloud connection, manual download and project-file guidance on the
 
 it('loads public cloud MCP discovery via /connect/integration when unauthenticated guests visit /mcp-setup', async () => {
   const publicCloud = buildCloudIntegrationInfo({
-    publicOrigin: 'https://openmotion.powerformer.net',
+    publicOrigin: 'https://motion.example.com',
     version: '1.0.0',
     authMode: 'oidc',
     tools: info.tools,
@@ -275,10 +275,10 @@ it('loads public cloud MCP discovery via /connect/integration when unauthenticat
   setCachedCloudDisklessMode(true);
   try {
     await mount('zh-CN');
-    expect(document.querySelector('[data-mcp-endpoint]')?.textContent).toContain('https://openmotion.powerformer.net/mcp');
+    expect(document.querySelector('[data-mcp-endpoint]')?.textContent).toContain('https://motion.example.com/mcp');
     await act(async () => button('复制 Codex 安装指令').click());
-    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://openmotion.powerformer.net/install.md'));
-    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://openmotion.powerformer.net/mcp'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/install.md'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/mcp'));
     expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('openmotion#quick-start'));
   } finally {
     setCachedCloudDisklessMode(null);

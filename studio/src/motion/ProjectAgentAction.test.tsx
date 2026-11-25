@@ -137,11 +137,11 @@ it('copies cloud Streamable HTTP MCP endpoint and /install.md guide instead of /
   const previousInfo = state.info;
   state.info = {
     name: 'OpenMotion',
-    previewUrl: 'https://openmotion.powerformer.net',
-    dataDirectory: 'workspace:0d7f2912-a6d6-4a11-83bb-22c95aa764d9',
+    previewUrl: 'https://motion.example.com',
+    dataDirectory: 'workspace:ws-cloud-example',
     transport: {
       type: 'streamable-http',
-      url: 'https://openmotion.powerformer.net/mcp',
+      url: 'https://motion.example.com/mcp',
       auth: { mode: 'oidc', oauth2: true, pat: true },
     } as never,
   };
@@ -151,8 +151,8 @@ it('copies cloud Streamable HTTP MCP endpoint and /install.md guide instead of /
     await open();
     await act(async () => button('Copy instruction').click());
     const prompt = copy.mock.calls[0][0];
-    expect(prompt).toContain('MCP endpoint: https://openmotion.powerformer.net/mcp');
-    expect(prompt).toContain('Connection guide: https://openmotion.powerformer.net/install.md');
+    expect(prompt).toContain('MCP endpoint: https://motion.example.com/mcp');
+    expect(prompt).toContain('Connection guide: https://motion.example.com/install.md');
     expect(prompt).not.toContain('/connect/guide');
     expect(prompt).toContain('skip generic template onboarding');
   } finally {
