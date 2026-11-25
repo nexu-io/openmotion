@@ -260,6 +260,66 @@ it.each(["before", "after", "across"])("keeps two ordered releases made %s the i
   expect(replies).toEqual(["first", "second"]);
 });
 
+it("keeps a held drag visible and responsive when the incoming scene replaces its node", async () => {
+  const {one, swap, gesture, makeElement} = createScene();
+  one.style.position = "absolute";
+  const {promise, resolve} = Promise.withResolvers<void>();
+  const version = "b".repeat(64);
+  swap("one.html", version, promise);
+  gesture("start", "held", {ordered:true});
+  gesture("move", "held");
+  expect(one.style.left).toBe("25px");
+  one.remove();
+  const incoming = makeElement("one");
+  incoming.style.position = "absolute";
+  await vi.waitFor(() => expect(incoming.style.left).toBe("25px"));
+  gesture("move", "held", {dx:0.45});
+  expect(incoming.style.left).toBe("45px");
+  const result = gesture("finish", "held", {dx:0.45});
+  resolve();
+  expect(await result).toMatchObject({elementId:"one", left:45, sha256:version});
+  gesture("cancel", "held");
+  expect(incoming.style.left).toBe("");
+});
+
+it.each(["deleted", "repositioned", "cancelled"])("does not carry a held drag onto a %s target", async reason => {
+  const {one, swap, gesture, makeElement} = createScene();
+  one.style.position = "absolute";
+  const {promise, resolve} = Promise.withResolvers<void>();
+  swap("one.html", "b".repeat(64), promise);
+  gesture("start", "held", {ordered:true});
+  gesture("move", "held");
+  if (reason === "cancelled") gesture("cancel", "held");
+  one.remove();
+  const incoming = makeElement(reason === "deleted" ? "unrelated" : "one");
+  incoming.style.position = "absolute";
+  if (reason === "repositioned") incoming.style.left = "80px";
+  gesture("move", "held", {dx:0.45});
+  const result = gesture("finish", "held", {dx:0.45});
+  resolve();
+  expect(await result).toBeNull();
+  expect(incoming.style.left).toBe(reason === "repositioned" ? "80px" : "");
+});
+
+it("replays a release before its still-held successor on a replaced node", async () => {
+  const {one, swap, gesture, makeElement} = createScene();
+  one.style.position = "absolute";
+  const {promise, resolve} = Promise.withResolvers<void>();
+  swap("one.html", "b".repeat(64), promise);
+  gesture("start", "first", {ordered:true});
+  const first = gesture("finish", "first");
+  gesture("start", "second", {ordered:true});
+  gesture("move", "second");
+  one.remove();
+  const incoming = makeElement("one");
+  incoming.style.position = "absolute";
+  await vi.waitFor(() => expect(incoming.style.left).toBe("50px"));
+  const second = gesture("finish", "second");
+  resolve();
+  expect(await first).toMatchObject({left:25});
+  expect(await second).toMatchObject({left:50, predecessor:"first"});
+});
+
 it("restores the visible release when the incoming host mounts without another pointer event", async () => {
   const {one, swap, gesture, makeElement} = createScene();
   one.style.position = "absolute";

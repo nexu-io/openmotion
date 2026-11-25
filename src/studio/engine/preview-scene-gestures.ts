@@ -15,39 +15,50 @@ export const PREVIEW_SCENE_GESTURES = `
       ['width','height'].every(axis => same(before.resize[axis], after.resize[axis], ['w','h','x','y'])));
   }
 
-  function replaySceneRelease(step, node) {
+  function onIncomingNode(step, node, release = false) {
     if (!node || node.localName !== step.element.localName) return null;
     const active = drag;
     try {
       drag = null;
       if (node === step.element) restoreStyles(node, step.original, step.applied);
       if (!startDrag(step.sceneStart, node) || !drag || !sameGestureBasis(step, drag)) return null;
-      return canvasDrag(step.releaseMessage);
+      return release ? canvasDrag(step.releaseMessage) : drag;
     } finally { drag = active; }
   }
 
   // The incoming DOM must include earlier releases before hit-testing and measuring
   // the next pointerdown. Preserve the bridge's ordinary pending/rollback order.
-  function stageMountedReleases() {
+  function stageMountedGestures() {
     for (const step of releasedSceneGestures.values()) {
       if (!step.ordered || step.element.isConnected || 'sceneResult' in step) continue;
       const node = inspectorElement(step.selection);
       if (!node || step.sceneUpdate.targets.get(step.selection.sourceFile).host.contains(node)) continue;
-      const result = replaySceneRelease(step, node);
+      const result = onIncomingNode(step, node, true);
       // A newly mounted child can still be hidden until its scripts finish.
       if (result) step.sceneResult = result;
     }
+    // A scene may also mount while the pointer is still down. Transfer the
+    // same measurement and last pointer delta before the new node is painted.
+    const active = drag;
+    if (!active?.sceneUpdate || !active.ordered || active.element.isConnected) return;
+    const next = onIncomingNode(active, inspectorElement(active.selection));
+    if (!next) return;
+    Object.assign(active, next);
+    if (drag.sceneMove) canvasDrag(drag.sceneMove);
   }
 
   // Restore tentative edits before the browser paints a newly mounted host, even
   // when the user makes no further input. Observe only the parents being swapped.
   function watchSceneMount(update) {
     if (update.gestureObserver) return;
-    const observer = update.gestureObserver = new MutationObserver(stageMountedReleases);
+    const observer = update.gestureObserver = new MutationObserver(stageMountedGestures);
     for (const {host} of update.targets.values()) {
       if (host.parentElement) observer.observe(host.parentElement, {childList: true});
     }
-    update.ready.finally(() => observer.disconnect());
+    update.ready.then(applied => {
+      observer.disconnect();
+      if (applied) stageMountedGestures();
+    });
   }
 
   async function finishSceneGesture(step, message) {
@@ -62,7 +73,7 @@ export const PREVIEW_SCENE_GESTURES = `
     releasedSceneGestures.set(step.id, step);
     if (step.ordered && !('sceneResult' in step)) {
       watchSceneMount(update);
-      stageMountedReleases();
+      stageMountedGestures();
     }
     try {
       if (!await update.ready) {
@@ -72,7 +83,7 @@ export const PREVIEW_SCENE_GESTURES = `
         return null;
       }
       if (releasedSceneGestures.get(step.id) !== step || sourceVersions[path] !== update.versions[path]) return null;
-      if (!('sceneResult' in step)) return replaySceneRelease(step, inspectorElement(step.selection));
+      if (!('sceneResult' in step)) return onIncomingNode(step, inspectorElement(step.selection), true);
       if (!step.sceneResult || !pendingDrags.get(step.id)?.element.isConnected) return null;
       const { sha256, fileVersion, ...measurement } = step.sceneResult;
       return { ...measurement, ...sourceIdentity(update.versions[path]) };
@@ -100,7 +111,7 @@ export const PREVIEW_SCENE_GESTURES = `
   }
 
   function sceneCanvasDrag(message) {
-    if (message.phase === 'start' && !drag && releasedSceneGestures.size) stageMountedReleases();
+    if (message.phase === 'start' && !drag && releasedSceneGestures.size) stageMountedGestures();
     if (message.phase === 'cancel' || message.phase === 'removed') {
       const released = releasedSceneGestures.get(message.gestureId);
       if (released) {
@@ -110,10 +121,15 @@ export const PREVIEW_SCENE_GESTURES = `
     }
     if (message.phase === 'finish' && drag?.id === message.gestureId && drag.sceneUpdate)
       return finishSceneGesture(drag, message);
+    if (message.phase === 'move' && drag?.id === message.gestureId && drag.sceneUpdate) {
+      stageMountedGestures();
+      drag.sceneMove = message;
+    }
     const result = canvasDrag(message);
     if (message.phase === 'start' && drag?.id === message.gestureId && applyingSceneUpdate?.targets.has(drag.selection.sourceFile)) {
       drag.sceneUpdate = applyingSceneUpdate;
       drag.sceneStart = message;
+      if (drag.ordered) watchSceneMount(applyingSceneUpdate);
     }
     return result;
   }
@@ -121,7 +137,7 @@ export const PREVIEW_SCENE_GESTURES = `
   function sceneInlineText(message) {
     if (message.phase === 'cancel' && waitingTextPick === message.editId) waitingTextPick = null;
     if (message.phase !== 'pick' || !applyingSceneUpdate) return editInlineText(message);
-    if (releasedSceneGestures.size) stageMountedReleases();
+    if (releasedSceneGestures.size) stageMountedGestures();
     const hit = canvasPointHit(message.x, message.y);
     const target = hit && describe(hit);
     const update = applyingSceneUpdate;
