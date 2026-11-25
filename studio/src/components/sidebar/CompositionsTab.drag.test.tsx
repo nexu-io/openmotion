@@ -41,6 +41,24 @@ describe("composition card drag", () => {
     expect(onSelect).toHaveBeenCalledWith("compositions/headline.html");
   });
 
+  it.each([100, 400])("ends the hover preview when the card opens after %i ms", (delay) => {
+    vi.useFakeTimers();
+    try {
+      const { host, card, onSelect } = mount();
+      act(() => {
+        card.dispatchEvent(new Event("pointerover", { bubbles: true }));
+        vi.advanceTimersByTime(delay);
+      });
+      expect(Boolean(host.querySelector("iframe"))).toBe(delay >= 300);
+      act(() => card.click());
+      act(() => vi.advanceTimersByTime(500));
+      expect(onSelect).toHaveBeenCalledOnce();
+      expect(host.querySelector("iframe")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("emits only source identity and suppresses the click following a drag", () => {
     const { card, onSelect } = mount();
     const data = new Map<string, string>();

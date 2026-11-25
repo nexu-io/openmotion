@@ -239,7 +239,7 @@ function CompCard({
   const handleEnter = () => {
     hoverTimer.current = setTimeout(() => setHovered(true), 300);
   };
-  const handleLeave = () => {
+  const stopHoverPreview = () => {
     if (hoverTimer.current) {
       clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
@@ -250,6 +250,10 @@ function CompCard({
     }
     setHovered(false);
     setLivePreviewLoaded(false);
+  };
+  const openComposition = () => {
+    stopHoverPreview();
+    onSelect();
   };
   const name = comp.replace(/^compositions\//, "").replace(/\.html$/, "");
   const previewUrl = compositionPreviewUrl(projectId, comp);
@@ -413,6 +417,7 @@ function CompCard({
       aria-pressed={isActive}
       aria-current={isActive ? "true" : undefined}
       onDragStart={(event) => {
+        stopHoverPreview();
         draggedRef.current = true;
         event.dataTransfer.effectAllowed = "copy";
         event.dataTransfer.setData(TIMELINE_COMPOSITION_MIME, JSON.stringify({ sourcePath: comp }));
@@ -423,7 +428,7 @@ function CompCard({
         }, 0);
       }}
       onClick={() => {
-        if (!draggedRef.current) onSelect();
+        if (!draggedRef.current) openComposition();
       }}
       onKeyDown={(event) => {
         // Only when the row itself is focused — keydowns bubbling from the
@@ -431,11 +436,11 @@ function CompCard({
         if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onSelect();
+          openComposition();
         }
       }}
       onPointerEnter={handleEnter}
-      onPointerLeave={handleLeave}
+      onPointerLeave={stopHoverPreview}
       className={`motion-composition-card group/card w-full select-none text-left px-2 py-1.5 flex items-center gap-2.5 transition-colors cursor-grab active:cursor-grabbing outline-hidden focus-visible:bg-neutral-800/60 ${
         isActive
           ? "bg-studio-accent/10"

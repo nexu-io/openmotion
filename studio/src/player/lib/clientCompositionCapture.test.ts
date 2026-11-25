@@ -285,7 +285,7 @@ describe("clientCompositionCapture", () => {
     }
   });
 
-  it("mounts the isolated capture iframe inside the viewport with opacity 0 so cross-origin rAF is not throttled", async () => {
+  it("keeps the isolated capture iframe in the viewport and finishes the same version across a clip switch", async () => {
     const meta = document.createElement("meta");
     meta.name = "openmotion-preview-origin";
     meta.content = "https://preview.example.test/";
@@ -325,6 +325,8 @@ describe("clientCompositionCapture", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 
     try {
+      setCachedProjectRevision("proj-iso", "rev-1", { "compositions/scene-1.html": "scene-v1" });
+      const scheduler = new ThumbnailScheduler();
       const req = createClientCompositionCaptureRequest({
         previewUrl: "/api/projects/proj-iso/preview/comp/compositions/scene-1.html",
         projectId: "proj-iso",
@@ -334,8 +336,7 @@ describe("clientCompositionCapture", () => {
         duration: 6,
       });
 
-      const controller = new AbortController();
-      const pending = req.load(controller.signal);
+      const first = scheduler.acquire(req, vi.fn());
 
       let iframe: HTMLIFrameElement | null = null;
       await vi.waitFor(() => {
@@ -345,6 +346,10 @@ describe("clientCompositionCapture", () => {
         expect(iframe?.src).toContain("capture=1");
         expect(iframe?.src).toContain("pt=tok-isolated-1");
       });
+
+      first.release();
+      expect(scheduler.getSnapshot(req).status).toBe("loading");
+      const revisit = scheduler.acquire(req, vi.fn());
 
       expect(iframe!.style.position).toBe("fixed");
       expect(iframe!.style.left).toBe("0px");
@@ -408,7 +413,9 @@ describe("clientCompositionCapture", () => {
         }),
       );
 
-      const loaded = await pending;
+      await vi.waitFor(() => expect(scheduler.getSnapshot(req).status).toBe("ready"));
+      const loaded = scheduler.getSnapshot(req);
+      if (loaded.status !== "ready") throw new Error("Expected a completed filmstrip");
       expect(iframe!.style.width).toBe("1080px");
       expect(iframe!.style.height).toBe("1920px");
       expect(posted).toHaveLength(1);
@@ -418,7 +425,8 @@ describe("clientCompositionCapture", () => {
       if (loaded.value.kind === "filmstrip") {
         expect(loaded.value.urls).toHaveLength(2);
       }
-      loaded.dispose?.();
+      revisit.release();
+      scheduler.invalidateProject("proj-iso");
     } finally {
       if (origSrcDescriptor) Object.defineProperty(HTMLIFrameElement.prototype, "src", origSrcDescriptor);
       globalThis.fetch = origFetch;
@@ -1463,6 +1471,39 @@ describe("clientCompositionCapture", () => {
     for (const url of urls0) expect(activeUrls.has(url)).toBe(false);
     thumbnailScheduler.invalidateProject("proj-sched");
   });
+
+  it.each(["project revision", "local content revision"] as const)(
+    "cancels background capture of a project-versioned file when its %s changes",
+    (change) => {
+      const projectId = "capture-without-file-version";
+      const path = "compositions/choice.html";
+      setCachedProjectRevision(projectId, "p1");
+      const input = {
+        projectId, previewUrl: `/api/projects/${projectId}/preview/comp/${path}`,
+        frameCount: 2, sessionEpoch: 1, contentRevision: 1,
+      };
+      const original = createClientCompositionCaptureRequest(input);
+      let signal!: AbortSignal;
+      thumbnailScheduler.acquire({
+        ...original,
+        load: (current, finishInBackground) => {
+          signal = current;
+          finishInBackground?.();
+          return new Promise((_, reject) => current.addEventListener("abort", () => reject(current.reason)));
+        },
+      }, vi.fn()).release();
+      expect(signal.aborted).toBe(false);
+
+      if (change === "project revision") setCachedProjectRevision(projectId, "p2");
+      else evictStaleCompositionCaptures(projectId, [path], { [path]: 2 });
+      expect(signal.aborted).toBe(true);
+      expect(thumbnailScheduler.getSnapshot(original).status).toBe("idle");
+      const next = createClientCompositionCaptureRequest({
+        ...input, contentRevision: change === "local content revision" ? 2 : 1,
+      });
+      expect(next.key).not.toBe(original.key);
+    },
+  );
 
   it("does not cache an in-flight capture whose revision was invalidated before acceptResult ran", async () => {
     const activeUrls = new Set<string>();
