@@ -212,7 +212,7 @@ export function reportSettingsPageView(section: SettingsSectionField, hasProject
   send('page_view', { ...settingsPage, ...shell(hasProject), settings_section: section, ...(entry ? { entry_from: entry } : {}) });
 }
 export function reportSettingsClick(area: SettingsClickArea, element: Click['element'],
-  fields: Pick<Click, 'settings_section' | 'expanded' | 'position' | 'hook_id' | 'entry_id'> & { provider?: { id: string; custom?: boolean; protocol?: string }; agent?: string } = {}) {
+  fields: Pick<Click, 'settings_section' | 'expanded' | 'position' | 'hook_id' | 'entry_id' | 'campaign_id'> & { provider?: { id: string; custom?: boolean; protocol?: string }; agent?: string } = {}) {
   const { provider, agent, ...rest } = fields;
   const entry = settingsEntryFrom();
   send('ui_click', { ...settingsPage, area, element, ...rest, ...(entry ? { entry_from: entry } : {}), ...(provider ? providerFields(provider) : {}), ...slugField('agent_id', agent) });

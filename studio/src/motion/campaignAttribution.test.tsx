@@ -5,8 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { studioEvents } from '../../../tracking/events.ts';
 import { validProperties } from '../../../tracking/core.ts';
+import { BlackFridayCollection } from './BlackFridayCollection';
 import { BlackFridayTopBanner, resetBlackFridayImpression } from './BlackFridayTopBanner';
 import { ExploreBlackFridayHero, resetBlackFridayHeroImpression } from './ExploreBlackFridayHero';
+import { createOfferVisit, reportOfferClick } from './offerTracking';
 import campaignUi from '../i18n/campaign-ui.json';
 import { BLACK_FRIDAY_ENDS_AT, BLACK_FRIDAY_HERO_ENDS_AT, BLACK_FRIDAY_HERO_STARTS_AT, BLACK_FRIDAY_STARTS_AT, bannerDismissedToday, blackFridayActive, blackFridayHeroActive, campaignPricingUrl, dismissBannerToday, readBlackFridayCountdown, resetBannerDismissal } from './campaignAttribution';
 import { PricingEntry } from './PricingEntry';
@@ -344,5 +346,59 @@ it('reports ExploreBlackFridayHero impression once per page load, bf_hero CTA cl
     }
   } finally {
     fetchSpy.mockRestore();
+  }
+});
+
+it('attaches campaign_id to Studio/Settings offer cards during Black Friday only and tracks BlackFridayCollection workflow CTA', async () => {
+  await loadReportingTransport();
+  // Inside Black Friday window
+  const studioVisit = createOfferVisit({ studio: 'design', scene: 'text-to-image' });
+  reportOfferClick(studioVisit, 'sign_in', 'opendesign:gpt-image-2.6');
+  const settingsVisit = createOfferVisit({ settingsSection: 'account' });
+  reportOfferClick(settingsVisit, 'upgrade');
+  expect(tracked().slice(-2).map(row => row.properties)).toEqual([
+    expect.objectContaining({ page_name: 'creative_studio', area: 'asset_create', element: 'sign_in', offer_kind: 'sign_in', campaign_id: 'black_friday_2026' }),
+    expect.objectContaining({ page_name: 'settings', area: 'account', settings_section: 'account', element: 'view_plans', offer_kind: 'upgrade', campaign_id: 'black_friday_2026' }),
+  ]);
+
+  // Outside Black Friday window
+  vi.setSystemTime(BLACK_FRIDAY_ENDS_AT + 60_000);
+  reportOfferClick(studioVisit, 'upgrade');
+  expect(tracked().at(-1)?.properties).not.toHaveProperty('campaign_id');
+
+  // BlackFridayCollection Start Black Friday workflow button
+  vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
+  const onStartScenario = vi.fn();
+  render(
+    <BlackFridayCollection
+      templates={[]}
+      featuredPreviewsEnabled={false}
+      selectedFilter={null}
+      onFilterChange={() => {}}
+      searchField={null}
+      emptyResults={null}
+      active={new Set()}
+      onBack={() => {}}
+      onPreview={() => {}}
+      onPriority={() => {}}
+      onStartScenario={onStartScenario}
+    />,
+  );
+  const workflowBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.includes('黑五'))!;
+  await act(async () => { workflowBtn.click(); });
+  expect(onStartScenario).toHaveBeenCalledOnce();
+  expect(tracked().at(-1)).toEqual({
+    event: 'ui_click',
+    properties: {
+      page_name: 'studio',
+      area: 'template_discovery',
+      element: 'run_super_agent',
+      placement: 'black_friday',
+      campaign_id: 'black_friday_2026',
+    },
+  });
+
+  for (const row of tracked()) {
+    expect(validProperties(studioEvents, row.event, row.properties), JSON.stringify(row)).toBe(true);
   }
 });

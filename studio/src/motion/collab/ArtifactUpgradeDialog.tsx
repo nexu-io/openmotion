@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Button } from 'open-design-ui/button';
 import { formatPlanLabel } from '../../../../shared/workspace-collab';
 import { useI18n } from '../../i18n/I18n';
@@ -5,10 +6,13 @@ import { RemixIcon } from '../../icons/RemixIcons';
 import { openExternalUrl } from '../../utils/platformHost';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from '../accountOffer';
 import {
+  BLACK_FRIDAY_CAMPAIGN,
   campaignPricingUrl,
   newCampaignEntryId,
   useBlackFridayActive,
 } from '../campaignAttribution';
+import { useCheckoutReturnRefresh } from '../entitlementAttribution';
+import { send } from '../reporting';
 import { useOptionalWorkspaceCollab } from '../WorkspaceCollabContext';
 import { CollabDialog } from './CollabDialog';
 
@@ -16,10 +20,25 @@ export function ArtifactUpgradeDialog() {
   const { locale, t } = useI18n();
   const collab = useOptionalWorkspaceCollab();
   const blackFriday = useBlackFridayActive();
+  const markCheckoutReturn = useCheckoutReturnRefresh('studio', 'artifact_upgrade_banner');
 
   const gate = collab?.billingGate;
   const snapshot = collab?.snapshot;
   const active = snapshot?.activeWorkspace;
+  const open = Boolean(collab && gate && gate.kind === 'artifact-upgrade' && snapshot && active);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      send('surface_view', {
+        page_name: 'studio',
+        area: 'entitlement_modal',
+        element: 'modal',
+        hook_id: 'artifact_upgrade_banner',
+        ...(blackFriday ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}),
+      });
+    }
+    wasOpen.current = open;
+  }, [open, blackFriday]);
   if (!collab || !gate || gate.kind !== 'artifact-upgrade' || !snapshot || !active) {
     return null;
   }
@@ -42,12 +61,22 @@ export function ArtifactUpgradeDialog() {
   const planLabel = snapshot.quota?.planLabel ?? formatPlanLabel(active.planId);
 
   const handleUpgrade = () => {
+    const entryId = newCampaignEntryId();
+    markCheckoutReturn(entryId);
+    send('ui_click', {
+      page_name: 'studio',
+      area: 'entitlement_modal',
+      element: 'view_plans',
+      hook_id: 'artifact_upgrade_banner',
+      entry_id: entryId,
+      ...(blackFriday ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}),
+    });
     collab.setBillingGate(null);
     if (active.workspaceType === 'team') {
       void collab.openCloudLink('plans');
       return;
     }
-    const url = campaignPricingUrl(locale, 'openmotion_artifact_upgrade', newCampaignEntryId());
+    const url = campaignPricingUrl(locale, 'openmotion_artifact_upgrade', entryId);
     void openExternalUrl(url);
   };
 

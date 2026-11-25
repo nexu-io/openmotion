@@ -6,6 +6,8 @@ import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { BackToExploreButton } from './BackToExploreButton';
 import { BlackFridaySkillCarousel } from './BlackFridaySkillCarousel';
+import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
+import { send } from './reporting';
 import { motionSkills } from './skillCatalog';
 import { TemplateGalleryCard } from './TemplateGalleryCard';
 import styles from './BlackFridayCollection.module.css';
@@ -59,7 +61,22 @@ export function BlackFridayCollection({ templates, featuredPreviewsEnabled, sele
         <h1 id={prefix + 'title'} ref={title} tabIndex={-1}>{t('Black Friday')}</h1>
         <p>{t('Find a reference from the first teaser to the last call.')}</p>
         {onStartScenario && (
-          <Button variant="ghost" type="button" className="om-button h-auto" data-primary="media" onClick={onStartScenario}>
+          <Button
+            variant="ghost"
+            type="button"
+            className="om-button h-auto"
+            data-primary="media"
+            onClick={() => {
+              send('ui_click', {
+                page_name: 'studio',
+                area: 'template_discovery',
+                element: 'run_super_agent',
+                placement: 'black_friday',
+                ...(blackFridayActive() ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}),
+              });
+              onStartScenario();
+            }}
+          >
             {t('Start Black Friday workflow')}<RemixIcon name="arrow-right-line" size={16} />
           </Button>
         )}

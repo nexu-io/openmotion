@@ -2,12 +2,15 @@ import { Button } from 'open-design-ui/button';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { AccountStatus, useAccountSignIn } from './AccountSettings';
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
+import type { AccountSummary } from '../../../shared/provider-directory';
 import { MultimodalOfferCard, MultimodalUpgradeCard } from './MultimodalOfferCard';
 import { useI18n } from '../i18n/I18n';
 import type { StudioDestination } from './creativeStudios';
+import { evaluateEntitlementRefresh, readAccountPlan } from './entitlementAttribution';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import { reportOfferClick, type OfferKind, type OfferVisit } from './offerTracking';
+import { reportEntitlementRefresh } from './pageTracking';
 import { gatewayRequest } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { useSubscriptionOpener } from './useSubscriptionOpener';
@@ -37,19 +40,40 @@ function generationOfferCopy({ scene }: StudioDestination, kind: OfferKind) {
 
 export function GenerationUpgradeNotice({ destination, onError, onUpgrade, visit }: { visit?: OfferVisit; destination: StudioDestination; onError: (message: string) => void; onUpgrade: () => void }) {
   const { t } = useI18n();
+  const prevPlanRef = useRef<Promise<string | undefined> | undefined>(undefined);
+  const capturePrevPlan = () => {
+    prevPlanRef.current = gatewayRequest<AccountSummary>('settings/account')
+      .then(readAccountPlan)
+      .catch(() => undefined);
+    onUpgrade();
+  };
   const subscription = useSubscriptionOpener(
     element => {
       reportCreativeClick('creative_studio', 'asset_create', element, destinationTarget(destination));
     },
     onError,
-    () => { void gatewayRequest('settings/account?refresh=true').then(notifyProvidersChanged).catch((error: Error) => onError(error.message)); },
+    checkout => {
+      const prevPlanPromise = prevPlanRef.current ?? Promise.resolve(undefined);
+      prevPlanRef.current = undefined;
+      void Promise.all([prevPlanPromise, gatewayRequest<AccountSummary>('settings/account?refresh=true')])
+        .then(([prevPlan, updated]) => {
+          const { billingOk, planChanged } = evaluateEntitlementRefresh(prevPlan, updated);
+          reportEntitlementRefresh('creative_studio', checkout.hookId, checkout.entryId, billingOk ? 'success' : 'failure', planChanged);
+          notifyProvidersChanged();
+          window.dispatchEvent(new Event('motion:account-changed'));
+        })
+        .catch((error: Error) => {
+          reportEntitlementRefresh('creative_studio', checkout.hookId, checkout.entryId, 'failure', false);
+          onError(error.message);
+        });
+    },
   );
   const { title, details } = generationOfferCopy(destination, 'upgrade');
   return <MultimodalUpgradeCard
     subscription={subscription}
     visit={visit}
     model={destination.model ?? undefined}
-    onUpgrade={onUpgrade}
+    onUpgrade={capturePrevPlan}
     title={t(title)}
     details={t(details)}
     buttonLabel={t('Upgrade', undefined, 'generation offer')}
