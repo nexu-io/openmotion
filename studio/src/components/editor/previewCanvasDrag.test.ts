@@ -23,8 +23,10 @@ function createScene(declarative = false, position = false, tag = "div", cssLayo
   // Execute the exact child-frame script with deterministic layout measurements.
   const { dispatch, inline, swap } = new Function("document", "getComputedStyle", "HTMLElement", "sourceVersions", "describe",
     "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "sourceFileForElement",
-    PREVIEW_SOURCE_IDENTITY + PREVIEW_INSPECTOR + PREVIEW_CANVAS_DRAG + PREVIEW_SCENE_GESTURES + `
-      let applyingSceneUpdate = null;
+     PREVIEW_SOURCE_IDENTITY + PREVIEW_INSPECTOR + PREVIEW_CANVAS_DRAG + PREVIEW_SCENE_GESTURES + `
+       // The full bridge supplies this from PREVIEW_PEER_TIMING. These scene swaps run without a history draft.
+       let structureDraft;
+       let applyingSceneUpdate = null;
       function editInlineText(m) { return m.phase === 'pick' ? sourceVersions['one.html'] : null; }
       return { dispatch: sceneCanvasDrag, inline: sceneInlineText, swap(path, version, ready) {
         const host = document.getElementById('one');
