@@ -46,38 +46,33 @@ export const DEFAULT_DCR_ALLOWED_HTTPS_HOSTS: readonly string[] = [
   '*.vscode.dev',
   'github.dev',
   '*.open-design.ai',
-  '*.powerformer.net',
 ];
 
-const BLOCKED_CUSTOM_URI_SCHEMES = new Set([
-  'http:',
-  'https:',
-  'javascript:',
-  'data:',
-  'vbscript:',
-  'file:',
-  'blob:',
-  'about:',
-  'chrome:',
-  'chrome-extension:',
-  'edge:',
-  'moz-extension:',
-  'safari-extension:',
-  'ftp:',
-  'ftps:',
-  'ws:',
-  'wss:',
-  'mailto:',
-  'tel:',
-  'sms:',
+const ALLOWED_NATIVE_APP_SCHEMES = new Set([
+  'openmotion:',
+  'cursor:',
+  'vscode:',
+  'vscode-insiders:',
+  'vscode-webview:',
+  'windsurf:',
+  'trae:',
+  'kiro:',
+  'zed:',
+  'raycast:',
+  'claude:',
+  'tauri:',
+  'capacitor:',
 ]);
-const VALID_CUSTOM_SCHEME_RE = /^[a-z][a-z0-9+.-]*:$/;
+// RFC 8252 §7.1 private-use reverse-DNS URI scheme (e.g. `com.example.app:`, `io.nexu.openmotion:`).
+// Requires at least two DNS-style labels separated by dots so single-word OS protocol handlers
+// (`jar:`, `ms-msdt:`, `search-ms:`, `ms-officecmd:`, `view-source:`, etc.) are never admitted.
+const REVERSE_DNS_SCHEME_RE = /^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+:$/;
 
 export function isAllowedNativeAppScheme(protocol: string): boolean {
   const normalized = protocol.toLowerCase();
   return (
-    VALID_CUSTOM_SCHEME_RE.test(normalized) &&
-    !BLOCKED_CUSTOM_URI_SCHEMES.has(normalized)
+    ALLOWED_NATIVE_APP_SCHEMES.has(normalized) ||
+    REVERSE_DNS_SCHEME_RE.test(normalized)
   );
 }
 

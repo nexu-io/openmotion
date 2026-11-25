@@ -512,12 +512,19 @@ describe('Streamable HTTP /mcp Multi-Replica Sessions, 22 Tools, Security & 10 M
     );
     assert.equal(foreignOrigin.status, 403);
 
-    const fileOrigin = await rpcPost(
-      replicaA,
-      { jsonrpc: '2.0', id: 80, method: 'tools/list', params: {} },
-      { Authorization: `Bearer ${patA.token}`, Origin: 'file:///Users/test/index.html' },
-    );
-    assert.equal(fileOrigin.status, 403);
+    for (const [idx, blockedOrigin] of [
+      'file:///tmp/index.html',
+      'jar:file:///tmp/x',
+      'ms-msdt:/id',
+      'view-source:https://example.com',
+    ].entries()) {
+      const rejectedOrigin = await rpcPost(
+        replicaA,
+        { jsonrpc: '2.0', id: 70 + idx, method: 'tools/list', params: {} },
+        { Authorization: `Bearer ${patA.token}`, Origin: blockedOrigin },
+      );
+      assert.equal(rejectedOrigin.status, 403, `expected 403 for blocked Origin ${blockedOrigin}`);
+    }
 
     // Trusted cloud MCP hosts, loopback dev tools, and native desktop WebView origins are allowed on Bearer-only /mcp
     for (const [idx, allowedOrigin] of [

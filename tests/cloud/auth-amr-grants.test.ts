@@ -593,24 +593,37 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
       'vscode://openmotion.client/auth',
       'openmotion://auth/callback',
       'com.example.agent:/oauth/cb',
+      'io.nexu.openmotion://auth/callback',
       'https://claude.ai/api/mcp/auth_callback',
       'https://claude.com/api/mcp/auth_callback',
       'https://chatgpt.com/connector_platform_oauth_redirect',
       'https://chat.openai.com/oauth/callback',
       'https://app.cursor.com/oauth/callback',
       'https://motion.open-design.ai/oauth/callback',
-      'https://openmotion.powerformer.net/oauth/callback',
       'http://127.0.0.1:51234/callback',
     ]) {
       assert.equal(isAllowedOAuthRedirectUri(allowed), true, `expected allowed: ${allowed}`);
     }
+
+    assert.equal(
+      isAllowedOAuthRedirectUri('https://staging.example.test/oauth/callback', ['*.example.test']),
+      true,
+      'explicit OAUTH_DCR_ALLOWED_HTTPS_HOSTS wildcard must admit matching staging hosts',
+    );
 
     for (const blocked of [
       'javascript:alert(1)',
       'data:text/html,<script>alert(1)</script>',
       'vbscript:msgbox(1)',
       'file:///etc/passwd',
+      'jar:file:///etc/passwd!/x',
+      'ms-msdt:/id PCWDiagnostic',
+      'search-ms:query=test',
+      'ms-officecmd:/x',
+      'ms-browser-extension://abc/x',
+      'view-source:https://example.com',
       'chrome-extension://abcdef/cb',
+      'a..b://cb',
       'cursor://',
       'cursor://anysphere.cursor-mcp/oauth/callback#frag',
       'cursor://user:pass@anysphere.cursor-mcp/oauth/callback',
