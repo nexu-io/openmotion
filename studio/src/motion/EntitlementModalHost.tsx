@@ -75,6 +75,7 @@ export function EntitlementModalHost() {
         open
         mode={request.mode}
         hookId={request.hookId}
+        returnTo={request.returnTo}
         onClose={() => setRequest(null)}
       />
     </Suspense>

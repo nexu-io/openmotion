@@ -46,6 +46,7 @@ export interface EntitlementPromoModalProps {
   open: boolean;
   mode: EntitlementModalMode;
   hookId: EntitlementHookId;
+  returnTo?: string;
   onClose: () => void;
 }
 
@@ -53,6 +54,7 @@ export function EntitlementPromoModal({
   open,
   mode,
   hookId,
+  returnTo,
   onClose,
 }: EntitlementPromoModalProps) {
   const { t, locale } = useI18n();
@@ -114,7 +116,7 @@ export function EntitlementPromoModal({
       entry_id: entryId,
     });
     if (isGuest) {
-      window.location.assign(buildLoginUrl(undefined, { hookId, entryId }));
+      window.location.assign(buildLoginUrl(returnTo, { hookId, entryId }));
       return;
     }
     markExternalCheckoutPending(hookId, entryId);

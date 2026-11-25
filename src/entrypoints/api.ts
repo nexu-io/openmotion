@@ -2742,7 +2742,22 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.use('/motion-api/assets/*', authWithWelcome);
   app.use('/motion-api/exports/*', authWithWelcome);
   app.use('/motion-api/render/*', authWithWelcome);
-  app.use('/motion-api/models/*', authWithWelcome);
+  app.use('/motion-api/models/*', async (c, next) => {
+    const isPublicCatalogRead =
+      c.req.method === 'GET' &&
+      (c.req.path === '/motion-api/models' ||
+        c.req.path === '/motion-api/models/catalog' ||
+        c.req.path === '/motion-api/models/status');
+    if (isPublicCatalogRead && config.AUTH_MODE === 'oidc') {
+      const hasAuthHeader = c.req.header('authorization') !== undefined;
+      const cookieHeader = c.req.header('cookie') ?? '';
+      const hasSessionCookie = /(?:^|;\s*)om_session=/.test(cookieHeader);
+      if (!hasAuthHeader && !hasSessionCookie) {
+        return next();
+      }
+    }
+    return authWithWelcome(c, next);
+  });
   app.use('/motion-api/account/*', authWithWelcome);
 
   app.route(

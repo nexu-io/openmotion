@@ -213,7 +213,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   };
   const invalidReferences = draft.references.length > maximumReferences || Boolean(scene && needsImage(scene) && !draft.references.length);
   const shotPreferences = draft.shotPreferences ?? (studio?.destination.studio.id === 'shorts' ? { aspect: '9:16' } : undefined);
-  const parameterModel = selected;
+  const parameterModel = selected ?? preferred;
   const parameterKey = parameterModel ? `${scene?.id ?? 'direct'}:${parameterModel.id}` : '';
   const studioDefaultValues = (model?: typeof parameterModel): Record<string, unknown> | undefined => {
     if (!model || model.defaults?.quality !== undefined || !isOpenDesignProvider(model.provider) || !/^gpt-image-2\.6-/.test(model.modelId)) return undefined;
@@ -318,22 +318,37 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     setDraft(current => ({ ...current, model, parameters: undefined }));
     if (studio) studio.chooseModel(model);
   };
+  const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
+  const guestModelNotice = (
+    <div className="om-creation-setup" role="status" data-guest-model-guide="true">
+      <RemixIcon name="lock-line" size={18} />
+      <p className="om-muted">{t('Sign in with OpenDesign to continue.')}</p>
+      <Button
+        variant="ghost"
+        className="om-button h-auto"
+        onClick={() => openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' })}
+      >
+        {t('Sign in with OpenDesign')}
+      </Button>
+    </div>
+  );
   const modelPicker = gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
     ? <CreationModelPicker models={compatible} providers={gateway.status.providers} selected={preferred} appearance={imageWorkspace ? 'boxed' : 'standard'}
       providerHeading={providerHeading} modelHeading={studioModelHeading} disabled={busy} onChoose={chooseModel} popupClassName={imagePopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
     : <GenerationModelPickers models={choices} preferred={preferred} modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} />) : <>
     {modelHeading}
-    {failed
-      ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button>
-      : !gateway
-        ? <Skeleton className="om-asset-model-skeleton" />
-        : cloudEmptyCatalog
-          ? <CloudEmptyModelsNotice consoleUrl={gateway.status.consoleUrl} boxed={imageWorkspace} onOpenSubscription={openSubscription} />
-          : cloudFeatureUnavailable
-            ? cloudFeatureUnavailableNotice
-            : openDesignMissing ? openDesignSetup : manageProvidersNotice}
+    {cloudGuestSubmit && (failed || cloudEmptyCatalog)
+      ? guestModelNotice
+      : failed
+        ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button>
+        : !gateway
+          ? <Skeleton className="om-asset-model-skeleton" />
+          : cloudEmptyCatalog
+            ? <CloudEmptyModelsNotice consoleUrl={gateway.status.consoleUrl} boxed={imageWorkspace} onOpenSubscription={openSubscription} />
+            : cloudFeatureUnavailable
+              ? cloudFeatureUnavailableNotice
+              : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
-  const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
   const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
   const resolvedParameters = (() => {

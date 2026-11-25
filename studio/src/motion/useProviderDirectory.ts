@@ -94,11 +94,13 @@ export const notifyProvidersChanged = () => window.dispatchEvent(new Event('moti
 export function useProviderDirectory() {
   const [data, setData] = useState<CloudProviderDirectory | null>(null);
   const [error, setError] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
     let active = true;
     setError(false);
+    setAuthRequired(false);
     void (async () => {
       try {
         const [catalog, status] = await Promise.all([
@@ -110,15 +112,27 @@ export function useProviderDirectory() {
         ]);
         const normalized = normalizeDirectory(catalog, status);
         if (active) setData(normalized);
-      } catch {
-        if (active) setError(true);
+      } catch (err: unknown) {
+        const apiErr = err as CloudApiError | null;
+        if (active) {
+          if (apiErr?.status === 401) {
+            setAuthRequired(true);
+            setError(false);
+          } else {
+            setError(true);
+          }
+        }
       }
     })();
     return () => { active = false; };
   }, [revision]);
   useEffect(() => {
     window.addEventListener('motion:gateway-changed', refresh);
-    return () => window.removeEventListener('motion:gateway-changed', refresh);
+    window.addEventListener('motion:account-changed', refresh);
+    return () => {
+      window.removeEventListener('motion:gateway-changed', refresh);
+      window.removeEventListener('motion:account-changed', refresh);
+    };
   }, [refresh]);
-  return { data, error, refresh };
+  return { data, error, authRequired, refresh };
 }

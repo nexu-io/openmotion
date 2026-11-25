@@ -62,9 +62,50 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
     return ws?.defaultModels ?? {};
   };
 
+  const getOptionalAuth = (c: { get: (key: 'auth') => AuthContext | undefined }): AuthContext | null => {
+    try {
+      return c.get('auth') ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const loadPublicModels = async (signal?: AbortSignal) => {
+    try {
+      return await deps.gateway.listMediaModels(
+        {
+          workspaceId: 'public',
+          userId: 'guest',
+          signal,
+        },
+        { refresh: false },
+      );
+    } catch {
+      return [];
+    }
+  };
+
   app.get('/', async (c) => {
     try {
-      const auth = getAuthContext(c);
+      const auth = getOptionalAuth(c);
+      if (!auth) {
+        const modality = c.req.query('modality');
+        const query = c.req.query('query')?.trim().toLowerCase() ?? '';
+        const models = await loadPublicModels(c.req.raw.signal);
+        const filtered = models.filter((m) => {
+          if (modality && m.modality !== modality) return false;
+          if (query && !m.id.toLowerCase().includes(query) && !m.label.toLowerCase().includes(query)) {
+            return false;
+          }
+          return true;
+        });
+        return c.json({
+          provider: deps.gateway.providerId,
+          mode: deps.gateway.mode,
+          defaults: {},
+          models: filtered,
+        });
+      }
       assertScope(auth, 'assets:read');
       const refresh = c.req.query('refresh') === 'true';
       const modality = c.req.query('modality');
@@ -99,7 +140,16 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
 
   app.get('/catalog', async (c) => {
     try {
-      const auth = getAuthContext(c);
+      const auth = getOptionalAuth(c);
+      if (!auth) {
+        const models = await loadPublicModels(c.req.raw.signal);
+        return c.json({
+          provider: deps.gateway.providerId,
+          mode: deps.gateway.mode,
+          defaults: {},
+          models,
+        });
+      }
       assertScope(auth, 'assets:read');
       const refresh = c.req.query('refresh') === 'true';
       const [models, defaults] = await Promise.all([
@@ -122,7 +172,14 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
 
   app.get('/status', async (c) => {
     try {
-      const auth = getAuthContext(c);
+      const auth = getOptionalAuth(c);
+      if (!auth) {
+        const models = await loadPublicModels(c.req.raw.signal);
+        return c.json({
+          ...buildGatewayStatus(models, {}, null),
+          ...(deps.consoleUrl ? { consoleUrl: deps.consoleUrl } : {}),
+        });
+      }
       assertScope(auth, 'assets:read');
       const ctx = gatewayCallContextFromAuth(auth, { signal: c.req.raw.signal });
       const [models, defaults, billing] = await Promise.all([

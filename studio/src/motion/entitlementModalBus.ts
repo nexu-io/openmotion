@@ -9,6 +9,7 @@ export interface EntitlementModalRequest {
   mode: EntitlementModalMode;
   hookId: EntitlementHookId;
   triggerLabel?: string;
+  returnTo?: string;
 }
 
 type ModalListener = (request: EntitlementModalRequest) => void;

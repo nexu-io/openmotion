@@ -14,6 +14,10 @@ import type { StudioCreation } from './CreativeWorkspace';
 import { CreationModelPicker } from './GenerationModelPickers';
 import { emptyParameters, requestParameters, type ParameterDraft } from './GenerationParameters';
 import { CloudEmptyModelsNotice, isCloudEmptyCatalog, isUnifiedCloudGateway } from './ProviderSetupNotice';
+import { upgradePlan, useAccountSummary } from './AccountSettings';
+import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
+import { FreePlanGenerationGate } from './EntitlementTouchpointCards';
+import { isOpenDesignProvider } from './imageMenuModels';
 import * as tracking from './pageTracking';
 import { SoundAdvancedParameters, SoundParameters } from './SoundParameters';
 import {
@@ -109,6 +113,14 @@ export function SoundComposer({
     return () => { mounted.current = false; };
   }, []);
 
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
+  const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
+  const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
+  const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
+  const entitlementGate = hostedPlanUpgrade
+    ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
+    : null;
   const cloudEmptyCatalog = isCloudEmptyCatalog(gateway, compatible.length);
   const unifiedCloudOnly = isUnifiedCloudGateway(gateway?.status.providers);
   const openSubscription = () => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
@@ -122,7 +134,9 @@ export function SoundComposer({
       ? previewModel.defaults.speed
       : 1;
   const estimatedSeconds = tabId === 'speech' ? estimateSpeechSeconds(draft.prompt, currentSpeed) : 0;
-  const canSubmit = Boolean(selected && draft.prompt.trim() && !busy);
+  const canSubmit = cloudGuestSubmit
+    ? !busy
+    : Boolean(selected && draft.prompt.trim() && !busy && !hostedPlanUpgrade);
   const cjkLocale = locale === 'zh-CN' || locale === 'ja';
   const tags = tabId === 'sfx' ? SOUND_SFX_TAGS : SOUND_MUSIC_TAGS;
 
@@ -249,6 +263,14 @@ export function SoundComposer({
             onKeyDown={event => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && canSubmit) {
                 event.preventDefault();
+                if (cloudGuestSubmit) {
+                  if (hasEntitlementModalListeners()) {
+                    openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' });
+                  } else {
+                    (openAccountSettings ?? openModelSettings)();
+                  }
+                  return;
+                }
                 void submit();
               }
             }}
@@ -336,7 +358,20 @@ export function SoundComposer({
             ) : (
               <>
                 {fallbackModelHeading}
-                {failed ? (
+                {cloudGuestSubmit && (failed || cloudEmptyCatalog) ? (
+                  <div className="om-creation-setup" role="status" data-guest-model-guide="true">
+                    <RemixIcon name="lock-line" size={18} />
+                    <p className="om-muted">{t('Sign in with OpenDesign to continue.')}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="om-button h-auto"
+                      onClick={() => openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' })}
+                    >
+                      {t('Sign in with OpenDesign')}
+                    </Button>
+                  </div>
+                ) : failed ? (
                   <Button type="button" variant="ghost" className="om-button h-auto" onClick={retry}>
                     <RemixIcon name="refresh-line" size={16} />
                     {t('Retry loading models')}
@@ -445,13 +480,24 @@ export function SoundComposer({
       </div>
 
       <div className="om-creation-submit om-sound-submit">
+        {entitlementGate}
         <Button
           type="button"
           variant="plain"
           className="om-button om-creation-submit-button"
           data-primary
           disabled={!canSubmit}
-          onClick={() => void submit()}
+          onClick={() => {
+            if (cloudGuestSubmit) {
+              if (hasEntitlementModalListeners()) {
+                openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' });
+              } else {
+                (openAccountSettings ?? openModelSettings)();
+              }
+              return;
+            }
+            void submit();
+          }}
         >
           <RemixIcon
             name={busy ? 'loader-4-line' : 'sparkling-fill'}
