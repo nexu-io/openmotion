@@ -1,11 +1,47 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
-import { diffPreviewChanges, diffScriptedPreviewStyles, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
+import { diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, refreshPeerScenes, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
 
 const source = '<!doctype html><main data-composition-id="root" data-duration="15"><audio id="a" data-start="2" data-duration="3"></audio><script>window.run(1)</script></main>';
 
 describe("peer timing classification", () => {
+  it("identifies a single visual clip deletion and the new composition end together", () => {
+    const clip = '<div class="clip" data-hf-id="first" data-start="0" data-duration="3">First</div>';
+    const remaining = '<div class="clip" data-hf-id="last" data-start="5" data-duration="2">Last</div>';
+    const previous = '<main data-composition-id="root" data-duration="12">' + clip + remaining + '</main>';
+    const current = previous.replace(clip, '').replace('"12"', '"7"');
+    expect(diffPreviewChanges(previous, current)).toMatchObject([
+      { hfId: "first", removeFromComposition: "root", attributes: [] },
+      { compositionId: "root", attributes: [["data-duration", "12", "7"]] },
+    ]);
+    for (const [from, to] of [
+      ['<main ', '<script>setup()</script><main '], ['data-start="5"', 'data-start="first + 1"'],
+      [clip, clip.replace('>First', '><span>First</span>')], [clip, clip.replaceAll('div', 'video')],
+    ] as const) {
+      expect(diffPreviewChanges(previous.replace(from, to), current.replace(from, to))).toBeNull();
+    }
+    expect(diffPreviewChanges(previous, current.replace(remaining, ''))).toBeNull();
+    expect(diffPreviewChanges(previous, current.replace('class="clip"', 'class="changed"'))).toBeNull();
+  });
+
+  it("inserts one plain visual leaf and changes its sibling timing in the same revision", () => {
+    const leaf = '<div id="intro" class="clip" data-hf-id="first" data-start="0" data-duration="3">Hi</div>';
+    const previous = '<main data-composition-id="root">\n' + leaf + '</main>';
+    const clone = leaf.replace('id="intro"', 'id="copy"').replace('"first"', '"copy-hf"').replace('>Hi', ' style="background:#ffeedd;z-index:2">Hi');
+    const current = previous.replace(leaf, clone + '\n  ' + leaf.replace('"3"', '"2"'));
+    expect(diffPreviewChanges(previous, current)).toMatchObject([
+      { id: "copy", insert: { owner: "root", next: "first", text: "Hi", whitespace: ["\n", "\n", "\n  "] } },
+      { id: "intro", attributes: [["data-duration", "3", "2"]] },
+    ]);
+    for (const unsupported of [current.replace('>Hi', '><b>Hi</b>'),
+      current.replace('id="copy"', 'id="intro"'), current.replace('background:#ffeedd', 'background:url(asset.png)'),
+      current.replace('id="copy"', 'id="copy" onclick="setup()"'), current.replace('id="copy"', 'id="copy" data-composition-src="other.html"'),
+      current.replace('id="intro"', 'id="changed"'), current + '<script>setup()</script>']) {
+      expect(diffPreviewChanges(previous, unsupported)).toBeNull();
+    }
+  });
+
   it("includes root and media in a single verified set and requires stable identities", () => {
     const next = source.replace('"15"', '"14"').replace('data-start="2"', 'data-start="3" data-media-start="1"');
     expect(diffPreviewChanges(source, next)?.map(change => [change.id || change.compositionId, change.attributes])).toEqual([
@@ -60,6 +96,19 @@ describe("peer timing classification", () => {
     expect(diffPreviewChanges('<div id="clip"></div>', '<div id="clip" muted></div>')).toBeNull();
   });
 
+  it("identifies a media speed change together with its shorter clip and following clip", () => {
+    const before = '<main data-composition-id="film" data-duration="8"><video id="shot" data-start="0" data-duration="4"></video><div id="end" data-start="4"></div></main>';
+    const after = before.replace('data-duration="8"', 'data-duration="6"')
+      .replace('data-duration="4"', 'data-duration="2" data-playback-rate="2"')
+      .replace('data-start="4"', 'data-start="2"');
+    expect(diffPreviewChanges(before, after)).toMatchObject([
+      { compositionId: "film", attributes: [["data-duration", "8", "6"]] },
+      { id: "shot", attributes: [["data-duration", "4", "2"], ["data-playback-rate", null, "2"]] },
+      { id: "end", attributes: [["data-start", "4", "2"]] },
+    ]);
+    expect(diffPreviewChanges(before, after.replace('rate="2"', 'rate="0"'))).toBeNull();
+  });
+
   it("clears a fill image in place while loading a new image through the asset pipeline", () => {
     const before = '<div id="tile" style="background-color:red"></div>';
     const filled = '<div id="tile" style="background-color:blue;background-image:none"></div>';
@@ -82,6 +131,18 @@ describe("peer timing classification", () => {
     expect(diffPreviewChanges(before, marked)?.[0]?.captureOriginalTranslate).toBe(true);
     expect(diffPreviewChanges(marked, before)?.[0]?.captureOriginalTranslate).toBe(false);
     expect(diffPreviewChanges(before, marked.replace('translate=""', 'translate="90px"'))).toBeNull();
+  });
+
+  it("moves a canvas element without altering its drawing buffer, CSS size or script", () => {
+    const before = '<template><canvas id="reel" width="1920" height="1080"></canvas><script>draw();</script></template>';
+    const after = before.replace('id="reel"', 'id="reel" style="left: 45px; top: 12px"');
+    expect(diffPreviewChanges(before, after)?.[0]?.styles).toEqual([["left", "", "45px"], ["top", "", "12px"]]);
+    const firstMove = after.replace("left: 45px", "position: relative; left: 45px");
+    expect(diffPreviewChanges(before, firstMove)?.[0]?.styles).toEqual([["position", "", "relative"], ["left", "", "45px"], ["top", "", "12px"]]);
+    expect(diffPreviewChanges(firstMove, before)?.[0]?.styles).toContainEqual(["position", "relative", ""]);
+    for (const changed of [firstMove.replace("relative", "absolute"), after.replace('width="1920"', 'width="1280"'), after.replace('45px;', '45px; width: 50px;'), after.replace('draw();', 'drawNext();')]) {
+      expect(diffPreviewChanges(before, changed)).toBeNull();
+    }
   });
 
   it("falls back for a changed tween, markup, source, label, style or expression in the same edit", () => {
@@ -107,4 +168,66 @@ it("keeps an unverified font change visible while the certified project's script
   }, () => true, "keep-visible");
   expect(result).toBe(false);
   expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "peer-presentation", temporary: true }), "https://preview.test");
+});
+
+it("diffs an animated canvas resize in the authored declaration order only with CSS layout capabilities", () => {
+  const before = '<style>@keyframes slide{to{left:24px;top:2px}}</style><canvas id="art" width="640" style="animation:slide 1s infinite"></canvas>';
+  for (const geometry of ['translate: 15px -9px; width: 20px; height: 30px', 'height: 30px; width: 20px; translate: 15px -9px']) {
+    const after = before.replace('1s infinite', '1s infinite; ' + geometry);
+    const certified = {cssLayoutOffset: true};
+    expect(diffPreviewChanges(before, after)).toBeNull();
+    expect(diffPreviewChanges(before, after, certified)?.[0]?.styles?.map(([name]) => name)).toEqual(geometry.split('; ').map(s => s.split(':')[0]));
+    expect(diffPreviewChanges(after, before, certified)).not.toBeNull();
+    expect(diffPreviewChanges(before, after.replace('640', '1280'), certified)).toBeNull();
+    expect(diffPreviewChanges(before, after.replace('24px', '48px'), certified)).toBeNull();
+    expect(diffPreviewChanges(before, after.replace('15px -9px', '15% -9px'), certified)).toBeNull();
+  }
+});
+
+it("accepts a peer paint and a measured local media box together without changing the canvas buffer", () => {
+  const before = '<canvas id="picture" width="1200"></canvas>';
+  const after = before.replace('id="picture"', 'id="picture" style="position:relative;left:16px;opacity:.52"');
+  expect(diffPreviewChanges(before, after, {measured: true})).toMatchObject([{id:"picture", tag:"canvas"}]);
+  expect(diffPreviewChanges(before, after.replace('width="1200"', 'width="1600"'), {measured: true})).toBeNull();
+});
+
+it("derives every changed element in a large source without changing the rest of the document", () => {
+  const titles = Array.from({ length: 80 }, (_, i) => '<p id="title-' + i + '" style="color: red">hello</p>');
+  const original = '<main>' + ' '.repeat(150 * 1024) + titles.join('') + '</main>';
+  const next = original.replaceAll('color: red', 'color: blue');
+  expect(diffPreviewChanges(original, next)).toHaveLength(titles.length);
+  expect(diffPreviewChanges(original, next + '<script>boot()</script>')).toBeNull();
+});
+
+it.each(["patch", "scene swap"])("records a superseded %s without letting a late reply overwrite the mounted version", async kind => {
+  const frame = document.createElement("iframe");
+  frame.src = "https://preview.test/api/projects/p/preview?pt=active";
+  const child = { postMessage: vi.fn() };
+  Object.defineProperty(frame, "contentWindow", { value: child });
+  const path = kind === "scene swap" ? "scene.html" : "index.html";
+  rememberPeerTimingDocument(frame, "active", "document", undefined, {}, true, { [path]: "v1" });
+  const file = (version: string) => ({ content: '<p id="t">' + version + '</p>', version });
+  let current = true;
+  const send = (from: string, to: string) => kind === "scene swap"
+    ? refreshPeerScenes(frame, [[path, to]], () => current)
+    : tryApplyPeerChanges(frame, { path, previous: file(from), current: file(to) }, () => current);
+  const ack = (index: number) => {
+    const sent = child.postMessage.mock.calls[index]![0];
+    window.dispatchEvent(new MessageEvent("message", {source: child as unknown as Window,
+      origin: "https://preview.test", data: {...sent, source: "openmotion-preview-bridge", type: "response", result: true}}));
+  };
+  const first = send("v1", "v2");
+  await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(1));
+  current = false;
+  ack(0);
+  expect(await first).toBe(false);
+  expect(mountedPeerFileVersion(frame, path)).toBe("v2");
+  current = true;
+  const second = send("v2", "v3"), third = send("v3", "v4");
+  await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(3));
+  ack(2);
+  expect(await third).toBe(true);
+  ack(1);
+  await second;
+  expect(mountedPeerFileVersion(frame, path)).toBe("v4");
 });

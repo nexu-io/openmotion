@@ -1,5 +1,6 @@
 {
   "zh-CN": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "这个图层有多段位置动画。请选择要修改的那一段。",
     "Uploaded {uploaded}.": "已上传 {uploaded} 个。",
     "Uploaded {uploaded}, not uploaded {failed}.": "已上传 {uploaded} 个，{failed} 个未上传。",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "已上传 {uploaded} 个，{unknown} 个结果待确认。",
@@ -68,9 +69,12 @@
     "Content has changed. This step cannot be undone.": "内容已变更，无法撤销这一步",
     "Content has changed. This step cannot be redone.": "内容已变更，无法重做这一步",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "支持的图片格式：PNG、JPG/JPEG、WebP、GIF、AVIF。",
-    "Switching projects. Please try again shortly.": "正在切换项目，请稍后重试。"
+    "Switching projects. Please try again shortly.": "正在切换项目，请稍后重试。",
+    "Page not found": "页面不存在",
+    "The page you are looking for does not exist or is no longer available.": "你访问的页面不存在，或已下线。"
   },
   "ja": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "このレイヤーには位置のアニメーションが複数あります。変更するものを選んでください。",
     "Uploaded {uploaded}.": "アップロード済み：{uploaded} 件。",
     "Uploaded {uploaded}, not uploaded {failed}.": "アップロード済み：{uploaded} 件、未アップロード：{failed} 件。",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "アップロード済み：{uploaded} 件、結果未確認：{unknown} 件。",
@@ -139,9 +143,12 @@
     "Content has changed. This step cannot be undone.": "内容が変更されたため、この操作は元に戻せません。",
     "Content has changed. This step cannot be redone.": "内容が変更されたため、この操作はやり直せません。",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "対応する画像形式：PNG、JPG/JPEG、WebP、GIF、AVIF。",
-    "Switching projects. Please try again shortly.": "プロジェクトを切り替え中です。しばらくしてからもう一度お試しください。"
+    "Switching projects. Please try again shortly.": "プロジェクトを切り替え中です。しばらくしてからもう一度お試しください。",
+    "Page not found": "ページが見つかりません",
+    "The page you are looking for does not exist or is no longer available.": "お探しのページは存在しないか、現在利用できません。"
   },
   "ko": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "이 레이어에는 위치 애니메이션이 여러 개 있습니다. 수정할 애니메이션을 선택하세요.",
     "Uploaded {uploaded}.": "업로드됨: {uploaded}개.",
     "Uploaded {uploaded}, not uploaded {failed}.": "업로드됨: {uploaded}개, 업로드되지 않음: {failed}개.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "업로드됨: {uploaded}개, 결과 확인 필요: {unknown}개.",
@@ -210,9 +217,12 @@
     "Content has changed. This step cannot be undone.": "내용이 변경되어 이 단계를 실행 취소할 수 없습니다.",
     "Content has changed. This step cannot be redone.": "내용이 변경되어 이 단계를 다시 실행할 수 없습니다.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "지원하는 이미지 형식: PNG, JPG/JPEG, WebP, GIF, AVIF.",
-    "Switching projects. Please try again shortly.": "프로젝트를 전환하는 중입니다. 잠시 후 다시 시도하세요."
+    "Switching projects. Please try again shortly.": "프로젝트를 전환하는 중입니다. 잠시 후 다시 시도하세요.",
+    "Page not found": "페이지를 찾을 수 없습니다",
+    "The page you are looking for does not exist or is no longer available.": "찾으시는 페이지가 존재하지 않거나 더 이상 이용할 수 없습니다."
   },
   "de": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Diese Ebene hat mehrere Positionsanimationen. Wähle die Animation aus, die du ändern möchtest.",
     "Uploaded {uploaded}.": "Hochgeladen: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Hochgeladen: {uploaded}, nicht hochgeladen: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Hochgeladen: {uploaded}, Ergebnis unbestätigt: {unknown}.",
@@ -281,9 +291,12 @@
     "Content has changed. This step cannot be undone.": "Der Inhalt wurde geändert. Dieser Schritt kann nicht rückgängig gemacht werden.",
     "Content has changed. This step cannot be redone.": "Der Inhalt wurde geändert. Dieser Schritt kann nicht wiederholt werden.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Unterstützte Bildformate: PNG, JPG/JPEG, WebP, GIF und AVIF.",
-    "Switching projects. Please try again shortly.": "Projekt wird gewechselt. Bitte versuchen Sie es gleich noch einmal."
+    "Switching projects. Please try again shortly.": "Projekt wird gewechselt. Bitte versuchen Sie es gleich noch einmal.",
+    "Page not found": "Seite nicht gefunden",
+    "The page you are looking for does not exist or is no longer available.": "Die gesuchte Seite existiert nicht oder ist nicht mehr verfügbar."
   },
   "fr": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Ce calque a plusieurs animations de position. Sélectionnez celle que vous souhaitez modifier.",
     "Uploaded {uploaded}.": "Téléversés : {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Téléversés : {uploaded}, non téléversés : {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Téléversés : {uploaded}, résultat à confirmer : {unknown}.",
@@ -352,9 +365,12 @@
     "Content has changed. This step cannot be undone.": "Le contenu a changé. Cette étape ne peut pas être annulée.",
     "Content has changed. This step cannot be redone.": "Le contenu a changé. Cette étape ne peut pas être rétablie.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formats d’image pris en charge : PNG, JPG/JPEG, WebP, GIF et AVIF.",
-    "Switching projects. Please try again shortly.": "Changement de projet en cours. Veuillez réessayer dans un instant."
+    "Switching projects. Please try again shortly.": "Changement de projet en cours. Veuillez réessayer dans un instant.",
+    "Page not found": "Page introuvable",
+    "The page you are looking for does not exist or is no longer available.": "La page que vous recherchez n’existe pas ou n’est plus disponible."
   },
   "es": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Esta capa tiene varias animaciones de posición. Selecciona la que quieras modificar.",
     "Uploaded {uploaded}.": "Subidos: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Subidos: {uploaded}, no subidos: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Subidos: {uploaded}, resultado por confirmar: {unknown}.",
@@ -423,9 +439,12 @@
     "Content has changed. This step cannot be undone.": "El contenido ha cambiado. No se puede deshacer este paso.",
     "Content has changed. This step cannot be redone.": "El contenido ha cambiado. No se puede rehacer este paso.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formatos de imagen admitidos: PNG, JPG/JPEG, WebP, GIF y AVIF.",
-    "Switching projects. Please try again shortly.": "Cambiando de proyecto. Inténtalo de nuevo en unos momentos."
+    "Switching projects. Please try again shortly.": "Cambiando de proyecto. Inténtalo de nuevo en unos momentos.",
+    "Page not found": "Página no encontrada",
+    "The page you are looking for does not exist or is no longer available.": "La página que buscas no existe o ya no está disponible."
   },
   "pt-BR": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Esta camada tem várias animações de posição. Selecione a que deseja alterar.",
     "Uploaded {uploaded}.": "Enviados: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Enviados: {uploaded}, não enviados: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Enviados: {uploaded}, resultado a confirmar: {unknown}.",
@@ -494,9 +513,12 @@
     "Content has changed. This step cannot be undone.": "O conteúdo mudou. Não é possível desfazer esta etapa.",
     "Content has changed. This step cannot be redone.": "O conteúdo mudou. Não é possível refazer esta etapa.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formatos de imagem compatíveis: PNG, JPG/JPEG, WebP, GIF e AVIF.",
-    "Switching projects. Please try again shortly.": "Alternando projetos. Tente novamente em instantes."
+    "Switching projects. Please try again shortly.": "Alternando projetos. Tente novamente em instantes.",
+    "Page not found": "Página não encontrada",
+    "The page you are looking for does not exist or is no longer available.": "A página que você procura não existe ou não está mais disponível."
   },
   "it": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Questo livello ha più animazioni di posizione. Seleziona quella da modificare.",
     "Uploaded {uploaded}.": "Caricati: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Caricati: {uploaded}, non caricati: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Caricati: {uploaded}, esito da confermare: {unknown}.",
@@ -565,9 +587,12 @@
     "Content has changed. This step cannot be undone.": "Il contenuto è cambiato. Impossibile annullare questo passaggio.",
     "Content has changed. This step cannot be redone.": "Il contenuto è cambiato. Impossibile ripetere questo passaggio.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formati immagine supportati: PNG, JPG/JPEG, WebP, GIF e AVIF.",
-    "Switching projects. Please try again shortly.": "Cambio progetto in corso. Riprova tra un momento."
+    "Switching projects. Please try again shortly.": "Cambio progetto in corso. Riprova tra un momento.",
+    "Page not found": "Pagina non trovata",
+    "The page you are looking for does not exist or is no longer available.": "La pagina che stai cercando non esiste o non è più disponibile."
   },
   "ru": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "У этого слоя несколько анимаций положения. Выберите ту, которую хотите изменить.",
     "Uploaded {uploaded}.": "Загружено: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Загружено: {uploaded}, не загружено: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Загружено: {uploaded}, результат не подтверждён: {unknown}.",
@@ -636,9 +661,12 @@
     "Content has changed. This step cannot be undone.": "Содержимое изменилось. Этот шаг нельзя отменить.",
     "Content has changed. This step cannot be redone.": "Содержимое изменилось. Этот шаг нельзя повторить.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Поддерживаемые форматы изображений: PNG, JPG/JPEG, WebP, GIF и AVIF.",
-    "Switching projects. Please try again shortly.": "Переключение проекта. Повторите попытку чуть позже."
+    "Switching projects. Please try again shortly.": "Переключение проекта. Повторите попытку чуть позже.",
+    "Page not found": "Страница не найдена",
+    "The page you are looking for does not exist or is no longer available.": "Запрошенная страница не существует или больше недоступна."
   },
   "tr": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Bu katmanda birden fazla konum animasyonu var. Değiştirmek istediğinizi seçin.",
     "Uploaded {uploaded}.": "Yüklenen: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Yüklenen: {uploaded}, yüklenmeyen: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Yüklenen: {uploaded}, sonucu doğrulanmamış: {unknown}.",
@@ -707,6 +735,8 @@
     "Content has changed. This step cannot be undone.": "İçerik değişti. Bu adım geri alınamaz.",
     "Content has changed. This step cannot be redone.": "İçerik değişti. Bu adım yeniden uygulanamaz.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Desteklenen görüntü biçimleri: PNG, JPG/JPEG, WebP, GIF ve AVIF.",
-    "Switching projects. Please try again shortly.": "Proje değiştiriliyor. Lütfen birazdan tekrar deneyin."
+    "Switching projects. Please try again shortly.": "Proje değiştiriliyor. Lütfen birazdan tekrar deneyin.",
+    "Page not found": "Sayfa bulunamadı",
+    "The page you are looking for does not exist or is no longer available.": "Aradığınız sayfa mevcut değil veya artık kullanılamıyor."
   }
 }

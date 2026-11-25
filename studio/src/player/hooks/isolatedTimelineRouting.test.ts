@@ -9,6 +9,23 @@ import { PREVIEW_BRIDGE_SOURCE, PREVIEW_BRIDGE_VERSION } from "../lib/previewAda
 import { buildTimelineElementsFromClips } from "./timelineSyncHydration";
 import { createPreviewMessageHandler, type ClipManifestMessage } from "./previewMessageRouter";
 
+it("keeps live resize bounds out of timeline refreshes", () => {
+  const frame = document.createElement("iframe");
+  const origin = "https://preview.test";
+  frame.src = origin + "/api/projects/p/preview?pt=active";
+  Object.defineProperty(frame, "contentWindow", { value: { postMessage: vi.fn() } });
+  const enrich = vi.fn();
+  const route = createPreviewMessageHandler({ iframeRef: { current: frame },
+    processTimelineMessageRef: { current: vi.fn() }, enrichMissingCompositionsRef: { current: enrich },
+    lastTimelineMessageRef: { current: 0 }, getAdapter: () => null, syncTimelineElements: vi.fn() });
+  const send = (type: string) => route(new MessageEvent("message", { source: frame.contentWindow, origin,
+    data: { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, projectId: "p", token: "active", type, phase: "bounds" } }));
+  send("canvas-drag");
+  expect(enrich).not.toHaveBeenCalled();
+  send("timeline-state");
+  expect(enrich).toHaveBeenCalledOnce();
+});
+
 it("keeps authored identity across runtime notifications and only accepts it from the current frame", () => {
   const origin = "https://preview.test";
   const child = { postMessage: vi.fn() };
@@ -66,6 +83,27 @@ it("rejects a delayed clip list from before a confirmed rebind of the same docum
   rememberPeerTimingDocument(frame, "active", undefined, "replacement", { mediaTiming: true });
   route(event({ ...list, timelineVersion: "different" }));
   expect(process).toHaveBeenCalledTimes(2);
+});
+
+it.each(["new", "old"])("checks the mounted file after losing the paint reply (%s)", async (mounted) => {
+  const frame = document.createElement("iframe");
+  const origin = "https://preview.test";
+  frame.src = origin + "/api/projects/p/preview?pt=active";
+  const messages: string[] = [];
+  const envelope = { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, projectId: "p", token: "active" };
+  Object.defineProperty(frame, "contentWindow", { value: { postMessage({ type, requestId }: { type: string; requestId: string }) {
+    messages.push(type);
+    if (type === "mounted-file-version") {
+      window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, origin,
+        data: { ...envelope, type: "response", requestId, result: mounted } }));
+    }
+  } } });
+  rememberPeerTimingDocument(frame, "active", "doc");
+  const content = '<audio id="sound" data-start="0"></audio>';
+  const applied = await tryApplyPeerChanges(frame, { path: "index.html", previous: { content, version: "old" },
+    current: { content: content.replace('"0"', '"2"'), version: "new" } }, () => true);
+  expect(applied).toBe(mounted === "new");
+  expect(messages).toEqual(["peer-timing", "mounted-file-version"]);
 });
 
 it("patches an anonymous legacy clip using exactly the same hf-id as its preview", () => {

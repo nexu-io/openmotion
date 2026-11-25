@@ -1,8 +1,10 @@
 import { useMvpEditor } from "../../motion/StudioHost";
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { memo, useLayoutEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
+import { thumbnailScheduler } from "../lib/thumbnailScheduler";
 import { canSplitElement } from "../../utils/timelineElementSplit";
 import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
 import { useMenuKeyboardNav } from "./menuKeyboardNav";
@@ -206,6 +208,25 @@ export const ClipContextMenu = memo(function ClipContextMenu({
             currentTime={currentTime}
             onClose={onClose}
           />
+        )}
+        {element.compositionSrc && (
+          <Button
+            variant="plain"
+            type="button"
+            role="menuitem"
+            className={itemClass(true)}
+            onClick={() => {
+              const compPath = element.compositionSrc!.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+              const store = usePlayerStore.getState();
+              if (store.timelineProjectId) {
+                thumbnailScheduler.retryFailed(store.timelineProjectId, compPath);
+              }
+              store.bumpThumbnailRevisions([compPath]);
+              onClose();
+            }}
+          >
+            <span>{t("Refresh thumbnail")}</span>
+          </Button>
         )}
       </div>
 

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { BlockParam, RegistryItem } from '@hyperframes/core/registry';
 import catalog from '../../library/components/registry/catalog.json' with { type: 'json' };
 import { componentOverlaySource } from '../../shared/registry-material-compat.ts';
@@ -21,8 +22,17 @@ function normalizeParam(param: BlockParam | PublishedParam): BlockParam {
     type: param.type === 'string' ? 'text' : param.type === 'enum' ? 'select' : param.type,
   };
 }
+// These catalog compositions ship with explicit parameter bindings maintained in OpenMotion.
+const bundledBlocks = new Set([
+  'data-chart', 'logo-outro', 'vfx-liquid-background', 'vfx-liquid-glass', 'vfx-magnetic', 'vfx-portal',
+]);
+
+function publishedParams(name: string, params: (BlockParam | PublishedParam)[]) {
+  // Magnetic's title, body and card labels each own a different color; the registry's generic text color has no target.
+  return params.map(normalizeParam).filter(param => name !== 'vfx-magnetic' || param.key !== '--text-color');
+}
 const items = (catalog.items as CatalogItem[]).map(item =>
-  item.type === 'hyperframes:block' && item.params ? { ...item, params: item.params.map(normalizeParam) } : item,
+  item.type === 'hyperframes:block' && item.params ? { ...item, params: publishedParams(item.name, item.params) } : item,
 );
 const byName = new Map(items.map(item => [item.name, item]));
 // The sidebar uses card metadata. Installation uses the complete manifest server-side.
@@ -52,6 +62,8 @@ export async function prepareMotionComponent(item: RegistryItem, existing: Reado
   const missing = item.files.filter(file => !existing.has(file.target));
   const ops: ProjectFileOp[] = [];
   if (missing.length) {
+    const primary = primaryFile(item);
+    const bundled = item.type === 'hyperframes:block' && bundledBlocks.has(item.name);
     const directory = item.type === 'hyperframes:block' ? 'blocks' : 'components';
     const base = `https://raw.githubusercontent.com/heygen-com/hyperframes/${catalog.revision}/registry/${directory}/${item.name}/`;
     const controller = new AbortController();
@@ -60,13 +72,14 @@ export async function prepareMotionComponent(item: RegistryItem, existing: Reado
     const pending = missing.values();
     async function download() {
       for (const file of pending) {
-        const url = file.url ?? base + file.path.split('/').map(encodeURIComponent).join('/');
-        const response = await fetch(url, { signal, redirect: 'error' });
-        const data = await boundedMediaBody(response, Math.min(remaining, 64 * 1024 * 1024));
+        const data = bundled && file === primary
+          ? await readFile(new URL(`../../library/components/registry/blocks/${item.name}.html`, import.meta.url))
+          : await boundedMediaBody(await fetch(file.url ?? base + file.path.split('/').map(encodeURIComponent).join('/'),
+            { signal, redirect: 'error' }), Math.min(remaining, 64 * 1024 * 1024));
         remaining -= data.length;
         if (remaining < 0) throw new Error('Component exceeds the install size limit');
         let content = file.type === 'hyperframes:snippet' ? mountableSnippet(item.name, data) : data;
-        if (forPlacement && item.type === 'hyperframes:component' && file.target === primaryFile(item).target) {
+        if (forPlacement && item.type === 'hyperframes:component' && file === primary) {
           content = Buffer.from(componentOverlaySource(content.toString('utf8')));
         }
         ops.push({ op: 'upsert_binary', path: file.target, data: content, mimeType: getMimeType(file.target) });

@@ -45,3 +45,46 @@ export function writeTranslatePx(el: HTMLElement, p: Point): void {
   }
   el.style.setProperty('translate', formatTranslatePx(p));
 }
+
+/** Resolve authored pixel insets for a headless layer move. A viewport-dependent cascade needs a measured box. */
+export function authoredLayerBox(el: HTMLElement, delta: Point) {
+  const template = el.closest('template');
+  const roots = template ? [el.ownerDocument, template] : [el.ownerDocument];
+  const declarations: CSSStyleDeclaration[] = [];
+  const collect = (rules: CSSRuleList): boolean => Array.from(rules).every(rule => {
+    if (!('selectorText' in rule) || ('cssRules' in rule && (rule.cssRules as CSSRuleList).length)) return false;
+    const style = rule as CSSStyleRule;
+    if (el.matches(style.selectorText)) declarations.push(style.style);
+    return true;
+  });
+  try {
+    for (const root of roots) {
+      if (root.querySelector('link[rel~="stylesheet"]')) return;
+      for (const style of root.querySelectorAll('style')) {
+        if (!style.sheet || style.hasAttribute('media') || !collect(style.sheet.cssRules)) return;
+      }
+    }
+  } catch { return; }
+  const property = (name: string) => {
+    const inline = el.style.getPropertyValue(name);
+    if (inline.includes('!') || declarations.some(style => style.getPropertyPriority(name))) return;
+    if (inline) return inline;
+    const values = new Set(declarations.map(style => style.getPropertyValue(name)).filter(Boolean));
+    return values.size < 2 ? [...values][0] ?? '' : undefined;
+  };
+  if (['inset', 'inset-inline', 'inset-block', 'inset-inline-start', 'inset-inline-end', 'inset-block-start', 'inset-block-end', 'all'].some(name => property(name) !== '')) return;
+  const position = property('position');
+  if (!['', 'static', 'relative', 'absolute', 'fixed'].includes(position ?? '?')) return;
+  const makeRelative = !position || position === 'static';
+  // Opposing insets can stretch a responsive box when one edge moves.
+  if (!makeRelative && ['right', 'bottom'].some(name => !['', 'auto'].includes(property(name) ?? '?'))) return;
+  const pixel = (axis: string) => {
+    if (makeRelative) return 0;
+    const value = property(axis);
+    if (value === '0') return 0;
+    if (value && /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value)) return Number.parseFloat(value);
+  };
+  const left = pixel('left'), top = pixel('top');
+  if (left == null || top == null) return;
+  return { left: roundTo3(left + delta.x), top: roundTo3(top + delta.y), makeRelative };
+}

@@ -1,6 +1,6 @@
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { editMoment } from "./editMoment";
-import { stageCloudGroupOffset, type CanvasGroupWrite } from "./cloudGroupMove";
+import { groupMemberVersion, stageCloudGroupOffset, type CanvasGroupWrite } from "./cloudGroupMove";
 import { gsapWriteFile } from "./gsapScriptCommitTypes";
 import { useCallback } from "react";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
@@ -11,14 +11,13 @@ import type {
   CommitMutationOptions,
 } from "./gsapScriptCommitTypes";
 import type { UseGsapAwareEditingParams } from "./useGsapAwareEditing";
-import { observeGsapGesture } from "./gsapGestureOutcome";
+import { duringGsapGesture, observeGsapGesture } from "./gsapGestureOutcome";
 import { editsPlainCss } from "./gsapRuntimeKeyframes";
 import { refuseGsapTakeover } from "./elementOffsetStager";
 import { tryGsapDragIntercept } from "./gsapRuntimeBridge";
 import { freezeDragStamp } from "./draggedGsapPosition";
 import { assertGsapEditPersisted } from "./gsapEditOutcome";
 import { firstPreflightFailure } from "./gsapGroupPreflight";
-import { whileScriptWrites } from "../player/previewReloading";
 import type { GeometryCommitResult } from "../utils/previewFeatureUsage";
 
 // A distinct key keeps consecutive group drags in separate undo entries.
@@ -91,6 +90,7 @@ export function useGsapAwareGroupMove({
           if (cloudBatch) {
             for (const call of calls)
               batch.push({
+                ifMatch: groupMemberVersion(call.selection),
                 path: gsapWriteFile(call.selection, activeCompPath),
                 command: { kind: "editAnimation", mutations: [call.mutation] },
               });
@@ -242,7 +242,7 @@ export function useGsapAwareGroupMove({
           throw error;
         }
       };
-      return scripted ? whileScriptWrites(commitGroup) : commitGroup();
+      return scripted ? duringGsapGesture(commitGroup) : commitGroup();
     },
     [
       commitCanvasGroup,

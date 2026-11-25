@@ -222,12 +222,66 @@ export function wrapTimeline(tl: TimelineLike): PlaybackAdapter {
  * runtime, while this adapter keeps the same synchronous PlaybackAdapter shape
  * expected by the timeline and keyboard hooks.
  */
-export type BridgePlaybackAdapter = PlaybackAdapter & { token: string | null; dispose: () => void };
+export type BridgePlaybackAdapter = PlaybackAdapter & {
+  token: string | null;
+  seekAndWaitForPaint: (
+    time: number,
+    options?: { reseek?: boolean; timeoutMs?: number },
+  ) => Promise<void>;
+  dispose: () => void;
+};
+
+type CachedBridgeTimelineState = {
+  token: string;
+  currentTime: number;
+  duration: number;
+  isPlaying: boolean;
+};
+
+const bridgeTimelineStates = new WeakMap<HTMLIFrameElement, CachedBridgeTimelineState>();
+
+/**
+ * Snapshot the latest `timeline-state` seen for an isolated preview iframe so a
+ * `BridgePlaybackAdapter` created inside the first `onLoad` callback starts with
+ * the already-delivered duration instead of waiting 500ms for the next heartbeat.
+ */
+export function rememberBridgeTimelineState(
+  iframe: HTMLIFrameElement,
+  token: string | null,
+  state: { currentTime?: unknown; duration?: unknown; isPlaying?: unknown },
+): void {
+  if (!token) {
+    bridgeTimelineStates.delete(iframe);
+    return;
+  }
+  const prev = bridgeTimelineStates.get(iframe);
+  const same = prev?.token === token;
+  const currentTime =
+    typeof state.currentTime === "number" && Number.isFinite(state.currentTime)
+      ? Math.max(0, state.currentTime)
+      : same
+        ? prev.currentTime
+        : 0;
+  const duration =
+    typeof state.duration === "number" && Number.isFinite(state.duration)
+      ? Math.max(0, state.duration)
+      : same
+        ? prev.duration
+        : 0;
+  const isPlaying =
+    typeof state.isPlaying === "boolean" ? state.isPlaying : same ? prev.isPlaying : false;
+  bridgeTimelineStates.set(iframe, { token, currentTime, duration, isPlaying });
+}
+
+const BRIDGE_SEEK_PAINT_TIMEOUT_MS = 4_500;
 
 export function createBridgePlaybackAdapter(preview: PreviewAdapter): BridgePlaybackAdapter {
-  let currentTime = 0;
-  let duration = 0;
-  let playing = false;
+  const initial =
+    preview.token && preview.iframe ? bridgeTimelineStates.get(preview.iframe) : undefined;
+  const matched = initial && initial.token === preview.token ? initial : null;
+  let currentTime = matched ? matched.currentTime : 0;
+  let duration = matched ? matched.duration : 0;
+  let playing = matched ? matched.isPlaying : false;
   const onMessage = (event: MessageEvent) => {
     if (!preview.accepts(event)) return;
     if (event.data.type !== "timeline-state") return;
@@ -251,6 +305,34 @@ export function createBridgePlaybackAdapter(preview: PreviewAdapter): BridgePlay
       currentTime = Math.max(0, Number(time) || 0);
       preview.send("playback-control", { action: "seek", time: currentTime });
       if (!options?.keepPlaying) playing = false;
+    },
+    seekAndWaitForPaint: async (time, options) => {
+      const target = Math.max(0, Number(time) || 0);
+      currentTime = target;
+      playing = false;
+      try {
+        const result = await preview.request<{
+          currentTime?: unknown;
+          duration?: unknown;
+          isPlaying?: unknown;
+        }>(
+          "playback-control",
+          {
+            action: "seek",
+            time: target,
+            waitForPaint: true,
+            ...(options?.reseek ? { reseek: true } : {}),
+          },
+          options?.timeoutMs ?? BRIDGE_SEEK_PAINT_TIMEOUT_MS,
+        );
+        if (result && typeof result === "object") {
+          if (typeof result.currentTime === "number") currentTime = Math.max(0, result.currentTime);
+          if (typeof result.duration === "number") duration = Math.max(0, result.duration);
+          if (typeof result.isPlaying === "boolean") playing = result.isPlaying;
+        }
+      } catch {
+        // Best-effort paint barrier: fall back instead of stranding a shadow reload.
+      }
     },
     getTime: () => currentTime,
     getDuration: () => duration,

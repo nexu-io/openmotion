@@ -5,6 +5,7 @@ import {
   type StudioVariables,
 } from './context.ts';
 import { createContainerFontCatalog } from './fonts-catalog.ts';
+import { createStudioCompositionFilmstripsRoutes } from './routes/composition-filmstrips.ts';
 import { createStudioFileMutationsRoutes } from './routes/file-mutations.ts';
 import { createStudioFilesRoutes } from './routes/files.ts';
 import { createStudioFontsRoutes } from './routes/fonts.ts';
@@ -93,6 +94,7 @@ export function createDisklessStudioApp(deps: DisklessStudioDeps): Hono<{ Variab
   app.route('/', createStudioPreviewRoutes(enrichedDeps));
   app.route('/', createStudioHistoryRoutes(enrichedDeps));
   app.route('/', createStudioRenderRoutes(enrichedDeps));
+  app.route('/', createStudioCompositionFilmstripsRoutes(enrichedDeps));
   app.route('/', createStudioMediaRoutes(enrichedDeps));
   app.route('/', createStudioFontsRoutes(enrichedDeps, fontCatalog));
   app.route('/', createStudioSystemRoutes(enrichedDeps));

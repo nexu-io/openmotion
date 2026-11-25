@@ -76,6 +76,7 @@ export function PropertyPanelFlat({
   onSetAttribute,
   onSetAttributes,
   onSetAttributeLive,
+  onPreviewAttribute = onSetAttributeLive,
   onSetAttributeQuiet,
   onApplyColorGradingScope,
   onSetText,
@@ -522,7 +523,7 @@ export function PropertyPanelFlat({
         <AudioFxGroup
           element={element}
           onSetAttributeQuiet={onSetAttributeQuiet ?? onSetAttributeLive}
-          onSetAttributeLive={onSetAttributeLive}
+          onSetAttributeLive={onPreviewAttribute}
           onAutoGroupCarveSources={onAutoGroupCarveSources}
         />
       ),

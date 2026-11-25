@@ -58,7 +58,7 @@ export function TemplatePoster({ template, eager = false, coverUrl, brandedFallb
   const posterReady = usingCover ? coverLoaded : loaded;
   return <div className="om-gallery-poster" data-loaded={posterReady}>
     {brandedFallback && !posterReady && <CoverPlaceholder fill />}
-    {!brandedFallback && (usingCover ? (!coverLoaded && <Skeleton className="om-gallery-poster-skeleton" />) : (!loaded && !failed && template.posterUrl && <Skeleton className="om-gallery-poster-skeleton" animated={false} />))}
+    {!brandedFallback && (usingCover ? (!coverLoaded && <Skeleton className="om-gallery-poster-skeleton" />) : (!loaded && !failed && template.posterUrl && <Skeleton className="om-gallery-poster-skeleton" />))}
     {!brandedFallback && !usingCover && (!template.posterUrl || failed) && <div className="om-gallery-poster-fallback"><MotionIcon name="film" size={26} /><span>{template.title}</span></div>}
     {!usingCover && template.posterUrl && !failed && <img src={template.posterUrl} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async" onLoad={() => setLoaded(true)} onError={() => setFailed(true)} style={{ opacity: loaded ? 1 : 0 }} />}
     {usingCover && coverUrl && <BrandArtworkImage className="om-gallery-poster-cover" channel="cover" src={coverUrl} alt="" onLoad={() => setLoadedCover(coverUrl)} onError={() => setFailedCover(coverUrl)} style={{ opacity: coverLoaded ? 1 : 0 }} />}

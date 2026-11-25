@@ -155,7 +155,7 @@ test('onboarding welcome stays above the cards without duplicate descriptions or
     assert.ok(welcome, 'Welcome must be part of the persistent native component');
     assert.equal(f.root.firstElementChild, welcome);
     assert.equal(welcome.nextElementSibling?.className, 'omtc-list');
-    assert.match(welcome.textContent!, /OpenMotion 安装好啦，右侧就是模板库/);
+    assert.match(welcome.textContent!, /OpenMotion 连接好啦，右侧就是模板库/);
     assert.deepEqual([...welcome.querySelectorAll('p')].map(p => p.textContent), [
       '我是你的开源视频创作搭档，我有丰富的高水准视频模板，也支持从参考视频或一个灵感出发，和你一起创作精彩的视频。',
       '模板库支持搜索，也可以随意浏览，找到喜欢的点击「复刻模板」就能开始你的创作！',

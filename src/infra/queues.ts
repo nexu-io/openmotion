@@ -83,6 +83,40 @@ export function buildRenderThumbnailJobId(
   return `thumb__${workspaceId}__${projectId}__${cacheKey}`;
 }
 
+export function buildCatalogFilmstripJobId(
+  formatVersion: number,
+  templateBakeHash: string,
+): string {
+  // BullMQ v5 rejects custom jobIds containing ':'.
+  return `catfilm__v${formatVersion}__${templateBakeHash}`;
+}
+
+/**
+ * Returns true if any higher-priority user render job (`export_render` or `render_thumbnail`,
+ * i.e. anything other than background `bake_catalog_filmstrips`) is waiting to be dequeued on
+ * `render-export`. Used by active multi-composition catalog bakes to cooperatively yield the
+ * single render slot between compositions.
+ */
+export async function hasWaitingUserRenderWork(
+  queue: Pick<Queue, 'getWaiting' | 'getPrioritized'>,
+): Promise<boolean> {
+  try {
+    const [waiting, prioritized] = await Promise.all([
+      queue.getWaiting(0, 4),
+      queue.getPrioritized(0, 0),
+    ]);
+    if (waiting.some((job) => Boolean(job) && job.name !== 'bake_catalog_filmstrips')) {
+      return true;
+    }
+    if (prioritized.some((job) => Boolean(job) && job.name !== 'bake_catalog_filmstrips')) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function buildPreviewProxyJobId(workspaceId: string, sha256: string): string {
   // BullMQ v5 rejects custom jobIds containing ':'.
   return `proxy__${workspaceId}__${sha256}`;
@@ -238,19 +272,39 @@ export class QueueService {
   ) {
     const validated = validateRenderExportPayload(name, payload);
     const defaultJobId =
-      'jobId' in validated && typeof validated.jobId === 'string'
-        ? validated.jobId
-        : buildRenderThumbnailJobId(
-            validated.workspaceId,
-            validated.projectId,
-            (validated as RenderExportPayloadMap['render_thumbnail']).cacheKey,
-          );
-    // Give export renders higher priority (1) than speculative composition thumbnails (5).
-    const defaultPriority = name === 'export_render' ? 1 : 5;
+      name === 'export_render'
+        ? (validated as RenderExportPayloadMap['export_render']).jobId
+        : name === 'render_thumbnail'
+          ? buildRenderThumbnailJobId(
+              (validated as RenderExportPayloadMap['render_thumbnail']).workspaceId,
+              (validated as RenderExportPayloadMap['render_thumbnail']).projectId,
+              (validated as RenderExportPayloadMap['render_thumbnail']).cacheKey,
+            )
+          : buildCatalogFilmstripJobId(
+              (validated as RenderExportPayloadMap['bake_catalog_filmstrips']).formatVersion,
+              (validated as RenderExportPayloadMap['bake_catalog_filmstrips']).templateBakeHash,
+            );
+    // Give export renders highest priority (1), user thumbnails (5), and background catalog
+    // filmstrip pre-baking lowest priority (10) so queued user work is always dequeued ahead
+    // of waiting bakes (active multi-scene bakes also cooperatively yield between compositions).
+    const defaultPriority =
+      name === 'export_render' ? 1 : name === 'render_thumbnail' ? 5 : 10;
+    const jobId = options?.jobId ?? defaultJobId;
+    // Allow explicit re-enqueue after a completed/failed catalog filmstrip job expires cooldown,
+    // while preserving active/waiting deduplication.
+    if (name === 'bake_catalog_filmstrips') {
+      const existing = await this.renderExport.getJob(jobId).catch(() => undefined);
+      if (existing) {
+        const state = await existing.getState().catch(() => null);
+        if (state === 'completed' || state === 'failed') {
+          await existing.remove().catch(() => {});
+        }
+      }
+    }
     return this.renderExport.add(name, validated, {
       priority: defaultPriority,
       ...options,
-      jobId: options?.jobId ?? defaultJobId,
+      jobId,
       attempts: 1,
     });
   }
@@ -265,6 +319,10 @@ export class QueueService {
   }
 
   async scheduleBlobGcRepeatable(graceSeconds: number = DEFAULT_BLOB_GC_GRACE_SECONDS): Promise<void> {
+    await this.blobGc.upsertJobScheduler(
+      'text-revision-checkpoints', { every: 5_000 },
+      { name: 'create_text_checkpoints', data: validateBlobGcPayload('create_text_checkpoints', {}) },
+    );
     await this.blobGc.upsertJobScheduler(
       'blob-gc-sweep-unreferenced',
       { every: 15 * 60_000 },

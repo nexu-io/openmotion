@@ -661,6 +661,117 @@ describe("ThumbnailScheduler", () => {
     expect(disposeQueued).toHaveBeenCalledTimes(1);
     expect(scheduler.getSnapshot(queuedReq).status).toBe("idle");
   });
+
+  it("re-queues failed leased entries in place via retryFailed without waiting for failure TTL", async () => {
+    const scheduler = new ThumbnailScheduler();
+    let attempt = 0;
+    const load = vi.fn(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error("transient capture timeout");
+      return result("recovered");
+    });
+    const req = request("comp-retry", load, "visible", {
+      projectId: "project-a",
+      kind: "composition",
+      compositionPath: "compositions/hero.html",
+    });
+
+    const lease = scheduler.acquire(req, vi.fn());
+    await vi.waitFor(() => expect(scheduler.getSnapshot(req).status).toBe("error"));
+    expect(load).toHaveBeenCalledTimes(1);
+
+    // Non-matching path leaves the entry untouched.
+    expect(scheduler.retryFailed("project-a", "compositions/other.html")).toBe(0);
+    expect(scheduler.getSnapshot(req).status).toBe("error");
+
+    // Matching path re-queues and recovers immediately.
+    expect(scheduler.retryFailed("project-a", "./compositions/hero.html")).toBe(1);
+    await vi.waitFor(() =>
+      expect(scheduler.getSnapshot(req)).toMatchObject({
+        status: "ready",
+        value: { url: "recovered" },
+      }),
+    );
+    expect(load).toHaveBeenCalledTimes(2);
+    lease.release();
+  });
+
+  it("keeps non-gated client-capture jobs out of slots during the opening gate so gated work starts immediately", async () => {
+    const scheduler = new ThumbnailScheduler(
+      resolveTimelineViewportBudgets({ concurrentClientCompositionCaptures: 3 }),
+    );
+    const starts: string[] = [];
+    const makeCapture = (name: string, gatePriority: boolean) =>
+      request(
+        name,
+        async () => {
+          starts.push(name);
+          return result(name);
+        },
+        gatePriority ? "interaction" : "overscan",
+        { kind: "composition", concurrencyBucket: "client-capture", gatePriority },
+      );
+
+    scheduler.setOpeningGateActive(true);
+    const sidebarLeases = [0, 1, 2].map((idx) =>
+      scheduler.acquire(makeCapture(`sidebar-${idx}`, false), vi.fn()),
+    );
+    expect(starts).toEqual([]);
+    expect(scheduler.getDiagnostics()).toMatchObject({ queued: 3, active: 0 });
+
+    const gatedReq = makeCapture("timeline-gated", true);
+    const gatedLease = scheduler.acquire(gatedReq, vi.fn());
+    await vi.waitFor(() => expect(scheduler.getSnapshot(gatedReq).status).toBe("ready"));
+    expect(starts).toEqual(["timeline-gated"]);
+
+    scheduler.setOpeningGateActive(false);
+    await vi.waitFor(() =>
+      expect(starts).toEqual(["timeline-gated", "sidebar-0", "sidebar-1", "sidebar-2"]),
+    );
+    gatedLease.release();
+    for (const lease of sidebarLeases) lease.release();
+  });
+
+  it("preempts active non-gated client-capture jobs when the opening gate activates and resumes them after", async () => {
+    const scheduler = new ThumbnailScheduler(
+      resolveTimelineViewportBudgets({ concurrentClientCompositionCaptures: 1 }),
+    );
+    const signals: AbortSignal[] = [];
+    const nonGated = request(
+      "sidebar-early",
+      (signal) => {
+        signals.push(signal);
+        return new Promise<ThumbnailLoadedResult>((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          if (signals.length > 1) resolve(result("sidebar-early"));
+        });
+      },
+      "overscan",
+      { kind: "composition", concurrencyBucket: "client-capture", gatePriority: false },
+    );
+    const gated = request("timeline-gated", async () => result("timeline-gated"), "interaction", {
+      kind: "composition",
+      concurrencyBucket: "client-capture",
+      gatePriority: true,
+    });
+
+    const nonGatedLease = scheduler.acquire(nonGated, vi.fn());
+    expect(scheduler.getSnapshot(nonGated).status).toBe("loading");
+
+    scheduler.setOpeningGateActive(true);
+    await flush();
+    expect(signals[0]?.aborted).toBe(true);
+    expect(scheduler.getSnapshot(nonGated).status).toBe("queued");
+
+    const gatedLease = scheduler.acquire(gated, vi.fn());
+    await vi.waitFor(() => expect(scheduler.getSnapshot(gated).status).toBe("ready"));
+
+    scheduler.setOpeningGateActive(false);
+    await vi.waitFor(() => expect(scheduler.getSnapshot(nonGated).status).toBe("ready"));
+    expect(signals).toHaveLength(2);
+    gatedLease.release();
+    nonGatedLease.release();
+  });
 });
 
 describe("createThumbnailKey", () => {

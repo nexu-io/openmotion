@@ -4,6 +4,15 @@ import { getTimelineElementIdentity, parseTimelineFromDOM, readTimelineDurationF
 
 export function parseAuthoredTimeline(html: string, path: string, project: string | null, fallbackDuration = 0) {
   const doc = new DOMParser().parseFromString(html, "text/html");
+  try {
+    return readAuthoredTimeline(doc, path, project, fallbackDuration);
+  } finally {
+    // Detach media so the browser releases its native playback callbacks and the temporary document.
+    doc.replaceChildren();
+  }
+}
+
+function readAuthoredTimeline(doc: Document, path: string, project: string | null, fallbackDuration: number) {
   for (const template of Array.from(doc.querySelectorAll("template")).filter(isCompositionTemplate)) template.replaceWith(template.content);
   const root = doc.querySelector("[data-composition-id]");
   if (!root) return null;

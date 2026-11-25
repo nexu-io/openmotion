@@ -1,9 +1,9 @@
 import { Button } from 'open-design-ui/button';
-import { FileListLoading } from "./FileListLoading";
+import { FileListError, FileListLoading } from "./FileListLoading";
 import { AssetImportMenu } from '../../motion/AssetLibraryImport';
 import { useFileManagerContextOptional } from '../../contexts/FileManagerContext';
 import { ManualImportResults } from './ManualImportResults';
-import { PendingExternalImports } from './PendingExternalImports';
+import { filterPendingExternalImports, PendingExternalImports } from './PendingExternalImports';
 import { RemixIcon } from "../../icons/RemixIcons";
 import { clickOption, searchStarted, trackStudioClick } from "../../motion/editorTracking";
 import { useMvpEditor } from "../../motion/StudioHost";
@@ -37,6 +37,8 @@ interface AssetsTabProps {
   projectId: string;
   assets: string[];
   loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void | Promise<void>;
   assetNames?: Record<string, string>;
   onImport?: (files: FileList, entryPoint?: "assets_button" | "assets_drop") => void | Promise<void>;
   onLibraryImport?: (options: FileTreeRefreshOptions) => Promise<void>;
@@ -133,6 +135,8 @@ export const AssetsTab = memo(function AssetsTab({
   projectId,
   assets,
   loading,
+  error,
+  onRetry,
   assetNames,
   onImport,
   onLibraryImport,
@@ -335,9 +339,7 @@ export const AssetsTab = memo(function AssetsTab({
       >
         {fileManager && fileManager.pendingImports.length > 0 && (
           <PendingExternalImports
-            items={fileManager.pendingImports.filter(
-              (item) => !(importBatch?.busy && item.source === "web_upload"),
-            )}
+            items={filterPendingExternalImports(fileManager.pendingImports, importBatch)}
             onDismiss={fileManager.dismissPendingImport}
           />
         )}
@@ -355,7 +357,7 @@ export const AssetsTab = memo(function AssetsTab({
             setLatestImport({ projectId, path });
           } : undefined}
         />}
-        {loading && !assets.length ? <FileListLoading /> : mediaAssets.length === 0 ? (
+        {loading && !assets.length ? <FileListLoading /> : error && !assets.length ? <FileListError onRetry={onRetry} /> : mediaAssets.length === 0 ? (
           <EmptyState searchQuery={searchQuery} onClearSearch={() => setSearchQuery("")} />
         ) : (
           visibleCategories.map((cat) => (

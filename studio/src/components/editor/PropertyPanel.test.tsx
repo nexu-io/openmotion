@@ -753,6 +753,19 @@ describe("PropertyPanel — Grade group (flag on)", () => {
 });
 
 describe("PropertyPanel — Media group (Plan 4)", () => {
+  it("commits a grading preset through the writer while preserving the drag-preview callback for auditions", async () => {
+    const commit = vi.fn();
+    const preview = vi.fn();
+    const { host, root } = await renderPanel(true, imageElement() as never, { onSetAttributeLive: commit, onPreviewAttribute: preview });
+    try {
+      openFlatGroup(host, "Grade");
+      const preset = host.querySelector<HTMLButtonElement>('[data-flat-grade-preset="warm-daylight"]')!;
+      act(() => preset.click());
+      await vi.waitFor(() => expect(commit).toHaveBeenCalledWith("color-grading", expect.stringContaining("warm-daylight"), expect.any(Function)));
+      expect(preview).not.toHaveBeenCalled();
+    } finally { act(() => root.unmount()); }
+  });
+
   it("renders the flat Media group and not the legacy MediaSection, for a video element", async () => {
     const { host, root } = await renderPanel(true, videoElement() as never);
     // A Media FlatGroup exists (open or collapsed).

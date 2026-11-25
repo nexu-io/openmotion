@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createBridgePlaybackAdapter,
   createStaticSeekPlaybackAdapter,
+  rememberBridgeTimelineState,
   wrapTimeline,
   resolveStaticSeekFallback,
   releaseStaticSeekCache,
   type StaticSeekCacheEntry,
 } from "./playbackAdapter";
+import type { PreviewAdapter } from "./previewAdapter";
 import type {
   RuntimePlaybackAdapter,
   StaticSeekPlaybackClock,
@@ -294,5 +297,59 @@ describe("static-seek fallback cache (resolveStaticSeekFallback / releaseStaticS
     expect(second.isPlaying()).toBe(false);
     expect(cache.current).toBeNull();
     vi.restoreAllMocks();
+  });
+});
+
+describe("createBridgePlaybackAdapter", () => {
+  it("hydrates immediately from remembered timeline state and awaits seekAndWaitForPaint", async () => {
+    const iframe = {} as HTMLIFrameElement;
+    vi.stubGlobal("window", {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    try {
+      rememberBridgeTimelineState(iframe, "tok-1", {
+        currentTime: 2.5,
+        duration: 37.3,
+        isPlaying: false,
+      });
+      const request = vi.fn(async () => ({ currentTime: 12.5, duration: 37.3, isPlaying: false }));
+      const preview = {
+        iframe,
+        projectId: "demo",
+        token: "tok-1",
+        targetOrigin: "https://preview.test",
+        sameOrigin: false,
+        document: () => null,
+        window: () => null,
+        accepts: () => false,
+        send: vi.fn(),
+        request,
+      } as unknown as PreviewAdapter;
+
+      const adapter = createBridgePlaybackAdapter(preview);
+      expect(adapter.getDuration()).toBe(37.3);
+      expect(adapter.getTime()).toBe(2.5);
+      expect(adapter.isPlaying()).toBe(false);
+
+      await adapter.seekAndWaitForPaint(12.5, { reseek: true, timeoutMs: 2000 });
+      expect(request).toHaveBeenCalledWith(
+        "playback-control",
+        { action: "seek", time: 12.5, waitForPaint: true, reseek: true },
+        2000,
+      );
+      expect(adapter.getTime()).toBe(12.5);
+
+      // Mismatched token must not inherit another document's cached state.
+      const other = createBridgePlaybackAdapter({ ...preview, token: "tok-2" });
+      expect(other.getDuration()).toBe(0);
+      expect(other.getTime()).toBe(0);
+
+      adapter.dispose();
+      other.dispose();
+    } finally {
+      rememberBridgeTimelineState(iframe, null, {});
+      vi.unstubAllGlobals();
+    }
   });
 });

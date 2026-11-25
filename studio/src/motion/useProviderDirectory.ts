@@ -5,6 +5,7 @@ import { gatewayRequest, type CloudApiError } from './gatewayClient';
 
 export type CloudProviderDirectory = ProviderDirectory & {
   gatewayMode?: 'opendesign' | 'mock';
+  consoleUrl?: string;
   billing?: {
     plan?: string;
     mediaEntitlement?: 'included' | 'not-included' | 'unknown';
@@ -48,6 +49,7 @@ function normalizeDirectory(
       models: catalog.models.map(toDirectoryModel),
       defaults: catalog.defaults,
       gatewayMode: catalog.mode,
+      consoleUrl: status?.consoleUrl,
     };
   }
   const models = Array.isArray(catalog.models) ? catalog.models.map(toDirectoryModel) : [];
@@ -67,13 +69,16 @@ function normalizeDirectory(
     credentialSource: 'environment',
     reason: gatewayProvider?.reason ?? (catalog.mode === 'mock'
       ? 'Local mock model gateway (deterministic fixtures)'
-      : 'Unified OpenDesign platform gateway'),
+      : models.length > 0
+        ? 'Unified OpenDesign platform gateway'
+        : 'No media models are currently available for this OpenDesign workspace. Upgrade your plan or sync models.'),
   };
   return {
     providers: [provider],
     models,
     defaults: catalog.defaults ?? {},
     gatewayMode: catalog.mode ?? 'opendesign',
+    consoleUrl: status?.consoleUrl,
     billing: gatewayProvider
       ? {
           plan: gatewayProvider.plan,

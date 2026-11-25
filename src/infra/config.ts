@@ -33,6 +33,7 @@ const rawConfigSchema = z.object({
   PREVIEW_PUBLIC_ORIGIN: optionalUrl,
   PRISM_CONTENT_ENV: z.preprocess(value => value === '' ? undefined : value, z.enum(['dev', 'prod']).optional()),
   PRISM_PUBLIC_ORIGIN: optionalUrl,
+  CATALOG_FILMSTRIP_AUTO_BAKE: booleanEnv.default(true),
   PREVIEW_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(900),
   PORT: z.coerce.number().int().min(1).max(65535).default(4173),
   BIND_HOST: z.string().min(1).default('0.0.0.0'),

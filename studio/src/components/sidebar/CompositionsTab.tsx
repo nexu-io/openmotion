@@ -19,9 +19,10 @@ import {
 } from "../../player/components/CompositionThumbnail";
 import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
 import {
+  acquireCachedCompositionCaptureFromIdb,
   canCaptureCompositionInBrowser,
   createClientCompositionCaptureRequest,
-  getCompositionCacheRevision,
+  getCompositionCacheKeyRevision,
   peekCachedCompositionCapture,
   retainCachedCompositionCapture,
   subscribeCompositionCacheRevision,
@@ -262,68 +263,107 @@ function CompCard({
     [captureEnabled, projectId],
   );
   const getCacheRev = useCallback(
-    () => (captureEnabled ? getCompositionCacheRevision(projectId, previewUrl) : ""),
-    [captureEnabled, previewUrl, projectId],
+    () => (captureEnabled ? getCompositionCacheKeyRevision(projectId, previewUrl, contentRevision) : ""),
+    [captureEnabled, contentRevision, previewUrl, projectId],
   );
   const compCacheRev = useSyncExternalStore(subscribeCacheRev, getCacheRev, () => "");
+  const captureContentRevision = compCacheRev.startsWith("file:") ? 0 : contentRevision;
   const syncCachedCover = useMemo(
     () =>
       captureEnabled
         ? peekCachedCompositionCapture({
             previewUrl,
             projectId,
-            contentRevision,
+            contentRevision: captureContentRevision,
             frameCount: 1,
           })
         : null,
-    [captureEnabled, compCacheRev, contentRevision, previewUrl, projectId],
+    [captureContentRevision, captureEnabled, compCacheRev, previewUrl, projectId],
   );
   // Keep cached cover object URLs alive while this card renders them, even after LRU eviction.
   useLayoutEffect(() => retainCachedCompositionCapture(syncCachedCover), [syncCachedCover]);
+  const coverProbeKey = captureEnabled ? `${projectId}|${previewUrl}|${compCacheRev}|${captureContentRevision}` : null;
+  const [idbCoverProbe, setIdbCoverProbe] = useState<{
+    key: string;
+    value: ReturnType<typeof peekCachedCompositionCapture>;
+  } | null>(null);
+  useEffect(() => {
+    if (!coverProbeKey || syncCachedCover) return;
+    let cancelled = false;
+    let releaseLease: (() => void) | null = null;
+    void acquireCachedCompositionCaptureFromIdb({
+      previewUrl,
+      projectId,
+      contentRevision: captureContentRevision,
+      frameCount: 1,
+    })
+      .then((lease) => {
+        if (cancelled) {
+          lease?.release();
+          return;
+        }
+        releaseLease = lease?.release ?? null;
+        setIdbCoverProbe({ key: coverProbeKey, value: lease?.value ?? null });
+      })
+      .catch(() => {
+        if (!cancelled) setIdbCoverProbe({ key: coverProbeKey, value: null });
+      });
+    return () => {
+      cancelled = true;
+      releaseLease?.();
+      releaseLease = null;
+    };
+  }, [captureContentRevision, coverProbeKey, previewUrl, projectId, syncCachedCover]);
+  const idbCachedCover =
+    coverProbeKey && idbCoverProbe?.key === coverProbeKey ? idbCoverProbe.value : null;
+  const cachedCover = syncCachedCover ?? idbCachedCover;
+  const idbCoverPending = Boolean(
+    coverProbeKey && !syncCachedCover && idbCoverProbe?.key !== coverProbeKey,
+  );
   const thumbnailRequest = useMemo(
     () =>
-      nearViewport && !syncCachedCover
+      nearViewport && !cachedCover && !idbCoverPending
         ? compositionThumbnailRequest(thumbnailUrl, projectId, {
             sessionEpoch: timelineSessionEpoch,
             rich: true,
           })
         : null,
-    [nearViewport, projectId, syncCachedCover, thumbnailUrl, timelineSessionEpoch],
+    [cachedCover, idbCoverPending, nearViewport, projectId, thumbnailUrl, timelineSessionEpoch],
   );
   const captureRequest = useMemo(
     () =>
-      captureEnabled && !syncCachedCover
+      captureEnabled && !cachedCover && !idbCoverPending
         ? createClientCompositionCaptureRequest({
             previewUrl,
             projectId,
             sessionEpoch: timelineSessionEpoch,
-            contentRevision,
+            contentRevision: captureContentRevision,
             frameCount: 1,
             seekTime: THUMBNAIL_SEEK_TIME_SECONDS,
             priority: "overscan",
             rich: true,
           })
         : null,
-    [captureEnabled, compCacheRev, contentRevision, previewUrl, projectId, syncCachedCover, timelineSessionEpoch],
+    [cachedCover, captureContentRevision, captureEnabled, compCacheRev, idbCoverPending, previewUrl, projectId, timelineSessionEpoch],
   );
   const posterThumbnail = useThumbnailLease(thumbnailRequest);
   const captureThumbnail = useThumbnailLease(captureRequest);
-  const activeRequest = syncCachedCover
+  const activeRequest = cachedCover
     ? null
     : captureThumbnail.status === "ready"
       ? captureRequest
       : thumbnailRequest;
-  const thumbnail: ThumbnailSnapshot = syncCachedCover
-    ? { status: "ready", value: syncCachedCover }
+  const thumbnail: ThumbnailSnapshot = cachedCover
+    ? { status: "ready", value: cachedCover }
     : captureThumbnail.status === "ready"
       ? captureThumbnail
       : posterThumbnail;
   const lastFrameUrl = useLastFrame(activeRequest, thumbnail);
   const frameUrl =
-    syncCachedCover?.kind === "image"
-      ? syncCachedCover.url
-      : syncCachedCover?.kind === "filmstrip"
-        ? (syncCachedCover.urls[0] ?? null)
+    cachedCover?.kind === "image"
+      ? cachedCover.url
+      : cachedCover?.kind === "filmstrip"
+        ? (cachedCover.urls[0] ?? null)
         : lastFrameUrl;
   const thumbnailFailed = thumbnail.status === "error";
   const posterUrl = !thumbnailFailed && frameUrl !== failedFrameUrl ? frameUrl : null;

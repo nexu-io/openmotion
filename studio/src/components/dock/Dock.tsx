@@ -2,6 +2,7 @@ import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { Check } from "../../icons/RemixIcons";
 import {
+  Suspense,
   createContext,
   useCallback,
   useContext,
@@ -377,16 +378,31 @@ function Root({
 function Panel({ id, title, children }: { id: PanelId; title?: string; children: ReactNode }) {
   const { t } = useI18n();
   const element = useSlots().slots[id];
-  const visible = useDockLayoutStore((state) => state.visiblePanels.has(id));
+  const definition: PanelDefinition = PANEL_DEFINITIONS[id];
+  const visible = useDockLayoutStore((state) => state.visiblePanels.has(id)
+    && !(definition.keepMounted === "after-first-show" && state.collapsedZones?.includes(definition.zone)));
   const controller = useDockLayoutStore((state) => state.controller);
   const open = useDockLayoutStore((state) => state.openPanels.has(id));
   const label = title ?? t(PANEL_DEFINITIONS[id].title);
   useEffect(() => {
     if (open) controller?.setTitle(id, label);
   }, [controller, id, label, open]);
-  const definition: PanelDefinition = PANEL_DEFINITIONS[id];
-  const shown = visible || definition.keepMounted;
-  return element && shown ? createPortal(children, element) : null;
+  // Captions and transcription keep in-progress work when hidden, but have no
+  // work to resume until their tab has actually appeared in this dock slot.
+  const [visitedSlot, setVisitedSlot] = useState<HTMLElement | null>(null);
+  const retained = definition.keepMounted === "after-first-show";
+  const firstShow = visible && controller !== null;
+  useEffect(() => {
+    if (retained && firstShow && element) setVisitedSlot(element);
+  }, [element, firstShow, retained]);
+  const shown = retained ? firstShow || visitedSlot === element : visible || definition.keepMounted;
+  if (!element || !shown) return null;
+  return createPortal(
+    <Suspense fallback={<div role="status" className="p-2 text-panel-text-3">{t("Loading…")}</div>}>
+      {children}
+    </Suspense>,
+    element,
+  );
 }
 
 function WindowMenu() {

@@ -4,14 +4,13 @@ import { useI18n } from "../i18n/I18n";
 import { memo, useCallback } from "react";
 import type { StudioRightPanelsProps } from "./StudioRightPanels.types";
 
-import { PropertyPanel } from "./editor/PropertyPanel";
+import { PropertyPanelEmptyState } from "./editor/PropertyPanelEmptyState";
+import type { PropertyPanelProps } from "./editor/propertyPanelTypes";
+import { RenderQueuePanel } from "./studioPanelImports";
+import { lazyWithChunkReload } from "../utils/chunkReload";
 import { LayersPanel } from "./editor/LayersPanel";
 import { CaptionPropertyPanel } from "../captions/components/CaptionPropertyPanel";
 import { BlockParamsPanel } from "./editor/BlockParamsPanel";
-import { RenderQueuePanel } from "./renders/RenderQueuePanel";
-import { SlideshowPanel } from "./panels/SlideshowPanel";
-import { VariablesPanel } from "./panels/VariablesPanel";
-import { MotionBlurPanel } from "./panels/MotionBlurPanel";
 import { Dock } from "./dock/Dock";
 import { useDockLayoutStore } from "./dock/dockLayoutStore";
 import type { RenderJob } from "./renders/useRenderQueue";
@@ -32,6 +31,15 @@ import { canHideSelections } from "../utils/timelineInspector";
 import { useRemoveBackground } from "../hooks/useRemoveBackground";
 import { useApplyColorGradingScope } from "../hooks/useApplyColorGradingScope";
 import { useCloudFeatureEnabled } from "../utils/cloudFeatures";
+
+const SelectedPropertyPanel = lazyWithChunkReload(() => import("./editor/PropertyPanel").then(m => ({ default: m.PropertyPanel })));
+const SlideshowPanel = lazyWithChunkReload(() => import("./panels/SlideshowPanel").then(m => ({ default: m.SlideshowPanel })));
+const VariablesPanel = lazyWithChunkReload(() => import("./panels/VariablesPanel").then(m => ({ default: m.VariablesPanel })));
+const MotionBlurPanel = lazyWithChunkReload(() => import("./panels/MotionBlurPanel").then(m => ({ default: m.MotionBlurPanel })));
+
+function PropertyPanel(props: PropertyPanelProps) {
+  return props.element ? <SelectedPropertyPanel {...props} /> : <PropertyPanelEmptyState {...props} />;
+}
 
 // fallow-ignore-next-line complexity
 const seekToTime = (t: number) => usePlayerStore.getState().requestSeek(t);
@@ -226,7 +234,8 @@ export const StudioRightPanels = memo(function StudioRightPanels({
         onSetAttribute={handleDomAttributeCommit}
         onSetAttributes={handleDomAttributesCommit}
         onSetAttributeBatch={handleDomAttributeBatchCommit}
-        onSetAttributeLive={setAttributeWhileDragging}
+        onSetAttributeLive={handleDomAttributeLiveCommit}
+        onPreviewAttribute={setAttributeWhileDragging}
         onSetAttributeQuiet={handleDomAttributeQuietCommit}
         onApplyColorGradingScope={handleApplyColorGradingScope}
         onSetHtmlAttribute={handleDomHtmlAttributeCommit}
@@ -282,6 +291,7 @@ export const StudioRightPanels = memo(function StudioRightPanels({
     designBody = (
       <BlockParamsPanel
         key={JSON.stringify([projectId, activeBlockParams.compositionPath])}
+        previewIframeRef={previewIframeRef}
         blockName={activeBlockParams.blockName}
         blockTitle={activeBlockParams.blockTitle}
         params={activeBlockParams.params}

@@ -1,20 +1,30 @@
+import { trackSourceReadStream } from "../utils/confirmedTextSources";
+import { hasEditorOpeningPreload, leaveEditorOpening, noteOpeningConnection, noteOpeningFileChange } from "../utils/editorOpeningValidation";
+import { extractIndexHeadMarkup } from '../../../shared/preview-impact';
+import { orderedFileChange, projectOrderedFile } from './orderedFileChanges';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import {
+  changedFilePaths,
   changedFileVersion,
+  changedFileVersions,
   mergeFileChangePayloads,
   readFileChangeAffectedCompositions,
   readFileChangeAffectsPreview,
+  readFileChangeIndexHeadHash,
   readFileTreeChanged,
   readFileChangeField,
   readStudioFileChangePath,
 } from "../components/editor/manualEditsParsing";
+import { updateCachedCompositionRevisions } from "../player/lib/clientCompositionCapture";
 import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
 import type { ExternalConflictSnapshot } from "../utils/externalConflictStorage";
 import { isSelfWriteEcho } from "./sdkSelfWriteRegistry";
 import { onRebasedFileEdit } from "../utils/rebasedFileEdit";
-import { consumeStudioWriteToken, invalidateLatestSourceWrite, isLatestSourceWrite } from "../utils/studioFileVersion";
+import { studioContentHash, consumeStudioWriteToken, invalidateLatestSourceWrite, isLatestSourceWrite } from "../utils/studioFileVersion";
 import { useCloudDisklessMode } from "../utils/cloudRuntime";
 import { logReload } from "../utils/reloadDebug";
+import { invalidatePendingSourceReads } from "../utils/readCurrentProjectSource";
+import { ExternalPreviewUpdates } from "./externalPreviewUpdates";
 import { notifyProjectActivity } from "../motion/workspaceRefresh";
 import {
   emitMediaDerived,
@@ -53,7 +63,7 @@ interface ExternalFileChangeCoordinatorOptions {
   drainPendingChanges: () => Promise<ExternalChangeDrainResult>;
   getPendingCandidate?: () => { path: string; content: string } | null;
   discardPendingChanges: () => void;
-  reloadPreview: (path?: string) => void;
+  reloadPreview: (path?: string | readonly string[]) => void;
   /** Accept synchronously after capturing the displayed source and before opening the next revision. */
   refreshFileViews: (payload: unknown, acceptChange: (unaffectedPreview?: string) => void) => Promise<boolean> | "unaffected" | void;
   persistConflictSnapshot: (projectId: string, conflict: StudioFileConflictError) => Promise<void>;
@@ -92,6 +102,7 @@ interface ExternalFileChangeCoordinatorOptions {
   refreshFileTree?: () => void | Promise<void>;
   /** Refresh the server-backed history view when another actor changes history without a file event. */
   onHistoryChanged?: (writeToken?: string) => void | Promise<void>;
+  presentPendingPeerChange?: (payload: unknown) => void;
 }
 
 export interface ExternalFileChangeCoordinatorHandle {
@@ -146,12 +157,41 @@ export function sseFileChangeChannel(
   onHistoryChanged: (delivery: unknown) => void = () => {},
 ): () => void {
   let needsCatchUp = false;
+  const url = studioProjectUrl('/api/events?orderedEdits=1');
+  const project = new URLSearchParams(url.split("?")[1]).get("projectId");
+  let stopTrackingSources: (() => void) | undefined;
   function connect() {
-    const eventSource = new EventSource(studioProjectUrl('/api/events'));
-    eventSource.addEventListener("file-change", onDelivery);
-    eventSource.addEventListener("history-changed", onHistoryChanged);
+    let revision: string | null = null;
+    const bootstrap = project && hasEditorOpeningPreload(project);
+    const eventSource = new EventSource(bootstrap ? url + "&openingHead=1" : url);
+    stopTrackingSources = trackSourceReadStream(project, eventSource);
+    eventSource.addEventListener("file-change", delivery => {
+      const payload = decodeFileChange(delivery);
+      if (bootstrap) noteOpeningFileChange(project);
+      const ordered = orderedFileChange(payload);
+      const next = readFileChangeField(payload, 'revision');
+      if (ordered && revision && revision !== ordered.fromRevision) {
+        // Concurrent commits can publish in reverse order. The HTTP readers know the current head.
+        if (revision !== next) { revision = next; onReconnect(); }
+        return;
+      }
+      revision = next;
+      onDelivery(delivery);
+      if (ordered) onHistoryChanged(delivery);
+    });
+    eventSource.addEventListener("history-changed", delivery => {
+      // An older SSE gateway may relay the legacy notification over a negotiated stream.
+      if ((decodeFileChange(delivery) as {includedInOrderedEdit?: boolean} | null)?.includedInOrderedEdit) return;
+      onHistoryChanged(delivery);
+    });
     eventSource.addEventListener("connected", event => {
-      const projectId = readFileChangeField(decodeFileChange(event), "projectId");
+      const connected = decodeFileChange(event);
+      const projectId = readFileChangeField(connected, "projectId");
+      if (bootstrap && project === projectId) {
+        const head = readFileChangeField(connected, "revision");
+        revision ??= head;
+        if (noteOpeningConnection(projectId, head)) onReconnect();
+      }
       if (projectId) notifyProjectActivity(projectId, "connected");
     });
     eventSource.addEventListener("catalog-changed", (event) => {
@@ -177,7 +217,7 @@ export function sseFileChangeChannel(
         emitMediaIngestStatus(decoded);
       }
     });
-    eventSource.addEventListener("error", () => { needsCatchUp = true; });
+    eventSource.addEventListener("error", () => { needsCatchUp = true; revision = null; });
     eventSource.addEventListener("open", () => {
       if (needsCatchUp) onReconnect();
       needsCatchUp = true;
@@ -190,6 +230,7 @@ export function sseFileChangeChannel(
   // dependent preview/file requests fail. Reopen it before reconciling the project.
   function offline() {
     needsCatchUp = true;
+    stopTrackingSources?.();
     stream?.close();
     stream = null;
   }
@@ -201,7 +242,9 @@ export function sseFileChangeChannel(
   return () => {
     globalThis.removeEventListener?.("offline", offline);
     globalThis.removeEventListener?.("online", online);
+    stopTrackingSources?.();
     stream?.close();
+    if (project) leaveEditorOpening(project);
   };
 }
 
@@ -220,6 +263,7 @@ export function useExternalFileChangeCoordinator({
   recoveryFilePath = activeCompPath,
   pendingTimelineEditPathRef,
   drainPendingChanges,
+  presentPendingPeerChange,
   getPendingCandidate,
   discardPendingChanges,
   reloadPreview,
@@ -241,7 +285,7 @@ export function useExternalFileChangeCoordinator({
   const useHotChannel = !cloud && Boolean(import.meta.hot || testHotAdapter());
   const [blocked, setBlockedState] = useState<ExternalFileChangeBlockedState | null>(null);
   const generationRef = useRef(0);
-  const previewGeneration = useRef(0);
+  const [previewUpdates] = useState(() => new ExternalPreviewUpdates());
   const mountedRef = useRef(true);
   const lastEventIdentityRef = useRef<string | null>(null);
   const blockedRef = useRef<ExternalFileChangeBlockedState | null>(null);
@@ -274,9 +318,9 @@ export function useExternalFileChangeCoordinator({
   useEffect(() => {
     generationRef.current += 1;
     setBlocked(null);
-    previewGeneration.current++;
     lastEventIdentityRef.current = null;
-  }, [projectId, activeCompPath, setBlocked]);
+    return () => previewUpdates.clear();
+  }, [projectId, activeCompPath, setBlocked, previewUpdates]);
 
   useEffect(() => {
     if (!projectId || !recoveryFilePath || !loadConflictSnapshot) return;
@@ -322,10 +366,38 @@ export function useExternalFileChangeCoordinator({
     };
   }, [loadConflictSnapshot, projectId, recoveryFilePath, setBlocked]);
 
+  const rootThumbnailEvent = useRef(0);
+  const updateThumbnails = useCallback((project: string, payload: unknown) => {
+    const versions = changedFileVersions(payload);
+    const changedPaths = readFileChangeAffectsPreview(payload) ? changedFilePaths(payload) ?? undefined : undefined;
+    const indexHeadHash = readFileChangeIndexHeadHash(payload);
+    if (!versions && !changedPaths?.length && !indexHeadHash) return;
+    if (indexHeadHash || (versions && 'index.html' in versions)) rootThumbnailEvent.current++;
+    const missingHead = !indexHeadHash && versions?.['index.html'];
+    const source = missingHead ? projectOrderedFile(project, 'index.html', payload) : undefined;
+    updateCachedCompositionRevisions(project, versions, {
+      changedPaths, indexHeadHash, indexHeadChanged: Boolean(missingHead && !source),
+    });
+    if (source) {
+      // Only the head goes through SHA-256. Receipt and preview processing can proceed
+      // immediately; an older digest must never replace a newer thumbnail dependency.
+      const event = rootThumbnailEvent.current;
+      const apply = (options: {indexHeadHash?: string; indexHeadChanged?: boolean}) => {
+        if (rootThumbnailEvent.current === event) updateCachedCompositionRevisions(project, null, options);
+      };
+      void studioContentHash(extractIndexHeadMarkup(source.content)).then(
+        digest => apply({ indexHeadHash: digest.slice(0, 12) }),
+        () => apply({ indexHeadChanged: true }),
+      );
+    }
+  }, []);
+
   // What a settled change owes: thumbnails (unless its own write's echo brings them), then reloads.
   const deliverOwed = useCallback(
     (owed: unknown, accept = true) => {
       const path = readStudioFileChangePath(owed) ?? ".";
+      const changedPaths = readFileChangeAffectsPreview(owed) ? changedFilePaths(owed) ?? undefined : undefined;
+      if (projectId) updateThumbnails(projectId, owed);
       const inPlace = refreshFileViews(owed, unaffectedPreview => {
         const compositions = readFileChangeAffectedCompositions(owed);
         if (accept) onAcceptedPersistedFileChange(path, unaffectedPreview && compositions
@@ -336,14 +408,7 @@ export function useExternalFileChangeCoordinator({
         path,
         by: "external-change coordinator",
       });
-      if (affectsPreview) {
-        const ticket = ++previewGeneration.current;
-        if (inPlace) {
-          void inPlace.catch(() => false).then(applied => {
-            if (!applied && mountedRef.current && previewGeneration.current === ticket) reloadPreview(path);
-          });
-        } else reloadPreview(path);
-      }
+      if (affectsPreview) previewUpdates.track(changedPaths, inPlace, reloadPreview);
       // Fire-and-forget: a failed refresh leaves the tree as stale as it was,
       // which is the status quo this exists to improve on, not a new failure
       // mode to surface. The `absent`-triggered fallback in useSdkSession
@@ -351,7 +416,7 @@ export function useExternalFileChangeCoordinator({
       // a watcher event the SSE never delivered).
       if (readFileTreeChanged(owed)) void refreshFileTree?.();
     },
-    [onAcceptedPersistedFileChange, reloadPreview, refreshFileViews, refreshFileTree],
+    [projectId, onAcceptedPersistedFileChange, previewUpdates, reloadPreview, refreshFileViews, refreshFileTree, updateThumbnails],
   );
 
   const persistSnapshotInOrder = useCallback(async (write: () => Promise<void>) => {
@@ -529,11 +594,17 @@ export function useExternalFileChangeCoordinator({
         return;
       }
       lastEventIdentityRef.current = identity;
+      invalidatePendingSourceReads(projectId, changedFilePaths(payload), changedFileVersions(payload));
 
+      // All steps in an ordered delivery came from one sender. Retire every echo token.
+      for (const step of orderedFileChange(payload)?.steps ?? []) {
+        if (step.id !== token) consumeStudioWriteToken(step.id);
+      }
       const ownWriteToken = consumeStudioWriteToken(token);
       const ownContentEcho = content != null && isSelfWriteEcho(path, content);
       if (!ownWriteToken) invalidateLatestSourceWrite();
       if (ownWriteToken || ownContentEcho) {
+        updateThumbnails(projectId, payload);
         const version = changedFileVersion(payload, path);
         const ownWrite = ownWriteToken && token && version && isLatestSourceWrite(token) ? { token, version } : undefined;
         onAcceptedPersistedFileChange(path, readFileChangeAffectedCompositions(payload), ownWrite);
@@ -544,13 +615,14 @@ export function useExternalFileChangeCoordinator({
         return;
       }
 
+      presentPendingPeerChange?.(payload);
       const waiting = pendingPayloadRef.current?.payload;
       pendingPayloadRef.current = {
         payload: waiting == null ? payload : mergeFileChangePayloads(waiting, payload),
       };
       void startDrainLoop();
     },
-    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange],
+    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange, presentPendingPeerChange, updateThumbnails],
   );
 
   const processChangeRef = useRef(processChange);

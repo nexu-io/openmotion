@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { BlobScope } from '../contracts/storage.ts';
-export { computePreviewImpact, type PreviewImpact } from '../../shared/preview-impact.ts';
+import { extractIndexHeadMarkup } from '../../shared/preview-impact.ts';
+export {
+  computePreviewImpact,
+  extractIndexHeadMarkup,
+  NON_PREVIEW_FILES,
+  type PreviewImpact,
+} from '../../shared/preview-impact.ts';
 
 /** Strong ETag sentinel used when a file has been deleted. */
 export const DELETED_VERSION = '"deleted"';
@@ -9,6 +15,11 @@ export const DELETED_VERSION = '"deleted"';
 /** Compute lowercase 64-char SHA-256 hex digest of UTF-8 text or raw bytes. */
 export function sha256Hex(content: string | Buffer | Uint8Array): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+/** Stable 12-hex-char SHA-256 tag of `index.html`'s `<head>` markup for shared render invalidation. */
+export function hashIndexHeadMarkup(indexHtml: string | null | undefined): string {
+  return sha256Hex(extractIndexHeadMarkup(indexHtml)).slice(0, 12);
 }
 
 /**

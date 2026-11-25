@@ -5,12 +5,18 @@ import { mediaThumbnailRevisionOf } from "../player/store/thumbnailSlice";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { rememberSource, forgetSource } from "../utils/confirmedTextSources";
 import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
 import { acceptFileEditReceipt } from "../utils/rebasedFileEdit";
 import { markStudioWriteToken, resetStudioWriteTokens, studioFileContentVersion } from "../utils/studioFileVersion";
 import { markSelfWrite, resetSelfWriteRegistry } from "./sdkSelfWriteRegistry";
 import { subscribeProjectActivity } from "../motion/workspaceRefresh";
 import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import {
+  clearClientCompositionCaptureCacheForTest,
+  getCompositionCacheRevision,
+  setCachedProjectRevision,
+} from "../player/lib/clientCompositionCapture";
 import {
   useExternalFileChangeCoordinator,
   type ExternalFileChangeCoordinatorHandle,
@@ -82,6 +88,7 @@ describe("external file change coordinator", () => {
   afterEach(async () => {
     while (roots.length > 0) await act(async () => roots.pop()?.unmount());
     setCachedCloudDisklessMode(null);
+    clearClientCompositionCaptureCacheForTest();
     vi.unstubAllGlobals();
   });
 
@@ -142,6 +149,45 @@ describe("external file change coordinator", () => {
     expect(options.reloadPreview).not.toHaveBeenCalled();
     await act(async () => decline(false));
     expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith("index.html");
+  });
+
+  it("still updates the intro when an overlapping outro update finishes in place", async () => {
+    let finishIntro!: (applied: boolean) => void;
+    const intro = new Promise<boolean>(resolve => { finishIntro = resolve; });
+    const { options } = await mountCoordinator({
+      refreshFileViews: vi.fn().mockReturnValueOnce(intro).mockResolvedValueOnce(true),
+    });
+    await act(async () => handler?.({ path: "intro.html" }));
+    await act(async () => handler?.({ path: "outro.html" }));
+    await act(async () => finishIntro(false));
+    expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith("intro.html");
+  });
+
+  it("keeps a pending scene independent when another scene needs recovery", async () => {
+    let failIntro!: (error: Error) => void;
+    let finishOutro!: (applied: boolean) => void;
+    const { options } = await mountCoordinator({
+      refreshFileViews: vi.fn()
+        .mockReturnValueOnce(new Promise<boolean>((_, reject) => { failIntro = reject; }))
+        .mockReturnValueOnce(new Promise<boolean>(resolve => { finishOutro = resolve; })),
+    });
+    await act(async () => handler?.({ path: "intro.html" }));
+    await act(async () => handler?.({ path: "outro.html" }));
+    await act(async () => failIntro(new Error("source read failed")));
+    expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith("intro.html");
+    await act(async () => finishOutro(false));
+    expect(vi.mocked(options.reloadPreview).mock.calls).toEqual([["intro.html"], ["outro.html"]]);
+  });
+
+  it("ignores an unsettled preview update after switching projects", async () => {
+    let finish!: (applied: boolean) => void;
+    const { options, rerender } = await mountCoordinator({
+      refreshFileViews: () => new Promise<boolean>(resolve => { finish = resolve; }),
+    });
+    await act(async () => handler?.({ path: "intro.html" }));
+    await rerender({ projectId: "project-b" });
+    await act(async () => finish(false));
+    expect(options.reloadPreview).not.toHaveBeenCalled();
   });
 
   describe("SSE reconnect recovery", () => {
@@ -1350,6 +1396,109 @@ describe("external file change coordinator", () => {
       );
 
       expect(reloadPreview).toHaveBeenCalledOnce();
+    });
+
+    it("derives shared thumbnail keys from an ordered root patch and invalidates conservatively when its base is absent", async () => {
+      const project = "project-a", path = "index.html", scene = "compositions/intro.html";
+      const content = "<html><head>style1</head><body>aaa</body></html>";
+      const digest = async (head: string) => (await studioFileContentVersion(head)).slice(8, 20);
+      const oldHead = await digest("style1");
+      const newHead = await digest("style2");
+      const sceneKey = (hash: string) => 'scene-v1|shared:' + hash + ':assets';
+      const base = '"patch:base"';
+      setCachedProjectRevision(project, "revision", {
+        [path]: base + '|shared:' + oldHead + ':assets', [scene]: sceneKey(oldHead),
+      });
+      await mountCoordinator();
+      const deliver = async (where: string, insert: string, version: string) => {
+        const id = 'token-' + version;
+        markStudioWriteToken(id);
+        await act(async () => handler?.({
+          projectId: project, fileVersions: { [path]: version }, paths: [path], writeToken: id,
+          ordered: { fromRevision: "r1", historySeq: 1, steps: [{id, patches: [
+            {path, from: base, to: version, patch: [[content.indexOf(where), where.length, insert]]},
+          ]}] },
+        }));
+      };
+      rememberSource(project, path, { content, version: base });
+      try {
+        await deliver("aaa", "bbb", "body-version");
+        expect(getCompositionCacheRevision(project, scene)).toBe(sceneKey(oldHead));
+        await deliver("style1", "style2", "head-version");
+        await vi.waitFor(() => expect(getCompositionCacheRevision(project, scene)).toBe(sceneKey(newHead)));
+        forgetSource(project, path);
+        await deliver("aaa", "ccc", "unknown-version");
+        expect(getCompositionCacheRevision(project, scene)).not.toBe(sceneKey(newHead));
+      } finally {
+        forgetSource(project, path);
+      }
+    });
+
+    it("propagates persisted HTML fileVersions, indexHeadHash, and shared CSS/asset invalidation from SSE into clientCompositionCapture", async () => {
+      setCachedProjectRevision("project-a", "proj-rev-1", {
+        "index.html": '"sha256:idx-1"|deps:dddddddddddd|shared:111111111111:222222222222',
+        "compositions/intro.html": '"sha256:intro-1"|shared:111111111111:222222222222',
+        "compositions/outro.html": '"sha256:outro-1"|shared:111111111111:222222222222',
+      });
+      await mountCoordinator();
+
+      // Own write echo for index.html <body> (same indexHeadHash) updates only index.html while preserving |deps: and |shared:.
+      markStudioWriteToken("tok-timeline-move");
+      await act(async () =>
+        handler?.({
+          projectId: "project-a",
+          paths: ["index.html"],
+          fileVersions: { "index.html": '"patch:idx-2"' },
+          indexHeadHash: "111111111111",
+          affectedCompositions: ["index.html"],
+          writeToken: "tok-timeline-move",
+          fileTreeChanged: false,
+        }),
+      );
+      expect(getCompositionCacheRevision("project-a", "index.html")).toBe('"patch:idx-2"|deps:dddddddddddd|shared:111111111111:222222222222');
+      expect(getCompositionCacheRevision("project-a", "compositions/intro.html")).toBe('"sha256:intro-1"|shared:111111111111:222222222222');
+      expect(getCompositionCacheRevision("project-a", "compositions/outro.html")).toBe('"sha256:outro-1"|shared:111111111111:222222222222');
+
+      // External edit / undo for compositions/intro.html updates intro.html and rotates index.html's |deps: while keeping outro.html warm.
+      await act(async () =>
+        handler?.({
+          projectId: "project-a",
+          paths: ["compositions/intro.html"],
+          fileVersions: { "compositions/intro.html": '"patch:intro-2"' },
+          affectedCompositions: ["compositions/intro.html", "index.html"],
+          fileTreeChanged: false,
+        }),
+      );
+      expect(getCompositionCacheRevision("project-a", "compositions/intro.html")).toBe('"patch:intro-2"|shared:111111111111:222222222222');
+      expect(getCompositionCacheRevision("project-a", "compositions/outro.html")).toBe('"sha256:outro-1"|shared:111111111111:222222222222');
+      expect(getCompositionCacheRevision("project-a", "index.html")).not.toBe('"patch:idx-2"|deps:dddddddddddd|shared:111111111111:222222222222');
+
+      // Editing index.html <head> rotates indexHeadHash across every composition immediately.
+      await act(async () =>
+        handler?.({
+          projectId: "project-a",
+          paths: ["index.html"],
+          fileVersions: { "index.html": '"patch:idx-3"' },
+          indexHeadHash: "aaaaaaaaaaaa",
+          affectedCompositions: ["index.html"],
+          fileTreeChanged: false,
+        }),
+      );
+      expect(getCompositionCacheRevision("project-a", "compositions/intro.html")).toBe('"patch:intro-2"|shared:aaaaaaaaaaaa:222222222222');
+      expect(getCompositionCacheRevision("project-a", "compositions/outro.html")).toBe('"sha256:outro-1"|shared:aaaaaaaaaaaa:222222222222');
+
+      // Editing a shared stylesheet (non-HTML path, no HTML fileVersions) invalidates every composition live.
+      const beforeCss = getCompositionCacheRevision("project-a", "compositions/outro.html");
+      await act(async () =>
+        handler?.({
+          projectId: "project-a",
+          paths: ["styles/theme.css"],
+          affectsPreview: true,
+          fileTreeChanged: false,
+        }),
+      );
+      expect(getCompositionCacheRevision("project-a", "compositions/outro.html")).not.toBe(beforeCss);
+      expect(getCompositionCacheRevision("project-a", "compositions/intro.html")).not.toBe('"patch:intro-2"|shared:aaaaaaaaaaaa:222222222222');
     });
   });
 });

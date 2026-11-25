@@ -23,6 +23,7 @@ export interface VirtualFileRecord {
 export interface VirtualProjectReader {
   readonly projectId: string;
   readonly projectName: string;
+  readonly templateId?: string | null;
   readonly revision: string;
   /** List every file in the project (including `.hyperframes/studio-*.json`). */
   listFiles(): readonly VirtualFileRecord[];
@@ -42,6 +43,7 @@ export interface VirtualProjectReader {
 export class InMemoryVirtualProject implements VirtualProjectReader {
   readonly projectId: string;
   readonly projectName: string;
+  readonly templateId?: string | null;
   readonly revision: string;
   private readonly filesByPath: ReadonlyMap<string, VirtualFileRecord>;
   private readonly textByPath: ReadonlyMap<string, string>;
@@ -50,12 +52,14 @@ export class InMemoryVirtualProject implements VirtualProjectReader {
   constructor(options: {
     projectId: string;
     projectName: string;
+    templateId?: string | null;
     revision: string;
     files: readonly VirtualFileRecord[];
     textContents: ReadonlyMap<string, string> | Record<string, string>;
   }) {
     this.projectId = options.projectId;
     this.projectName = options.projectName;
+    this.templateId = options.templateId;
     this.revision = options.revision;
     const sorted = [...options.files].sort((a, b) => a.path.localeCompare(b.path));
     this.orderedFiles = sorted;

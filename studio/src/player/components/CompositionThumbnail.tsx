@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
 import {
   createThumbnailKey,
+  thumbnailScheduler,
   type ThumbnailPriority,
   type ThumbnailRequest,
   type ThumbnailValue,
@@ -16,6 +17,8 @@ import {
 } from "./thumbnailUtils";
 import { useValueAtRest } from "./timelineMotion";
 import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
+import { compositionPathOfPreviewUrl } from "../../utils/projectCompositionPath";
+export { compositionPathOfPreviewUrl } from "../../utils/projectCompositionPath";
 import {
   compositionDisplayName,
   loadCloudCompositionPoster,
@@ -24,13 +27,14 @@ import {
   acquireCachedCompositionCaptureFromIdb,
   canCaptureCompositionInBrowser,
   createClientCompositionCaptureRequest,
-  getCompositionCacheRevision,
+  getCompositionCacheKeyRevision,
   getProgressiveCompositionCapture,
+  MAX_CLIENT_COMPOSITION_FRAMES,
   peekCachedCompositionCapture,
   peekFallbackCompositionCapture,
   quantizeCompositionFrameCount,
   retainCachedCompositionCapture,
-  selectInitialGateCompositionPaths,
+  selectPriorityCompositionPaths,
   selectorCaptureWindowKey,
   subscribeCompositionCacheRevision,
   subscribeProgressiveCompositionCapture,
@@ -112,12 +116,6 @@ export function buildCompositionThumbnailUrl({
     }
   }
   return thumbnailUrl.toString();
-}
-
-/** The composition a preview URL renders: `/preview/comp/<path>`, or the root for `/preview`. */
-export function compositionPathOfPreviewUrl(previewUrl: string): string {
-  const match = /\/preview\/comp\/([^?#]+)/.exec(previewUrl);
-  return match?.[1] ? decodeURIComponent(match[1]) : "index.html";
 }
 
 export function compositionThumbnailRequest(
@@ -334,23 +332,28 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     [captureEnabled, projectId],
   );
   const getCacheRev = useCallback(
-    () => (captureEnabled ? getCompositionCacheRevision(projectId, previewUrl) : ""),
-    [captureEnabled, previewUrl, projectId],
+    () => (captureEnabled ? getCompositionCacheKeyRevision(projectId, previewUrl, contentRevision) : ""),
+    [captureEnabled, contentRevision, previewUrl, projectId],
   );
   const compCacheRev = useSyncExternalStore(subscribeCacheRev, getCacheRev, () => "");
-  const desiredCaptureFrames = useValueAtRest(
+  const captureContentRevision = compCacheRev.startsWith("file:") ? 0 : contentRevision;
+  const quantizedTileFrames = useValueAtRest(
     quantizeCompositionFrameCount(
       computeThumbnailStrip(container.width, 16 / 9, container.height, 48).frameCount,
       effectiveClipDuration,
     ),
   );
+  // Whole HTML compositions capture one canonical filmstrip per content version so
+  // trimming, stretching, or zooming the timeline simply displays fewer or more tiles
+  // from that cached strip without ever re-running SnapDOM.
+  const desiredCaptureFrames = selector ? quantizedTileFrames : MAX_CLIENT_COMPOSITION_FRAMES;
   const captureMeasured = useValueAtRest(container.width > 0);
   const captureStart = useValueAtRest(seekTime);
   const captureDuration = useValueAtRest(effectiveClipDuration);
   const selectorStart = selector ? captureStart : undefined;
   const selectorDuration = selector ? captureDuration : undefined;
   const captureCacheKey = captureEnabled && captureMeasured
-    ? `${projectId}|${previewUrl}|${compCacheRev}|${contentRevision}|${desiredCaptureFrames}|${selector ?? ""}|${selectorIndex ?? 0}|${selectorCaptureWindowKey({ selector, seekTime: selectorStart, duration: selectorDuration }) ?? ""}`
+    ? `${projectId}|${previewUrl}|${compCacheRev}|${desiredCaptureFrames}|${selector ?? ""}|${selectorIndex ?? 0}|${selectorCaptureWindowKey({ selector, seekTime: selectorStart, duration: selectorDuration }) ?? ""}`
     : null;
 
   // Tier 0: synchronous in-memory hit (0ms across project/composition switches).
@@ -360,7 +363,7 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
         ? peekCachedCompositionCapture({
             previewUrl,
             projectId,
-            contentRevision,
+            contentRevision: captureContentRevision,
             frameCount: desiredCaptureFrames,
             selector,
             selectorIndex,
@@ -369,10 +372,10 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
           })
         : null,
     [
+      captureContentRevision,
       captureEnabled,
       captureMeasured,
       compCacheRev,
-      contentRevision,
       desiredCaptureFrames,
       previewUrl,
       projectId,
@@ -395,7 +398,7 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     void acquireCachedCompositionCaptureFromIdb({
       previewUrl,
       projectId,
-      contentRevision,
+      contentRevision: captureContentRevision,
       frameCount: desiredCaptureFrames,
       selector,
       selectorIndex,
@@ -420,7 +423,7 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     };
   }, [
     captureCacheKey,
-    contentRevision,
+    captureContentRevision,
     desiredCaptureFrames,
     previewUrl,
     projectId,
@@ -435,15 +438,14 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
   const cachedValue = syncCachedValue ?? idbValue;
   const idbPending = Boolean(captureCacheKey && !syncCachedValue && idbProbe?.key !== captureCacheKey);
 
-  const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
-  const inInitialGateSet = usePlayerStore((s) => {
-    if (!captureEnabled || selector || priority === "overscan" || s.timelinePreviewSettledInitial) {
+  const inPlayheadPrioritySet = usePlayerStore((s) => {
+    if (!captureEnabled || selector || priority === "overscan") {
       return false;
     }
-    return selectInitialGateCompositionPaths(s.elements, s.currentTime).includes(compPath);
+    return selectPriorityCompositionPaths(s.elements, s.currentTime).includes(compPath);
   });
-  const participatesInInitialGate =
-    Boolean(captureCacheKey) && !syncCachedValue && inInitialGateSet;
+  const boostCapturePriority =
+    Boolean(captureCacheKey) && !syncCachedValue && inPlayheadPrioritySet;
 
   // Tier 2: priority-queued offscreen browser capture (cold misses only).
   const captureRequest = useMemo(
@@ -453,33 +455,33 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
             previewUrl,
             projectId,
             sessionEpoch,
-            contentRevision,
+            contentRevision: captureContentRevision,
             frameCount: desiredCaptureFrames,
-            duration: captureDuration,
-            seekTime: captureStart,
+            duration: selectorDuration,
+            seekTime: selectorStart,
             selector,
             selectorIndex,
-            priority: participatesInInitialGate ? "interaction" : priority,
-            gatePriority: participatesInInitialGate,
+            priority: boostCapturePriority ? "interaction" : priority,
+            gatePriority: boostCapturePriority,
             rich: true,
           })
         : null,
     [
       cachedValue,
+      captureContentRevision,
       captureEnabled,
       captureMeasured,
       compCacheRev,
-      contentRevision,
       desiredCaptureFrames,
-      captureDuration,
       idbPending,
-      participatesInInitialGate,
+      boostCapturePriority,
       previewUrl,
       priority,
       projectId,
-      captureStart,
       selector,
       selectorIndex,
+      selectorStart,
+      selectorDuration,
       sessionEpoch,
     ],
   );
@@ -521,7 +523,7 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
         ? {
             previewUrl,
             projectId,
-            contentRevision,
+            contentRevision: captureContentRevision,
             frameCount: desiredCaptureFrames,
             selector,
             selectorIndex,
@@ -531,11 +533,11 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
         : null,
     [
       cachedValue,
+      captureContentRevision,
       captureEnabled,
       captureMeasured,
       captureSnapshot.status,
       compCacheRev,
-      contentRevision,
       desiredCaptureFrames,
       idbPending,
       previewUrl,
@@ -557,29 +559,42 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     [progressiveTarget],
   );
   const progressiveValue = useSyncExternalStore(subscribeProgressive, getProgressiveSnapshot, () => null);
-  const gateTaskId = useMemo(
-    () => (participatesInInitialGate ? `${projectId}:${previewUrl}:${contentRevision}` : null),
-    [contentRevision, participatesInInitialGate, previewUrl, projectId],
-  );
-  const captureSettled =
-    Boolean(cachedValue) ||
-    Boolean(progressiveValue) ||
-    captureSnapshot.status === "ready" ||
-    captureSnapshot.status === "error";
+  const autoRetriedKeyRef = useRef<string | null>(null);
+  const [autoRetryPending, setAutoRetryPending] = useState(false);
 
+  // Bounded 1x quiet automatic backoff retry when a transient capture error occurs.
   useEffect(() => {
-    if (!gateTaskId) return;
-    const store = usePlayerStore.getState();
-    store.registerTimelinePreviewTask(gateTaskId, loadGeneration);
-    return () => {
-      usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-    };
-  }, [gateTaskId, loadGeneration]);
-
-  useEffect(() => {
-    if (!gateTaskId || !captureSettled) return;
-    usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-  }, [captureSettled, gateTaskId, loadGeneration]);
+    if (
+      !captureEnabled ||
+      !captureCacheKey ||
+      !projectId ||
+      Boolean(cachedValue) ||
+      Boolean(progressiveValue) ||
+      captureSnapshot.status !== "error"
+    ) {
+      setAutoRetryPending(false);
+      return;
+    }
+    if (autoRetriedKeyRef.current === captureCacheKey) {
+      setAutoRetryPending(false);
+      return;
+    }
+    setAutoRetryPending(true);
+    const timer = setTimeout(() => {
+      autoRetriedKeyRef.current = captureCacheKey;
+      setAutoRetryPending(false);
+      thumbnailScheduler.retryFailed(projectId, compPath);
+    }, 2_000);
+    return () => clearTimeout(timer);
+  }, [
+    cachedValue,
+    captureCacheKey,
+    captureEnabled,
+    captureSnapshot.status,
+    compPath,
+    progressiveValue,
+    projectId,
+  ]);
 
   const snapshot = captureSnapshot.status === "ready" ? captureSnapshot : posterSnapshot;
   const resolvedValue =
@@ -637,12 +652,14 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
         >
           {(index) => {
             const frameIndex =
-              frameCount <= 1 || value.urls.length <= 1
+              value.urls.length <= 1
                 ? 0
-                : Math.min(
-                    value.urls.length - 1,
-                    Math.round((index / (frameCount - 1)) * (value.urls.length - 1)),
-                  );
+                : frameCount <= 1
+                  ? Math.floor(value.urls.length / 2)
+                  : Math.min(
+                      value.urls.length - 1,
+                      Math.round((index / (frameCount - 1)) * (value.urls.length - 1)),
+                    );
             return (
               <div
                 key={index}
@@ -721,8 +738,8 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
           </div>
         </div>
       )}
-      {!value && snapshot.status !== "error" && (
-        <Skeleton animated={false} style={{ position: "absolute", inset: 0 }} />
+      {!value && (snapshot.status !== "error" || autoRetryPending) && (
+        <Skeleton style={{ position: "absolute", inset: 0 }} />
       )}
       {showOverlayLabel && (
         <div className="absolute inset-y-0 left-3 z-10 flex items-center">

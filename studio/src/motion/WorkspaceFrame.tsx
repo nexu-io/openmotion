@@ -48,6 +48,7 @@ import { OverlayLayer } from '../router/OverlayLayer';
 import { EntitlementModalHost } from './EntitlementModalHost';
 import { StudioRouterProvider } from '../router/createAppRouter';
 import { useWorkspaceBlocker } from '../router/useWorkspaceBlocker';
+import { isNotFoundSpaPath } from '../../../shared/spa-routes';
 import { isCloudFeatureEnabled, useCloudFeatureEnabled } from '../utils/cloudFeatures';
 
 import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
@@ -143,6 +144,12 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     writeWorkspaceHistory(target, replace, { page: nextSource, settings: settingsSource });
   }, []);
   useEffect(() => {
+    if (isNotFoundSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash)) {
+      if (routerLocation.pathname !== '/404') {
+        navigatePage({ notFound: true, templates: false }, true);
+      }
+      return;
+    }
     if (page.settings === 'local' && !localAgentsEnabled) {
       navigatePage({ settings: 'providers', mcpInSettings: false, assets: false, skills: false, templates: false }, true);
       return;
@@ -155,7 +162,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     ) {
       navigatePage({ explore: true, templates: false, ...lastExplore.current }, true);
     }
-  }, [page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
+  }, [routerLocation.pathname, routerLocation.search, routerLocation.hash, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
   const presentation = workspacePresentation(location.search);
   const guard = useRef<EditorGuard | null>(null);
   const [editorState, setEditorState] = useState<Pick<EditorGuard, 'blocked' | 'saveState' | 'message'> | null>(null);
@@ -239,7 +246,9 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
           ? 'skills'
           : templatesPage
             ? 'templates'
-            : page.motion
+            : page.notFound
+              ? 'not_found'
+              : page.motion
               ? 'motion'
               : page.explore
                 ? 'explore'
@@ -257,7 +266,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       sessionId: sessionId ?? null,
       page: activePage,
     });
-  }, [projectId, sessionId, settings, assetsOpen, skillsOpen, templatesPage, page.motion, page.explore, page.modelOverview, page.modelHub, page.designScene, page.studio]);
+  }, [projectId, sessionId, settings, assetsOpen, skillsOpen, templatesPage, page.notFound, page.motion, page.explore, page.modelOverview, page.modelHub, page.designScene, page.studio]);
   const editorActive = editorRoute && !connectionsOpen;
   const motionTemplatesOpen = page.motion && !templatesPage && !settings;
   const previousOperationError = useRef('');

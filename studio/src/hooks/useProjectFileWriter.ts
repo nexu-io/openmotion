@@ -1,6 +1,7 @@
-import { readVersionedSource } from "../utils/readVersionedSource";
-import { confirmedSource, observeSourceRead } from "../utils/confirmedTextSources";
-import { tryStudioTextEdit, tryStudioCommandPatches, resolveEditSource } from "../utils/studioTextEdits";
+import { readCurrentProjectSource } from "../utils/readCurrentProjectSource";
+import { confirmedSource, supportsOrderedTextEdits } from "../utils/confirmedTextSources";
+import { runOrderedProjectBarrier } from "../utils/orderedProjectEdits";
+import { tryStudioTextEdit, tryStudioCommandPatches, resolveEditSource, saveOrderedStudioFile } from "../utils/studioTextEdits";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import type { StudioWriteHistory } from "../utils/studioFileHistory";
 import { acceptFileEditReceipt, type RebasedFileEdit } from "../utils/rebasedFileEdit";
@@ -13,7 +14,9 @@ import {
 } from "../utils/studioSaveDiagnostics";
 import { studioExpectedFileVersion, studioWriteHeaders } from "../utils/studioFileVersion";
 import { studioApiFetch } from "../utils/studioApiFetch";
+import { extractIndexHeadMarkup } from "../../../shared/preview-impact";
 import { trackStudioProjectSave } from "../utils/studioSaveState";
+import { updateCachedCompositionRevisions } from "../player/lib/clientCompositionCapture";
 
 export interface UseProjectFileWriterOptions {
   projectId: string | null;
@@ -22,13 +25,10 @@ export interface UseProjectFileWriterOptions {
 
 export async function readProjectFileContentWithVersion(projectId: string | null, path: string, query: string) {
   if (!projectId) throw new Error("No active project");
-  const response = await readVersionedSource(
-    `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(path)}${query}`,
-    confirmedSource(projectId, path),
-  );
+  const { response, data } = await readCurrentProjectSource(projectId, path,
+    `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(path)}${query}`);
   if (!response.ok) throw new Error(`Failed to read ${path}`);
-  const data = (await response.json()) as { content?: string; version?: string; missing?: boolean };
-  observeSourceRead(projectId, path, response, data);
+  if (!data) throw new Error(`Invalid source response for ${path}`);
   return { content: data.content, version: data.version ?? response.headers.get("etag"), missing: data.missing };
 }
 
@@ -60,8 +60,10 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
   );
 
   const readOptionalProjectFile = useCallback(
-    async (path: string): Promise<string> => {
-      const { content, version } = await readProjectFileContentWithVersion(projectId, path, "?optional=1");
+    async (path: string, observe?: (base: { content: string; version: string | null }) => void): Promise<string> => {
+      const { content, version, missing } = await readProjectFileContentWithVersion(projectId, path, "?optional=1");
+      if (missing === true) observe?.({ content: "", version: null });
+      else if (typeof content === "string" && version) observe?.({ content, version });
       fileVersions.set(path, version);
       return typeof content === "string" ? content : "";
     },
@@ -73,15 +75,47 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
     function write(path: string, content: string, expectedContent: string | undefined, command: ProjectEditCommand | undefined, history?: StudioWriteHistory): Promise<void | RebasedFileEdit>;
     async function write(path: string, content: string, expectedContent?: string, command?: ProjectEditCommand, history?: StudioWriteHistory): Promise<void | RebasedFileEdit> {
       if (!projectId) throw new Error("No active project");
+      // Reserve the gesture's place before any asynchronous read. Its predecessor
+      // may still exist only in this browser's ordered edits.
+      if (supportsOrderedTextEdits(projectId)) {
+        const cached = confirmedSource(projectId, path);
+        const seen = fileVersions.get(path);
+        const version = cached && cached.content === expectedContent ? cached.version : seen;
+        const before = expectedContent ?? cached?.content;
+        const result = command
+          ? await tryStudioCommandPatches(projectId, [{ ...command, compositionPath: path }], version ? { [path]: version } : {},
+              history, () => content, () => expectedContent)
+          : await saveOrderedStudioFile(projectId, path, content, expectedContent, version, history);
+        if (!result) throw new Error('Could not prepare the edit for ' + path);
+        const saved = result.versions[path];
+        const latest = confirmedSource(projectId, path);
+        if (latest && saved !== latest.version) return;
+        if (saved) fileVersions.set(path, saved);
+        updateCachedCompositionRevisions(projectId, result.versions, before !== undefined && path === 'index.html' &&
+          extractIndexHeadMarkup(before) !== extractIndexHeadMarkup(content) ? {indexHeadChanged: true} : undefined);
+        if ('divergent' in result && Array.isArray(result.divergent) && result.divergent.length) return result.divergent[0];
+        if (latest && latest.content !== content) onSavedContent?.(projectId, path, latest.content, content);
+        else onSavedContent?.(projectId, path, content);
+        return;
+      }
       const source = expectedContent !== undefined && fileVersions.get(path) !== null
         ? await resolveEditSource(projectId, path, current => current.content === expectedContent, content)
         : confirmedSource(projectId, path);
-      if (source && (expectedContent === undefined ? fileVersions.get(path) === source.version : expectedContent === source.content)) {
-        const saved = command
+      const trustedBase = source && (expectedContent === undefined ? fileVersions.get(path) === source.version : expectedContent === source.content);
+      const before = trustedBase ? source.content : undefined;
+      if (before !== undefined) {
+        const saved = command && source
           ? await tryStudioCommandPatches(projectId, [{ ...command, compositionPath: path }], { [path]: source.version }, history, () => content)
-          : await tryStudioTextEdit(projectId, [{ path, before: source.content, after: content }], history);
+          : await tryStudioTextEdit(projectId, [{ path, before, after: content }], history);
         if (saved) {
           fileVersions.set(path, saved.versions[path]);
+          const indexHeadChanged =
+            path === "index.html" && extractIndexHeadMarkup(before) !== extractIndexHeadMarkup(content);
+          updateCachedCompositionRevisions(
+            projectId,
+            saved.versions,
+            indexHeadChanged ? { indexHeadChanged: true } : undefined,
+          );
           if (saved.divergent.length) return saved.divergent[0];
           const accepted = confirmedSource(projectId, path)?.content ?? content;
           if (accepted === content) onSavedContent?.(projectId, path, content);
@@ -89,7 +123,7 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
           return;
         }
       }
-      return trackStudioProjectSave(projectId, path, async () => {
+      return trackStudioProjectSave(projectId, path, () => runOrderedProjectBarrier(projectId, async () => {
         const writeProjectId = projectId;
         let expectedVersion = source && source.content === expectedContent ? source.version : await studioExpectedFileVersion(fileVersions, path, expectedContent);
         if (expectedVersion === undefined) {
@@ -143,6 +177,15 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
             const currentVersion = conflict?.currentVersion ?? null;
             if (currentVersion && conflict?.currentContent === content) {
               fileVersions.set(path, currentVersion);
+              const indexHeadChanged =
+                path === "index.html" &&
+                source != null &&
+                extractIndexHeadMarkup(source.content) !== extractIndexHeadMarkup(content);
+              updateCachedCompositionRevisions(
+                writeProjectId,
+                { [path]: currentVersion },
+                indexHeadChanged ? { indexHeadChanged: true } : undefined,
+              );
               return;
             }
             throw new StudioFileConflictError({
@@ -163,10 +206,19 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
             return rebased;
           }
           fileVersions.set(path, version);
+          const indexHeadChanged =
+            path === "index.html" &&
+            source != null &&
+            extractIndexHeadMarkup(source.content) !== extractIndexHeadMarkup(content);
+          updateCachedCompositionRevisions(
+            writeProjectId,
+            { [path]: version },
+            indexHeadChanged ? { indexHeadChanged: true } : undefined,
+          );
         });
         if (divergent) return divergent;
         onSavedContent?.(writeProjectId, path, content);
-      });
+      }));
     }
     return write;
   }, [fileVersions, onSavedContent, projectId]);

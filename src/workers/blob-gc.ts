@@ -16,6 +16,7 @@ import {
 } from '../db/cas.ts';
 import type { Database } from '../db/client.ts';
 import { asUpdate } from '../db/helpers.ts';
+import { createTextCheckpoints } from '../services/text-checkpoints.ts';
 import { uploadTickets } from '../db/schema/blobs-assets.ts';
 import type { Logger } from '../infra/logger.ts';
 import {
@@ -39,7 +40,7 @@ export interface BlobGcCasOps {
 
 export interface BlobGcDeps {
   readonly db: Database;
-  readonly storage: Pick<StoragePort, 'deleteObject' | 'deletePrefix'>;
+  readonly storage: Pick<StoragePort, 'deleteObject' | 'deletePrefix' | 'ensureTextCheckpoint'>;
   readonly logger: Logger;
   readonly casOps?: BlobGcCasOps;
 }
@@ -236,7 +237,10 @@ export async function processBlobGcJob<K extends BlobGcJobName>(
   deps: BlobGcDeps,
   name: K,
   payload: BlobGcPayloadMap[K],
-): Promise<SweepUnreferencedBlobsResult | SweepExpiredUploadsResult | SweepExpiredReceiptsResult> {
+): Promise<SweepUnreferencedBlobsResult | SweepExpiredUploadsResult | SweepExpiredReceiptsResult | { completed: number; failed: number }> {
+  if (name === 'create_text_checkpoints') {
+    return createTextCheckpoints(deps, payload as BlobGcPayloadMap['create_text_checkpoints']);
+  }
   if (name === 'sweep_unreferenced_blobs') {
     return sweepUnreferencedBlobs(deps, payload as BlobGcPayloadMap['sweep_unreferenced_blobs']);
   }

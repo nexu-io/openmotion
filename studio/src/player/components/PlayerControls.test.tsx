@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { liveTime, usePlayerStore } from "../store/playerStore";
+import { registerRetryFailedAssetsHandler } from "../store/readinessSlice";
 import { PlayerControls } from "./PlayerControls";
 import { StudioHostContext } from "../../motion/StudioHost";
 
@@ -28,6 +29,11 @@ beforeEach(async () => {
     duration: 30,
     timeDisplayMode: "time",
     timelineReady: true,
+    assetReadinessPhase: "ready",
+    assetReadinessFailed: [],
+    assetReadinessRetrying: false,
+    mediaBuffering: false,
+    previewLoadError: false,
   });
   host = document.createElement("div");
   document.body.append(host);
@@ -125,5 +131,56 @@ describe("PlayerControls timecode", () => {
     expect(timecode?.textContent).toBe("00:03");
     expect(writes.length).toBeGreaterThan(0);
     observer.disconnect();
+  });
+});
+
+describe("PlayerControls buffering and asset-failure recovery", () => {
+  it("shows a subtle buffering indicator while playing unbuffered media and clears once ready or paused", async () => {
+    expect(host.querySelector('[data-testid="player-buffering-indicator"]')).toBeNull();
+
+    await act(async () => usePlayerStore.setState({ mediaBuffering: true }));
+    expect(host.querySelector('[data-testid="player-buffering-indicator"]')?.textContent).toContain("Buffering");
+
+    await act(async () => usePlayerStore.setState({ isPlaying: false }));
+    expect(host.querySelector('[data-testid="player-buffering-indicator"]')).toBeNull();
+
+    await act(async () => usePlayerStore.setState({ isPlaying: true, mediaBuffering: false }));
+    expect(host.querySelector('[data-testid="player-buffering-indicator"]')).toBeNull();
+  });
+
+  it("exposes a persistent retry pill when composition assets fail and triggers in-place retry", async () => {
+    const gen = usePlayerStore.getState().beginAssetReadinessLoad();
+    const retrySpy = vi.fn(async () => {
+      usePlayerStore.getState().updateAssetReadiness(
+        { status: "ready", completed: 2, total: 2, failed: [] },
+        gen,
+      );
+      return [];
+    });
+    registerRetryFailedAssetsHandler(gen, retrySpy);
+
+    await act(async () => {
+      usePlayerStore.getState().updateAssetReadiness(
+        {
+          status: "ready",
+          completed: 2,
+          total: 2,
+          failed: [{ id: "img-0", label: "hero.png", kind: "image", reason: "error" }],
+        },
+        gen,
+      );
+    });
+
+    const pill = host.querySelector<HTMLButtonElement>('[data-testid="player-asset-retry-pill"]');
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toContain("1 asset failed");
+
+    await act(async () => {
+      pill!.click();
+      await Promise.resolve();
+    });
+    expect(retrySpy).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-testid="player-asset-retry-pill"]')).toBeNull();
+    registerRetryFailedAssetsHandler(gen, null);
   });
 });

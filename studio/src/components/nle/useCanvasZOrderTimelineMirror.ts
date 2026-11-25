@@ -1,3 +1,4 @@
+import type { CommitLayerOrder } from "./zLaneGesture";
 import { useCallback, useRef } from "react";
 import { usePlayerStore } from "../../player";
 import { useTimelineEditContextOptional } from "../../contexts/TimelineEditContext";
@@ -54,12 +55,12 @@ export interface MirrorZOrderInput {
  * Resolves `true` when a lane move persisted, `false` for z-only actions (no
  * timeline mirror applies) or a rolled-back persist.
  */
-export function useCanvasZOrderTimelineMirror(): (input: MirrorZOrderInput) => Promise<boolean> {
+export function useCanvasZOrderTimelineMirror(): (input: MirrorZOrderInput, commitTogether?: CommitLayerOrder) => Promise<boolean> {
   const commitMirrorMove = useMirrorLaneMoveCommit();
   const activeCompPath = useStudioShellContextOptional()?.activeCompPath ?? null;
 
   return useCallback(
-    (input: MirrorZOrderInput) =>
+    (input: MirrorZOrderInput, commitTogether?: CommitLayerOrder) =>
       commitMirrorMove(input.selectionKey, input.coalesceKey, (element, els) => {
         // Map the crossed neighbor to its timeline key the same way z-reorder
         // entries get theirs (siblingZIndexEntry): DOM id, else stable selector
@@ -83,7 +84,7 @@ export function useCanvasZOrderTimelineMirror(): (input: MirrorZOrderInput) => P
             })
           : null;
         return resolveZMirrorLaneMove({ action: input.action, element, elements: els, crossedKey });
-      }),
+      }, commitTogether),
     [commitMirrorMove, activeCompPath],
   );
 }
@@ -107,18 +108,18 @@ export interface LayerReorderMirrorInput {
  * rule instead of the menu's four fixed actions).
  */
 export function useLayerReorderTimelineMirror(): (
-  input: LayerReorderMirrorInput,
+  input: LayerReorderMirrorInput, commitTogether?: CommitLayerOrder,
 ) => Promise<boolean> {
   const commitMirrorMove = useMirrorLaneMoveCommit();
 
   return useCallback(
-    (input: LayerReorderMirrorInput) =>
+    (input: LayerReorderMirrorInput, commitTogether?: CommitLayerOrder) =>
       commitMirrorMove(input.selectionKey, input.coalesceKey, (element, els) =>
         resolveRepositionLaneMove({
           element,
           elements: els,
           desiredOrderKeys: input.desiredOrderKeys,
-        }),
+        }), commitTogether,
       ),
     [commitMirrorMove],
   );
@@ -135,6 +136,7 @@ function useMirrorLaneMoveCommit(): (
   selectionKey: string | undefined,
   coalesceKey: string,
   resolveMove: (element: TimelineElement, elements: TimelineElement[]) => ZMirrorLaneMove,
+  commitTogether?: CommitLayerOrder,
 ) => Promise<boolean> {
   const elements = usePlayerStore((state) => state.elements);
   const elementsRef = useRef(elements);
@@ -142,14 +144,15 @@ function useMirrorLaneMoveCommit(): (
   const { onMoveElements } = useTimelineEditContextOptional();
 
   return useCallback(
-    (selectionKey, coalesceKey, resolveMove) => {
-      const els = elementsRef.current;
+    (selectionKey, coalesceKey, resolveMove, commitTogether) => {
+      const onlyZ = () => commitTogether ? commitTogether().then(() => false) : Promise.resolve(false);
+      const els = commitTogether ? usePlayerStore.getState().elements : elementsRef.current;
       const element = selectionKey ? els.find((e) => (e.key ?? e.id) === selectionKey) : undefined;
       // Canvas-only decoration, or no handler to save a lane move (no TimelineEditProvider): z-only.
-      if (!element || !onMoveElements) return Promise.resolve(false);
+      if (!element || !onMoveElements) return onlyZ();
 
       const move = resolveMove(element, els);
-      if (!move) return Promise.resolve(false);
+      if (!move) return onlyZ();
 
       return commitZMirrorLaneMove(
         element,
@@ -157,12 +160,13 @@ function useMirrorLaneMoveCommit(): (
         {
           elements: els,
           trackOrder: timelineTrackOrder(els),
-          updateElement: (key, updates) => usePlayerStore.getState().updateElement(key, updates),
-          onMoveElements,
+          updateElement: usePlayerStore.getState().updateElement,
+          onMoveElements: commitTogether ?? onMoveElements,
           // NO readZIndex / onStackingPatches: see the hook doc — the lane→z
           // stacking sync must not re-trigger and fight the just-set z values.
         },
         coalesceKey,
+        onlyZ,
       );
     },
     [onMoveElements],

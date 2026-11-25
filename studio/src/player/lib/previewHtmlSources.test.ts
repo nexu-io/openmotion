@@ -19,3 +19,14 @@ it("uses the mounted graph through verified in-place changes and clears it when 
   forgetPreviewHtmlSources(frame);
   expect(change(["other.html"])).toBe(false);
 });
+
+it("binds a standalone clip's certified dependencies to the mounted entry", () => {
+  const frame = document.createElement("iframe");
+  rememberPreviewHtmlSources(frame, "p", ["a.html", "index.html"]);
+  const changed = (entry: string, file: string) => isUnrelatedPreviewHtmlChange(frame, "p", entry, [file], false);
+  expect(changed("a.html", "c.html")).toBe(true);
+  expect(changed("a.html", "index.html")).toBe(false);
+  expect(changed("a.html", "a.html")).toBe(false);
+  expect(changed("b.html", "c.html")).toBe(false);
+  expect(changed("index.html", "c.html")).toBe(false);
+});

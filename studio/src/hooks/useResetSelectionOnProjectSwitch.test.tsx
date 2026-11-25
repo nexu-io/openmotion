@@ -158,7 +158,7 @@ describe("full stack: useFileTree -> useActiveComposition (masterCompPath stalen
   };
 
   function mockFetch(url: string): Promise<Response> {
-    const match = /^\/api\/projects\/([^/]+)$/.exec(url);
+    const match = /^\/api\/projects\/([^/]+)$/.exec(new URL(url, 'http://studio.test').pathname);
     if (match) {
       const data = PROJECT_DATA[decodeURIComponent(match[1])] ?? { files: [], compositions: [] };
       return Promise.resolve(new Response(JSON.stringify(data), { status: 200 }));

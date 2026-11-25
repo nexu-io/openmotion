@@ -4,10 +4,13 @@ export function isPendingRender(job: Pick<RenderJob, "status">): boolean {
   return job.status === "rendering" || job.status === "cancelling" || job.status === "unknown";
 }
 
-/** A lost progress connection does not prove that the worker stopped. */
+/**
+ * Only confirmed active renders (`rendering` / `cancelling`) block editor work.
+ * Disconnected, 404, or unconfirmed (`unknown`) attempts release the global
+ * editor lock immediately; starting another export still rechecks server state first.
+ */
 export function blocksProjectWork(job: Pick<RenderJob, "status" | "workerActive">): boolean {
-  return job.status === "rendering" || job.status === "cancelling"
-    || job.status === "unknown" && job.workerActive !== false;
+  return job.status === "rendering" || job.status === "cancelling";
 }
 
 export function readRenderStatus(value: unknown): RenderJob["status"] | undefined {

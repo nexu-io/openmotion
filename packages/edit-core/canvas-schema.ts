@@ -114,6 +114,7 @@ const box = obj(
     top: number,
     makeRelative: { type: "boolean" },
     corner: { enum: ["nw", "ne", "sw", "se"] },
+    extraAxes: { enum: ["x", "y", "xy"] },
     width: number,
     height: number,
   },
@@ -152,7 +153,7 @@ export const canvasCommandSchemas = [
       { required: ["x", "y"], properties: { mode: { enum: ["playhead"] } } },
     ],
     description:
-      "Drag an element. Use delta for the default Studio gesture (translate the whole path). Use x and y at a composition time for an absolute playhead edit; mode may explicitly be wholePath or playhead.",
+      "Drag an element. Use delta for the default Studio gesture (translate the whole path). Supply staticBox (measured CSS left, top, and makeRelative) if multiple transforms share a responsive layout. Use x and y at a composition time for an absolute playhead edit; mode may explicitly be wholePath or playhead.",
   },
   schema("editElements", {
     patches: array(

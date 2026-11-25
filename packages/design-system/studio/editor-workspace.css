@@ -264,9 +264,10 @@
   display: none;
 }
 :root[data-motion-ui] .hf-dock .dv-groupview .dv-tabs-container > .dv-tab:has(.hf-dock-tab[data-icon-navigation]) {
-  min-width: calc(var(--motion-space-56) - var(--motion-space-4));
+  flex: 1 1 0;
+  min-width: 0;
   height: var(--motion-space-44);
-  padding-inline: var(--motion-space-6);
+  padding-inline: var(--motion-space-2);
   font-size: var(--motion-text-xs);
 }
 :root[data-motion-ui] .hf-dock-tab[data-icon-navigation] {

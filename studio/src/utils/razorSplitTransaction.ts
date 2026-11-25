@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "./confirmedTextSources";
 import { getCachedCloudDisklessMode } from "./cloudRuntime";
 import { type TimelineFileEdit, saveCloudTimeline } from "./cloudTimelineEdit";
 import type { TimelineElement } from "../player";
@@ -7,6 +8,7 @@ import { buildPatchTarget } from "./timelineElementSplit";
 import { serializeStudioFileMutations } from "./studioFileMutationCoordinator";
 import { buildProjectApiPath } from "./projectRouting";
 import { cloudHistoryForWrite, type StudioWriteHistory } from "./studioFileHistory";
+import { getStudioSaveStatusCode } from "./studioSaveDiagnostics";
 import { studioWriteHeaders } from "./studioFileVersion";
 import { resolveElementTrack } from "./studioHelpers";
 import { studioApiFetch } from "./studioApiFetch";
@@ -174,7 +176,8 @@ interface RunAtomicCutInput {
   writeProjectFile: ProjectFileWriter;
   recordEdit: (input: RecordEditInput) => Promise<void>;
   observeProjectFileVersion?: (path: string, version: string | null) => void;
-  synchronize: () => void;
+  synchronize: (previewScheduled?: boolean) => void;
+  onSaved?: Parameters<typeof saveCloudTimeline>[5];
   projectPending?: (files: RecordEditInput["files"]) => (() => void) | undefined;
 }
 
@@ -188,16 +191,31 @@ export function runAtomicCutTransaction(input: RunAtomicCutInput): Promise<Atomi
       return { kind: "splitClips", hfIds: measured.map(cut => cut.hfId), at: intent.targets[0]!.splitTime, measured };
     }}));
     const skipped = new Set<string>();
-    return saveCloudTimeline(input.projectId, edits, input.writeProjectFile, input.recordEdit, input.label, undefined, {
+    let previewScheduled = false;
+    let reverted = false;
+    const onSaved: RunAtomicCutInput["onSaved"] = input.onSaved && (async (files, previous) => {
+      await input.onSaved!(files, previous);
+      previewScheduled = true;
+    });
+    return saveCloudTimeline(input.projectId, edits, input.writeProjectFile, input.recordEdit, input.label, onSaved, {
       onSkippedSelectors: selectors => selectors.forEach(selector => skipped.add(selector)),
-      projectPending: input.projectPending,
+      projectPending: input.projectPending && (files => {
+        const rollback = input.projectPending?.(files);
+        return rollback && (() => { rollback(); reverted = true; });
+      }),
     }).then(() => {
       let syncFailed = false;
-      try { input.synchronize(); } catch { syncFailed = true; }
+      // A later ordered operation already owns the preview update for this file.
+      if (!(input.onSaved && !previewScheduled && supportsOrderedTextEdits(input.projectId))) {
+        try { input.synchronize(previewScheduled); } catch { syncFailed = true; }
+      }
       return { splitCount: input.intents.reduce((sum, edit) => sum + edit.targets.length, 0), skippedSelectors: [...skipped], syncFailed };
     }, error => {
       // An uncertain response or failed history read still needs the authoritative file and preview.
-      try { input.synchronize(); } catch { /* Preserve the original save diagnostic. */ }
+      const status = getStudioSaveStatusCode(error);
+      if (!reverted || (status !== 400 && status !== 422)) {
+        try { input.synchronize(); } catch { /* Preserve the original save diagnostic. */ }
+      }
       throw error;
     });
   }

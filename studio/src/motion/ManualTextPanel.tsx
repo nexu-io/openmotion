@@ -6,7 +6,7 @@ import { useStudioShellContext } from '../contexts/StudioContext';
 import { useNativeCaptionWrite } from './useNativeCaptionWrite';
 
 export function ManualTextPanel({ kind = 'text', allowSubtitleImport = false }: { kind?: 'text' | 'caption'; allowSubtitleImport?: boolean }) {
-  const { t } = useI18n(), shell = useStudioShellContext(), { write, busy, disabled } = useNativeCaptionWrite();
+  const { t } = useI18n(), shell = useStudioShellContext(), { write, disabled } = useNativeCaptionWrite();
   const [text, setText] = useState(''), [duration, setDuration] = useState(3);
   const input = useRef<HTMLTextAreaElement>(null), subtitleInput = useRef<HTMLInputElement>(null);
   const add = async () => {
@@ -14,7 +14,7 @@ export function ManualTextPanel({ kind = 'text', allowSubtitleImport = false }: 
     const lines = kind === 'caption' ? content.split(/\n+/).filter(Boolean) : [content];
     const ok = await write({ command: 'caption_add', textKind: kind, timelineStart: usePlayerStore.getState().currentTime,
       segments: lines.map((text, index) => ({ id: `cue-${index + 1}`, text, start: index * duration, end: (index + 1) * duration })) });
-    if (ok && kind === 'caption') setText('');
+    if (ok && kind === 'caption') setText(current => current === text ? '' : current);
   };
   const importSubtitles = async (file: File) => {
     try {
@@ -38,7 +38,7 @@ export function ManualTextPanel({ kind = 'text', allowSubtitleImport = false }: 
       <p className="text-step-11 leading-relaxed text-text-3">{t('Added at the playhead. Select the clip to edit its text, font and position.')}</p>
     </div>
     <div className="flex shrink-0 flex-col gap-2 border-t border-border p-3">
-      <Button variant="primary" className="w-full" disabled={disabled || !Number.isFinite(duration) || duration < 0.1 || duration > 3600 || (kind === 'caption' && !text.trim()) || Boolean(shell.writeBlockedReason)} onClick={() => void add()}>{t(busy ? 'Adding…' : kind === 'text' ? 'Add text' : 'Add captions')}</Button>
+      <Button variant="primary" className="w-full" disabled={disabled || !Number.isFinite(duration) || duration < 0.1 || duration > 3600 || (kind === 'caption' && !text.trim())} onClick={() => void add()}>{t(kind === 'text' ? 'Add text' : 'Add captions')}</Button>
       {allowSubtitleImport && kind === 'caption' && <Button size="sm" variant="ghost" disabled={disabled || Boolean(shell.writeBlockedReason)} onClick={() => subtitleInput.current?.click()}>{t('Import SRT / VTT')}</Button>}
     </div>
   </section>;

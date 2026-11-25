@@ -375,6 +375,8 @@ export async function reconcileDriftedBlobRefCounts(
       FROM workspace_blobs wb
       WHERE wb.gc_state = 'active'
         AND (wb.ref_count > 0 OR wb.zero_ref_since IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM project_text_revisions tr
+          WHERE tr.workspace_id = wb.workspace_id AND tr.checkpoint_pending_sha = wb.sha256)
         AND NOT EXISTS (
           SELECT 1
           FROM project_files pf
@@ -470,7 +472,7 @@ export async function markZeroRefForDeletion(
             AND av.sha256 = wb.sha256
         )
         AND NOT EXISTS (SELECT 1 FROM project_text_revisions tr WHERE tr.workspace_id = wb.workspace_id
-          AND ((tr.parent_scope = 'workspace' AND tr.parent_id = wb.sha256) OR tr.checkpoint_sha = wb.sha256))
+          AND ((tr.parent_scope = 'workspace' AND tr.parent_id = wb.sha256) OR tr.checkpoint_sha = wb.sha256 OR tr.checkpoint_pending_sha = wb.sha256))
         AND NOT EXISTS (
           SELECT 1
           FROM upload_tickets ut
@@ -542,7 +544,7 @@ export async function finalizeBlobDeletion(
           AND av.sha256 = wb.sha256
       )
       AND NOT EXISTS (SELECT 1 FROM project_text_revisions tr WHERE tr.workspace_id = wb.workspace_id
-          AND ((tr.parent_scope = 'workspace' AND tr.parent_id = wb.sha256) OR tr.checkpoint_sha = wb.sha256))
+          AND ((tr.parent_scope = 'workspace' AND tr.parent_id = wb.sha256) OR tr.checkpoint_sha = wb.sha256 OR tr.checkpoint_pending_sha = wb.sha256))
       AND NOT EXISTS (
         SELECT 1
         FROM upload_tickets ut

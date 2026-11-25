@@ -4,6 +4,9 @@ import { notePeerPreviewChange, previewContentGeneration } from "../sceneSwap";
 import { usePlayerStore } from "../store/playerStore";
 import { holdHistoryTimelineUntilPreviewReplaced } from "../timelineRestorePending";
 import { parseAuthoredTimeline } from "./authoredTimeline";
+import { stageStructurePreview } from "../peerTimingPreview";
+import { confirmedSource } from "../../utils/confirmedTextSources";
+import { displayAuthoredTimelineLanes } from "../components/timelineZones";
 import { applyAuthoredTimeline } from "./timelineHistoryRestore";
 
 type Projection = NonNullable<ReturnType<typeof parseAuthoredTimeline>>;
@@ -27,7 +30,7 @@ let active: ActiveTimeline | null = null;
 export function openTimelineSource(projectId: string, path: string): () => void {
   const scope = { projectId, path, generation: 0, readOrder: 0 };
   active = scope;
-  if (usePlayerStore.getState().timelineSourceProjected) usePlayerStore.setState({ timelineSourceProjected: false });
+  if (usePlayerStore.getState().timelineSourceProjected) usePlayerStore.setState({ timelineSourceProjected: false, authoredTimelinePath: null });
   return () => {
     if (active === scope) active = null;
   };
@@ -38,21 +41,36 @@ function timelineFor(projectId: string, path: string) {
     usePlayerStore.getState().timelineProjectId === projectId ? active : null;
 }
 
+/** Only a current, versioned source can unlock editing before the preview has a timeline.
+ * A late read must never overwrite rows discovered by the runtime or a pending local edit. */
+function projectOpeningSource(projectId: string, path: string, content: string, version?: string | null, parsed?: Projection) {
+  const state = usePlayerStore.getState();
+  if (!version || state.timelineReady || state.clipManifest || state.elements.length || isStudioEditSaving()) return;
+  const confirmed = confirmedSource(projectId, path);
+  if (confirmed?.version !== version || confirmed.content !== content) return;
+  const rows = parsed ?? parseAuthoredTimeline(content, path, projectId);
+  if (!rows?.elements.length || rows.duration <= 0) return;
+  usePlayerStore.setState({ elements: displayAuthoredTimelineLanes(rows.elements), duration: rows.duration,
+    authoredTimelinePath: path, timelineSourceProjected: true });
+  return rows;
+}
+
 /** Reuse a read already being made by the editor. A late initial read cannot replace a peer update. */
 export function beginTimelineSourceRead(
   projectId: string, path: string,
-): (content: string, rows?: Projection) => void {
+): (content: string, source?: { rows?: Projection; version?: string | null }) => void {
   const scope = timelineFor(projectId, path);
   if (!scope) return () => {};
   const generation = scope.generation;
   const read = ++scope.readOrder;
   const revision = studioFileRevision();
-  return (content: string, rows?: Projection) => {
+  return (content, source) => {
     if (scope !== active || scope.generation !== generation || scope.readOrder !== read ||
         studioFileRevision() !== revision) return;
     // The SDK often reads the same version immediately after NLE projects it.
     const baseline = scope.baseline;
     if (baseline?.rows && baseline.writeRevision === revision && baseline.generation === generation) return;
+    const rows = source?.rows ?? projectOpeningSource(projectId, path, content, source?.version);
     scope.baseline = { ...(rows ? { rows } : { content }), writeRevision: revision, generation };
   };
 }
@@ -82,6 +100,45 @@ export function projectLocalTimelineEdit(
   };
 }
 
+/** All pending local gestures on this file have settled after a failure. Restore the confirmed
+ * authored rows and keep runtime-only or other-composition rows in place. */
+export function restoreConfirmedTimeline(projectId: string, path: string, content: string) {
+  const scope = timelineFor(projectId, path);
+  if (!scope) return;
+  const duration = usePlayerStore.getState().duration;
+  const previous = scope.baseline;
+  const before = previous?.rows ?? (previous?.content ? parseAuthoredTimeline(previous.content, path, projectId, duration) : null);
+  const after = parseAuthoredTimeline(content, path, projectId, duration);
+  if (!after) return;
+  applyAuthoredTimeline(before, after, true);
+  scope.baseline = { rows: after, generation: ++scope.generation, writeRevision: studioFileRevision() };
+}
+
+/** Project a local structural edit without publishing it to other windows or advancing its confirmed source. */
+export function projectPendingStructure(projectId: string, path: string, frame: HTMLIFrameElement | null,
+  files: Record<string, { before: string; after: string }>, selection?: readonly string[]) {
+  const file = files[path];
+  if (!file || !timelineFor(projectId, path)) return;
+  const { selectedElementIds, selectedElementId } = usePlayerStore.getState();
+  const revertTimeline = projectLocalTimelineEdit(projectId, path, file, frame);
+  const previous = confirmedSource(projectId, path);
+  const revertPreview = frame && previous?.content === file.before && Object.keys(files).length === 1
+    ? stageStructurePreview(frame, path, previous, file.after) : undefined;
+  if (revertTimeline && selection) usePlayerStore.getState().setSelection(selection);
+  const drawnSelection = usePlayerStore.getState().selectedElementIds;
+  return () => {
+    const restoreSelection = revertTimeline && timelineFor(projectId, path) && drawnSelection !== selectedElementIds &&
+      usePlayerStore.getState().selectedElementIds === drawnSelection;
+    revertPreview?.();
+    revertTimeline?.();
+    if (restoreSelection) {
+      const state = usePlayerStore.getState();
+      const keys = new Set(state.elements.map(element => element.key ?? element.id));
+      state.setSelection([...selectedElementIds].filter(key => keys.has(key)), selectedElementId);
+    }
+  };
+}
+
 /** Capture the current view before fetching its latest source. A newer notification,
  * a switch or a local save invalidates this read; the normal preview refresh still runs. */
 export function beginPeerTimelineUpdate(projectId: string, path: string, oldFrame?: HTMLIFrameElement | null) {
@@ -95,7 +152,7 @@ export function beginPeerTimelineUpdate(projectId: string, path: string, oldFram
   const wasSaving = isStudioEditSaving();
   const contentGeneration = oldFrame ? previewContentGeneration(oldFrame) : null;
   const document = oldFrame?.contentDocument;
-  return (content: string, frame: HTMLIFrameElement | null) => {
+  return (content: string, frame: HTMLIFrameElement | null, version?: string | null) => {
     if (timelineFor(projectId, path) !== scope || scope.generation !== generation ||
         wasSaving || isStudioEditSaving() || studioFileRevision() !== revision) return false;
     const duration = usePlayerStore.getState().duration;
@@ -107,7 +164,8 @@ export function beginPeerTimelineUpdate(projectId: string, path: string, oldFram
     // Discard SDK/source reads that started before this confirmed version landed.
     scope.readOrder++;
     scope.baseline = { rows: after, writeRevision: revision, generation };
-    const changed = applyAuthoredTimeline(before, after, !before || staleBaseline);
+    const opening = projectOpeningSource(projectId, path, content, version, after);
+    const changed = !!opening || applyAuthoredTimeline(before, after, !before || staleBaseline);
     if (frame && frame === oldFrame && frame.contentDocument === document &&
         contentGeneration === previewContentGeneration(frame)) holdHistoryTimelineUntilPreviewReplaced(frame);
     return changed;

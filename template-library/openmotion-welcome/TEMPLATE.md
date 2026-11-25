@@ -19,6 +19,10 @@ Materialize this repository source with `copyTemplate('openmotion-welcome', dire
 
 Main narrative text is native HTML. Artwork in the gallery/montage is editable Canvas source, and the closing object is editable Three.js geometry. Canvas subobjects are edited in source rather than as separate Studio layers. Changing the underlying artwork updates its repeated appearances. All animation is time-derived, with finite paused GSAP timelines and no wall-clock animation.
 
+## Standalone previews
+
+Each clip uses the shared styles, brand image and fonts. Its startup script drives the current DOM or canvas. None of the seven clips reads another clip’s HTML when opened alone. The `data-standalone-inputs` declaration on the entry’s live-edit metadata records this review. The first SHA-256 digest covers the scripts and styles in the inherited head. The remaining digests cover the scripts and styles in each reviewed clip, in alphabetical clip-path order. The compiler includes local script and stylesheet file versions, so changing their contents invalidates the review. Recheck standalone behavior before renewing a digest.
+
 ## Reference and reconstruction
 
 Reference: [OpenDesign launch film](https://x.com/OpenDesignHQ/status/2111023212129829086), published October 16, 2026. Acquired from the public 1920×1080 MP4 variant on November 15, 2026. Original SHA-256: `b42a58c392f4a89def7cb73f06d8d1a1a9cbcc209261adc30026c0945fbe2f7d`.

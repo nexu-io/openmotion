@@ -2,7 +2,9 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PendingExternalImports } from "./PendingExternalImports";
+import { filterPendingExternalImports, PendingExternalImports } from "./PendingExternalImports";
+import type { ManualImportBatch } from "../../hooks/manualImportResults";
+import type { PendingExternalImport } from "../../hooks/useFileTree";
 
 let container: HTMLDivElement | null = null;
 let root: ReturnType<typeof createRoot> | null = null;
@@ -74,5 +76,82 @@ describe("PendingExternalImports (MCP Option A placeholder cards)", () => {
     expect(dismissBtn).not.toBeNull();
     await act(async () => dismissBtn!.click());
     expect(onDismiss).toHaveBeenCalledWith("j-3");
+  });
+
+  it("allows dismissing a stale processing placeholder while keeping fresh processing items non-dismissible", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root!.render(
+        <PendingExternalImports
+          onDismiss={onDismiss}
+          items={[
+            {
+              id: "stale-job",
+              jobId: "stale-job",
+              filename: "timed-out.mp4",
+              source: "web_upload",
+              state: "processing",
+              updatedAt: Date.now() - 6 * 60_000,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const dismissBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]');
+    expect(dismissBtn).not.toBeNull();
+    await act(async () => dismissBtn!.click());
+    expect(onDismiss).toHaveBeenCalledWith("stale-job");
+  });
+
+  it("deduplicates timed-out web_upload items already shown in ManualImportResults while keeping unrelated MCP imports", () => {
+    const batch: ManualImportBatch = {
+      id: "batch-1",
+      projectId: "proj-1",
+      items: [
+        {
+          id: "batch-1-0",
+          name: "hero.mp4",
+          targetPath: "assets/hero.mp4",
+          status: "unknown",
+        },
+      ],
+      paths: [],
+      busy: false,
+      listing: "ready",
+    };
+    const pending: PendingExternalImport[] = [
+      {
+        id: "web-1",
+        filename: "hero.mp4",
+        targetPath: "assets/hero.mp4",
+        source: "web_upload",
+        state: "processing",
+        updatedAt: Date.now(),
+      },
+      {
+        // Even if an expired ticket lost its web_upload source, matching targetPath still deduplicates it.
+        id: "orphan-1",
+        filename: "hero.mp4",
+        targetPath: "assets/hero.mp4",
+        source: "mcp_upload",
+        state: "processing",
+        updatedAt: Date.now(),
+      },
+      {
+        id: "mcp-1",
+        filename: "agent-broll.mp4",
+        targetPath: "assets/agent-broll.mp4",
+        source: "mcp_upload",
+        state: "processing",
+        updatedAt: Date.now(),
+      },
+    ];
+
+    expect(filterPendingExternalImports(pending, batch).map((item) => item.id)).toEqual(["mcp-1"]);
   });
 });

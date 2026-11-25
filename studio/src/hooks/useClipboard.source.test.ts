@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { orderedEditFixture } from "../../tests/orderedEditFixture";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
@@ -243,15 +244,16 @@ describe("copy takes a clip's saved markup, not the runtime's live styling", () 
   });
 });
 
-it("pastes through the same cloud command without requiring the preview to replay edits", async () => {
+it("pastes through the ordered writer without requiring the preview to replay edits", async () => {
   setCachedCloudDisklessMode(true);
   selectTitle();
-  const { clipboard, commands, writes } = mountClipboard();
+  const { clipboard, commands, files } = mountClipboard();
+  const server = orderedEditFixture("p", files);
   clipboard().handleCopy();
   await clipboard().handlePaste();
-  expect(commands.map(command => command.kind)).toEqual(["pasteClips"]);
-  expect(writes).toHaveLength(1);
-  expect(writes[0]?.match(/>Title<\/h1>/g)).toHaveLength(2);
+  expect(commands).toEqual([]);
+  expect(server.packets).toHaveLength(1);
+  expect(server.files["index.html"]!.match(/>Title<\/h1>/g)).toHaveLength(2);
 });
 
 describe("copy of a clip missing from its saved file", () => {

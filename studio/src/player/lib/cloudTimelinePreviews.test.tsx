@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCachedCloudDisklessMode } from "../../utils/cloudRuntime";
 import { emitMediaDerived } from "../../utils/mediaDerivedBus";
 import { MockResizeObserver } from "../../hooks/resizeObserverTestUtils";
-import { loadWaveform } from "./audioWaveformLoader";
+import {
+  AUDIO_WAVEFORM_PENDING_BUDGET_MS,
+  loadWaveform,
+  VIDEO_WAVEFORM_PENDING_BUDGET_MS,
+} from "./audioWaveformLoader";
+import { TIMELINE_VIEWPORT_BUDGETS } from "./timelineViewportBudgets";
 import { loadPeakMap } from "../components/clipPeakMap";
 import { decodeVideoThumbnail } from "./thumbnailVideoDecoder";
 import { thumbnailScheduler } from "./thumbnailScheduler";
@@ -120,5 +125,126 @@ describe("cloud timeline media previews", () => {
     }), expect.any(AbortSignal));
     expect(fetch).not.toHaveBeenCalled();
     host.remove();
+  });
+
+  it("falls back to browser decoding before the 30s thumbnail timeout when audio waveform stays 202 pending", async () => {
+    vi.useFakeTimers();
+    try {
+      expect(AUDIO_WAVEFORM_PENDING_BUDGET_MS).toBeLessThan(TIMELINE_VIEWPORT_BUDGETS.thumbnailLoadTimeoutMs);
+      expect(VIDEO_WAVEFORM_PENDING_BUDGET_MS).toBeLessThan(TIMELINE_VIEWPORT_BUDGETS.thumbnailLoadTimeoutMs);
+
+      const requestedUrls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string) => {
+          const url = String(input);
+          requestedUrls.push(url);
+          if (url.includes("/waveform/")) {
+            return Response.json({ pending: true, sha256: "e".repeat(64) }, { status: 202 });
+          }
+          return new Response(new ArrayBuffer(16), { status: 200 });
+        }),
+      );
+      const channel = new Float32Array(8000).map((_, index) => (index % 2 ? 0.5 : -1));
+      const close = vi.fn(async () => {});
+      vi.stubGlobal(
+        "AudioContext",
+        class {
+          decodeAudioData = async () => ({ getChannelData: () => channel });
+          close = close;
+        },
+      );
+
+      const controller = new AbortController();
+      const schedulerTimeout = setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")),
+        TIMELINE_VIEWPORT_BUDGETS.thumbnailLoadTimeoutMs);
+
+      const promise = loadWaveform(
+        "/api/projects/p1/preview/assets/soundtrack.m4a",
+        "/api/projects/p1/waveform/assets/soundtrack.m4a",
+        controller.signal,
+        "audio",
+      );
+
+      await vi.advanceTimersByTimeAsync(AUDIO_WAVEFORM_PENDING_BUDGET_MS + 100);
+      const peaks = await promise;
+      clearTimeout(schedulerTimeout);
+
+      expect(controller.signal.aborted).toBe(false);
+      expect(peaks).toHaveLength(4000);
+      expect(requestedUrls).toContain("/api/projects/p1/preview/assets/soundtrack.m4a");
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back immediately to browser decoding when waveform endpoint returns 503", async () => {
+    const requestedUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        if (url.includes("/waveform/")) {
+          return Response.json({ error: "Waveform extraction unavailable" }, { status: 503 });
+        }
+        return new Response(new ArrayBuffer(16), { status: 200 });
+      }),
+    );
+    const channel = new Float32Array(8000).map(() => 0.75);
+    const close = vi.fn(async () => {});
+    vi.stubGlobal(
+      "AudioContext",
+      class {
+        decodeAudioData = async () => ({ getChannelData: () => channel });
+        close = close;
+      },
+    );
+
+    const peaks = await loadWaveform(
+      "/api/projects/p1/preview/assets/soundtrack.m4a",
+      "/api/projects/p1/waveform/assets/soundtrack.m4a",
+      new AbortController().signal,
+      "audio",
+    );
+
+    expect(peaks).toHaveLength(4000);
+    expect(requestedUrls).toEqual([
+      "/api/projects/p1/waveform/assets/soundtrack.m4a",
+      "/api/projects/p1/preview/assets/soundtrack.m4a",
+    ]);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("never downloads video containers when video waveform stays 202 pending past its budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const requestedUrls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string) => {
+          requestedUrls.push(String(input));
+          return Response.json({ pending: true, sha256: "f".repeat(64) }, { status: 202 });
+        }),
+      );
+      const audioContext = vi.fn();
+      vi.stubGlobal("AudioContext", audioContext);
+
+      const promise = loadWaveform(
+        "/api/projects/p1/preview/assets/clip.mp4",
+        "/api/projects/p1/waveform/assets/clip.mp4",
+        new AbortController().signal,
+        "video",
+      );
+      const settled = expect(promise).rejects.toThrow("Waveform extraction timed out while pending");
+      await vi.advanceTimersByTimeAsync(VIDEO_WAVEFORM_PENDING_BUDGET_MS + 100);
+      await settled;
+
+      expect(requestedUrls.every((url) => url.includes("/waveform/"))).toBe(true);
+      expect(audioContext).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

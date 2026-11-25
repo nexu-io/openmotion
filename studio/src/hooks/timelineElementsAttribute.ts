@@ -1,13 +1,12 @@
+import { projectTimelineControl } from "./timelineControlPreview";
 import { refreshCommittedTimeline } from "./timelineTimingSync";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
-import { confirmedSource } from "../utils/confirmedTextSources";
+import { confirmedSource, supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { saveCloudTimeline, timelineAttributeCommand } from "../utils/cloudTimelineEdit";
 import { useCallback } from "react";
 import { useCaptionWorkspace } from "../motion/captionWorkspace";
 import type { TimelineEditCallbacks } from "../player/components/timelineCallbacks";
 import { syncStoredElementAttribute } from "../player/lib/automationStoreSync";
-import { setPreviewMediaMuted } from "../player/lib/timelineIframeHelpers";
-import { usePlayerStore } from "../player/store/playerStore";
 import { saveProjectFilesWithHistory } from "../utils/studioFileHistory";
 import { applyPatchByTarget } from "../utils/sourcePatcher";
 import {
@@ -60,11 +59,6 @@ function patchLive(
     else node?.setAttribute(attr, value);
     syncStoredElementAttribute(element, attr, value);
   }
-  if (attr === "muted" && iframe?.contentDocument) {
-    // The HTML attribute changes defaultMuted, not the currently playing media.
-    // Reapply the monitor state so the runtime also reads each clip's saved mute.
-    setPreviewMediaMuted(iframe, usePlayerStore.getState().audioMuted);
-  }
 }
 
 /** One attribute written on several clips as a single save and a single undo step. */
@@ -92,12 +86,16 @@ export function useSetElementsAttribute({
       );
       if (typeof projectId !== "string") return projectId;
       if (edits.length === 0) return { status: "saved" };
+      let settle: ((saved: boolean) => void) | undefined;
       try {
         const byFile = editsByFile(edits, activeCompPath);
         for (const path of byFile.keys()) pendingTimelineEditPathRef.current.add(path);
         const uniform = edits.every(edit => edit.value === edits[0]?.value);
         const state = attr === "muted" ? "muted" : attr === "data-timeline-locked" ? "locked" : null;
         const iframe = previewIframeRef.current;
+        if (attr === "muted" || attr === "data-timeline-locked" || attr === "data-volume") {
+          settle = projectTimelineControl(projectId, activeCompPath, iframe, attr, edits);
+        }
         const cloud = getCachedCloudDisklessMode();
         const onSaved = cloud && iframe && !iframe.contentDocument && reloadPreview
           ? refreshCommittedTimeline(iframe, activeCompPath ?? "index.html", projectId, reloadPreview) : undefined;
@@ -110,6 +108,10 @@ export function useSetElementsAttribute({
             }) })),
             writeProjectFile, recordEdit, label, onSaved,
           );
+        } else if (cloud && supportsOrderedTextEdits(projectId)) {
+          changedPaths = await saveCloudTimeline(projectId, [...byFile].map(([path, patches]) => ({
+            path, command: timelineAttributeCommand(patches, attr),
+          })), writeProjectFile, recordEdit, label, onSaved);
         } else {
           const apply = cloud ? (await import("../../../packages/edit-core/canvas-commands")).applyCanvasCommand : undefined;
           const commands = new Map([...byFile].map(([path, patches]) => [path, timelineAttributeCommand(patches, attr)]));
@@ -124,13 +126,15 @@ export function useSetElementsAttribute({
             writeFile: writeProjectFile, recordEdit, onSaved,
           });
         }
-        patchLive(iframe, edits, attr, activeCompPath);
+        if (settle) settle(true);
+        else patchLive(iframe, edits, attr, activeCompPath);
         if (!onSaved && changedPaths.length && iframe && !iframe.contentDocument) reloadPreview?.();
         if (attr === "data-timeline-locked" && changedPaths.length && mayChangeCaptionLock(projectId, changedPaths, edits)) {
           useCaptionWorkspace.getState().changed();
         }
         return { status: "saved" };
       } catch (error) {
+        settle?.(false);
         const reason = error instanceof Error ? error.message : "Could not save the clips";
         showToast(reason, "error");
         return { status: "failed", reason };

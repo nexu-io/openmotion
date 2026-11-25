@@ -1,14 +1,16 @@
+import { isBeatMedia } from '../../shared/asset-names.ts';
+import type { OrderedEditEvents } from './ordered-edit-events.ts';
 import { randomBytes } from 'node:crypto';
-import { and, eq, inArray } from 'drizzle-orm';
-import { z } from 'zod';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { textEditSchema } from './text-edit-input.ts';
 import { componentOverlaySource } from '../../shared/registry-material-compat.ts';
-import { MAX_PATCH_BYTES, type TextPatch } from '../../shared/text-patch.ts';
+import type { TextPatch } from '../../shared/text-patch.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { BlobScope, StoragePort } from '../contracts/storage.ts';
 import type { Database, DbTransaction } from '../db/client.ts';
 import { projectFiles, projectTextRevisions } from '../db/schema/project-files.ts';
-import { TEXT_REVISION_MAX_DEPTH, TEXT_REVISION_MAX_CHAIN_BYTES } from '../infra/text-revisions.ts';
+import { TEXT_CHECKPOINT_INTERVAL, TEXT_CHECKPOINT_BYTES } from '../infra/text-revisions.ts';
 import { formatFileVersion } from '../studio/etag.ts';
 import {
   canonicalInputHash, loadProjectOrThrow, MAX_TEXT_FILE_BYTES, normalizeSafeProjectPath, readCommitReceipt,
@@ -18,29 +20,18 @@ import { primaryFile } from './motion-component-source.ts';
 import { getMotionComponent, prepareMotionComponent } from './motion-component-registry.ts';
 import { validateTextPatch } from './text-patch-boundaries.ts';
 
-const version = z.string().regex(/^"(?:sha256|patch):[a-f0-9]{64}"$/);
-const splice = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative(), z.string()])
-  .transform(([offset, removed, insert]) => [offset, removed, insert] as const);
-const file = {path: z.string(), baseVersion: version.nullable()};
-const batchSchema = z.strictObject({
-  files: z.array(z.union([
-    z.strictObject({...file, baseVersion: version, patch: z.array(splice).max(4096)}),
-    z.strictObject({...file, content: z.string()}),
-  ])).min(1).max(256),
-  dependencies: z.record(z.string(), version.nullable()).optional(),
-  label: z.string().trim().min(1).max(256).optional(),
-  undoGroup: z.uuid().optional(),
-  installComponent: z.string().min(1).max(200).optional(),
-});
-
+// Existing callers may use the patch form even for very short files.
+const SMALL_TEXT_PATCH_BYTES = 64 * 1024;
 function invalid(message: string) {
   return new CloudError('INVALID_ARGUMENT', message, {status: 400, applied: false});
 }
 export interface PendingTextRevision {
   path: string; parentScope: BlobScope; parentId: string; sizeBytes: number;
-  mimeType: string; depth: number; chainPatchBytes: number; patch: TextPatch;
+  mimeType: string; depth: number; chainPatchBytes: number; checkpointDue: boolean; patch: TextPatch;
 }
 export interface TextEditIdentity {
+  events?: OrderedEditEvents;
+  observedProject?: { expectedRevision: string; expectedVersionId: string };
   requestId: string; writeToken?: string; source: 'studio'|'agent';
   // Semantic MCP requests retain their original identity before generating bytes.
   command?: {scope: string; hash: string; result: Record<string, unknown>};
@@ -49,8 +40,8 @@ export interface TextEditIdentity {
 /** Called inside the existing project lock, after receipt replay and all file preconditions. */
 export async function appendTextRevisions(tx: DbTransaction, workspaceId: string, projectId: string,
   revisions: readonly PendingTextRevision[]) {
-  const rows = revisions.map(({path, ...revision}) => ({
-    path, record: {...revision, workspaceId, projectId, id: randomBytes(32).toString('hex')},
+  const rows = revisions.map(({path, checkpointDue, ...revision}) => ({
+    path, record: {...revision, workspaceId, projectId, id: randomBytes(32).toString('hex'), checkpointDueAt: checkpointDue ? sql`now()` : null},
   }));
   await tx.insert(projectTextRevisions).values(rows.map(({record}) => record));
   return rows.map(({path, record}) => ({
@@ -59,9 +50,18 @@ export async function appendTextRevisions(tx: DbTransaction, workspaceId: string
   }));
 }
 
+// The inserted strings have exactly the same JSON escaping in both wire forms. Each
+// retained UTF-8 byte can cost at most six JSON bytes (e.g. a control character).
+// This upper bound rules out wasteful patches without reading the unchanged source.
+function canPatchBeSmaller(patch: TextPatch, baseBytes: number): boolean {
+  const retained = patch.reduce((bytes, [, removed]) => bytes - removed, baseBytes);
+  const envelope = patch.map(([offset, removed]) => [offset, removed, '']);
+  return JSON.stringify({ patch: envelope }).length < '{"content":""}'.length + 6 * retained;
+}
+
 export async function commitTextEdits(files: ProjectFilesService, db: Database, storage: StoragePort,
   ctx: AuthContext, projectId: string, body: unknown, identity: TextEditIdentity): Promise<CommitProjectFilesResult> {
-  const parsed = batchSchema.safeParse(body);
+  const parsed = textEditSchema.safeParse(body);
   if (!parsed.success || !identity.requestId || identity.requestId.length > 100) throw invalid('Supply a valid text edit and request ID');
   const input = parsed.data;
   if (input.installComponent && (input.files.length !== 1 || input.files[0].baseVersion === null ||
@@ -81,7 +81,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
   for (const path of guards.keys()) if (path !== normalizeSafeProjectPath(path)) throw invalid('Invalid dependency path');
 
   const scope = identity.command?.scope ?? `project:${projectId}:${identity.source}:text-edits`;
-  const hash = identity.command?.hash ?? canonicalInputHash(input);
+  const hash = identity.command?.hash ?? canonicalInputHash(identity.observedProject ? [input, identity.observedProject] : input);
   await loadProjectOrThrow(db, ctx.workspaceId, projectId, {auth: ctx, allowTrashed: false});
   const item = input.installComponent ? getMotionComponent(input.installComponent) : undefined;
   const catalogPaths = item?.files.map(file => file.target) ?? [];
@@ -92,6 +92,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
     eq(projectFiles.projectId, projectId), inArray(projectFiles.path, [...guards.keys(), ...catalogPaths])));
   const replay = await readCommitReceipt(db, ctx.workspaceId, scope, identity.requestId, hash);
   if (replay) return replay;
+  if (identity.observedProject) await files.checkObservedFiles(ctx, projectId, identity.observedProject, guards);
   const rows = new Map(observed.map(row => [row.path, row]));
   for (const [path, expected] of guards) {
     const row = rows.get(path);
@@ -99,6 +100,11 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
     if (expected !== currentVersion) throw new CloudError('VERSION_CONFLICT', 'File changed before this edit', {
       status: 409, applied: false, details: {path, currentVersion, code: 'VERSION_MISMATCH'},
     });
+  }
+  for (const asset of input.beatAssets ?? []) {
+    if (!guards.get(asset) || !targets.has('beats/' + asset + '.json') || !isBeatMedia(asset, rows.get(asset))) {
+      throw invalid('Beat edits require a versioned project audio or video asset');
+    }
   }
   const revisions: PendingTextRevision[] = [];
   const ops: ProjectFileOp[] = [];
@@ -113,28 +119,29 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
       continue;
     }
     const patchBytes = Buffer.byteLength(JSON.stringify(item.patch));
-    if (!parent || patchBytes > MAX_PATCH_BYTES) throw invalid('Invalid patch base or size');
+    if (!parent) throw invalid('Invalid patch base');
     if (!item.patch.length) continue;
     const sizeBytes = await validateTextPatch(db, {workspaceId: ctx.workspaceId, projectId, base: parent, patch: item.patch, storage});
+    if (patchBytes > SMALL_TEXT_PATCH_BYTES && !canPatchBeSmaller(item.patch, parent.sizeBytes)) {
+      throw invalid('Send content for a large replacement whose patch cannot be smaller than the complete file.');
+    }
     let depth = 1;
     let chainPatchBytes = patchBytes;
     if (parent.blobScope === 'patch') {
       const [stored] = await db.select({depth: projectTextRevisions.depth, chainBytes: projectTextRevisions.chainPatchBytes,
-        checkpoint: projectTextRevisions.checkpointSha})
+        checkpoint: projectTextRevisions.checkpointSha, dueAt: projectTextRevisions.checkpointDueAt})
         .from(projectTextRevisions).where(and(eq(projectTextRevisions.workspaceId, ctx.workspaceId),
           eq(projectTextRevisions.projectId, projectId), eq(projectTextRevisions.id, parent.sha256)));
       if (!stored) throw new CloudError('STORAGE_ERROR', 'Missing text revision', {status: 500});
-      if (!stored.checkpoint && (stored.depth >= TEXT_REVISION_MAX_DEPTH ||
-          stored.chainBytes + patchBytes > TEXT_REVISION_MAX_CHAIN_BYTES)) {
-        if (!storage.ensureTextCheckpoint) throw new CloudError('STORAGE_ERROR', 'Checkpoint storage is unavailable', {status: 503});
-        await storage.ensureTextCheckpoint(ctx.workspaceId, parent.sha256);
-      } else if (!stored.checkpoint) {
-        depth = stored.depth + 1;
+      // A pending snapshot starts the next counting interval even while its bytes are still being built.
+      if (!stored.checkpoint && !stored.dueAt) {
+        depth += stored.depth;
         chainPatchBytes += stored.chainBytes;
       }
     }
+    const due = depth >= TEXT_CHECKPOINT_INTERVAL || chainPatchBytes >= TEXT_CHECKPOINT_BYTES;
     revisions.push({path: item.path, parentScope: parent.blobScope, parentId: parent.sha256, sizeBytes,
-      mimeType: parent.mimeType, depth, chainPatchBytes, patch: item.patch});
+      mimeType: parent.mimeType, patch: item.patch, checkpointDue: due, depth, chainPatchBytes});
   }
   if (item) {
     for (const path of catalogPaths) {
@@ -150,6 +157,8 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
   }
   return files.commitChanges(ctx, {
     projectId, requestId: identity.requestId, idempotencyScope: scope, source: identity.source,
+    orderedEvents: identity.events,
+    ...(identity.source === 'agent' && { actorKind: 'agent' }),
     commandReceipt: {inputHash: hash, result: identity.command?.result ?? {}},
     summary: input.label, writeToken: identity.writeToken, ops, textRevisions: revisions,
     undoGroup: input.undoGroup && `${ctx.userId}:${input.undoGroup}`,

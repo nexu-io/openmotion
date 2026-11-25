@@ -232,6 +232,20 @@ export async function assembleBuiltinTemplate(
   };
 }
 
+// An older clone can predate a declaration present in the image. Only read the known
+// template's entry file to find it, without assembling its media or contacting the catalog.
+const entryFiles = new Map<string, Promise<string | null>>();
+
+export function readBuiltinTemplateEntry(id?: string | null): Promise<string | null> {
+  if (!id || !BUILTIN_TEMPLATES.some(template => template.id === id)) return Promise.resolve(null);
+  const existing = entryFiles.get(id);
+  if (existing) return existing;
+  const entry = readFile(path.join(DEFAULT_REPO_ROOT, 'template-library', id, 'index.html'), 'utf8')
+    .catch(() => { entryFiles.delete(id); return null; });
+  entryFiles.set(id, entry);
+  return entry;
+}
+
 // These four sources belong to the immutable image. Retry a failed read on the next request.
 const sources = new Map<string, Promise<PreparedCatalogTemplate>>();
 

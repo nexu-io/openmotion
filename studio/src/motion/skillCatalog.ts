@@ -8,65 +8,10 @@ import type { AssetReference } from '../../../shared/asset-library';
  * an editable native project through MCP.
  */
 import skillPrompts from './skill-prompts.json';
-import repositoryMedia from '../../../repository-media.json';
 import type { SkillCategory } from './skillCategories';
-import babylonJsPoster from './scene-art/babylon-js.webp';
-import bubbleFieldPoster from './scene-art/bubble-field.webp';
-import chalkBlueprintPoster from './scene-art/chalk-blueprint.webp';
-import colorPopPoster from './scene-art/color-pop-poster.webp';
-import footageToHandpaintedPoster from './scene-art/footage-to-handpainted.webp';
-import lightShadowProductPoster from './scene-art/light-shadow-product.webp';
-import multiClipsToReelsPoster from './scene-art/multi-clips-to-reels.webp';
-import premiumHaloPoster from './scene-art/premium-halo.webp';
-import retroPrintPoster from './scene-art/retro-print-poster.webp';
-import saleCarouselPoster from './scene-art/sale-carousel.webp';
-import saleCountdownPoster from './scene-art/sale-countdown.webp';
-import splashFloatProductPoster from './scene-art/splash-float-product.webp';
-import talkingHeadRecreationPoster from './scene-art/talking-head-recreation.webp';
+import { archivedSkillCover, skillCover } from './skillCoverMedia';
 export { skillCategories, type SkillCategory } from './skillCategories';
-
-const previewDirectory = 'studio/src/motion/skill-covers/';
-const hostedPreviews = new Map(repositoryMedia.files.filter(file => file.path.startsWith(previewDirectory)).map(file => [file.path, file.url]));
-// Explore and showcase posters are bundled via Vite into /editor-assets/*.webp so
-// first-screen discovery art serves from the CDN origin instead of raw.githubusercontent.com.
-const bundledPosters: Record<string, string> = {
-  'babylon-js': babylonJsPoster,
-  'bubble-field': bubbleFieldPoster,
-  'chalk-blueprint': chalkBlueprintPoster,
-  'color-pop-poster': colorPopPoster,
-  'footage-to-handpainted': footageToHandpaintedPoster,
-  'light-shadow-product': lightShadowProductPoster,
-  'multi-clips-to-reels': multiClipsToReelsPoster,
-  'premium-halo': premiumHaloPoster,
-  'retro-print-poster': retroPrintPoster,
-  'sale-carousel': saleCarouselPoster,
-  'sale-countdown': saleCountdownPoster,
-  'splash-float-product': splashFloatProductPoster,
-  'talking-head-recreation': talkingHeadRecreationPoster,
-};
-
-// Existing preview bytes remain available at this public source snapshot.
-export const skillPreviewSnapshot = 'https://raw.githubusercontent.com/nexu-io/openmotion/242dbd99d41e349ea43c3d8d48a1e06f6cece81a/' + previewDirectory;
-// Existing WebP posters remain available at this public source snapshot.
-export const skillPosterSnapshot = 'https://raw.githubusercontent.com/nexu-io/openmotion/008e46e896a72f4e5bd743fe1c4a5752240d2e8f/' + previewDirectory;
-
-export function archivedSkillPoster(name: string) {
-  const filename = name + '.webp';
-  return hostedPreviews.get(previewDirectory + filename) ?? bundledPosters[name] ?? skillPosterSnapshot + filename;
-}
-
-function skillCover(name: string, format: 'mp4' | 'webm' | 'gif' = 'mp4', snapshot = false) {
-  const filename = name + '.' + format;
-  const posterFilename = name + '.webp';
-  const animation = hostedPreviews.get(previewDirectory + filename)
-    ?? (snapshot ? skillPreviewSnapshot + filename : import.meta.env.DEV ? '/src/motion/skill-covers/' + filename : undefined);
-  const poster = hostedPreviews.get(previewDirectory + posterFilename)
-    ?? bundledPosters[name]
-    ?? (snapshot ? skillPosterSnapshot + posterFilename : import.meta.env.DEV ? '/src/motion/skill-covers/' + posterFilename : undefined);
-  return format === 'gif' ? { gif: animation, poster } : { video: animation, poster };
-}
-
-const archivedSkillCover = (name: string, format?: 'gif') => skillCover(name, format, true);
+export { archivedSkillPoster, skillPreviewSnapshot, skillPosterSnapshot } from './skillCoverMedia';
 
 export type SkillMotif = 'agent' | 'scene' | 'layout' | 'curve' | 'stagger' | 'math' | 'vector' | 'playback' | 'depth' | 'frames' | 'canvas' | 'particles'
   | 'icon' | 'sequence' | 'character' | 'globe' | 'levelup' | 'orbit' | 'promo'
@@ -405,8 +350,8 @@ export function skillShotPrompt(skill: MotionSkill, parameters: SkillParameters,
   ].filter(Boolean).join('\n');
 }
 
-export function localizedSkillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, t: (key: string) => string) {
-  return skillPrompt({ ...skill, output: t(skill.output), example: t(skill.example), technique: t(skill.technique) }, parameters, locale, installUrl);
+export function localizedSkillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, t: (key: string) => string, cloud = false) {
+  return skillPrompt({ ...skill, output: t(skill.output), example: t(skill.example), technique: t(skill.technique) }, parameters, locale, installUrl, cloud);
 }
 
 function referenceInstruction(reference?: BriefReference) {
@@ -415,25 +360,33 @@ function referenceInstruction(reference?: BriefReference) {
 }
 
 /** installUrl comes from the running installation (setupGuideUrl), matching template instructions. */
-export function skillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string) {
+export function skillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, cloud = false) {
   const say = promptText(locale), style = parameters.style.trim();
   const values = { installUrl, id: skill.id, name: skill.name, repository: skill.repository ?? '', license: skill.license, output: skill.output,
     subject: parameters.subject.trim() || skill.example, duration: parameters.duration, aspect: parameters.aspect, style, technique: skill.technique };
   return [
-    say('intro', values),
+    say(cloud ? 'introCloud' : 'intro', values),
     say(skill.repository ? 'borrow' : 'own', values),
     say(skill.repository ? 'reference' : 'ownSource', values),
     '',
     say('brief'), say('deliverable', values), say('content', values), say('format', values), ...(style ? [say('style', values)] : []), say('technique', values),
     '',
-    say('steps'), say('step1'), say('step2'), ...(skill.media ? [say('media')] : []), ...(isLibrarySkill(skill) ? [say('libraryStep3', values), say(skill.generator ? 'generatorStep4' : 'libraryStep4')] : [say('step3'), say('step4')]), say('step5'),
+    say('steps'), say('step1'), say('step2'), ...(skill.media ? [say('media')] : []), ...(isLibrarySkill(skill) ? [say(cloud ? 'libraryStep3Cloud' : 'libraryStep3', values), say(skill.generator ? 'generatorStep4' : 'libraryStep4')] : [say('step3'), say('step4')]), say('step5'),
   ].join('\n') + referenceInstruction(parameters.reference);
 }
 
 /** A short command for any Agent chat, like a share code: names the skill, the brief and how to install OpenMotion. */
-export function skillShortcut(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string) {
+export function skillShortcut(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, cloud = false) {
   const say = promptText(locale), style = parameters.style.trim();
-  return say('shortcut', { title: skill.title, duration: parameters.duration, aspect: parameters.aspect, subject: parameters.subject.trim() || skill.example,
-    style: style ? say('shortcutStyle', { style }) : '', repository: skill.repository ?? 'OpenMotion', installUrl })
+  const base = say(cloud ? 'shortcutCloud' : 'shortcut', {
+    title: skill.title,
+    duration: parameters.duration,
+    aspect: parameters.aspect,
+    subject: parameters.subject.trim() || skill.example,
+    style: style ? say('shortcutStyle', { style }) : '',
+    repository: skill.repository ?? 'OpenMotion',
+    installUrl,
+  });
+  return base
     + (isLibrarySkill(skill) ? say('shortcutLibrary', { id: skill.id }) : '') + (skill.generator ? say('shortcutGenerator') : '') + referenceInstruction(parameters.reference);
 }

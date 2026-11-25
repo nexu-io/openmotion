@@ -21,7 +21,12 @@ import { projects } from '../db/schema/projects.ts';
 import { projectChannel } from '../infra/redis.ts';
 import { workspaceBlobKey } from '../infra/storage.ts';
 import { computeProjectRevision, isSha256Hex, isTextProjectPath, isUuid } from '../../shared/project-validation.ts';
-import { computePreviewImpact, createWriteToken, formatFileVersion } from '../studio/etag.ts';
+import {
+  computePreviewImpact,
+  createWriteToken,
+  formatFileVersion,
+  hashIndexHeadMarkup,
+} from '../studio/etag.ts';
 import { htmlFileVersions } from './event-file-versions.ts';
 import {
   DEFAULT_HISTORY_COALESCE_WINDOW_MS,
@@ -1461,6 +1466,34 @@ export class VersionHistoryService {
     const channel = projectChannel(workspaceId, projectId);
     if (appliedFiles.length > 0) {
       const impact = computePreviewImpact(appliedFiles);
+      let indexHeadHash: string | undefined;
+      if (appliedFiles.includes('index.html')) {
+        try {
+          const [indexRow] = await this.db
+            .select({ blobScope: projectFiles.blobScope, sha256: projectFiles.sha256 })
+            .from(projectFiles)
+            .where(and(eq(projectFiles.projectId, projectId), eq(projectFiles.path, 'index.html')))
+            .limit(1);
+          if (!indexRow) {
+            indexHeadHash = hashIndexHeadMarkup('');
+          } else {
+            const rawId = indexRow.sha256.trim();
+            let content =
+              indexRow.blobScope !== 'patch'
+                ? await this.hotTextCache?.getText(rawId).catch(() => null)
+                : null;
+            if (content == null) {
+              const buf = await this.storage.getObjectBuffer(
+                resolveBlobStorageKey(workspaceId, indexRow.blobScope, rawId),
+              );
+              content = buf.toString('utf8');
+            }
+            indexHeadHash = hashIndexHeadMarkup(content);
+          }
+        } catch {
+          indexHeadHash = undefined;
+        }
+      }
       const fileEvent: ProjectEvent = {
         type: 'file-change',
         workspaceId,
@@ -1469,6 +1502,7 @@ export class VersionHistoryService {
         versionId: versionId ?? undefined,
         paths: [...appliedFiles],
         fileVersions,
+        ...(indexHeadHash ? { indexHeadHash } : {}),
         writeToken,
         affectsPreview: impact.affectsPreview,
         affectedCompositions: impact.affectedCompositions,

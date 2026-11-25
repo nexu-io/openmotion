@@ -121,13 +121,23 @@ describe("Dock on React 19", () => {
     for (const id of DEFAULT_VISIBLE) {
       expect(host.querySelector(`[data-testid="content-${id}"]`)).not.toBeNull();
     }
-    for (const id of DEFAULT_OPEN.filter((id) => !DEFAULT_VISIBLE.includes(id) && id !== "transcript" && id !== "captions" && id !== "comments")) {
+    for (const id of DEFAULT_OPEN.filter((id) => !DEFAULT_VISIBLE.includes(id) && id !== "comments")) {
       expect(host.querySelector(`[data-testid="content-${id}"]`)).toBeNull();
     }
-    expect(host.querySelector('[data-testid="content-transcript"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="content-comments"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="content-slideshow"]')).toBeNull();
     expect(useDockLayoutStore.getState().openPanels).toEqual(new Set(DEFAULT_OPEN));
+  });
+
+  it.each(["transcript", "captions"] as const)("keeps %s mounted after its first visit", async id => {
+    const host = mount("p1");
+    const content = () => host.querySelector(`[data-testid="content-${id}"]`);
+    expect(content()).toBeNull();
+    await act(async () => useDockLayoutStore.getState().activatePanel(id));
+    const first = content();
+    expect(first).not.toBeNull();
+    await act(async () => useDockLayoutStore.getState().activatePanel("assets"));
+    expect(content()).toBe(first);
   });
 
   it("keeps the preview header controls mounted when the timeline becomes active", async () => {

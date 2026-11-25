@@ -1822,5 +1822,7 @@
   "Moves with the selected main track clip": "선택한 메인 트랙 클립과 함께 이동",
   "Trim left to playhead": "재생 헤드까지 왼쪽 자르기",
   "Trim right to playhead": "재생 헤드까지 오른쪽 자르기",
-  "Screen too small to expand this panel": "화면이 너무 작아 패널을 펼칠 수 없습니다"
+  "Screen too small to expand this panel": "화면이 너무 작아 패널을 펼칠 수 없습니다",
+  "{label} picker": "{label} 선택기",
+  "Pick {value0}": "{value0} 선택"
 }

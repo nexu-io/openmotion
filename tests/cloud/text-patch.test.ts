@@ -42,7 +42,34 @@ it('keeps two distant edits in large multiline HTML in one small patch', () => {
 
 it('falls back for wholesale rewrites and very dense line tokenization', () => {
   const lines = Array.from({ length: 3200 }, (_, i) => `<div class="row" data-long-name="heading-${i}">abc</div>\n`).join('');
-  assert.equal(createTextPatch(lines, lines.replaceAll('abc', 'xyz')), null);
+  assert.equal(createTextPatch(lines, '---\n' + lines.replaceAll('abc', 'xyz') + 'end'), null);
   const dense = '<i/>\n'.repeat(30000);
   assert.equal(createTextPatch('a\n' + dense + 'b', 'c\n' + dense + 'd'), null);
+});
+
+it('compares the actual payload after exceeding the diff CPU budget', () => {
+  const changed = 'a\n'.repeat(300 * 1024);
+  const replacement = 'b\n'.repeat(300 * 1024);
+  const tail = 'c'.repeat(1024 * 1024 - changed.length);
+  const before = changed + tail;
+  const after = replacement + tail;
+  const patch = createTextPatch(before, after);
+  assert.ok(patch);
+  assert.equal(patch.length, 1);
+  assert.ok(Buffer.byteLength(JSON.stringify({ patch })) < Buffer.byteLength(JSON.stringify({ content: after })));
+  assert.equal(applyTextPatch(before, patch), after);
+});
+
+it('sends a localized 300 KiB edit in a multi-megabyte file as a patch', () => {
+  const before = 'a'.repeat(5 * 1024 * 1024);
+  const offset = 2 * 1024 * 1024;
+  const replacement = 'b'.repeat(300 * 1024);
+  for (const removed of [0, replacement.length]) {
+    const after = before.slice(0, offset) + replacement + before.slice(offset + removed);
+    const patch = createTextPatch(before, after);
+    assert.ok(patch);
+    assert.equal(patch.length, 1);
+    assert.ok(Buffer.byteLength(JSON.stringify(patch)) < 301 * 1024);
+    assert.equal(applyTextPatch(before, patch), after);
+  }
 });

@@ -112,11 +112,17 @@ export function SettingsCenter({
       <main key={section} className="om-settings-main" aria-label={t(settingsSectionLabel(section, localAgentsEnabled))}>
         <SettingsSurfaceBoundary>
           {section === 'mcp' ? mcp : section === 'local' && localAgentsEnabled ? <AgentSettings /> : section === 'providers' || section === 'local' ? (
-            <ModelSettings key={section} openAccount={() => onSection('account')} providerId={providerId} onProviderChange={onProviderChange} />
+            <ModelSettings
+              key={section}
+              openAccount={() => onSection('account')}
+              openSubscription={() => onSection('subscription')}
+              providerId={providerId}
+              onProviderChange={onProviderChange}
+            />
           ) : section === 'account' || section === 'subscription' ? (
             <AccountSettings key={section} subscription={section === 'subscription'} openProviders={() => onSection('providers')} />
           ) : section === 'models' ? (
-            <DefaultModels openProviders={() => onSection('providers')} />
+            <DefaultModels openProviders={() => onSection('providers')} openAccount={() => onSection('subscription')} />
           ) : section === 'appearance' ? (
             <AppearanceSettings />
           ) : section === 'privacy' ? (
@@ -132,33 +138,55 @@ export function SettingsCenter({
   );
 }
 
-function DefaultModels({ openProviders }: { openProviders: () => void }) {
+function DefaultModels({ openProviders, openAccount }: { openProviders: () => void; openAccount: () => void }) {
   const { t, locale } = useI18n();
   const directory = useProviderDirectory();
+  const hasModels = (directory.data?.models.length ?? 0) > 0;
   return (
     <div className="om-settings-page">
       <h1 className="om-title">{t('Default models')}</h1>
       <p className="om-muted">{t('Choose the workspace default model for each media capability on the OpenDesign Model Gateway.')}</p>
       {directory.error ? <SettingsError retry={directory.refresh} /> : !directory.data ? <SettingsLoading /> : (
-        <div className="om-card">
-          {cloudModelKinds.map(kind => {
-            const model = directory.data?.models.find(item => item.id === directory.data?.defaults[kind]);
-            const provider = directory.data?.providers.find(item => item.id === model?.provider);
-            return (
-              <div className="om-preference-row" key={kind}>
-                <div>
-                  <h2 className="om-subtitle">{modelKindLabel(kind, t, locale)}</h2>
-                  <p className="om-muted">
-                    {model
-                      ? `${provider?.label ?? 'OpenDesign'} · ${model.label}${!provider?.available || !model.enabled ? ' · ' + t('Unavailable') : ''}`
-                      : t(directory.data?.defaults[kind] ? 'Unavailable model' : 'No default selected')}
-                  </p>
-                </div>
-                <ModelSwitcher capability={kind} label={t('Choose model')} openSettings={openProviders} />
+        <>
+          {!hasModels && (
+            <section className="om-card om-plan-guide" data-empty-models="true">
+              <div className="om-plan-guide-head">
+                <h2 className="om-subtitle">{t('No media models available yet')}</h2>
+                <span className="om-badge" data-active="true">{t('Plus and above')}</span>
               </div>
-            );
-          })}
-        </div>
+              <p className="om-muted">
+                {t('Your OpenDesign workspace currently has no available image, video or audio models. Upgrade to Plus to unlock multimodal generation, then sync models.')}
+              </p>
+              <div className="om-settings-actions">
+                <Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>
+                  {t('Check account & plan')}
+                </Button>
+                <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>
+                  {t('Model gateway')}
+                </Button>
+              </div>
+            </section>
+          )}
+          <div className="om-card">
+            {cloudModelKinds.map(kind => {
+              const model = directory.data?.models.find(item => item.id === directory.data?.defaults[kind]);
+              const provider = directory.data?.providers.find(item => item.id === model?.provider);
+              return (
+                <div className="om-preference-row" key={kind}>
+                  <div>
+                    <h2 className="om-subtitle">{modelKindLabel(kind, t, locale)}</h2>
+                    <p className="om-muted">
+                      {model
+                        ? `${provider?.label ?? 'OpenDesign'} · ${model.label}${!provider?.available || !model.enabled ? ' · ' + t('Unavailable') : ''}`
+                        : t(directory.data?.defaults[kind] ? 'Unavailable model' : hasModels ? 'No default selected' : 'No models available')}
+                    </p>
+                  </div>
+                  <ModelSwitcher capability={kind} label={t('Choose model')} openSettings={openProviders} />
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
       <p className="om-muted">{t('External MCP Agents use these workspace defaults when a generation request omits an explicit model.')}</p>
     </div>

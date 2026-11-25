@@ -1,6 +1,6 @@
 import type { CanvasGroupWrite } from "./cloudGroupMove";
 import { useGsapAwareGroupMove } from "./useGsapAwareGroupMove";
-import { observeGsapGesture } from "./gsapGestureOutcome";
+import { duringGsapGesture, observeGsapGesture } from "./gsapGestureOutcome";
 import type { DomEditPersistOutcome } from "./domEditCommitTypes";
 /**
  * GSAP-aware move/resize/rotation wrappers that intercept geometry commits
@@ -18,7 +18,6 @@ import type { DomEditSelection } from "../components/editor/domEditingTypes";
 import { tryGsapDragIntercept, tryGsapRotationIntercept } from "./gsapRuntimeBridge";
 import { tryGsapResizeIntercept } from "./gsapResizeIntercept";
 import { computeDraggedGsapPosition, freezeDragStamp } from "./draggedGsapPosition";
-import { whileScriptWrites } from "../player/previewReloading";
 import { readGsapPositionFromIframe } from "./gsapPositionDetection";
 import { selectorFromSelection } from "./gsapShared";
 import { useAnimatedPropertyCommit } from "./useAnimatedPropertyCommit";
@@ -159,7 +158,7 @@ export function useGsapAwareEditing({
       }
       const writer = writes.commit;
       if (!writer) return;
-      return whileScriptWrites(async () => {
+      return duringGsapGesture(async () => {
         const stamp = freezeDragStamp(selection.element);
         try {
           const ownedAnimations = getGsapAnimationsForSelection(selection);
@@ -222,7 +221,7 @@ export function useGsapAwareEditing({
         const result = await handleDomBoxSizeCommit(selection, next, offset, restore);
         return writes.finish(result?.changed === true);
       }
-      return whileScriptWrites(async () => {
+      return duringGsapGesture(async () => {
         const stamp = freezeDragStamp(selection.element);
         let targetAnimations: GsapAnimation[];
         try {
@@ -386,7 +385,7 @@ export function useGsapAwareEditing({
       }
       const writer = writes.commit;
       if (!writer) return;
-      return whileScriptWrites(async () => {
+      return duringGsapGesture(async () => {
         const stamp = freezeDragStamp(selection.element);
         try {
           const targetAnimations = await getGsapAnimationsForSelection(selection);

@@ -7,6 +7,7 @@ export interface ManualImportItem {
   name: string;
   status: ManualImportStatus;
   path?: string;
+  targetPath?: string;
   reason?: string;
   phase?: 'uploading' | 'processing';
   progress?: number;

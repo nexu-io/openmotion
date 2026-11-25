@@ -1,4 +1,5 @@
 import type { PreviewAdapter } from "../../player/lib/previewAdapter";
+import { relativeLayerBounds } from "./isolatedLayerBounds";
 import { resolveDomEditCapabilities } from "./domEditingLayers";
 import { CURATED_STYLE_PROPERTIES, type DomEditSelection } from "./domEditingTypes";
 import { isInlineTextTarget, type InlineTextTarget } from "./isolatedInlineTextPatch";
@@ -6,6 +7,8 @@ import { isInlineTextTarget, type InlineTextTarget } from "./isolatedInlineTextP
 interface InspectorSnapshot extends InlineTextTarget {
   tag: string;
   geometry: DomEditSelection["boundingBox"];
+  viewport?: { width: number; height: number };
+  clipOwner?: DomEditSelection["isolatedClipOwner"];
   layoutBox?: DomEditSelection["boundingBox"] | null;
   inline: Record<string, string>;
   computed: Record<string, string>;
@@ -23,6 +26,8 @@ interface InspectorSnapshot extends InlineTextTarget {
 
 type Identity = { elementId?: string | null; hfId?: string | null; sourceFile?: string };
 
+const identityString = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 1024;
+
 function plainMap(input: unknown, allowed: (key: string) => boolean, limit: number) {
   return Object.fromEntries(Object.entries(input && typeof input === "object" ? input : {}).slice(0, 64)
     .filter(([key, value]) => allowed(key) && typeof value === "string" && value.length <= limit));
@@ -34,7 +39,7 @@ export async function inspectIsolatedElement(adapter: PreviewAdapter, identity: 
     elementId: identity.elementId, hfId: identity.hfId, sourceFile: identity.sourceFile, properties: CURATED_STYLE_PROPERTIES,
   }).catch(() => undefined);
   if (snapshot === undefined) return undefined;
-  if (!snapshot || !isInlineTextTarget(snapshot) || [snapshot.hfId, snapshot.elementId].some(id => id != null && (typeof id !== "string" || id.length > 1024)) || (identity.elementId && snapshot.elementId !== identity.elementId) ||
+  if (!snapshot || !isInlineTextTarget(snapshot) || [snapshot.hfId, snapshot.elementId].some(id => id != null && !identityString(id)) || (identity.elementId && snapshot.elementId !== identity.elementId) ||
       (identity.hfId && snapshot.hfId !== identity.hfId) || (identity.sourceFile && snapshot.sourceFile !== identity.sourceFile)) return null;
   const { tag, geometry, sourceFile, hfId, elementId: id } = snapshot;
   if (typeof tag !== "string" || !/^[a-z][a-z0-9]{0,30}$/.test(tag) || !geometry ||
@@ -57,6 +62,9 @@ export async function inspectIsolatedElement(adapter: PreviewAdapter, identity: 
   const textContent = typeof snapshot.leafText === "string" && snapshot.leafText.length <= 16384 ? snapshot.leafText : null;
   element.textContent = textContent;
   const flags = { isCompositionHost: snapshot.compositionHost === true, isInsideLockedComposition: snapshot.locked === true };
+  const owner = snapshot.clipOwner;
+  const isolatedClipOwner = owner && identityString(owner.sourceFile) && (owner.id || owner.hfId) &&
+    [owner.id, owner.hfId].every(id => id == null || identityString(id)) ? owner : undefined;
   const box = snapshot.layoutBox;
   const isolatedLayoutBox = box && [box.x, box.y, box.width, box.height].every(Number.isFinite) &&
     box.width >= 0 && box.height >= 0 ? box : undefined;
@@ -64,7 +72,7 @@ export async function inspectIsolatedElement(adapter: PreviewAdapter, identity: 
     intrinsicMediaDuration: typeof snapshot.intrinsicMediaDuration === "number" && Number.isFinite(snapshot.intrinsicMediaDuration) && snapshot.intrinsicMediaDuration > 0
       ? snapshot.intrinsicMediaDuration : undefined,
     element, id: id || undefined, hfId: hfId || undefined, selector, sourceFile, compositionPath: sourceFile,
-    label: id || hfId || tag, tagName: tag, ...flags, boundingBox: geometry, isolatedLayoutBox, inlineStyles, computedStyles, dataAttributes,
+    label: id || hfId || tag, isolatedClipOwner, tagName: tag, ...flags, boundingBox: geometry, isolatedBounds: relativeLayerBounds(snapshot) ?? undefined, isolatedLayoutBox, inlineStyles, computedStyles, dataAttributes,
     existsInSource: true, textContent, isolatedTarget: { sourceFile, sha256: snapshot.sha256, ...(snapshot.fileVersion && {fileVersion: snapshot.fileVersion}), elementId: id, hfId, binding: snapshot.binding },
     textFields: textContent === null ? [] : [{ key: "self", label: "Text", value: textContent, tagName: tag,
       attributes: [], inlineStyles, computedStyles, preserveLineBreaks: snapshot.lineBreaks === true, source: "self" as const }],

@@ -1,3 +1,4 @@
+import type { OrderedEditEvent } from '../../shared/ordered-edit-event.ts';
 export type ProjectEvent =
   | {
       type: 'file-change' | 'files-changed';
@@ -6,8 +7,11 @@ export type ProjectEvent =
       revision: string;
       versionId?: string;
       paths: string[];
+      ordered?: OrderedEditEvent;
       /** Exact ETags of changed HTML files. A null value means the path was deleted. */
       fileVersions?: Record<string, string | null>;
+      /** 12-char sha256 prefix of `index.html`'s `<head>` when `index.html` changed. */
+      indexHeadHash?: string;
       /** Legacy deletion sentinel for commits containing only removals. */
       version?: string;
       writeToken?: string;
@@ -18,6 +22,7 @@ export type ProjectEvent =
     }
   | {
       type: 'history-changed';
+      includedInOrderedEdit?: boolean;
       writeToken?: string;
       workspaceId: string;
       projectId: string;
@@ -108,5 +113,6 @@ export interface RenderWorkerHealth {
   chromium: boolean;
   concurrency: number;
   activeJobs: number;
+  draining?: boolean;
   updatedAt: number;
 }

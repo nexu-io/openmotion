@@ -50,7 +50,7 @@ beforeEach(() => {
     if (init?.method === 'POST') return upload(url, init);
     if (url.endsWith('manifest.jsonl')) return new Response('', { status: 404 });
     if (treeFailed) throw new TypeError('listing offline');
-    const project = decodeURIComponent(url.split('/')[3]);
+    const project = decodeURIComponent(new URL(url, 'http://studio.test').pathname.split('/')[3]);
     return Response.json({ files: files[project], compositions: [] });
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -138,7 +138,7 @@ it('does not move a delayed import result or recovery action to another project'
   await act(async () => { resolve(Response.json({ files: ['assets/good.png'] })); await pending; });
   expect(host.querySelector('[aria-label="This upload"]')).toBeNull();
   expect(host.querySelector('[data-assets-list]')?.textContent).toContain('project-b.png');
-  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/projects/b')).toHaveLength(1);
+  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/projects/b?view=editor')).toHaveLength(1);
   expect(uploadCalls()[0][0]).toContain('/projects/a/upload');
 });
 
@@ -282,4 +282,47 @@ it('preserves the entry point and unknown counts for uploads outside the manual 
   expect(manager.importBatch).toBeNull();
   expect(assetImportResults).toHaveBeenCalledExactlyOnceWith({ projectId: 'a', entryPoint: 'timeline_button', requested: 1, added: 0, failed: 0, unknown: 1, pending: 0 });
   expect(uploadCalls()).toHaveLength(1);
+});
+
+it('does not show a duplicate Processing pending-import card alongside Result unknown after an upload timeout', async () => {
+  const realFetch = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (init?.method !== 'POST' && url === '/api/projects/a?view=editor') {
+      return Response.json({
+        files: files.a,
+        compositions: [],
+        pendingImports: [
+          {
+            id: 'web-job-1',
+            jobId: 'web-job-1',
+            filename: 'clip.mp4',
+            targetPath: 'assets/clip.mp4',
+            source: 'web_upload',
+            state: 'processing',
+            progress: 25,
+            updatedAt: Date.now(),
+          },
+          {
+            id: 'mcp-job-2',
+            jobId: 'mcp-job-2',
+            filename: 'agent-remote.mp4',
+            targetPath: 'assets/agent-remote.mp4',
+            source: 'mcp_upload',
+            state: 'processing',
+            progress: 40,
+            updatedAt: Date.now(),
+          },
+        ],
+      });
+    }
+    return realFetch(url, init);
+  });
+  upload = async () => { throw new TypeError('confirm timed out'); };
+  await render();
+  await importFiles([new File(['x'], 'clip.mp4')], 'assets_button');
+  expect(manager.importBatch?.busy).toBe(false);
+  expect(host.textContent).toContain('Result unknown');
+  const externalCards = host.querySelector('[data-pending-external-imports]');
+  expect(externalCards?.textContent).not.toContain('clip.mp4');
+  expect(externalCards?.textContent).toContain('agent-remote.mp4');
 });

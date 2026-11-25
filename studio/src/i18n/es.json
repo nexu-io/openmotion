@@ -1858,5 +1858,7 @@
   "Moves with the selected main track clip": "Se mueve con el clip seleccionado de la pista principal",
   "Trim left to playhead": "Recortar izquierda al cabezal",
   "Trim right to playhead": "Recortar derecha al cabezal",
-  "Screen too small to expand this panel": "La pantalla es demasiado pequeña para expandir este panel"
+  "Screen too small to expand this panel": "La pantalla es demasiado pequeña para expandir este panel",
+  "{label} picker": "Selector de {label}",
+  "Pick {value0}": "Elegir {value0}"
 }

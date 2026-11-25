@@ -309,7 +309,7 @@ export function reseekPreviewAtTime(preview: SeekablePreview, time: number): voi
   preview.seek(target);
 }
 
-export function seekAdapterToRestorePoint(
+export function resolveRestoreSeekTime(
   adapter: PlaybackAdapter,
   pendingSeekRef: { current: number | null },
 ): number {
@@ -322,6 +322,14 @@ export function seekAdapterToRestorePoint(
   });
   pendingSeekRef.current = null;
   if (storeSeek != null) usePlayerStore.getState().clearSeekRequest();
+  return startTime;
+}
+
+export function seekAdapterToRestorePoint(
+  adapter: PlaybackAdapter,
+  pendingSeekRef: { current: number | null },
+): number {
+  const startTime = resolveRestoreSeekTime(adapter, pendingSeekRef);
   reseekPreviewAtTime(adapter, startTime);
   return startTime;
 }

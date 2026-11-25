@@ -19,7 +19,8 @@ import { ComingSoonGuide } from './ComingSoonGuide';
 import { GitHubMark } from '../../../packages/design-system/react/GitHubMark';
 import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
-import { setupGuideUrl, type IntegrationInfo } from '../../../shared/integration';
+import { isStreamableHttpTransport, setupGuideUrl, type IntegrationInfo } from '../../../shared/integration';
+import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { AssetPicker } from './AssetBrowser';
 import { Popover } from '../components/ui/Popover';
 import { Tooltip } from '../components/ui/Tooltip';
@@ -60,11 +61,21 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
   const detailClose = useRef<HTMLButtonElement>(null);
   const studioDefaults = useMemo<SkillParameters>(() => studioSkillDefaults(studio?.id), [studio]);
   const [parameters, setParameters] = useState<SkillParameters>(studioDefaults), [manualCopy, setManualCopy] = useState<{ text: string; surface: 'instruction' | 'command' } | null>(null);
-  // Same install guide as template instructions; the repository guide is the fallback until the service answers.
-  const [installUrl, setInstallUrl] = useState(() => setupGuideUrl(null));
+  // Same install guide as template instructions; cloud web points at /mcp-setup, local falls back to the repository guide.
+  const [cloudMcp, setCloudMcp] = useState(() => getCachedCloudDisklessMode());
+  const [installUrl, setInstallUrl] = useState(() => (
+    getCachedCloudDisklessMode() && typeof window !== 'undefined'
+      ? `${window.location.origin.replace(/\/+$/, '')}/mcp-setup`
+      : setupGuideUrl(null)
+  ));
   useEffect(() => {
     let cancelled = false;
-    motionApi<IntegrationInfo>('/integration').then(info => { if (!cancelled) setInstallUrl(setupGuideUrl(info)); }).catch(() => {});
+    motionApi<IntegrationInfo>('/integration').then(info => {
+      if (cancelled) return;
+      const isCloud = isStreamableHttpTransport(info.transport);
+      setCloudMcp(isCloud);
+      setInstallUrl(isCloud ? `${info.previewUrl.replace(/\/+$/, '')}/mcp-setup` : setupGuideUrl(info));
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
   const instruction = useRef<HTMLPreElement>(null), command = useRef<HTMLPreElement>(null), search = useRef<HTMLInputElement>(null);
@@ -127,8 +138,8 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     tracking.reportSkillCategory(value, matching(value, query).length);
   };
   // The instruction follows the interface language, including the example brief and borrowed technique.
-  const prompt = selected ? localizedSkillPrompt(selected, parameters, locale, installUrl, t) : '';
-  const shortcut = selected ? skillShortcut({ ...selected, title: displayName(selected), example: t(selected.example) }, parameters, locale, installUrl) : '';
+  const prompt = selected ? localizedSkillPrompt(selected, parameters, locale, installUrl, t, cloudMcp) : '';
+  const shortcut = selected ? skillShortcut({ ...selected, title: displayName(selected), example: t(selected.example) }, parameters, locale, installUrl, cloudMcp) : '';
   const latest = useRef({ instruction: prompt, command: shortcut }); latest.current = { instruction: prompt, command: shortcut };
   const open = (skill: MotionSkill, position: number) => { if (!selected) captureLayout(); tracking.reportSkillCardOpened(skill, position, searchId.current); onSkillChange(skill.id); };
   // A failed copy keeps its exact text for manual copying only until the brief changes; then show the live text again.
@@ -187,6 +198,8 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
           </div>
           <p>{t('Pick a skill, fill in the brief and copy the instruction. Your Agent builds an editable project in OpenMotion.')}</p>
         </section>}
+        {studio && chrome && !query.trim() && <StudioTemplateShelf key={studio.id + locale} studio={studio.id} root={main} active={previewsEnabled && !selected} />}
+        {studio && <header className="om-studio-skills-heading"><h2 className="om-title om-studio-techniques-title">{t(studio.id === '3d' ? '3D Creative Skills' : 'Creative Skills')}</h2>{comingSoon && <p className="om-muted">{t('While the Studio is coming soon, choose a Skill below and copy its brief to your Agent to start creating.')}</p>}</header>}
         <div className="om-gallery-sticky-header">
           <div className="om-gallery-toolbar om-skills-toolbar">
             {!studio && <CategoryStrip label="Skill category" selection={category} neutral>
@@ -196,8 +209,6 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
             <label className="om-field om-search-field"><MotionIcon name="search" size={18} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('Search skills...')} aria-label={t('Search skills')} /><kbd aria-hidden="true">⌘ K</kbd></label>
           </div>
         </div>
-        {studio && chrome && !query.trim() && <StudioTemplateShelf key={studio.id + locale} studio={studio.id} root={main} active={previewsEnabled && !selected} />}
-        {studio && <header className="om-studio-skills-heading"><h2 className="om-title om-studio-techniques-title">{t(studio.id === '3d' ? '3D Creative Skills' : 'Creative Skills')}</h2>{comingSoon && <p className="om-muted">{t('While the Studio is coming soon, choose a Skill below and copy its brief to your Agent to start creating.')}</p>}</header>}
         <div className="om-gallery-masonry om-skills-grid">
           {cards.map((skill, index) => <SkillCard key={skill.id} skill={skill} name={displayName(skill)} useWhen={t(skill.useWhen)} selected={skill.id === skillId} onSelect={() => open(skill, index + (featureInHero ? 2 : 1))} />)}
         </div>

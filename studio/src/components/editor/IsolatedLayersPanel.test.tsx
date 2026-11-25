@@ -33,6 +33,11 @@ it("enumerates the authored hierarchy, distinguishes repeated IDs, and rejects d
   expect(rows[1].key).not.toBe(rows[2].key);
   expect(bridge.select({ subscription: "one", key: rows[2].key })).toBe(true);
   expect(post).toHaveBeenLastCalledWith("select-element", expect.objectContaining({ selection: { text: "Second" } }));
+  const point = vi.spyOn(document, "elementFromPoint").mockReturnValue(document.querySelector("p"));
+  expect(bridge.select({ x: .25, y: .5 })).toBe(true);
+  expect(post).toHaveBeenLastCalledWith("select-element", expect.objectContaining({ selection: { text: "First" } }));
+  expect(bridge.select({ x: -1, y: .5 })).toBe(false);
+  expect(point).toHaveBeenCalledTimes(1);
   document.querySelector("p")!.remove();
   expect(bridge.select({ subscription: "one", key: rows[1].key })).toBe(false);
   bridge.tree({ subscription: "two", limit: 1 });

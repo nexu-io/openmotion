@@ -1,5 +1,11 @@
 import { buildProjectApiPath, parseProjectIdFromHash } from "./projectRouting";
 
+/** The composition a preview URL renders: `/preview/comp/<path>`, or the root for `/preview`. */
+export function compositionPathOfPreviewUrl(previewUrl: string): string {
+  const match = /\/preview\/comp\/([^?#]+)/.exec(previewUrl);
+  return match?.[1] ? decodeURIComponent(match[1]) : "index.html";
+}
+
 /** Convert runtime preview URLs to the same file identity used by authored paths. */
 export function projectCompositionPath(
   source: string,

@@ -31,7 +31,7 @@ export interface PanelDefinition {
   /** Where Window > <panel> puts it when it has no saved place: next to `near`. */
   reopen: { near: PanelId; direction: Direction };
   /** Content stays mounted while its tab is hidden (the preview iframe must not reload). */
-  keepMounted?: true;
+  keepMounted?: true | "after-first-show";
 }
 
 export const PANEL_DEFINITIONS = {
@@ -53,8 +53,8 @@ export const PANEL_DEFINITIONS = {
     reopen: { near: "preview", direction: "left" },
   },
   assets: { title: "Assets", zone: "left", reopen: { near: "compositions", direction: "within" } },
-  transcript: { title: "Transcript", zone: "left", reopen: { near: "assets", direction: "within" }, keepMounted: true },
-  captions: { title: "Captions", zone: "left", reopen: { near: "transcript", direction: "within" }, keepMounted: true },
+  transcript: { title: "Transcript", zone: "left", reopen: { near: "assets", direction: "within" }, keepMounted: "after-first-show" },
+  captions: { title: "Captions", zone: "left", reopen: { near: "transcript", direction: "within" }, keepMounted: "after-first-show" },
   code: { title: "Code", zone: "left", reopen: { near: "compositions", direction: "within" } },
   catalog: {
     title: "Catalog",

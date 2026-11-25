@@ -1,6 +1,6 @@
 # Motion releases: build, test, publish
 
-> Repository installation defaults to the [source guide](install.md). Published npm installation is an explicit alternative through the [application guide](install.md). Candidate builds, publication and snapshot recovery use the manual [release workflow](release-workflows.md); merging changes does not publish an npm application package or update hosted application installation guides.
+> Agent connections default to the [Cloud MCP guide](install.md). Legacy local source setup and the published npm installation template are archived in [docs/templates/legacy-npm-install.md](templates/legacy-npm-install.md). Candidate builds, publication and snapshot recovery use the manual [release workflow](release-workflows.md); merging changes does not publish an npm application package or update hosted application installation guides.
 
 Use **Motion package and release** in `nexu-io/openmotion` on `main`. Its `prepublish` mode builds and validates a candidate. Its `publish` mode can build a new candidate in the same run or select one from an earlier successful run. Snapshot-only recovery remains an independent maintenance entry. Daily development branches from the latest `origin/main` and PRs target `main`.
 
@@ -23,9 +23,9 @@ Keep these control files together:
 
 - `.github/workflows/motion-candidate.yml`, `motion-publish-test.yml`, `motion-publication-recovery.yml` and `motion-install-check.yml` (read-only manual rechecks).
 - `.github/scripts/motion-release.mjs`, `motion-scan.mjs`, `motion-registry.mjs`, `motion-registry-smoke.mjs`, `motion-release-notes.mjs`, `publish-install-guide.mjs` and `.github/gitleaks.toml`.
-- `scripts/runtime-assets.mjs`, `release-version.mjs`, `install-guide.mjs`, `docs/install.md`, `docs/templates/release-record.md` and `docs/templates/candidate-install.md`.
+- `scripts/runtime-assets.mjs`, `release-version.mjs`, `install-guide.mjs`, `docs/install.md`, `docs/templates/legacy-npm-install.md`, `docs/templates/release-record.md` and `docs/templates/candidate-install.md`.
 
-`docs/install.md` is the single maintained source for source setup, the main Skill installation, npm setup and onboarding. `scripts/install-guide.mjs` omits its marked source-only blocks and fills the released npm identity before publication. The root `install.md` and former onboarding URL only forward to this guide; they contain no separate installation rules.
+`docs/install.md` is the canonical Cloud MCP connection and onboarding guide (root `install.md` forwards to it). `docs/templates/legacy-npm-install.md` is the archived legacy local source and npm release template: `scripts/install-guide.mjs` omits its marked source-only blocks and fills the released npm identity before publication, and `scripts/install-onboarding.mjs` reads its local onboarding contract for local/DSH installers.
 
 Protect changes to the trusted control files and `main`; keep default-branch registration aligned. There is no `motion-test-publish` GitHub Environment prerequisite or Review deployments step in this version.
 

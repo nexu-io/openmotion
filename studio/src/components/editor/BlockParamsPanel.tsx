@@ -1,5 +1,6 @@
 import { IconButton } from "open-design-ui/icon-button";
 import { OverflowText } from "../ui/OverflowText";
+import { previewBlockColor } from "./blockColorDraft";
 import { ColorField } from "./propertyPanelColor";
 import { FieldInput, NativeSelect } from "../ui/FormField";
 import { RemixIcon } from "../../icons/RemixIcons";
@@ -10,6 +11,7 @@ import type { BlockParam } from "@hyperframes/core/registry";
 import { useFileManagerContextOptional } from "../../contexts/FileManagerContext";
 import { useStudioPlaybackContext } from "../../contexts/StudioContext";
 import { trackBlockParamCommit } from "../../telemetry/events";
+import { StudioFileConflictError } from "../../utils/studioSaveDiagnostics";
 import { createTypingSave } from "../../utils/typingSave";
 import { serializeStudioFileMutation } from "../../utils/studioFileMutationCoordinator";
 const loadParameterEditor = () => import("../../../../packages/edit-core/composition-variable");
@@ -19,6 +21,7 @@ interface BlockParamsPanelProps {
   blockTitle: string;
   params: BlockParam[];
   compositionPath: string;
+  previewIframeRef?: React.RefObject<HTMLIFrameElement | null>;
   onClose: () => void;
 }
 
@@ -29,6 +32,7 @@ export const BlockParamsPanel = memo(function BlockParamsPanel({
   blockTitle,
   params,
   compositionPath,
+  previewIframeRef,
   onClose,
 }: BlockParamsPanelProps) {
   const { t } = useI18n();
@@ -49,14 +53,20 @@ export const BlockParamsPanel = memo(function BlockParamsPanel({
   const [commitState, setCommitState] = useState<CommitState>({ tone: "idle" });
   const queues = useRef(new Map<string, ReturnType<typeof createTypingSave>>());
 
+  const previewable = useRef(new Set<string>());
+  const needsRefresh = useRef(false);
+  const drafts = useRef(new Map<string, { submitted: boolean; settle?: (saved: boolean) => void }>());
   const edited = useRef(new Set<string>());
   const read = fileManager?.readProjectFile;
   useEffect(() => {
     if (!read) return;
     let current = true;
     void Promise.all([read(compositionPath), loadParameterEditor()]).then(([content, editor]) => {
-      const declared = editor.compositionVariableValues(content, params.map(param => param.key));
-      if (!current || !declared) return;
+      if (!current) return;
+      const { values: declared, cssKeys } = editor.readCompositionParameters(content, params.map(param => param.key));
+      // Canvas and GPU textures may capture colors once during startup. Rebuild these after saving.
+      previewable.current = /<canvas\b/i.test(content) ? new Set() :
+        new Set(params.filter(param => param.type === "color" && cssKeys.has(param.key)).map(param => param.key));
       const saved: Record<string, string> = {};
       for (const param of params) {
         const id = editor.declaredParameterId(declared.keys(), param.key);
@@ -69,10 +79,10 @@ export const BlockParamsPanel = memo(function BlockParamsPanel({
   }, [compositionPath, params, read]);
 
   const commitParamNow = useCallback(
-    async (key: string, nextValue: string) => {
-      if (!fileManager) return;
+    async (key: string, nextValue: string, isCurrent: () => boolean) => {
+      if (!fileManager) return false;
       const previous = appliedRef.current[key];
-      if (previous === undefined) return;
+      if (previous === undefined) return false;
       setCommitState({ tone: "saving" });
       try {
         const [content, editor] = await Promise.all([fileManager.readProjectFile(compositionPath), loadParameterEditor()]);
@@ -83,24 +93,39 @@ export const BlockParamsPanel = memo(function BlockParamsPanel({
           });
         }
         appliedRef.current[key] = nextValue;
-        setCommitState({ tone: "saved" });
+        if (isCurrent()) setCommitState({ tone: "saved" });
         trackBlockParamCommit({ tone: "saved", blockName, key });
-        setRefreshKey((k) => k + 1);
+        return true;
       } catch (error) {
-        setValues(drafts => drafts[key] === nextValue ? { ...drafts, [key]: previous } : drafts);
-        setCommitState({ tone: "error", message: error instanceof Error ? error.message : "Couldn't save the block file. Retry?" });
+        let confirmed = previous;
+        if (error instanceof StudioFileConflictError && error.filePath === compositionPath) {
+          try {
+            const [source, editor] = await Promise.all([
+              error.currentContent ?? fileManager.readProjectFile(compositionPath), loadParameterEditor(),
+            ]);
+            const values = editor.compositionVariableValues(source, [key]);
+            const id = values && editor.declaredParameterId(values.keys(), key);
+            if (values && id) confirmed = values.get(id) ?? previous;
+          } catch { /* Keep the last known value if the current file is unavailable. */ }
+          appliedRef.current[key] = confirmed;
+        }
+        if (isCurrent()) {
+          setValues(drafts => ({ ...drafts, [key]: confirmed }));
+          setCommitState({ tone: "error", message: error instanceof Error ? error.message : "Couldn't save the block file. Retry?" });
+        }
         trackBlockParamCommit({ tone: "error", blockName, key });
+        return false;
       }
     },
-    [fileManager, compositionPath, setRefreshKey, blockName],
+    [fileManager, compositionPath, blockName],
   );
 
   // Commits join the file's queue: two read-modify-writes of one file must not interleave.
   const commitParam = useCallback(
-    (key: string, nextValue: string) =>
+    (key: string, nextValue: string, isCurrent: () => boolean) =>
       fileManager
         ? serializeStudioFileMutation(fileManager.writeProjectFile, compositionPath, () =>
-            commitParamNow(key, nextValue),
+            commitParamNow(key, nextValue, isCurrent),
           )
         : Promise.resolve(),
     [commitParamNow, compositionPath, fileManager],
@@ -112,7 +137,23 @@ export const BlockParamsPanel = memo(function BlockParamsPanel({
     if (composing) return;
     let queue = queues.current.get(key);
     if (!queue) queues.current.set(key, queue = createTypingSave(300));
-    queue.schedule(() => commitParam(key, value));
+    const prior = drafts.current.get(key);
+    const draft = { submitted: false, settle: previewable.current.has(key)
+      ? previewBlockColor(previewIframeRef?.current, compositionPath, key, value) : undefined };
+    drafts.current.set(key, draft);
+    if (prior && !prior.submitted) prior.settle?.(false);
+    queue.schedule(async () => {
+      draft.submitted = true;
+      const saved = await commitParam(key, value, () => drafts.current.get(key) === draft);
+      draft.settle?.(saved === true);
+      if (saved) needsRefresh.current = true;
+      if (drafts.current.get(key) !== draft) return;
+      drafts.current.delete(key);
+      if (needsRefresh.current && !drafts.current.size) {
+        needsRefresh.current = false;
+        setRefreshKey((k) => k + 1);
+      }
+    });
   };
 
   useEffect(() => () => {

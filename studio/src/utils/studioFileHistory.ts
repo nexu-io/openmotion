@@ -1,11 +1,11 @@
-import { readVersionedSource } from "./readVersionedSource";
-import { confirmedSource, observeSourceRead, type ConfirmedSource } from "./confirmedTextSources";
+import { buildProjectApiPath } from "./projectRouting";
+import { readCurrentProjectSource } from "./readCurrentProjectSource";
+import { confirmedSource, type ConfirmedSource } from "./confirmedTextSources";
 import { tryStudioTextEdit } from "./studioTextEdits";
 import type { RebasedFileEdit } from "./rebasedFileEdit";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import { getCachedCloudDisklessMode } from "./cloudRuntime";
 import type { HistoryTarget } from "@hyperframes/studio-server";
-import { buildProjectApiPath } from "./projectRouting";
 import type { MutableRefObject } from "react";
 import { serializeStudioFileMutations } from "./studioFileMutationCoordinator";
 import { createStudioSaveHttpError } from "./studioSaveDiagnostics";
@@ -69,7 +69,8 @@ interface SaveProjectFilesWithHistoryInput {
   writeFile: ProjectFileWriter;
   /** Observe successful file writes, including a compensating write after a history failure. */
   onFileWritten?: (path: string, submitted: string) => void;
-  onSaved?: (files: RecordEditInput["files"], previous?: ConfirmedSource) => Promise<void>;
+  projectPending?: (files: RecordEditInput["files"]) => (() => void) | undefined;
+  onSaved?: (files: RecordEditInput["files"], previous?: ConfirmedSource, bases?: ReadonlyMap<string, ConfirmedSource>) => Promise<void>;
   recordEdit: (entry: RecordEditInput) => Promise<void>;
   /**
    * What a path holds ON DISK right now, when that is not the same as the
@@ -89,18 +90,13 @@ interface SaveProjectFilesWithHistoryInput {
 }
 
 export async function readProjectFileContent(pid: string, path: string): Promise<string> {
-  const response = await readVersionedSource(
-    buildProjectApiPath(pid, `/files/${encodeURIComponent(path)}`),
-    confirmedSource(pid, path),
-  );
+  const { response, data } = await readCurrentProjectSource(pid, path, buildProjectApiPath(pid, `/files/${encodeURIComponent(path)}`));
   if (!response.ok) {
     throw await createStudioSaveHttpError(response, `Failed to read ${path}`);
   }
-  const data = (await response.json()) as { content?: string };
-  if (typeof data.content !== "string") {
+  if (typeof data?.content !== "string") {
     throw new Error(`Missing file contents for ${path}`);
   }
-  observeSourceRead(pid, path, response, data);
   return data.content;
 }
 
@@ -152,6 +148,7 @@ export async function writeProjectFilesWithHistoryInQueue({
   readFile,
   writeFile,
   onFileWritten,
+  projectPending,
   onSaved,
   recordEdit,
   diskContent,
@@ -196,20 +193,27 @@ export async function writeProjectFilesWithHistoryInQueue({
     }
   }
 
+  let rollbackProjection = projectPending?.(snapshots);
   const writtenPaths: string[] = [];
   try {
     for (const path of changedPaths) {
       const expected = diskContent?.[path] ?? snapshots[path].before;
       const command = commandForWrite?.(path);
-      if (history) await writeFile(path, snapshots[path].after, expected, command, history);
-      else if (command) await writeFile(path, snapshots[path].after, expected, command);
-      else await writeFile(path, snapshots[path].after, expected);
+      let divergent: void | RebasedFileEdit;
+      if (history) divergent = await writeFile(path, snapshots[path].after, expected, command, history);
+      else if (command) divergent = await writeFile(path, snapshots[path].after, expected, command);
+      else divergent = await writeFile(path, snapshots[path].after, expected);
+      if (divergent) {
+        rollbackProjection?.();
+        rollbackProjection = undefined;
+      }
       writtenPaths.push(path);
       onFileWritten?.(path, snapshots[path].after);
     }
 
     await recordHistory();
   } catch (error) {
+    rollbackProjection?.();
     try {
       for (const path of writtenPaths.reverse()) {
         await writeFile(path, snapshots[path].before, snapshots[path].after);

@@ -1,5 +1,12 @@
+import { formatFileVersion } from '../studio/etag.ts';
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
 import { createCloudTracking } from '../cloud-tracking.ts';
+import {
+  CatalogFilmstripAutoBakeDispatcher,
+  InMemoryCatalogFilmstripBakeState,
+  RedisCatalogFilmstripBakeState,
+  type CatalogFilmstripBakeStatePort,
+} from '../services/catalog-filmstrip-autobake.ts';
 import { PrismMotionCatalog } from '../services/prism-motion-catalog.ts';
 import { commitCaptionCommand } from '../mcp/caption-mutations.ts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -27,7 +34,7 @@ import {
   injectRuntimeConfigIntoHtml,
 } from '../../packages/observability/config.ts';
 import { commitProjectEdit } from '../services/project-edit.ts';
-import { compositionCanvasSource, type CanvasFit, type CanvasRatio } from '../../shared/composition-canvas.ts';
+import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
 import {
   agentGuide,
   buildCloudIntegrationInfo,
@@ -39,6 +46,7 @@ import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
+import { editorProjectIdFromPath, isEditorSpaPath, isNotFoundSpaPath } from '../../shared/spa-routes.ts';
 import {
   providerSettingsPreview,
   sessionPath,
@@ -74,7 +82,7 @@ import {
 import { PREVIEW_BRIDGE_ASSET_RE, PREVIEW_BRIDGE_PATH } from '../studio/engine/preview-bridge.ts';
 import { BROWSER_EXPORT_VENDOR_PATH } from '../studio/routes/preview.ts';
 import { isAssetLease, renewAssetLease, resolveAssetWorkspace } from '../auth/preview-asset-lease.ts';
-import { hasMinRole, hasScope, type AuthContext } from '../contracts/auth.ts';
+import { hasMinRole, hasScope, requireProgrammaticEdit, type AuthContext } from '../contracts/auth.ts';
 import { CloudError, featureDeferredP2, isCloudError } from '../contracts/errors.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import { createDbHandle, type Database, type DbHandle } from '../db/client.ts';
@@ -111,6 +119,7 @@ import { createAssetRoutes } from '../routes/assets.ts';
 import { createCatalogRoutes } from '../routes/catalog.ts';
 import { createExportRoutes } from '../routes/exports.ts';
 import { createModelRoutes, type MediaJobPort } from '../routes/models.ts';
+import { createOnboardingRoutes } from '../routes/onboarding.ts';
 import { createProjectsRouter } from '../routes/projects.ts';
 import { createSessionsRouter } from '../routes/sessions.ts';
 import { AssetLibraryService } from '../services/asset-library-service.ts';
@@ -222,6 +231,7 @@ const STATIC_MIME_TYPES: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
+  '.cjs': 'application/octet-stream',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
@@ -260,6 +270,7 @@ export interface CreateApiAppDeps {
   readonly queues: ApiQueuesPort;
   readonly eventBus: ApiEventBusPort;
   readonly hotTextCache?: HotTextCachePort;
+  readonly catalogFilmstripBakeState?: CatalogFilmstripBakeStatePort;
   readonly rateLimiter?: RateLimiter;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
@@ -472,10 +483,21 @@ function createCloudMediaJobsPort(deps: {
             : 'text-to-image';
     const modelId = typeof input.modelId === 'string' ? input.modelId : 'unknown';
     const fullModelId = modelId.startsWith('opendesign:') ? modelId : `opendesign:${modelId}`;
+    const resultLibraryAssets = Array.isArray(result.libraryAssets)
+      ? result.libraryAssets.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') return [];
+          const item = entry as Record<string, unknown>;
+          return typeof item.assetId === 'string' && typeof item.versionId === 'string'
+            ? [{ assetId: item.assetId, versionId: item.versionId }]
+            : [];
+        })
+      : [];
     const libraryAssets =
-      typeof result.assetId === 'string' && typeof result.versionId === 'string'
-        ? [{ assetId: result.assetId, versionId: result.versionId }]
-        : [];
+      resultLibraryAssets.length > 0
+        ? resultLibraryAssets
+        : typeof result.assetId === 'string' && typeof result.versionId === 'string'
+          ? [{ assetId: result.assetId, versionId: result.versionId }]
+          : [];
     return {
       id: row.id,
       jobId: row.id,
@@ -1080,7 +1102,17 @@ function createMcpDomainPorts(deps: {
     handleMediaAction(auth: AuthContext, args: Record<string, unknown>): Promise<Record<string, unknown>>;
   };
 }): McpDomainPorts {
+  let editCli: Promise<{ url: string; sha256: string } | undefined> | undefined;
+  function localEditCli() {
+    if (!deps.files.textPatchWrites) return;
+    return editCli ??= readFile(path.join(deps.runtimeRoot, 'studio/build/edit-core-sha256'), 'utf8').then(sha256 => {
+      if (/^[a-f0-9]{64}$/.test(sha256)) return {
+        sha256, url: new URL('/editor-assets/openmotion-edit-' + sha256 + '.cjs', deps.config.APP_PUBLIC_ORIGIN).href,
+      };
+    }).catch(() => undefined);
+  }
   let cachedCaptionOps: Awaited<ReturnType<typeof loadCaptionSourceOperations>> | null = null;
+  let canvasOps: ReturnType<typeof import('../../shared/composition-canvas-source.ts').loadCanvasSourceOperations> | undefined;
   const getCaptionOps = async () => {
     if (!cachedCaptionOps) {
       cachedCaptionOps = await loadCaptionSourceOperations(deps.runtimeRoot);
@@ -1209,10 +1241,12 @@ function createMcpDomainPorts(deps: {
         const assetNames = await deps.assetNames.readAssetNames(auth, projectId, { paths: allFiles.map(f => f.path) });
         return {
           ...projectState,
+          localEditCli: await localEditCli(),
           files: allFiles.map((f) => ({
             path: f.path,
             size: f.sizeBytes,
             hash: f.sha256,
+            fileVersion: formatFileVersion(f.blobScope, f.sha256),
             mimeType: f.mimeType,
             isText: f.isText,
           })),
@@ -1277,14 +1311,20 @@ function createMcpDomainPorts(deps: {
       },
 
       async editProject(auth, args) {
+        if (args.canvas !== undefined || args.edit !== undefined) requireProgrammaticEdit(auth);
         const projectId = String(args.projectId ?? '');
         const requestId = String(args.requestId ?? '');
         const expectedRevision = String(args.expectedRevision ?? '');
         const expectedVersionId = String(args.expectedVersionId ?? '');
         const ops: ProjectFileOp[] = [];
 
-        if (args.edit !== undefined && ['files', 'canvas', 'assetNames', 'requirements', 'namingLanguage'].some(key => args[key] !== undefined)) {
-          throw new CloudError('INVALID_ARGUMENT', 'Submit an editing command separately from file and metadata changes.', { status: 400 });
+        const prepared = args.textEdits !== undefined;
+        if ((prepared || args.edit !== undefined) && ((prepared && args.edit !== undefined) ||
+            ['files', 'canvas', 'assetNames', 'requirements', 'namingLanguage'].some(key => args[key] !== undefined))) {
+          throw new CloudError('INVALID_ARGUMENT', 'Submit one editing command or one prepared edit separately from file and metadata changes.', { status: 400 });
+        }
+        if (prepared && !deps.files.textPatchWrites) {
+          throw new CloudError('INVALID_ARGUMENT', 'This deployment accepts semantic commands in edit.', { status: 400, applied: false });
         }
 
         if (Array.isArray(args.files)) {
@@ -1310,21 +1350,9 @@ function createMcpDomainPorts(deps: {
               applied: false,
             });
           }
-          const captionOps = await getCaptionOps();
-          const reframed = compositionCanvasSource(
-            existing.content,
-            {
-              parseHTML: captionOps.parseHTML,
-              rewriteStyles: (source, aliases) => {
-                let next = source;
-                for (const [from, to] of aliases) {
-                  next = next.replaceAll(`[${from}]`, `[${to}]`).replaceAll(`[${from}=`, `[${to}=`);
-                }
-                return next;
-              },
-            },
-            { ratio: canvas.ratio, fit: canvas.fit },
-          );
+          const { compositionCanvasSource } = await import('../../packages/edit-core/composition-canvas.ts');
+          const { loadCanvasSourceOperations } = await import('../../shared/composition-canvas-source.ts');
+          const reframed = compositionCanvasSource(existing.content, await (canvasOps ??= loadCanvasSourceOperations(deps.runtimeRoot)), canvas);
           ops.push({
             op: 'upsert_text',
             path: canvas.compositionPath,
@@ -1334,7 +1362,10 @@ function createMcpDomainPorts(deps: {
         }
 
         let committed = null;
-        if (args.edit !== undefined) {
+        if (prepared) {
+          committed = await deps.files.commitTextEdits(auth, projectId, args.textEdits,
+            { source: 'agent', requestId, observedProject: { expectedRevision, expectedVersionId } });
+        } else if (args.edit !== undefined) {
           committed = await commitProjectEdit(deps.files, auth, projectId, args.edit, requestId,
             { source: 'agent', expectedRevision, expectedVersionId });
         } else if (ops.length > 0 || args.requirements !== undefined || args.namingLanguage !== undefined) {
@@ -1400,7 +1431,7 @@ function createMcpDomainPorts(deps: {
 
         const latest = await deps.workspace.getProject(auth, projectId);
         // A retried command points to the committed version even after subsequent edits.
-        const project = args.edit && committed ? { ...latest, revision: committed.revision,
+        const project = (prepared || args.edit) && committed ? { ...latest, revision: committed.revision,
           currentVersionId: committed.versionId, currentVersionNumber: committed.versionNumber } : latest;
         return {
           projectId: project.id,
@@ -1650,6 +1681,7 @@ function createMcpDomainPorts(deps: {
           }
           const captionOps = await getCaptionOps();
           if (command === 'caption_add' || command === 'caption_update' || command === 'caption_toggle') {
+            requireProgrammaticEdit(auth);
             return commitCaptionCommand(deps.files, auth, captionOps, projectId, compositionPath, command, transcript);
           }
           const current = await deps.files.readTextFile(auth, projectId, compositionPath);
@@ -1855,9 +1887,23 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       opendesign: { cache: authCache },
     });
 
+  const catalogFilmstripAutoBake =
+    config.PRISM_CONTENT_ENV && config.CATALOG_FILMSTRIP_AUTO_BAKE
+      ? new CatalogFilmstripAutoBakeDispatcher({
+          queues,
+          state: deps.catalogFilmstripBakeState ?? new InMemoryCatalogFilmstripBakeState(),
+          logger,
+        })
+      : undefined;
+
   const catalog = new CatalogService({
     prismCatalog: config.PRISM_CONTENT_ENV ? new PrismMotionCatalog(config.PRISM_CONTENT_ENV, {
-      publicOrigin: config.PRISM_PUBLIC_ORIGIN, onRefreshError: error => logger.warn('Prism catalog refresh failed', { error }),
+      publicOrigin: config.PRISM_PUBLIC_ORIGIN,
+      onRefreshError: error => logger.warn('Prism catalog refresh failed', { error }),
+      onPublicationChanged: catalogFilmstripAutoBake
+        ? (templates, catalogVersion) =>
+            catalogFilmstripAutoBake.scheduleForPublication(templates, catalogVersion)
+        : undefined,
     }) : undefined,
     db,
     storage,
@@ -2357,6 +2403,9 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.get('/web/final-video-component.js', handleStaticPath);
   app.get('/mcp-ui/template-recommendations/*', handleStaticPath);
 
+  // Public cloud install guide (`/install.md`) and stateless onboarding endpoints (`/api/onboarding/*`).
+  app.route('/', createOnboardingRoutes({ config, runtimeRoot }));
+
   // -------------------------------------------------------------------------
   // 5. Template Catalog Routes (Mounted at BOTH `/api` and `/motion-api`)
   //    Read-only catalog discovery is public; clone/open require authenticated workspace.
@@ -2604,7 +2653,10 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.route('/', createArchivesRouter({ archives }));
   app.route('/motion-api/assets', createAssetRoutes({ assetService: assets }));
   app.route('/motion-api', createExportRoutes({ exportService: exportsService }));
-  app.route('/motion-api/models', createModelRoutes({ gateway, authStore, mediaJobs }));
+  app.route(
+    '/motion-api/models',
+    createModelRoutes({ gateway, authStore, mediaJobs, consoleUrl: config.OPENDESIGN_CONSOLE_URL }),
+  );
   app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway, cache: authCache }));
 
   // -------------------------------------------------------------------------
@@ -2850,7 +2902,8 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     pathname === '/__hyperframes_config';
 
   app.get('*', async (c) => {
-    const pathname = new URL(c.req.url).pathname;
+    const requestUrl = new URL(c.req.url);
+    const pathname = requestUrl.pathname;
     if (isReservedApiPrefix(pathname)) {
       return c.json({ code: 'NOT_FOUND', error: `Route not found: ${pathname}` }, 404);
     }
@@ -2874,7 +2927,11 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       return c.notFound();
     }
 
+    const notFoundRoute = isNotFoundSpaPath(pathname, requestUrl.search);
+
     // SPA index.html fallback for client-side routes, with runtime observability config injected when enabled.
+    // Unknown routes still serve the Studio shell so the browser renders the dedicated 404 page,
+    // while returning an authentic HTTP 404 status code.
     try {
       const rawHtml = await readFile(path.join(studioBuildDir, 'index.html'), 'utf8');
       const renderedHtml = injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig);
@@ -2887,14 +2944,22 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const previewOriginMeta = previewHostIsolationEnabled && previewOriginUrl
         ? `<meta name="openmotion-preview-origin" content="${previewOriginUrl.origin}">`
         : '';
+      // Only a direct, explicit project open needs the editor inventory and root source.
+      // The normal authenticated GETs consume these navigation-scoped browser preloads.
+      const projectId = editorProjectIdFromPath(pathname) ?? requestUrl.searchParams.get('project');
+      const sessionId = requestUrl.searchParams.get('session');
+      const projectHints = isEditorSpaPath(pathname, requestUrl.search) && isUuid(projectId)
+        && (!sessionId || isUuid(sessionId)) && requestUrl.searchParams.get('templates') !== '1'
+        ? `<link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}?view=editor" fetchpriority="high"><link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}/files/index.html">`
+        : '';
       const studioHtml = renderedHtml.replace('</head>',
-        `${preconnectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
+        `${preconnectHints}${projectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
       const bytes = Buffer.from(studioHtml, 'utf8');
       const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled
         ? { 'Origin-Agent-Cluster': '?1' }
         : {};
-      if (c.req.header('if-none-match')?.trim() === etag) {
+      if (!notFoundRoute && c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {
           status: 304,
           headers: {
@@ -2906,18 +2971,24 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         });
       }
       return new Response(headOnly ? null : bytes, {
-        status: 200,
+        status: notFoundRoute ? 404 : 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Length': String(bytes.byteLength),
-          ETag: etag,
-          'Cache-Control': 'no-cache',
+          ...(notFoundRoute ? { 'Cache-Control': 'no-store' } : { ETag: etag, 'Cache-Control': 'no-cache' }),
           'X-Content-Type-Options': 'nosniff',
           ...originAgentClusterHeaders,
         },
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    if (notFoundRoute) {
+      return new Response('Page not found.', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
     }
 
     return new Response('OpenMotion Studio has not been built yet. Run npm run build:studio.', {
@@ -2993,6 +3064,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
   shutdown.register('bullmq-queues', () => queues.close());
 
   const hotTextCache = new HotTextCache(redisCache, config.REDIS_CACHE_TTL_SEC);
+  const catalogFilmstripBakeState = new RedisCatalogFilmstripBakeState(redisCmd);
   const rateLimiter = new RateLimiter(redisCmd);
   const authStore = createPgAuthStore(dbHandle.db);
   const authCache = createRedisAuthCache(redisCmd);
@@ -3005,6 +3077,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     queues,
     eventBus,
     hotTextCache,
+    catalogFilmstripBakeState,
     rateLimiter,
     authStore,
     authCache,

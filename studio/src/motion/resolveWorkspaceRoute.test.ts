@@ -27,7 +27,7 @@ afterEach(() => {
 it.each([null, sessionId])('opens an explicit cloud project in one scoped request (session %s)', async session => {
   fetcher.mockResolvedValue(Response.json(opened));
   await expect(resolveWorkspaceRoute(projectId, session, false, signal)).resolves.toEqual({ sessionId, artifact });
-  expect(fetcher).toHaveBeenCalledExactlyOnceWith(path, { method: 'POST', signal });
+  expect(fetcher).toHaveBeenCalledExactlyOnceWith(path, { method: 'POST', signal, priority: 'high' });
 });
 
 it.each([401, 403, 404, 409])('propagates scoped open HTTP %s without retrying through other endpoints', async status => {

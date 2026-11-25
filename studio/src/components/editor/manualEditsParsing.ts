@@ -51,6 +51,29 @@ export function changedFileVersion(payload: unknown, path: string): string | und
   return typeof version === "string" ? version : undefined;
 }
 
+export function changedFileVersions(
+  payload: unknown,
+): Readonly<Record<string, string | null>> | null {
+  const versions = asPayloadRecord(asPayloadRecord(payload)?.fileVersions);
+  if (!versions) return null;
+  const out: Record<string, string | null> = {};
+  let hasAny = false;
+  for (const [rawPath, rawVersion] of Object.entries(versions)) {
+    const normalized = normalizeStudioFileChangePath(rawPath);
+    if (!normalized) continue;
+    if (typeof rawVersion === "string" || rawVersion === null) {
+      out[normalized] = rawVersion;
+      hasAny = true;
+    }
+  }
+  return hasAny ? out : null;
+}
+
+export function readFileChangeIndexHeadHash(payload: unknown): string | undefined {
+  const hash = asPayloadRecord(payload)?.indexHeadHash;
+  return typeof hash === "string" && /^[a-f0-9]{12}$/.test(hash) ? hash : undefined;
+}
+
 export function readFileTreeChanged(payload: unknown): boolean {
   return asPayloadRecord(payload)?.fileTreeChanged !== false;
 }
@@ -73,9 +96,25 @@ export function mergeFileChangePayloads(waiting: unknown, incoming: unknown): un
   const earlier = changedFilePaths(waiting);
   const later = changedFilePaths(incoming);
   const paths = earlier && later ? [...new Set([...earlier, ...later])] : undefined;
+  const earlierVersions = changedFileVersions(waiting);
+  const laterVersions = changedFileVersions(incoming);
+  const fileVersions =
+    earlierVersions || laterVersions
+      ? { ...(earlierVersions ?? {}), ...(laterVersions ?? {}) }
+      : undefined;
+  const indexHeadHash =
+    readFileChangeIndexHeadHash(incoming) ??
+    (laterVersions && 'index.html' in laterVersions ? undefined : readFileChangeIndexHeadHash(waiting));
   const fileTreeChanged = readFileTreeChanged(waiting) || readFileTreeChanged(incoming);
   if (readFileChangeAffectsPreview(waiting) && !readFileChangeAffectsPreview(incoming)) {
-    return { ...asPayloadRecord(waiting), path: readStudioFileChangePath(waiting), paths, fileTreeChanged };
+    return {
+      ...asPayloadRecord(waiting),
+      path: readStudioFileChangePath(waiting),
+      paths,
+      ...(fileVersions ? { fileVersions } : {}),
+      indexHeadHash,
+      fileTreeChanged,
+    };
   }
   const before = readFileChangeAffectedCompositions(waiting);
   const after = readFileChangeAffectedCompositions(incoming);
@@ -84,13 +123,22 @@ export function mergeFileChangePayloads(waiting: unknown, incoming: unknown): un
   const affectsPreview =
     readFileChangeAffectsPreview(waiting) || readFileChangeAffectsPreview(incoming);
   if (paths?.length === 1) {
-    return { ...next, affectsPreview, fileTreeChanged, affectedCompositions: merged };
+    return {
+      ...next,
+      ...(fileVersions ? { fileVersions } : {}),
+      indexHeadHash,
+      affectsPreview,
+      fileTreeChanged,
+      affectedCompositions: merged,
+    };
   }
   // Changes to two files are owed: only a project-wide reload ("." path) covers both.
   return {
     path: ".",
     paths,
     projectId: next?.projectId,
+    ...(fileVersions ? { fileVersions } : {}),
+    indexHeadHash,
     fileTreeChanged,
     affectsPreview,
     affectedCompositions: merged,

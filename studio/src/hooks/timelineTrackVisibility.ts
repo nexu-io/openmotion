@@ -1,3 +1,4 @@
+import { projectTimelineControl } from "./timelineControlPreview";
 import { refreshCommittedTimeline } from "./timelineTimingSync";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { saveCloudTimeline } from "../utils/cloudTimelineEdit";
@@ -15,7 +16,6 @@ import { isAudioOnlyTrack } from "../utils/timelineInspector";
 import { hiddenToggleVerb } from "../player/components/hiddenToggle";
 import type { PatchOperation } from "../utils/sourcePatcher";
 import {
-  findTimelineElementInIframe,
   operationChanges,
   patchTimelineChangesInSource,
   readFileContent,
@@ -93,25 +93,6 @@ function getTimelineElementTargetPath(
   return element.sourceFile || activeCompPath || "index.html";
 }
 
-function patchLiveHiddenState(
-  iframe: HTMLIFrameElement | null,
-  elements: readonly TimelineElement[],
-  hidden: boolean,
-  activeCompPath: string | null,
-): void {
-  if (!iframe?.contentDocument) return;
-  for (const element of elements) {
-    const target = findTimelineElementInIframe(iframe, element, activeCompPath);
-    if (!target) continue;
-    if (hidden) {
-      target.setAttribute("data-hidden", "");
-    } else {
-      target.removeAttribute("data-hidden");
-    }
-  }
-  reseekPreviewRuntime(iframe);
-}
-
 export function reseekPreviewRuntime(iframe: HTMLIFrameElement | null): void {
   const store = usePlayerStore.getState();
   if (applySoftReloadFinalization(iframe, store.currentTime)) return;
@@ -150,7 +131,8 @@ async function setElementsHidden({
 }: SetElementsHiddenInput): Promise<string[]> {
   if (elements.length === 0) return [];
 
-  patchLiveHiddenState(previewIframe, elements, hidden, activeCompPath);
+  const settle = projectTimelineControl(projectId, activeCompPath, previewIframe, "data-hidden",
+    elements.map(element => ({ element, value: hidden ? "" : null })));
 
   const hiddenOperation: PatchOperation = {
     type: "attribute",
@@ -186,16 +168,11 @@ async function setElementsHidden({
       writeFile: writeProjectFile,
       recordEdit,
     });
-    for (const element of elements) {
-      usePlayerStore.getState().updateElement(element.key ?? element.id, { hidden });
-    }
+    settle(true);
     if (!onSaved && changedPaths.length && previewIframe && !previewIframe.contentDocument) reloadPreview?.();
     return changedPaths;
   } catch (error) {
-    // The optimistic live patch already ran; a patch-target/save failure here would
-    // otherwise leave the preview showing the wrong visibility until a reload. Revert
-    // the live DOM to the prior state so what's on screen matches what persisted.
-    patchLiveHiddenState(previewIframe, elements, !hidden, activeCompPath);
+    settle(false);
     throw error;
   }
 }

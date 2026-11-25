@@ -36,7 +36,7 @@ export const PreviewSeekBar = memo(function PreviewSeekBar({
   }, [duration]);
 
   return (
-    <div className="flex h-3 items-center px-3">
+    <div className="mt-1 flex h-7 items-center px-3">
       <input
         ref={inputRef}
         type="range"

@@ -15,6 +15,7 @@ import {
   planShadowReload,
   planShadowPromotion,
   planShadowDiscard,
+  type AdapterRestoreContext,
   type PreviewIframeSlot,
   type UseTimelineSyncCallbacksParams,
 } from "./useTimelineSyncCallbacks";
@@ -22,7 +23,7 @@ import type { IframeWindow, PlaybackAdapter } from "../lib/playbackTypes";
 import { setPreviewReloading } from "../previewReloading";
 import { announcePreviewPromoted, previewSourceRevision } from "../sceneSwap";
 import { afterStudioPendingEdits, isStudioEditSaving } from "../../utils/studioPendingEdits";
-import { usePlayerStore } from "../store/playerStore";
+import { liveTime as playerLiveTime, usePlayerStore } from "../store/playerStore";
 import { READY_TIMEOUT_CAUSE, useShadowReloadRetry } from "./useShadowReloadRetry";
 
 // One wait budget for a shadow: the player's 8s asset cap plus its 0.42s loader fade
@@ -107,6 +108,13 @@ export function useShadowPreviewReload({
   const shadowGenRef = useRef(0);
   const pendingCommitRef = useRef<{ gen: number; commit: () => void } | null>(null);
   const visuallyReadyGenRef = useRef<number | null>(null);
+  const shadowSoughtRef = useRef<{
+    gen: number;
+    time: number;
+    adapter: PlaybackAdapter;
+    catchUpAttempted: boolean;
+  } | null>(null);
+  const catchUpGenRef = useRef<number | null>(null);
   const onPromotedRef = useRef(onPromoted);
   onPromotedRef.current = onPromoted;
   const onRetiredIframeRef = useRef(onRetiredIframe);
@@ -136,6 +144,8 @@ export function useShadowPreviewReload({
     stopHoldRef.current();
     pendingCommitRef.current = null;
     visuallyReadyGenRef.current = null;
+    shadowSoughtRef.current = null;
+    catchUpGenRef.current = null;
   }, []);
 
   const failShadow = useCallback(
@@ -220,16 +230,51 @@ export function useShadowPreviewReload({
   }, []);
 
   const promoteWhenReady = useCallback(
+    // fallow-ignore-next-line complexity
     (gen: number) => {
       const promotable = shadowReadyToPromote(gen);
-      if (!promotable || heldOrStale(gen)) return;
-      logReload("perf-shadow-promote", {gen});
-      const { shadow, pending } = promotable;
-      stopPendingShadow();
+      if (!promotable || heldOrStale(gen) || catchUpGenRef.current === gen) return;
       // The live frame kept playing, stopped at the end or was seeked while the shadow loaded.
       const live = getAdapter();
       const liveTime = live?.getTime();
       const playing = usePlayerStore.getState().isPlaying;
+      const sought = shadowSoughtRef.current?.gen === gen ? shadowSoughtRef.current : null;
+      const shadowDuration = sought?.adapter.getDuration() ?? 0;
+      const targetLiveTime =
+        liveTime != null
+          ? shadowDuration > 0
+            ? Math.min(Math.max(0, liveTime), shadowDuration)
+            : Math.max(0, liveTime)
+          : null;
+      const bridgeSeekAndWait = sought?.adapter.seekAndWaitForPaint;
+      if (
+        sought &&
+        targetLiveTime != null &&
+        typeof bridgeSeekAndWait === "function" &&
+        Math.abs(targetLiveTime - sought.time) > 0.01 &&
+        (!playing || !sought.catchUpAttempted)
+      ) {
+        catchUpGenRef.current = gen;
+        sought.catchUpAttempted = true;
+        void bridgeSeekAndWait(targetLiveTime).then(() => {
+          if (gen !== shadowGenRef.current) return;
+          catchUpGenRef.current = null;
+          if (shadowSoughtRef.current?.gen === gen) {
+            shadowSoughtRef.current.time = targetLiveTime;
+          }
+          promoteWhenReadyRef.current(gen);
+        });
+        return;
+      }
+      logReload("perf-shadow-promote", { gen });
+      const { shadow, pending } = promotable;
+      const alreadyPaintedAtTarget =
+        !playing &&
+        sought != null &&
+        targetLiveTime != null &&
+        typeof bridgeSeekAndWait === "function" &&
+        Math.abs(targetLiveTime - sought.time) <= 0.001;
+      stopPendingShadow();
       live?.pause();
       // The store takes the new document's timeline only now that it is the one on screen, and reads it there.
       const retired = iframeRef.current;
@@ -239,7 +284,12 @@ export function useShadowPreviewReload({
       attachIframeShortcutListeners();
       applyPreviewAudioState();
       setPreviewSlots((prev) => planShadowPromotion(prev, gen));
-      if (liveTime != null) handOverPlaybackRef.current(liveTime, playing);
+      if (liveTime != null && !alreadyPaintedAtTarget) {
+        handOverPlaybackRef.current(liveTime, playing);
+      } else if (alreadyPaintedAtTarget && targetLiveTime != null) {
+        playerLiveTime.notify(targetLiveTime);
+        setCurrentTime(targetLiveTime);
+      }
       announcePreviewPromoted({ retired, live: shadow });
       if (retired) onRetiredIframeRef.current?.(retired);
       onPromotedRef.current?.();
@@ -253,6 +303,7 @@ export function useShadowPreviewReload({
       iframeRef,
       attachIframeShortcutListeners,
       applyPreviewAudioState,
+      setCurrentTime,
     ],
   );
   promoteWhenReadyRef.current = promoteWhenReady;
@@ -261,15 +312,28 @@ export function useShadowPreviewReload({
   const isCurrentShadow = useCallback((gen?: number) => gen === shadowGenRef.current, []);
   const previewGeneration = useCallback(() => shadowGenRef.current, []);
   const markAdapterReady = useCallback(
-    (iframe: HTMLIFrameElement | null, gen: number | undefined, commit: () => void) => {
+    (
+      iframe: HTMLIFrameElement | null,
+      gen: number | undefined,
+      commit: () => void,
+      restore?: AdapterRestoreContext,
+    ) => {
       if (gen == null || gen !== shadowGenRef.current) return;
       const register = () => {
         if (gen !== shadowGenRef.current) return;
-        logReload("perf-shadow-adapter", {gen});
+        logReload("perf-shadow-adapter", { gen });
+        if (restore) {
+          shadowSoughtRef.current = {
+            gen,
+            time: restore.startTime,
+            adapter: restore.adapter,
+            catchUpAttempted: false,
+          };
+        }
         pendingCommitRef.current = { gen, commit };
         promoteWhenReady(gen);
       };
-      const painted = restoreSeekPainted(iframe);
+      const painted = restore?.seekPainted ?? restoreSeekPainted(iframe);
       if (painted) void painted.then(register);
       else register();
     },
@@ -293,6 +357,7 @@ export function useShadowPreviewReload({
     onAdapterReady: markAdapterReady,
     isCurrent: isCurrentShadow,
     hostOwnsDeadline: true,
+    awaitRestoreSeekPaint: true,
   });
   cancelPendingLoadRef.current = cancelPendingLoad;
 

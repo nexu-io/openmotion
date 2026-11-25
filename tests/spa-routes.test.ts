@@ -4,6 +4,8 @@ import {
   RESERVED_BACKEND_PREFIXES,
   SPA_ROUTE_PREFIXES,
   editorProjectIdFromPath,
+  isEditorSpaPath,
+  isNotFoundSpaPath,
   isReservedBackendPath,
   isSpaRoutePath,
   isStandaloneSpaPath,
@@ -66,6 +68,7 @@ test('whitelisted SPA routes match while backend, missing asset, and source path
     '/templates',
     '/editor/project',
     '/editor/project.v2',
+    '/404',
   ];
   for (const route of allowed) {
     assert.equal(isSpaRoutePath(route), true, `expected SPA route: ${route}`);
@@ -122,8 +125,55 @@ test('standalone SPA paths skip native Studio pre-launch while editor paths extr
 
   assert.equal(isStandaloneSpaPath('/', '?project=project'), false);
   assert.equal(isStandaloneSpaPath('/editor/project'), false);
+  assert.equal(isStandaloneSpaPath('/models'), false);
+  assert.equal(isStandaloneSpaPath('/404'), true);
   assert.equal(editorProjectIdFromPath('/editor/my%20proj'), 'my proj');
   assert.equal(editorProjectIdFromPath('/explore'), null);
+});
+
+test('unknown and incomplete routes are classified as 404 rather than editor routes', () => {
+  for (const [pathname, search, hash] of [
+    ['/editor', '', ''],
+    ['/editor/proj-1', '', ''],
+    ['/', '?page=editor', ''],
+    ['/', '?project=proj-1', ''],
+    ['/', '?session=sess-1', ''],
+    ['/', '', '#project/proj-1'],
+    ['/', '?templates=1&embed=1', ''],
+    ['/', '?page=api&project=proj-1', '#project/proj-1'],
+  ] as const) {
+    assert.equal(isEditorSpaPath(pathname, search, hash), true, `expected editor route: ${pathname}${search}${hash}`);
+    assert.equal(isNotFoundSpaPath(pathname, search, hash), false, `editor route must not be 404: ${pathname}${search}${hash}`);
+  }
+
+  for (const [pathname, search, hash] of [
+    ['/404', '', ''],
+    ['/404/extra', '', ''],
+    ['/', '?page=404', ''],
+    ['/brand-kits', '', ''],
+    ['/brand-kits', '?project=proj-1', '#project/proj-1'],
+    ['/unknown-page', '', ''],
+    ['/projects/client-route', '', ''],
+    ['/create', '', ''],
+    ['/create/missing', '', ''],
+    ['/model-hub', '', ''],
+    ['/models', '', ''],
+    ['/studios', '', ''],
+    ['/studios/unknown', '', ''],
+    ['/templates/unknown', '', ''],
+    ['/editor/proj-1/extra', '', ''],
+    ['/', '?page=unknown', ''],
+    ['/', '?page=create&scene=missing', ''],
+    ['/', '?page=model', ''],
+    ['/', '?page=model-hub', ''],
+  ] as const) {
+    assert.equal(isEditorSpaPath(pathname, search, hash), false, `must not classify as editor: ${pathname}${search}${hash}`);
+    assert.equal(isNotFoundSpaPath(pathname, search, hash), true, `expected 404 route: ${pathname}${search}${hash}`);
+  }
+
+  for (const route of ['/explore', '/brand-kit', '/design/deck', '/scenarios', '/studios/game', '/settings/local', '/templates', '/']) {
+    assert.equal(isNotFoundSpaPath(route), false, `valid route must not be 404: ${route}`);
+  }
 });
 
 test('spaPathnameToSearch maps semantic SPA pathnames to workspace query parameters', () => {

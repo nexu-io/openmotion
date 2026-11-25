@@ -108,3 +108,43 @@ it('keeps providerListStatus compatibility semantics', () => {
   expect(providerListStatus({ configured: false, enabled: true, available: false })).toBeNull();
   expect(providerListStatus({ configured: true, enabled: true, available: false })).toBeNull();
 });
+
+it('shows honest unavailable status and subscription upgrade guidance when the workspace has zero models', async () => {
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.includes('models/catalog')) {
+      return Response.json({ provider: 'opendesign', mode: 'opendesign', defaults: {}, models: [] });
+    }
+    if (url.includes('models/status')) {
+      return Response.json({
+        consoleUrl: 'https://console.example.test',
+        providers: [
+          {
+            id: 'opendesign',
+            label: 'OpenDesign',
+            configured: true,
+            enabled: true,
+            available: false,
+            reason: 'No media models are currently available for this OpenDesign workspace. Upgrade your plan or sync models.',
+          },
+        ],
+        routes: {},
+      });
+    }
+    return Response.json({});
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const { openAccount } = await mount();
+  expect(document.body.textContent).toContain('Unavailable');
+  expect(document.body.textContent).not.toContain('add a model by its exact ID');
+  const card = document.querySelector('[data-empty-models="true"]');
+  expect(card).not.toBeNull();
+  expect(card?.textContent).toContain('No media models available yet');
+  const upgradeLink = card?.querySelector<HTMLAnchorElement>('a');
+  expect(upgradeLink?.textContent).toContain('Upgrade to Plus');
+  const upgradeUrl = new URL(upgradeLink!.href);
+  expect(upgradeUrl.origin + upgradeUrl.pathname).toBe('https://console.example.test/dashboard');
+  expect(upgradeUrl.searchParams.get('billing')).toBe('plan');
+  expect(upgradeUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  await act(async () => click('Check account & plan'));
+  expect(openAccount).toHaveBeenCalledTimes(1);
+});

@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 import { Hono, type Context } from 'hono';
 import {
   extractWildcardPath,
@@ -22,9 +24,11 @@ import {
 } from '../etag.ts';
 import { PREVIEW_BRIDGE_ASSET_RE, PREVIEW_BRIDGE_PATH, PREVIEW_BRIDGE_SCRIPT, PREVIEW_BRIDGE_VERSION } from '../engine/preview-bridge.ts';
 import { PreviewBuildBusy, PreviewDocumentCache } from '../engine/preview-document-cache.ts';
+import { previewSceneFragment } from '../engine/preview-scene-fragment.ts';
 import { createLogger } from '../../infra/logger.ts';
 import { assertTenantScopedKey } from '../../infra/storage.ts';
-import { normalizeSafeProjectPath } from '../../services/project-files-service.ts';
+import { singleByteRange } from '../../infra/byte-range.ts';
+import { normalizeSafeProjectPath, resolveBlobStorageKey } from '../../services/project-files-service.ts';
 
 /**
  * Frozen metadata contract written by `worker-media` (`generate_preview_proxy`) onto `workspace_blobs.metadata`.
@@ -122,14 +126,27 @@ function documentSignature(revision: string, assetBase?: string): string {
 export const SNAPDOM_VENDOR_PATH = '/api/vendor/snapdom.js';
 export const BROWSER_EXPORT_VENDOR_PATH = '/api/vendor/browser-export.js';
 
-let cachedSnapdomBundle: Promise<Buffer | null> | null = null;
-function loadSnapdomVendorBundle(): Promise<Buffer | null> {
+interface PrecompressedAsset {
+  raw: Buffer;
+  gzip: Buffer;
+  br: Buffer;
+}
+
+let cachedSnapdomBundle: Promise<PrecompressedAsset | null> | null = null;
+function loadSnapdomVendorBundle(): Promise<PrecompressedAsset | null> {
   if (!cachedSnapdomBundle) {
     cachedSnapdomBundle = (async () => {
       try {
         const req = createRequire(import.meta.url);
         const pkgDir = path.dirname(req.resolve('@zumer/snapdom/package.json'));
-        return await readFile(path.join(pkgDir, 'dist', 'snapdom.js'));
+        const raw = await readFile(path.join(pkgDir, 'dist', 'snapdom.js'));
+        return {
+          raw,
+          gzip: gzipSync(raw, { level: 6 }),
+          br: brotliCompressSync(raw, {
+            params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 },
+          }),
+        };
       } catch {
         return null;
       }
@@ -223,7 +240,17 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     c.header('Cache-Control', 'public, max-age=31536000, immutable');
     c.header('Content-Type', 'application/javascript; charset=utf-8');
     c.header('X-Content-Type-Options', 'nosniff');
-    return c.body(new Uint8Array(bundle));
+    c.header('Vary', 'Accept-Encoding');
+    const acceptEncoding = c.req.header('accept-encoding') ?? '';
+    if (/\bbr\b/i.test(acceptEncoding)) {
+      c.header('Content-Encoding', 'br');
+      return c.body(new Uint8Array(bundle.br));
+    }
+    if (/\bgzip\b/i.test(acceptEncoding)) {
+      c.header('Content-Encoding', 'gzip');
+      return c.body(new Uint8Array(bundle.gzip));
+    }
+    return c.body(new Uint8Array(bundle.raw));
   });
 
   app.get(BROWSER_EXPORT_VENDOR_PATH, async c => {
@@ -252,6 +279,11 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     const projectId = c.req.param('id')!;
     const project = await deps.workspace.getProject(auth, projectId, { allowTrashed: true });
     const capture = ['1', 'true'].includes(c.req.query('capture') ?? '');
+    const sceneFile = c.req.query('sceneFile');
+    if (sceneFile !== undefined && (compPath !== undefined || capture || !/\.html?$/i.test(sceneFile) ||
+        normalizeSafeProjectPath(sceneFile) !== sceneFile)) {
+      return c.json({ error: 'Expected a scene file from the master preview' }, 400);
+    }
     const variables = parseVariablesQuery(c.req.query('variables'));
     const assetBase = c.get('previewAssetBase');
     const origin = assetBase && new URL(assetBase).origin;
@@ -261,11 +293,11 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
       auth.workspaceId, projectId, compPath, origin, capture, variables, origin ? PREVIEW_BRIDGE_VERSION : null,
     ])).digest('hex');
     const tag = (revision: string) => previewEtag(documentSignature(revision, assetBase), {
-      gsapBaseUrl, rawVariables: variant, capture, compPath,
+      gsapBaseUrl, rawVariables: sceneFile ? JSON.stringify([variant, sceneFile]) : variant, capture, compPath,
     });
     const validator = c.req.header('if-none-match');
     const expectedTag = tag(project.revision);
-    if (validator === expectedTag && await deps.files.hasFile(auth, projectId, compPath ?? 'index.html')) {
+    if (validator === expectedTag && await deps.files.hasFile(auth, projectId, sceneFile ?? compPath ?? 'index.html')) {
       c.header('Cache-Control', 'private, no-cache');
       c.header('Vary', 'Cookie, Authorization');
       c.header('ETag', expectedTag);
@@ -275,15 +307,16 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     try {
       const doc = await cache.get(variant + project.revision, project.revision, async () => {
         const virtual = await deps.files.loadVirtualProject(auth, projectId);
-        // The content-derived base has the same path depth as the live base. Relative
-        // author base tags and root import maps resolve normally without a user grant.
+        // Use a stable, grant-free base for this project and build variant. Scene
+        // fingerprints must not change when a different scene advances the revision.
         const templateBase = origin
-          ? `${origin}${localBase}~assets/${variant}-${virtual.revision}/`
+          ? `${origin}${localBase}~assets/${variant}/`
           : localBase;
         const options = {
           runtimeUrl: '/api/runtime.js', baseHref: templateBase, gsapBaseUrl, capture, variables,
           bridgeOrigin: origin || undefined, studioOrigin: deps.studioOrigin,
-          cacheProjectScripts: !capture,
+          // Standalone clips already reference external project scripts, including thumbnail captures.
+          cacheProjectScripts: !capture || compPath !== undefined,
           fontCssCache: deps.hotTextCache?.getFontCss && deps.hotTextCache.setFontCss ? {
             getFontCss: deps.hotTextCache.getFontCss.bind(deps.hotTextCache),
             setFontCss: deps.hotTextCache.setFontCss.bind(deps.hotTextCache),
@@ -302,11 +335,19 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
           ? { error: 'Entry composition index.html not found' }
           : { error: 'Sub-composition not found', path: compPath }, 404);
       }
+      const result = sceneFile ? await cache.get(variant + doc.revision + ':' + sceneFile, doc.revision, async () => {
+        const html = previewSceneFragment(doc.html, sceneFile);
+        return html === null ? null : { ...doc, html };
+      }) : doc;
+      if (!result) {
+        c.header('Cache-Control', 'no-store');
+        return c.json({ error: 'Scene is missing or cannot be isolated', path: sceneFile }, 404);
+      }
       c.header('Cache-Control', 'private, no-cache');
       c.header('Vary', 'Cookie, Authorization');
       c.header('ETag', tag(doc.revision));
-      c.header('Content-Type', 'text/html; charset=utf-8');
-      return c.body(assetBase ? doc.html.replaceAll(doc.templateBase, () => assetBase) : doc.html, 200);
+      c.header('Content-Type', sceneFile ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8');
+      return c.body(assetBase ? result.html.replaceAll(result.templateBase, () => assetBase) : result.html, 200);
     } catch (error) {
       if (error instanceof PreviewBuildBusy) {
         const retryAfterSeconds = 1;
@@ -408,12 +449,26 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     }
 
     if (file.isText) {
-      const content = await deps.files.readTextBlob(auth.workspaceId, file.blobScope, file.sha256);
       c.header('Content-Type', file.mimeType);
-      c.header('Content-Length', String(Buffer.byteLength(content, 'utf8')));
       c.header('ETag', etag);
       c.header('Cache-Control', versionedScript ? 'private, max-age=300, immutable' : 'no-cache');
       c.header('Vary', 'Cookie, Authorization');
+      c.header('Accept-Ranges', 'bytes');
+      const range = c.req.header('range'), ifRange = c.req.header('if-range');
+      const slice = range && (!ifRange || ifRange === etag) ? singleByteRange(range, file.sizeBytes) : undefined;
+      if (slice === null) {
+        c.header('Content-Range', `bytes */${file.sizeBytes}`);
+        return c.body(null, 416);
+      }
+      if (slice) {
+        const key = resolveBlobStorageKey(auth.workspaceId, file.blobScope, file.sha256);
+        const { stream } = await deps.storage.getObjectStream(key, `bytes=${slice.start}-${slice.end - 1}`);
+        c.header('Content-Range', slice.contentRange);
+        c.header('Content-Length', String(slice.end - slice.start));
+        return c.body(Readable.toWeb(stream) as ReadableStream<Uint8Array>, 206);
+      }
+      const content = await deps.files.readTextBlob(auth.workspaceId, file.blobScope, file.sha256);
+      c.header('Content-Length', String(Buffer.byteLength(content, 'utf8')));
       return c.body(content, 200);
     }
 

@@ -1,5 +1,5 @@
 import { diffChars, diffLines } from 'diff';
-import { MAX_PATCH_BYTES, type TextPatch } from './text-patch.ts';
+import type { TextPatch } from './text-patch.ts';
 
 const encoder = new TextEncoder();
 // Tokenizing huge strings on the UI thread can cost more than a full-source submission.
@@ -37,14 +37,14 @@ export function createTextPatch(before: string, after: string): TextPatch | null
   if (suffix && lowSurrogate(before.charCodeAt(before.length - suffix))) suffix--;
   const oldWindow = before.slice(start, before.length - suffix);
   const newWindow = after.slice(start, after.length - suffix);
-  const changes = diffWindow(oldWindow, newWindow);
-  if (!changes) return null;
-
+  const changes = oldWindow && newWindow ? diffWindow(oldWindow, newWindow) : undefined;
   const patch: [number, number, string][] = [];
   let offset = encoder.encode(before.slice(0, start)).length;
   let replacement: [number, number, string] | undefined;
-  let insertedLength = 0;
-  for (const change of changes) {
+  // If a fine-grained diff exceeds its CPU budget, the common prefix and suffix
+  // still describe a valid single replacement. Compare it with the full source.
+  if (!changes) patch.push([offset, encoder.encode(oldWindow).length, newWindow]);
+  for (const change of changes ?? []) {
     if (!change.added && !change.removed) {
       offset += encoder.encode(change.value).length;
       replacement = undefined;
@@ -55,8 +55,6 @@ export function createTextPatch(before: string, after: string): TextPatch | null
       patch.push(replacement);
     }
     if (change.added) {
-      insertedLength += change.value.length;
-      if (insertedLength > MAX_PATCH_BYTES) return null;
       replacement[2] += change.value;
     } else {
       const removed = encoder.encode(change.value).length;
@@ -64,9 +62,8 @@ export function createTextPatch(before: string, after: string): TextPatch | null
       offset += removed;
     }
   }
-  const bytes = encoder.encode(JSON.stringify(patch)).length;
-  if (bytes > MAX_PATCH_BYTES) return null;
-  // UTF-8 needs at least one byte per UTF-16 code unit in a well-formed string.
-  if (bytes < after.length) return patch;
-  return bytes < encoder.encode(after).length ? patch : null;
+  // Compare actual JSON payloads, including quoting and escapes in inserted HTML.
+  const patchBytes = encoder.encode(JSON.stringify({ patch })).length;
+  if (patchBytes < after.length) return patch;
+  return patchBytes < encoder.encode(JSON.stringify({ content: after })).length ? patch : null;
 }

@@ -27,12 +27,19 @@ import {
   collectSubCompositionHostState,
   hydrateTimelineFromPreview,
   isPreviewReadinessMessage,
+  resolveRestoreSeekTime,
   safeContentDocument,
   sanitizeDurationSeconds,
   seekAdapterToRestorePoint,
   syncAdapterDuration,
   type RuntimeTimelineMessage,
 } from "./timelineSyncHydration";
+
+export interface AdapterRestoreContext {
+  startTime: number;
+  adapter: PlaybackAdapter;
+  seekPainted?: Promise<void>;
+}
 
 // Re-exported for the tests and callers that have always imported it from here.
 export { resolveReloadSeekTime } from "./timelineSyncHydration";
@@ -58,12 +65,15 @@ export interface UseTimelineSyncCallbacksParams {
     iframe: HTMLIFrameElement | null,
     context: number | undefined,
     commit: () => void,
+    restore?: AdapterRestoreContext,
   ) => void;
   /** False when the load for `context` was superseded: it must then cause no side effects. */
   isCurrent?: (context?: number) => boolean;
   /** Fires when no adapter appeared within the wait window. */
   onLoadGiveUp?: (context?: number) => void;
   hostOwnsDeadline?: boolean;
+  /** When true, bridge adapters use an awaited seek-and-paint barrier before promotion. */
+  awaitRestoreSeekPaint?: boolean;
 }
 
 /**
@@ -168,6 +178,7 @@ export function useTimelineSyncCallbacks({
   isCurrent,
   onLoadGiveUp,
   hostOwnsDeadline,
+  awaitRestoreSeekPaint,
 }: UseTimelineSyncCallbacksParams) {
   // Convert a runtime timeline message (from iframe postMessage) into TimelineElements
   const processTimelineMessage = useCallback(
@@ -258,7 +269,14 @@ export function useTimelineSyncCallbacks({
       const reconnect = takePreviewPosition(iframeRef.current);
       if (reconnect) pendingSeekRef.current = reconnect.time;
       adapter.pause();
-      const startTime = seekAdapterToRestorePoint(adapter, pendingSeekRef);
+      let startTime: number;
+      let seekPainted: Promise<void> | undefined;
+      if (awaitRestoreSeekPaint && typeof adapter.seekAndWaitForPaint === "function") {
+        startTime = resolveRestoreSeekTime(adapter, pendingSeekRef);
+        seekPainted = adapter.seekAndWaitForPaint(startTime, { reseek: true });
+      } else {
+        startTime = seekAdapterToRestorePoint(adapter, pendingSeekRef);
+      }
       const commit = () => {
         // Keep non-React listeners such as the time display in sync
         // with the initial adapter seek on iframe load.
@@ -285,7 +303,7 @@ export function useTimelineSyncCallbacks({
         });
         if (reconnect?.playing) usePlayerStore.getState().requestPlayback(true);
       };
-      onAdapterReady(iframeRef.current, context, commit);
+      onAdapterReady(iframeRef.current, context, commit, { startTime, adapter, seekPainted });
       return true;
     },
     [
@@ -304,6 +322,7 @@ export function useTimelineSyncCallbacks({
       iframeRef,
       isRefreshingRef,
       pendingSeekRef,
+      awaitRestoreSeekPaint,
     ],
   );
 

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { it } from 'node:test';
 import { parseHTMLContent } from '@hyperframes/core/compiler';
-import { bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
+import { buildSubCompositionHtmlInMemory, bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
 import { staticPreviewHtmlSources } from '../../src/studio/engine/preview-html-sources.ts';
 import { InMemoryVirtualProject } from '../../src/studio/virtual-project-store.ts';
 
@@ -9,16 +10,48 @@ const scene = (body: string, id = 'main') =>
   `<html><head></head><body><main data-composition-id="${id}" data-duration="3">${body}</main></body></html>`;
 const mount = (path: string, id: string) => `<div data-composition-id="${id}" data-composition-src="${path}"></div>`;
 
-async function htmlSources(files: Record<string, string>) {
+async function previewConfig(files: Record<string, string>, { clip, variables }: { clip?: string; variables?: Record<string, unknown> } = {}) {
   const project = new InMemoryVirtualProject({
     projectId: 'probe', projectName: 'Probe', revision: 'a'.repeat(64), textContents: files,
     files: Object.entries(files).map(([path, content]) => ({ path, blobScope: 'workspace', sha256: 'a'.repeat(64),
       sizeBytes: Buffer.byteLength(content), mimeType: 'text/html', isText: true, updatedAt: new Date() })),
   });
-  const html = await bundlePreviewInMemory(project, { bridgeOrigin: 'https://preview.test', skipDeterministicFonts: true });
+  const options = { bridgeOrigin: 'https://preview.test', skipDeterministicFonts: true, variables };
+  const html = clip ? await buildSubCompositionHtmlInMemory(project, clip, options) : await bundlePreviewInMemory(project, options);
   const config = parseHTMLContent(html!).querySelector('script[data-openmotion-preview]')!.getAttribute('data-openmotion-preview');
-  return JSON.parse(config!).htmlSources;
+  return JSON.parse(config!);
 }
+
+async function htmlSources(files: Record<string, string>) {
+  return (await previewConfig(files)).htmlSources;
+}
+
+it('keeps placement on assembled CSS-only scenes and preserves script and unresolved-scene fallback', async () => {
+  const entry = scene(mount('child.html', 'child'));
+  const child = (extra = '') => scene('<h1 id="title">Move</h1><aside><ul><li><strong>Rich text</strong><br>works</li></ul></aside><style>@keyframes spin { to { transform: rotate(20deg) } }</style>' + extra, 'child');
+  const cssOnly = await previewConfig({ 'index.html': entry, 'child.html': child(), 'unused.html': child() });
+  assert.deepEqual(cssOnly.smallMountedSources, ['child.html']);
+  const large = await previewConfig({ 'index.html': entry, 'child.html': child('x'.repeat(150 * 1024)) });
+  assert.deepEqual(large.smallMountedSources, ['child.html']);
+  assert.deepEqual(cssOnly.liveEdits, { position: true, cssLayoutOffset: true });
+  assert.ok(!cssOnly.canRebindTiming);
+  const scripted = await previewConfig({ 'index.html': entry, 'child.html': child('<script>observe()</script>') });
+  assert.deepEqual(scripted.smallMountedSources, ['child.html']);
+  assert.equal(scripted.liveEdits?.position, undefined);
+  const authored = { 'index.html': entry, 'child.html': child('<script>observe()</script>') };
+  assert.equal((await previewConfig(authored, { variables: { title: 'overridden' } })).smallMountedSources, undefined);
+  for (const manifest of ['.hyperframes/studio-motion.json', '.hyperframes/studio-manual-edits.json']) {
+    assert.equal((await previewConfig({ ...authored, [manifest]: '{}' })).smallMountedSources, undefined);
+  }
+  const digest = createHash('sha256').update(JSON.stringify('mediaTiming')).digest('hex');
+  const declared = entry.replace('<head>', `<head><meta name="openmotion-live-edits" content="mediaTiming" data-scripts-sha256="${digest}">`);
+  const withMedia = await previewConfig({ 'index.html': declared, 'child.html': child() });
+  assert.deepEqual(withMedia.liveEdits, { position: true, mediaTiming: true, cssLayoutOffset: true });
+  for (const extra of ['<script>window.place=document.body.offsetLeft</script>', '<img onload="layout()">',
+    '<iframe src="extra.html"></iframe>', mount('missing.html', 'missing')]) {
+    assert.equal((await previewConfig({ 'index.html': entry, 'child.html': child(extra) })).liveEdits, undefined, extra);
+  }
+});
 
 it('records only the HTML actually assembled, including descendants resolved relative to their owner', async () => {
   const files = {
@@ -58,4 +91,16 @@ it('keeps full refresh for mixed and unrecognized CSS even when it also contains
     const nested = parseHTMLContent(scene(`<template><span></span><style>.a{background:${value}}</style></template>`));
     assert.equal(staticPreviewHtmlSources('index.html', nested, '/runtime.js').paths(), undefined, value);
   }
+});
+
+it('scopes a standalone clip to its own markup and inherited head only if all HTML inputs are known', async () => {
+  const path = 'compositions/a.html';
+  const clip = (body = '<p>A</p>', head = '') => previewConfig({
+    'index.html': scene(mount('compositions/b.html', 'b')).replace('<head>', '<head>' + head),
+    [path]: scene(body, 'a'),
+  }, { clip: path });
+  assert.deepEqual((await clip()).htmlSources, [path, 'index.html']);
+  assert.equal((await clip(mount('nested.html', 'child'))).htmlSources, undefined);
+  assert.equal((await clip('<script>fetch("c.html")</script>')).htmlSources, undefined);
+  assert.equal((await clip('<p>A</p>', '<script>fetch("more.html")</script>')).htmlSources, undefined);
 });

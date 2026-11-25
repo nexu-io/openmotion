@@ -54,25 +54,25 @@ OpenMotion は、**AI エージェントが動画制作の全工程を担うフ�
 
 <a id="start-in-codex"></a>
 
-### エージェントでインストール
+### エージェントで接続（推奨：Cloud MCP）
 
-次の指示をコピーしてローカルエージェントに送り、OpenMotion をソースからセットアップします：
+次の指示をコピーしてエージェントに送り、Streamable HTTP MCP + OAuth 2.1 で OpenMotion Cloud に直接接続します（ローカルランタイムのインストールは不要です）：
 
 ```text
-https://github.com/nexu-io/openmotion/blob/main/docs/install.md を読み、手順に従って現在のエージェントに OpenMotion をインストールして接続してください。
+https://github.com/nexu-io/openmotion/blob/main/docs/install.md を読み、手順に従って現在のエージェントに OpenMotion を接続してください。
 ```
 
-セットアップ後、エージェントがローカルのテンプレートライブラリを開き、テンプレートを提案します。選択を確認してからプロジェクトを作成します。[ソースインストールガイド](install.md)
+OAuth 認証後、エージェントがクラウドのテンプレートライブラリを開き、厳選テンプレートカード 3 件を提案します。選択を確認してからプロジェクトを作成します。[Cloud MCP 接続ガイド](install.md)
 
-### 公開 npm アプリをインストール（任意）
+### 旧ローカルソース / 公開 npm アプリ（任意）
 
-上記のソースセットアップがリポジトリインストールの既定です。ビルド済み Studio と設定済みのオンラインテンプレートライブラリを含む公開アプリを明示的に選ぶ場合は、次の指示をローカルエージェントにコピーしてください：
+上記の Cloud MCP 接続が既定です。セルフホスト構成は [deploy/README.md](../deploy/README.md) を参照してください。ビルド済み Studio を含む公開 npm アプリを明示的に選ぶ場合は、次の指示をローカルエージェントにコピーしてください：
 
 ```text
 https://releases.open-design.ai/motion を読み、手順に従って現在のエージェントに公開 npm アプリをインストールして接続してください。
 ```
 
-[公開アプリのインストールとチャネルの選択](install.md)。公開バージョンはこのチェックアウトより古い場合があります。
+[旧ローカルソース・npm インストールテンプレート（アーカイブ）](templates/legacy-npm-install.md) · [npm インストールと診断](npm-installation.md)。公開バージョンはこのチェックアウトより古い場合があります。
 
 ### リポジトリをローカルで起動する
 

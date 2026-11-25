@@ -522,16 +522,22 @@ describe("NLEPreview", () => {
     }
   });
 
-  it("clips a shadow reload so its own loading overlay cannot paint over the live frame", () => {
+  it("stacks a shadow reload behind the live frame at near-zero opacity without clipping OOPIF compositing", () => {
     const view = renderPreview([
       { gen: 0, role: "live" },
       { gen: 1, role: "shadow", url: "/api/projects/p/preview?_t=1" },
     ]);
     const players = [...view.stage.querySelectorAll<HTMLElement>('[data-testid="mock-player"]')];
     expect(players).toHaveLength(2);
-    expect(players[0].style.clipPath).toBe("");
-    expect(players[1].style.clipPath).toBe("inset(100%)");
-    expect(players[1].style.visibility).toBe("hidden");
+    expect(players[0].style.position).toBe("absolute");
+    expect(players[0].style.zIndex).toBe("1");
+    expect(players[0].style.opacity).toBe("");
+    expect(players[1].style.position).toBe("absolute");
+    expect(players[1].style.zIndex).toBe("0");
+    expect(Number(players[1].style.opacity)).toBeGreaterThan(0);
+    expect(Number(players[1].style.opacity)).toBeLessThanOrEqual(0.001);
+    expect(players[1].style.visibility).toBe("");
+    expect(players[1].style.clipPath).toBe("");
     expect(players[1].style.pointerEvents).toBe("none");
     view.cleanup();
   });

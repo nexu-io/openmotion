@@ -93,7 +93,7 @@ export function ManualImportResults({ batch, onReplace, onReload, onReveal, onRe
         </li>)}
       </ul>
     </details>
-    {batch.diagnostic && <details className="mt-2 text-text-2"><summary className="cursor-pointer">{t('Upload details')}</summary><p className="break-all">{t('Project: {id}', { id: batch.projectId })}</p><p className="break-all">{batch.diagnostic}</p></details>}
+    {batch.diagnostic && <details className="mt-2 text-text-2"><summary className="cursor-pointer">{t('Upload details')}</summary><p className="break-all">{t('Project: {id}', { id: batch.projectId })}</p><p className="break-all">{t(batch.diagnostic)}</p></details>}
     {batch.listing === 'failed' && batch.paths.length > 0 && <p className="mt-2 text-text-2">{t('Files were imported, but the asset list could not reload.')}</p>}
     {unknown && <p className="mt-2 text-text-2">{t('Checking the list does not confirm which files belong to this upload. Unknown files will not be uploaded again.')}</p>}
     {failed.length > 0 && <p className="mt-2 text-text-2">{t('Choose a replacement for each failed file, then submit. Imported files are kept.')}</p>}

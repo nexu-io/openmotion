@@ -1,6 +1,7 @@
 import type { TimelineElement } from "../player";
 import type { CompositionDimensions } from "../components/renders/RenderQueue";
 import type { FfmpegStatus } from "../components/renders/useFfmpegStatus";
+import type { ProjectFileWriter, RecordEditInput } from "../utils/studioFileHistory";
 import { useContext, useMemo, type ReactNode } from "react";
 import { createStableContext } from "../utils/hmrStableContext";
 
@@ -25,6 +26,9 @@ export interface StudioShellValue {
   writeBlockedReason: string | null;
   handleUndo: () => Promise<void>;
   handleRedo: () => Promise<void>;
+  writeProjectFile: ProjectFileWriter;
+  recordEdit: (entry: RecordEditInput) => Promise<void>;
+  reloadPreview: (path?: string | readonly string[]) => void;
   renderQueue: {
     jobs: unknown[];
     isRendering: boolean;
@@ -119,6 +123,9 @@ export function StudioShellProvider({
     writeBlockedReason,
     handleUndo,
     handleRedo,
+    writeProjectFile,
+    recordEdit,
+    reloadPreview,
     renderQueue,
     compositionDimensions,
     waitForPendingDomEditSaves,
@@ -136,6 +143,9 @@ export function StudioShellProvider({
       writeBlockedReason,
       handleUndo,
       handleRedo,
+      writeProjectFile,
+      recordEdit,
+      reloadPreview,
       renderQueue,
       compositionDimensions,
       waitForPendingDomEditSaves,
@@ -153,6 +163,9 @@ export function StudioShellProvider({
       writeBlockedReason,
       handleUndo,
       handleRedo,
+      writeProjectFile,
+      recordEdit,
+      reloadPreview,
       waitForPendingDomEditSaves,
       handlePreviewIframeRef,
     ],

@@ -8,7 +8,7 @@ import { useStudioShellContextOptional } from '../../contexts/StudioContext';
 import type { TimelineElement } from '../store/timelineElement';
 import { usePlayerStore } from '../store/playerStore';
 import { probeMediaUrl } from '../lib/mediaProbe';
-import { authoredSrcPath, resolveMediaPreviewUrl } from './thumbnailUtils';
+import { resolveProjectMediaUrl } from './thumbnailUtils';
 import { useTimelineReadOnlyPress } from './timelineReadOnly';
 
 const buttonClass = 'flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-3 hover:bg-hover hover:text-text-0 disabled:opacity-40';
@@ -26,9 +26,8 @@ export function TimelineTrackAudioControls({ elements, trackLabel, isAudioOnly, 
   const shell = useStudioShellContextOptional();
   const readOnly = useTimelineReadOnlyPress();
   const projectId = usePlayerStore(state => state.timelineProjectId);
-  const sourceUrl = (el: TimelineElement) => el.src
-    ? projectId ? resolveMediaPreviewUrl(authoredSrcPath(el.src), projectId, window.location.origin) : el.src
-    : undefined;
+  const sourceUrl = (el: TimelineElement) =>
+    resolveProjectMediaUrl(el.src, projectId, window.location.origin) ?? undefined;
   const sources = JSON.stringify([...new Set(elements.filter(el => el.tag === 'video').map(sourceUrl).filter((src): src is string => !!src))]);
   const [sourceAudio, setSourceAudio] = useState<Record<string, boolean>>({});
   useEffect(() => {
@@ -63,14 +62,15 @@ export function TimelineTrackAudioControls({ elements, trackLabel, isAudioOnly, 
 
   const save = async (attr: string, value: string | null, label: string) => {
     if (disabled || running.current || !onSetElementsAttributeQuiet) return;
-    running.current = true; setBusy(true);
+    const exclusive = attr !== 'muted';
+    if (exclusive) { running.current = true; setBusy(true); }
     try {
       const result = await onSetElementsAttributeQuiet(clips.map(element => ({ element, value })), attr, label);
       return !result || result.status === 'saved';
     } catch (error) {
       shell?.showToast(error instanceof Error ? error.message : 'Changes could not be saved.', 'error');
       return false;
-    } finally { running.current = false; setBusy(false); }
+    } finally { if (exclusive) { running.current = false; setBusy(false); } }
   };
   const shownVolume = silent && !dirty ? 0 : draft;
   const commitVolume = async () => {

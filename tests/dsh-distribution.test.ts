@@ -110,7 +110,7 @@ test('rerun accepts an existing immutable object only after public byte verifica
 });
 
 test('installation routing and workflow keep plugin distribution separate from npm publication', async () => {
-  const install = await readFile(new URL('../docs/install.md', import.meta.url), 'utf8');
+  const install = await readFile(new URL('../docs/templates/legacy-npm-install.md', import.meta.url), 'utf8');
   assert(install.indexOf('## DSH:') < install.indexOf('## Codex:'));
   assert(install.includes(manifestUrl) && install.includes('integrations/dsh/README.md#download-and-install-the-plugin'));
   const workflow = await readFile(new URL('../.github/workflows/dsh-integration.yml', import.meta.url), 'utf8');

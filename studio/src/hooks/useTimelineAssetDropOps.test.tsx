@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
+import { orderedEditFixture } from "../../tests/orderedEditFixture";
 import React, { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyContentCommand } from "../../../packages/edit-core/content-commands";
 import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { useTimelineAssetDropOps } from "./useTimelineAssetDropOps";
 import { mountReactHarness } from "./domSelectionTestHarness";
@@ -160,14 +160,14 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
       clip("b", 2),
     ]);
 
+    const server = orderedEditFixture("project", { "index.html": source, "clip.mp4": "media" });
     await act(async () => {
       await getDrop()("clip.mp4", { start: 1, track: 1, insertRow: 1, trackOrder: [0, 2] }, 2);
     });
 
-    const [, written] = writeProjectFile.mock.calls[0] as [string, string];
-    const command = writeProjectFile.mock.calls[0]![3];
-    expect(command).toMatchObject({kind:"placeAsset",assetPath:"clip.mp4"});
-    expect(applyContentCommand(source, command)).toBe(written);
+    expect(writeProjectFile).not.toHaveBeenCalled();
+    expect(server.packets[0]).toMatchObject([{dependencies: {"clip.mp4": expect.any(String)}}]);
+    const written = server.files["index.html"]!;
     expect(written).toContain('id="b" data-start="0" data-track-index="3"');
     expect(written).toContain('id="hidden" data-start="0" data-track-index="2"');
     expect(written).toMatch(/<video id="clip"[^>]*data-track-index="1"/);

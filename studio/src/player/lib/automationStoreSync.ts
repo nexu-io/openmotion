@@ -105,13 +105,18 @@ const STORED_FIELD: Record<string, (value: string | null) => Partial<TimelineEle
   muted: (value) => ({ muted: value !== null || undefined }),
 };
 
+/** Shared normalization for discovery-compatible optimistic and saved attributes. */
+export function storedElementAttributeFields(attr: string, value: string | null): Partial<TimelineElement> | undefined {
+  return STORED_FIELD[attr]?.(value);
+}
+
 /** Record a saved automation, FX-chain, fade or volume value on one element's stored copy. */
 export function syncStoredElementAttribute(
   target: TimelineElement,
   attr: string,
   value: string | null,
 ): void {
-  const fields = STORED_FIELD[attr]?.(value);
+  const fields = storedElementAttributeFields(attr, value);
   if (!fields) return;
   const key = getTimelineElementIdentity(target);
   const same = (element: TimelineElement) =>

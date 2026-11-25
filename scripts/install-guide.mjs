@@ -32,12 +32,12 @@ export async function generateInstallGuide(tgz, output, candidate = false) {
   const pkg = await readEntry('package/package.json'), manifest = await readEntry('package/payload/release-npm.json');
   const channel = validateGuideIdentity(pkg, manifest);
   const digest = await sha256(tgz), packageSpec = `${pkg.name}@${pkg.version}`;
-  await installationInstructions(fileURLToPath(new URL('../', import.meta.url)));
+  await installationInstructions(fileURLToPath(new URL('../', import.meta.url)), 'docs/templates/legacy-npm-install.md');
   const values = { VERSION: pkg.version, PACKAGE_SPEC: packageSpec, CHANNEL: channel, COMMIT: manifest.commit,
     TEMPLATE_ENVIRONMENT: manifest.templateEnvironment, TGZ_SHA256: digest,
     TARGETS: Object.values(manifest.runtime.targets).map(t => `${t.platform}/${t.arch}${t.minimumOS ? ` (${t.minimumOS}+)` : ''}`).join(', '),
     DETAILS_URL: `https://github.com/nexu-io/openmotion/blob/${manifest.commit}/docs/npm-installation.md` };
-  const guide = await readFile(new URL('../docs/install.md', import.meta.url), 'utf8');
+  const guide = await readFile(new URL('../docs/templates/legacy-npm-install.md', import.meta.url), 'utf8');
   // Source checkout commands never belong to a published npm installation.
   const template = guide.replace(/<!-- source-only:start -->[\s\S]*?<!-- source-only:end -->\s*/g, '')
     .replace(/^# Install OpenMotion$/m, '# Install OpenMotion {{VERSION}}')

@@ -14,7 +14,8 @@ import { usePlayerStore } from "./player";
 import { StudioOverlays } from "./components/StudioOverlays";
 import {
   EditorAssetLoadingOverlay,
-  useEditorAssetReadinessGate,
+  EditorAssetProgressBar,
+  useEditorAssetReadiness,
 } from "./components/EditorAssetLoadingOverlay";
 import { ExternalFileConflictBanner } from "./components/ExternalFileConflictBanner";
 import { ProjectUnreachableBanner } from "./components/ProjectUnreachableBanner";
@@ -421,6 +422,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     setRightCollapsed: panelLayout.setRightCollapsed,
   });
   const renderClipContent = useRenderClipContent({
+    fileTreeLoaded: fileManager.fileTreeLoaded,
     projectIdRef: fileManager.projectIdRef,
     compIdToSrc,
     activePreviewUrl:
@@ -516,6 +518,9 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     timelineElements,
     isPlaying,
     editHistory: historyFlags,
+    writeProjectFile: fileManager.writeProjectFile,
+    recordEdit: editHistory.recordEdit,
+    reloadPreview,
     handleUndo: appHotkeys.handleUndo,
     handleRedo: appHotkeys.handleRedo,
     renderQueue,
@@ -580,14 +585,13 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     },
     projectId,
   );
-  const editorReadiness = useEditorAssetReadinessGate({
+  const editorReadiness = useEditorAssetReadiness({
     projectId,
-    activeCompPath,
     fileTreeLoaded: fileManager.fileTreeLoaded,
-    compositionLoading,
     unreachableProject: Boolean(sdkHandle.unreachableProject),
     compositionMissing: Boolean(sdkHandle.compositionMissing && activeCompPath),
     showToast,
+    onReloadPreview: reloadPreview,
   });
   if (resolving || waitingForServer || !projectId)
     return <StudioSplash waiting={waitingForServer} />;
@@ -600,13 +604,13 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
               <AppFrame>
               <div
                 className="flex flex-col h-full w-full bg-neutral-950 relative"
-                onDragOver={editorReadiness.locked ? undefined : fileDrop.onDragOver}
-                onDrop={editorReadiness.locked ? undefined : fileDrop.onDrop}
+                onDragOver={fileDrop.onDragOver}
+                onDrop={fileDrop.onDrop}
               >
                 <div
                   className="flex flex-col flex-1 min-h-0"
-                  inert={editorReadiness.locked || undefined}
-                  aria-busy={editorReadiness.locked || undefined}
+                  inert={editorReadiness.blocking || undefined}
+                  aria-hidden={editorReadiness.blocking || undefined}
                 >
                   <StudioHeader
                     captureFrameHref={frameCapture.captureFrameHref}
@@ -625,7 +629,14 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
                   {sdkHandle.compositionMissing && activeCompPath && (
                     <CompositionMissingBanner path={activeCompPath} />
                   )}
-                  <EditorFrame><EditorShell
+                  <div className="relative flex-1 min-h-0 flex flex-col">
+                    <EditorAssetProgressBar
+                      loading={editorReadiness.backgroundLoading}
+                      completed={editorReadiness.completed}
+                      total={editorReadiness.total}
+                      indeterminate={editorReadiness.indeterminate}
+                    />
+                    <EditorFrame><EditorShell
                     readOnlyPreview={readOnlyPreview}
                     readOnlyPreviewReason={readOnlyPreviewReason}
                     panels={panels}
@@ -667,13 +678,10 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
                     blockPreview={blockPreview}
                     gestureOverlay={gestureOverlay}
                   /></EditorFrame>
+                  </div>
                 </div>
                 <EditorAssetLoadingOverlay
-                  loading={editorReadiness.locked}
-                  completed={editorReadiness.completed}
-                  total={editorReadiness.total}
-                  loadGeneration={editorReadiness.loadGeneration}
-                  debounceMs={editorReadiness.debounceMs}
+                  visible={editorReadiness.blocking}
                   onSkip={editorReadiness.skip}
                 />
                 <StudioOverlays

@@ -4,7 +4,7 @@ import { strict as assert } from 'node:assert';
 import { createDbHandle } from '../../src/db/client.ts';
 import { runMigrations } from '../../src/db/migrate.ts';
 import { markZeroRefForDeletion } from '../../src/db/cas.ts';
-import { TextRevisionStorage, loadTextRevisionChain, TEXT_REVISION_MAX_DEPTH } from '../../src/infra/text-revisions.ts';
+import { TextRevisionStorage, loadTextRevisionChain, TEXT_CHECKPOINT_INTERVAL } from '../../src/infra/text-revisions.ts';
 import { workspaceBlobKey } from '../../src/infra/storage.ts';
 import { formatFileVersion, sha256Hex } from '../../src/studio/etag.ts';
 import type { BlobScope } from '../../src/contracts/storage.ts';
@@ -45,15 +45,17 @@ it('reconstructs immutable text, skips known prefixes, pins checkpoints during G
       return id;
     }
     let id = await append('workspace', baseline, 1);
-    for (let n = 2; n <= TEXT_REVISION_MAX_DEPTH; n++) id = await append('patch', id, n);
+    const count = 3 * TEXT_CHECKPOINT_INTERVAL + 5;
+    for (let n = 2; n <= count; n++) id = await append('patch', id, (n - 1) % TEXT_CHECKPOINT_INTERVAL + 1);
     assert.equal(reads, 0);
     const chain = await loadTextRevisionChain(db, workspace, id, formatFileVersion('patch', ids.at(-3)!));
+    assert.ok(chain);
     assert.equal(chain.changes.length, 2);
     assert.equal(chain.base.id, ids.at(-3));
     await assert.rejects(revisions.read(randomUUID(), id), { code: 'NOT_FOUND' });
     await assert.rejects(revisions.read(workspace, id, size - 1), { status: 413 });
     assert.equal(reads, 0);
-    const expected = start.toString() + '!'.repeat(TEXT_REVISION_MAX_DEPTH);
+    const expected = start.toString() + '!'.repeat(count);
     const checkpoint = sha256Hex(expected);
     const concurrent = await Promise.all([revisions.checkpoint(workspace, id), revisions.checkpoint(workspace, id)]);
     assert.deepEqual(concurrent, [checkpoint, checkpoint]);
@@ -61,6 +63,7 @@ it('reconstructs immutable text, skips known prefixes, pins checkpoints during G
     assert.equal(writes, 1);
     const child = await append('patch', id, 1);
     const subsequent = await loadTextRevisionChain(db, workspace, child);
+    assert.ok(subsequent);
     assert.deepEqual(subsequent.base, { scope: 'patch', id, sha256: checkpoint });
     assert.equal(subsequent.changes.length, 1);
     assert.equal((await revisions.read(workspace, child)).toString(), expected + '!');

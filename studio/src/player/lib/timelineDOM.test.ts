@@ -909,4 +909,41 @@ describe("what the live clip list says a clip plays", () => {
       expect(wrapper.hasAudio).toBeUndefined();
     },
   );
+
+  it("resolves bare media src against the preview document <base> when clip.assetUrl is null", () => {
+    const doc = new DOMParser().parseFromString(
+      `<!doctype html><html><head><base href="http://studio.test/api/projects/proj-1/preview/"></head><body>
+        <div data-composition-id="root">
+          <audio id="welcome-soundtrack" src="assets/soundtrack.m4a" data-start="0" data-duration="37.3" data-track-index="1"></audio>
+        </div>
+      </body></html>`,
+      "text/html",
+    );
+    const element = createTimelineElementFromManifestClip({
+      clip: {
+        id: "welcome-soundtrack",
+        label: "Welcome Soundtrack",
+        kind: "audio",
+        tagName: "audio",
+        start: 0,
+        duration: 37.3,
+        track: 1,
+        assetUrl: null,
+      },
+      fallbackIndex: 0,
+      doc,
+      hostEl: doc.getElementById("welcome-soundtrack"),
+    });
+    expect(element.src).toBe("http://studio.test/api/projects/proj-1/preview/assets/soundtrack.m4a");
+  });
+
+  it("keeps bare relative media src on detached DOMParser documents without <base>", () => {
+    const doc = makeDoc(`
+      <div data-composition-id="root">
+        <audio id="welcome-soundtrack" src="assets/soundtrack.m4a" data-start="0" data-duration="37.3" data-track-index="1"></audio>
+      </div>
+    `);
+    const audio = parseTimelineFromDOM(doc, 37.3).find((entry) => entry.domId === "welcome-soundtrack");
+    expect(audio?.src).toBe("assets/soundtrack.m4a");
+  });
 });

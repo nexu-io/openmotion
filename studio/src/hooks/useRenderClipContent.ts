@@ -122,6 +122,7 @@ function withSoundStrip(
 }
 
 export interface UseRenderClipContentOptions {
+  fileTreeLoaded: boolean;
   projectIdRef: { current: string | null };
   compIdToSrc: Map<string, string>;
   activePreviewUrl: string | null;
@@ -129,6 +130,7 @@ export interface UseRenderClipContentOptions {
 }
 
 export function useRenderClipContent({
+  fileTreeLoaded,
   projectIdRef,
   compIdToSrc,
   activePreviewUrl,
@@ -174,6 +176,9 @@ export function useRenderClipContent({
       // This renders the composition in isolation so we get clean frames
       // instead of capturing the master at a time when the comp is fading in.
       if (compSrc) {
+        // The tree supplies the filmstrip revision. A request made before it arrives
+        // would download the same sprite twice. Clip rows and labels render independently.
+        if (!fileTreeLoaded) return null;
         return createElement(CompositionThumbnail, {
           previewUrl: buildProjectApiPath(pid, `/preview/comp/${encodePreviewPath(compSrc)}`),
           label: "",
@@ -293,6 +298,7 @@ export function useRenderClipContent({
       return null;
     },
     [
+      fileTreeLoaded,
       projectIdRef,
       compIdToSrc,
       activePreviewUrl,

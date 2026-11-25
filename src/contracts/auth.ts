@@ -1,3 +1,5 @@
+import { CloudError } from './errors.ts';
+
 export const WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
@@ -77,6 +79,14 @@ export interface AuthContext {
 
 export function hasScope(ctx: Pick<AuthContext, 'scopes'>, required: PatScope): boolean {
   return ctx.scopes.includes('workspace:admin') || ctx.scopes.includes(required);
+}
+
+/** Hosted Studio prepares the edited file locally. Headless integrations can send an intent. */
+export function requireProgrammaticEdit(ctx: AuthContext): void {
+  if (ctx.entry === 'web' || ctx.authMethod === 'session_cookie') {
+    throw new CloudError('INVALID_ARGUMENT', 'Studio edits must submit prepared file changes to text-edits/batch.',
+      { status: 400, applied: false });
+  }
 }
 
 export function hasMinRole(ctx: Pick<AuthContext, 'role'>, minimum: WorkspaceRole): boolean {

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { parseHTMLContent } from '@hyperframes/core/compiler/html-document';
 import type { PreviewLiveEdits } from '../../../shared/preview-timing.ts';
+import { readBuiltinTemplateEntry } from '../../services/builtin-template-source.ts';
 import { resolveVirtualPath, virtualDirname, type VirtualProjectReader } from '../virtual-project-store.ts';
 
 const selector = 'meta[name="openmotion-live-edits"]';
@@ -37,10 +38,14 @@ export function previewBehaviorDigest(project: VirtualProjectReader, capabilitie
   return hash.digest('hex');
 }
 
-export function verifiedPreviewLiveEdits(project: VirtualProjectReader): PreviewLiveEdits | undefined {
-  const index = project.readText('index.html');
-  if (!index?.includes('openmotion-live-edits')) return;
-  const declarations = parseHTMLContent(index).head?.querySelectorAll(selector);
+export async function verifiedPreviewLiveEdits(project: VirtualProjectReader): Promise<PreviewLiveEdits | undefined> {
+  const current = project.readText('index.html');
+  if (!current) return;
+  // Never inherit over an explicit project declaration. The reviewed digest below
+  // must still match this project's actual scripts, including every child composition.
+  const entry = current.includes('openmotion-live-edits') ? current : await readBuiltinTemplateEntry(project.templateId);
+  if (!entry?.includes('openmotion-live-edits')) return;
+  const declarations = parseHTMLContent(entry).head?.querySelectorAll(selector);
   if (declarations?.length !== 1) return;
   const declaration = declarations[0]!;
   const capabilities = declaration.getAttribute('content')?.trim().split(/\s+/).sort();

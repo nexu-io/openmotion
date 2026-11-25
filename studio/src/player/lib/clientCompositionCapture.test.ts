@@ -7,6 +7,7 @@ import {
   computeCompositionSampleTimes,
   createClientCompositionCaptureRequest,
   evictStaleCompositionCaptures,
+  getCompositionCacheKeyRevision,
   getCompositionCacheRevision,
   getProgressiveCompositionCapture,
   peekCachedCompositionCapture,
@@ -14,11 +15,12 @@ import {
   quantizeCompositionFrameCount,
   retainCachedCompositionCapture,
   seedClientCompositionCaptureForTest,
-  selectInitialGateCompositionPaths,
+  selectPriorityCompositionPaths,
   setCachedProjectRevision,
   setClientCompositionCaptureCapabilityForTest,
   subscribeCompositionCacheRevision,
   subscribeProgressiveCompositionCapture,
+  updateCachedCompositionRevisions,
   withPreviewRedirectSafeFetch,
 } from "./clientCompositionCapture";
 import { bindPreviewLease } from "./previewLease";
@@ -125,14 +127,14 @@ describe("clientCompositionCapture", () => {
       duration: 5,
     }));
     // Playhead at t=22s sits inside s4 (20..25), next nearest are s3 (dist 2), s2 (dist 7), s6 (dist 8, s5 hidden).
-    expect(selectInitialGateCompositionPaths(elements, 22, 4)).toEqual([
+    expect(selectPriorityCompositionPaths(elements, 22, 4)).toEqual([
       "compositions/s4.html",
       "compositions/s3.html",
       "compositions/s2.html",
       "compositions/s6.html",
     ]);
     // At t=0, picks first 4 clips left-to-right.
-    expect(selectInitialGateCompositionPaths(elements, 0, 4)).toEqual([
+    expect(selectPriorityCompositionPaths(elements, 0, 4)).toEqual([
       "compositions/s0.html",
       "compositions/s1.html",
       "compositions/s2.html",
@@ -411,6 +413,7 @@ describe("clientCompositionCapture", () => {
       expect(iframe!.style.height).toBe("1920px");
       expect(posted).toHaveLength(1);
       expect(posted[0]?.targetOrigin).toBe("https://preview.example.test");
+      expect(posted[0]?.message.width).toBe(160);
       expect(loaded.value.kind).toBe("filmstrip");
       if (loaded.value.kind === "filmstrip") {
         expect(loaded.value.urls).toHaveLength(2);
@@ -1024,6 +1027,98 @@ describe("clientCompositionCapture", () => {
     expect(peekFallbackCompositionCapture({ projectId: "proj-fb", previewUrl })).toBe(strip8);
   });
 
+  it("keys per-file captures by file version plus shared head/asset tag, ignores session contentRevision, and reuses canonical strips for narrower frame counts", () => {
+    const introUrl = "/api/projects/proj-fv/preview/comp/compositions/intro.html";
+    const outroUrl = "/api/projects/proj-fv/preview/comp/compositions/outro.html";
+    let seq = 0;
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:test/fv-${++seq}`);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    setCachedProjectRevision("proj-fv", "proj-rev-1", {
+      "compositions/intro.html": '"sha256:intro-v1"|shared:111111111111:222222222222',
+      "compositions/outro.html": '"sha256:outro-v1"|shared:111111111111:222222222222',
+      "compositions/dynamic.html": "proj-rev-1",
+    });
+
+    // Fail-closed compositions equal to projectRevision keep tracking live session contentRevision bumps.
+    const dynamicUrl = "/api/projects/proj-fv/preview/comp/compositions/dynamic.html";
+    expect(getCompositionCacheKeyRevision("proj-fv", dynamicUrl, 0)).toBe("rev:proj-rev-1|0");
+    expect(getCompositionCacheKeyRevision("proj-fv", dynamicUrl, 3)).toBe("rev:proj-rev-1|3");
+
+    const introV1 = seedClientCompositionCaptureForTest(
+      { projectId: "proj-fv", previewUrl: introUrl, contentRevision: 0, frameCount: 8 },
+      Array.from({ length: 8 }, (_, idx) => new Blob([`v1-${idx}`])),
+    );
+    const urlsAfterSeed = seq;
+
+    // Session-local contentRevision bumps do not bust a persisted file version.
+    expect(getCompositionCacheKeyRevision("proj-fv", introUrl, 0)).toBe('file:"sha256:intro-v1"|shared:111111111111:222222222222');
+    expect(getCompositionCacheKeyRevision("proj-fv", introUrl, 5)).toBe('file:"sha256:intro-v1"|shared:111111111111:222222222222');
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-fv", previewUrl: introUrl, contentRevision: 5, frameCount: 8 }),
+    ).toBe(introV1);
+
+    // Narrower frame counts (4, 2, 1) reuse the canonical 8-frame strip with zero duplicate URLs.
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-fv", previewUrl: introUrl, contentRevision: 0, frameCount: 4 }),
+    ).toBe(introV1);
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-fv", previewUrl: introUrl, contentRevision: 0, frameCount: 2 }),
+    ).toBe(introV1);
+    const cover = peekCachedCompositionCapture({
+      projectId: "proj-fv",
+      previewUrl: introUrl,
+      contentRevision: 0,
+      frameCount: 1,
+    });
+    expect(cover?.kind).toBe("image");
+    expect(seq).toBe(urlsAfterSeed);
+
+    // index.html <body> edit (same indexHeadHash) & non-preview metadata leave intro.html and outro.html cached.
+    const listener = vi.fn();
+    const unsub = subscribeCompositionCacheRevision("proj-fv", listener);
+    updateCachedCompositionRevisions(
+      "proj-fv",
+      {
+        "index.html": '"patch:idx-2"',
+        "motion-project.json": '"sha256:meta-2"',
+      },
+      { indexHeadHash: "111111111111" },
+    );
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-fv", previewUrl: introUrl, contentRevision: 0, frameCount: 8 }),
+    ).toBe(introV1);
+
+    // Real file-version update for intro.html preserves |shared: and invalidates only intro.html.
+    updateCachedCompositionRevisions("proj-fv", { "compositions/intro.html": '"patch:intro-v2"' });
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-fv", previewUrl: introUrl, contentRevision: 0, frameCount: 8 }),
+    ).toBeNull();
+    expect(getCompositionCacheRevision("proj-fv", introUrl)).toBe('"patch:intro-v2"|shared:111111111111:222222222222');
+    expect(getCompositionCacheRevision("proj-fv", outroUrl)).toBe('"sha256:outro-v1"|shared:111111111111:222222222222');
+
+    // Undo back to v1 immediately hits the cached v1 strip with zero re-capture.
+    updateCachedCompositionRevisions("proj-fv", { "compositions/intro.html": '"sha256:intro-v1"' });
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-fv", previewUrl: introUrl, contentRevision: 0, frameCount: 8 }),
+    ).toBe(introV1);
+
+    // Shared stylesheet edit invalidates every composition immediately without a reload,
+    // while keeping fail-closed compositions on `rev:<projectRev>|<contentRevision>`.
+    updateCachedCompositionRevisions("proj-fv", {
+      "styles/theme.css": '"patch:css-2"',
+      "compositions/dynamic.html": '"patch:dyn-2"',
+    });
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-fv", previewUrl: introUrl, contentRevision: 0, frameCount: 8 }),
+    ).toBeNull();
+    expect(getCompositionCacheRevision("proj-fv", outroUrl)).not.toBe('"sha256:outro-v1"|shared:111111111111:222222222222');
+    expect(getCompositionCacheKeyRevision("proj-fv", dynamicUrl, 4)).toBe("rev:proj-rev-1|4");
+    unsub();
+  });
+
   it("reuses a single warm isolated capture iframe across sibling selector clips of the same composition without reloading", async () => {
     const meta = document.createElement("meta");
     meta.name = "openmotion-preview-origin";
@@ -1416,5 +1511,115 @@ describe("clientCompositionCapture", () => {
     );
     for (const url of urls0) expect(activeUrls.has(url)).toBe(false);
     thumbnailScheduler.invalidateProject("proj-inflight");
+  });
+
+  it("ignores session-local eviction for file-version-pinned strips and evicts only on real file-version updates", () => {
+    const activeUrls = new Set<string>();
+    let seq = 0;
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      const url = `blob:test/filever-${++seq}`;
+      activeUrls.add(url);
+      return url;
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation((url) => {
+      activeUrls.delete(String(url));
+    });
+
+    setCachedProjectRevision("proj-fv", "proj-rev-1", {
+      "compositions/intro.html": '"sha256:intro-v1"',
+    });
+    const baseInput = {
+      previewUrl: "/api/projects/proj-fv/preview/comp/compositions/intro.html",
+      projectId: "proj-fv",
+      contentRevision: 0,
+      frameCount: 8,
+    };
+    const v1Val = seedClientCompositionCaptureForTest(
+      baseInput,
+      Array.from({ length: 8 }, (_, idx) => new Blob([`v1-${idx}`])),
+    );
+    const v1Urls = v1Val.kind === "filmstrip" ? [...v1Val.urls] : [];
+
+    // Session-local contentRevision bump (e.g. unrelated file edit) must NOT evict a file-version-pinned strip.
+    evictStaleCompositionCaptures("proj-fv", null, { __all__: 2, "compositions/intro.html": 2 });
+    expect(peekCachedCompositionCapture(baseInput)).toBe(v1Val);
+    for (const url of v1Urls) expect(activeUrls.has(url)).toBe(true);
+
+    // Real file-version change marks v1 as fallback-only (not a warm hit) while preserving it for fallback display.
+    updateCachedCompositionRevisions("proj-fv", { "compositions/intro.html": '"patch:intro-v2"' });
+    expect(peekCachedCompositionCapture(baseInput)).toBeNull();
+    expect(peekFallbackCompositionCapture({ projectId: "proj-fv", previewUrl: baseInput.previewUrl })).toBe(v1Val);
+    for (const url of v1Urls) expect(activeUrls.has(url)).toBe(true);
+
+    // Once v2 lands, v1's RAM object URLs are immediately revoked.
+    const v2Val = seedClientCompositionCaptureForTest(
+      baseInput,
+      Array.from({ length: 8 }, (_, idx) => new Blob([`v2-${idx}`])),
+    );
+    expect(peekCachedCompositionCapture(baseInput)).toBe(v2Val);
+    for (const url of v1Urls) expect(activeUrls.has(url)).toBe(false);
+  });
+
+  it("keeps three deferred sidebar captures queued out of scheduler slots while a gated timeline clip runs", async () => {
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:test/gated-slot");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    const projectId = "proj-gate-slots";
+    const gatedInput = {
+      previewUrl: `/api/projects/${projectId}/preview/comp/compositions/intro.html`,
+      projectId,
+      contentRevision: 0,
+      frameCount: 2,
+    };
+    seedClientCompositionCaptureForTest(gatedInput, [new Blob(["g1"]), new Blob(["g2"])]);
+
+    usePlayerStore.setState({
+      editorInputLocked: true,
+      assetReadinessPhase: "ready",
+      assetReadinessSkipped: false,
+      isPlaying: false,
+    });
+
+    const sidebarReqs = ["index.html", "compositions/a.html", "compositions/b.html"].map((comp) =>
+      createClientCompositionCaptureRequest({
+        previewUrl: `/api/projects/${projectId}/preview/comp/${comp}`,
+        projectId,
+        sessionEpoch: 1,
+        contentRevision: 0,
+        frameCount: 1,
+        priority: "overscan",
+      }),
+    );
+    const sidebarLeases = sidebarReqs.map((req) => thumbnailScheduler.acquire(req, () => {}));
+
+    // All three sidebar requests must stay queued without claiming client-capture scheduler slots.
+    for (const req of sidebarReqs) {
+      expect(thumbnailScheduler.getSnapshot(req).status).toBe("queued");
+    }
+    expect(thumbnailScheduler.getDiagnostics().active).toBe(0);
+
+    // Gated timeline capture arrives afterwards and resolves immediately instead of starving behind sidebar jobs.
+    const gatedReq = createClientCompositionCaptureRequest({
+      ...gatedInput,
+      sessionEpoch: 1,
+      priority: "interaction",
+      gatePriority: true,
+    });
+    const gatedLease = thumbnailScheduler.acquire(gatedReq, () => {});
+    await vi.waitFor(() => {
+      expect(thumbnailScheduler.getSnapshot(gatedReq).status).toBe("ready");
+    });
+
+    // Clearing editorInputLocked releases the opening-gate hold so queued sidebar captures can start.
+    usePlayerStore.setState({ editorInputLocked: false });
+    await vi.waitFor(() => {
+      expect(
+        sidebarReqs.some((req) => thumbnailScheduler.getSnapshot(req).status !== "queued"),
+      ).toBe(true);
+    });
+
+    gatedLease.release();
+    for (const lease of sidebarLeases) lease.release();
+    thumbnailScheduler.invalidateProject(projectId);
   });
 });

@@ -1,10 +1,11 @@
 /** Embedded in the isolated preview. Timeline metadata may be ready before the visible media paints. */
 export const PREVIEW_FIRST_FRAME = `
-  var firstFrameMedia, firstFrameStatus;
+  var firstFrameMedia, firstFrameStatus, firstFrameTime;
   function visualFrameStatus(time) {
     if(firstFrameStatus) return firstFrameStatus;
-    // A script may replace a loading media node as the preview initializes.
-    if(firstFrameMedia && firstFrameMedia.some(function(node){ return node.isConnected===false; })) firstFrameMedia=undefined;
+    // A script may replace a loading media node, or a restore seek may move the playhead to another scene.
+    if(firstFrameMedia && (firstFrameTime!==time || firstFrameMedia.some(function(node){ return node.isConnected===false; }))) firstFrameMedia=undefined;
+    firstFrameTime=time;
     if(!firstFrameMedia) {
       firstFrameMedia=Array.from(document.querySelectorAll('img[src],img[srcset],video')).filter(function(node){
         if(node.checkVisibility && !node.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return false;

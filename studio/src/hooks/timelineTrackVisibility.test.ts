@@ -677,3 +677,21 @@ describe("createAudioGroupAndAssignMembers", () => {
     ).toBe(false);
   });
 });
+
+it("keeps the last click visible across earlier receipts and restores the last saved value on failure", async () => {
+  const { projectTimelineControl } = await import("./timelineControlPreview");
+  const hero = element({ id: "hero", domId: "hero", hidden: false });
+  usePlayerStore.getState().setElements([hero]);
+  const apply = (enabled: boolean) => projectTimelineControl("p", "index.html", null, "data-hidden", [{ element: hero, value: enabled ? "" : null }]);
+  const hidden = () => usePlayerStore.getState().elements[0]?.hidden;
+  const hide = apply(true), show = apply(false);
+  expect(hidden()).toBe(false);
+  hide(true);
+  expect(hidden()).toBe(false);
+  show(false);
+  expect(hidden()).toBe(true);
+  const first = apply(false), second = apply(true);
+  first(false);
+  second(false);
+  expect(hidden()).toBe(true);
+});

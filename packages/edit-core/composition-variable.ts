@@ -27,15 +27,23 @@ function readDeclarations(html: string) {
   return owners;
 }
 
-export function compositionVariableValues(html: string, parameterKeys: readonly string[] = []): Map<string, string> | null {
+export function readCompositionParameters(html: string, parameterKeys: readonly string[] = []) {
+  const cssKeys = new Set<string>();
   const values = new Map<string, string>();
   for (const [id, owner] of readDeclarations(html)) {
     values.set(id, String(owner.variable.default ?? ''));
   }
-  const cssKeys = parameterKeys.filter(key => !declaredParameterId(values.keys(), key));
-  for (const [key, bindings] of cssBindings(html, cssKeys)) {
-    if (bindings.length === 1) values.set(key, bindings[0]!.declaration.value);
+  const undeclared = parameterKeys.filter(key => !declaredParameterId(values.keys(), key));
+  for (const [key, bindings] of cssBindings(html, undeclared)) {
+    if (bindings.length !== 1) continue;
+    values.set(key, bindings[0]!.declaration.value);
+    cssKeys.add(key);
   }
+  return { values, cssKeys };
+}
+
+export function compositionVariableValues(html: string, parameterKeys: readonly string[] = []): Map<string, string> | null {
+  const { values } = readCompositionParameters(html, parameterKeys);
   return values.size ? values : null;
 }
 

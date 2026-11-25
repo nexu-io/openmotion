@@ -165,13 +165,18 @@ export const projectTextRevisions = pgTable('project_text_revisions', {
   depth: integer('depth').notNull(),
   chainPatchBytes: integer('chain_patch_bytes').notNull(),
   checkpointSha: char('checkpoint_sha', { length: 64 }),
+  checkpointPendingSha: char('checkpoint_pending_sha', { length: 64 }),
+  checkpointDueAt: timestamp('checkpoint_due_at', { withTimezone: true }),
 }, t => [
   primaryKey({ columns: [t.workspaceId, t.id] }),
   index('idx_text_revisions_origin').on(t.projectId),
+  index('idx_text_revisions_checkpoint_pending').on(t.workspaceId, t.checkpointPendingSha).where(sql`${t.checkpointPendingSha} IS NOT NULL`),
+  index('idx_text_revisions_checkpoint_due').on(t.checkpointDueAt)
+    .where(sql`${t.checkpointDueAt} IS NOT NULL AND ${t.checkpointSha} IS NULL`),
   index('idx_text_revisions_workspace_base').on(t.workspaceId, t.parentId).where(sql`${t.parentScope} = 'workspace'`),
   index('idx_text_revisions_checkpoint').on(t.workspaceId, t.checkpointSha).where(sql`${t.checkpointSha} IS NOT NULL`),
   check('project_text_revisions_parent_scope_check', sql`${t.parentScope} IN ('workspace','catalog','patch')`),
   check('project_text_revisions_size_bytes_check', sql`${t.sizeBytes} BETWEEN 0 AND 16777216`),
-  check('project_text_revisions_depth_check', sql`${t.depth} BETWEEN 1 AND 32`),
-  check('project_text_revisions_chain_patch_bytes_check', sql`${t.chainPatchBytes} BETWEEN 1 AND 262144`),
+  check('project_text_revisions_depth_check', sql`${t.depth} >= 1`),
+  check('project_text_revisions_chain_patch_bytes_check', sql`${t.chainPatchBytes} >= 1`),
 ]);

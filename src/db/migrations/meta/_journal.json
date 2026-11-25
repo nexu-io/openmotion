@@ -36,6 +36,13 @@
       "when": 1795435500000,
       "tag": "0004_history_undo_group",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795435600000,
+      "tag": "0005_async_text_checkpoints",
+      "breakpoints": true
     }
   ]
 }

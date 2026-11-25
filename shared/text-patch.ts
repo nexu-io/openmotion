@@ -2,7 +2,6 @@
 export type TextSplice = readonly [offsetBytes: number, deleteBytes: number, insert: string];
 export type TextPatch = readonly TextSplice[];
 export const TEXT_PATCH_BASE_HEADER = 'X-OpenMotion-Base-Version';
-export const MAX_PATCH_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 

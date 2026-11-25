@@ -9,6 +9,7 @@ import gsap from "gsap";
 import { MorphSVGPlugin } from "gsap/MorphSVGPlugin";
 import { formatFrameTime, formatTime } from "../lib/time";
 import { liveTime, usePlayerStore } from "../store/playerStore";
+import { triggerEditorAssetRetry } from "../../components/EditorAssetLoadingOverlay";
 import { trackStudioEvent } from "../../utils/studioTelemetry";
 import { Tooltip } from "../../components/ui";
 import { useMountEffect } from "../../hooks/useMountEffect";
@@ -148,6 +149,11 @@ export const PlayerControls = memo(function PlayerControls({
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const duration = usePlayerStore((s) => s.duration);
   const timelineReady = usePlayerStore((s) => s.timelineReady);
+  const mediaBuffering = usePlayerStore((s) => s.mediaBuffering);
+  const assetReadinessPhase = usePlayerStore((s) => s.assetReadinessPhase);
+  const assetFailed = usePlayerStore((s) => s.assetReadinessFailed);
+  const assetRetrying = usePlayerStore((s) => s.assetReadinessRetrying);
+  const previewLoadError = usePlayerStore((s) => s.previewLoadError);
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const audioMuted = usePlayerStore((s) => s.audioMuted);
   const audioVolume = usePlayerStore((s) => s.audioVolume);
@@ -168,6 +174,49 @@ export const PlayerControls = memo(function PlayerControls({
   const durationRef = useRef(duration);
   durationRef.current = duration;
   const controlsDisabled = disabled || !timelineReady;
+  const isBuffering =
+    isPlaying && !previewLoadError && (mediaBuffering || assetReadinessPhase === "loading");
+  const showFailedPill = !previewLoadError && assetFailed.length > 0;
+  const failedTooltip = showFailedPill
+    ? assetFailed.map((item) => item.label).join(", ")
+    : "";
+  const statusPill = showFailedPill ? (
+    <Tooltip label={failedTooltip || t("Retry failed assets")}>
+      <Button
+        variant="plain"
+        type="button"
+        data-testid="player-asset-retry-pill"
+        disabled={assetRetrying}
+        onClick={() => {
+          void triggerEditorAssetRetry();
+        }}
+        className="motion-player-asset-pill"
+      >
+        <RemixIcon
+          name={assetRetrying ? "loader-4-line" : "error-warning-line"}
+          size={12}
+          className={assetRetrying ? "animate-spin motion-reduce:animate-none shrink-0" : "shrink-0"}
+        />
+        <span className="truncate">
+          {assetRetrying
+            ? t("Retrying…")
+            : assetFailed.length === 1
+              ? t("1 asset failed · Retry")
+              : t("{count} assets failed · Retry", { count: assetFailed.length })}
+        </span>
+      </Button>
+    </Tooltip>
+  ) : isBuffering ? (
+    <span
+      className="motion-player-buffering"
+      data-testid="player-buffering-indicator"
+      role="status"
+      aria-live="polite"
+    >
+      <RemixIcon name="loader-4-line" size={12} className="animate-spin motion-reduce:animate-none shrink-0" />
+      <span>{t("Buffering…")}</span>
+    </span>
+  ) : null;
 
   useEffect(() => {
     if (!timeDisplayRef.current) return;
@@ -204,7 +253,7 @@ export const PlayerControls = memo(function PlayerControls({
       >
         {mvp ? <div className="flex min-w-0 items-center gap-2">{reviewControls}<span className="min-w-0 justify-self-start whitespace-nowrap font-mono text-[11px] tabular-nums text-neutral-400">
           <span ref={timeDisplayRef}>{formatTime(0)}</span><span className="mx-0.5">/</span><span>{formatTime(duration)}</span>
-        </span></div> : <Tooltip
+        </span>{statusPill}</div> : <div className="flex min-w-0 items-center gap-2 justify-self-start"><Tooltip
           label={timeDisplayMode === "time" ? t("Switch to frame display") : t("Switch to time display")}
         >
           <Button variant="plain"
@@ -221,9 +270,9 @@ export const PlayerControls = memo(function PlayerControls({
               </>
             ) : null}
           </Button>
-        </Tooltip>}
+        </Tooltip>{statusPill}</div>}
 
-        <Tooltip label={isPlaying ? t("Pause") : t("Play")}>
+        <Tooltip label={isBuffering ? t("Buffering…") : isPlaying ? t("Pause") : t("Play")}>
           <IconButton variant="plain"
             type="button"
             data-studio-control="playback"

@@ -2,7 +2,8 @@
 import { act, StrictMode, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TimelineElement } from "../store/playerStore";
+import { usePlayerStore, type TimelineElement } from "../store/playerStore";
+import { thumbnailScheduler } from "../lib/thumbnailScheduler";
 import { ClipContextMenu } from "./ClipContextMenu";
 import type { TimelineClipMenuItem } from "./TimelineTypes";
 import { TimelineEditProvider } from "../../contexts/TimelineEditContext";
@@ -288,5 +289,50 @@ describe("ClipContextMenu row fill", () => {
     expect(menu.className).not.toMatch(spacing);
     for (const group of menu.querySelectorAll<HTMLElement>("[role=group]"))
       expect(group.className).not.toMatch(spacing);
+  });
+});
+
+describe("ClipContextMenu composition thumbnail refresh", () => {
+  it("exposes Refresh thumbnail for composition clips and triggers scheduler retry + revision bump", () => {
+    const compElement = {
+      id: "scene-1",
+      tag: "div",
+      compositionSrc: "./compositions/intro.html",
+      start: 0,
+      duration: 4,
+      track: 0,
+    } as unknown as TimelineElement;
+    usePlayerStore.setState({ timelineProjectId: "proj-thumb", thumbnailRevisions: {} });
+    const retrySpy = vi.spyOn(thumbnailScheduler, "retryFailed");
+    const onClose = vi.fn();
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      act(() =>
+        root.render(
+          <ClipContextMenu
+            x={10}
+            y={10}
+            element={compElement}
+            currentTime={1}
+            onClose={onClose}
+            onSplit={vi.fn()}
+            onDelete={vi.fn()}
+          />,
+        ),
+      );
+      const refreshBtn = Array.from(document.body.querySelectorAll<HTMLButtonElement>("[role=menuitem]")).find(
+        (btn) => btn.textContent?.includes("Refresh thumbnail"),
+      );
+      expect(refreshBtn).toBeDefined();
+      act(() => refreshBtn!.click());
+      expect(retrySpy).toHaveBeenCalledWith("proj-thumb", "compositions/intro.html");
+      expect(usePlayerStore.getState().thumbnailRevisions["compositions/intro.html"]).toBe(1);
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      retrySpy.mockRestore();
+      act(() => root.unmount());
+      host.remove();
+    }
   });
 });

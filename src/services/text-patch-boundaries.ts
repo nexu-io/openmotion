@@ -5,7 +5,7 @@ import { CloudError } from '../contracts/errors.ts';
 import type { DbExecutor } from '../db/client.ts';
 import { textBoundaryBlocks } from '../db/schema/text-boundaries.ts';
 import { catalogBlobKey, workspaceBlobKey } from '../infra/storage.ts';
-import { loadTextRevisionChain } from '../infra/text-revisions.ts';
+import { planTextRevision, readTextPatches } from '../infra/text-revisions.ts';
 
 import { BLOCK_BYTES, MAX_TEXT_BYTES, prepareFullBaseline } from '../infra/text-snapshot-boundaries.ts';
 
@@ -55,11 +55,11 @@ export async function validateTextPatch(db: DbExecutor, input: ValidationInput):
   let scope: 'catalog' | 'workspace' = base.blobScope === 'catalog' ? 'catalog' : 'workspace';
   if (base.blobScope === 'patch') {
     if (points.length === 0) return newSize;
-    const chain = await loadTextRevisionChain(db, workspaceId, hash);
-    for (let i = chain.changes.length - 1; i >= 0 && points.length; i--) {
-      points = mapPatchBoundariesToParent(points, chain.changes[i].patch);
+    const chain = await planTextRevision(db, workspaceId, hash);
+    for await (const { patch } of readTextPatches(db, workspaceId, chain.patches.reverse())) {
+      points = mapPatchBoundariesToParent(points, patch);
+      if (!points.length) return newSize;
     }
-    if (!points.length) return newSize;
     hash = chain.base.sha256!;
     scope = chain.base.scope === 'catalog' ? 'catalog' : 'workspace';
   }

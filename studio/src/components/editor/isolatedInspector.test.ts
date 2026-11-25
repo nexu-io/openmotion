@@ -7,13 +7,16 @@ import { inspectIsolatedElement } from "./isolatedInspector";
 import { planIsolatedLayerReorder } from "./isolatedLayerReorder";
 
 const sha256 = "b".repeat(64);
-function inspect(html: string, lookup: {elementId: string; sourceFile?: string}, sourceVersion = sha256) {
+function mountInspector(html: string, sourceVersion: string, post = vi.fn()) {
   document.body.innerHTML = html;
-  const request = new Function("sourceFileForElement","describe","sourceVersions","picked","inlineVariableOwner",
-    PREVIEW_SOURCE_IDENTITY + PREVIEW_INSPECTOR + "\nreturn inspectPreviewElement;")(
+  return new Function("sourceFileForElement","describe","sourceVersions","picked","inlineVariableOwner","post",
+    PREVIEW_SOURCE_IDENTITY + PREVIEW_INSPECTOR + "\nreturn {request: inspectPreviewElement, notify: notifyInspectorSourceReady};")(
       (el: HTMLElement) => el.closest("[data-file]")?.getAttribute("data-file") || "index.html",
-      (el: HTMLElement) => ({ sourceFile: "index.html", elementId: el.id, geometry: { x: 1, y: 2, width: 4, height: 5 }}),
-      { "index.html": sourceVersion }, null, () => null);
+      (el: HTMLElement) => ({ sourceFile: "index.html", elementId: el.id, geometry: { x: 1, y: 2, width: 4, height: 5 }, viewport: { width: 100, height: 50 } }),
+      { "index.html": sourceVersion }, null, () => null, post);
+}
+function inspect(html: string, lookup: {elementId: string; sourceFile?: string}, sourceVersion = sha256) {
+  const {request} = mountInspector(html, sourceVersion);
   const adapter = { request: vi.fn(async (_command, payload) => request(payload)) } as unknown as PreviewAdapter;
   return inspectIsolatedElement(adapter, lookup, false);
 }
@@ -31,6 +34,7 @@ it("keeps untransformed layout offsets for grouping, separately from the display
     const selection = await inspect('<div id="t"></div>', { elementId: "t" });
     expect(selection?.boundingBox).toEqual({ x: 1, y: 2, width: 4, height: 5 });
     expect(selection?.isolatedLayoutBox).toEqual({ x: 15, y: 30, width: 100, height: 50 });
+    expect(selection?.isolatedBounds).toEqual({ x: 0.01, y: 0.04, width: 0.04, height: 0.1 });
   } finally {
     for (const mock of mocks) mock.mockRestore();
   }
@@ -66,6 +70,18 @@ it("distinguishes a mounted target awaiting its saved version from a removed tar
   expect(await inspect('<p id="other">Other</p>', target)).toBeNull();
 });
 
+it("wakes the host once only when a requested source becomes readable", () => {
+  const post = vi.fn();
+  const {request, notify} = mountInspector('<h1 id="title">Title</h1>', "", post);
+  notify("index.html");
+  expect(request({elementId: "title"})).toBeUndefined();
+  notify("another.html");
+  expect(post).not.toHaveBeenCalled();
+  notify("index.html");
+  notify("index.html");
+  expect(post.mock.calls).toEqual([["inspect-element", { sourceReady: "index.html" }]]);
+});
+
 it("accepts a preview produced from a patch revision without a content digest", async () => {
   const version = '"patch:' + 'c'.repeat(64) + '"';
   const selection = await inspect('<h1 id="p">Title</h1>', {elementId:"p"}, version);
@@ -95,4 +111,9 @@ it("computes layer drag patches with the native z resolver and refuses a locked 
   expect(planIsolatedLayerReorder(family, ["other-parent","a"], 1, 0)).toBeNull();
   family[0].locked = true;
   expect(planIsolatedLayerReorder(family, ["c","b","a"], 2, 0)).toBeNull();
+});
+
+it("returns the timed clip owning a selected descendant", async () => {
+  const selected = await inspect('<main><div id="card" data-hf-id="hf-card" class="clip"><span id="title">Name</span></div></main>', { elementId: "title" });
+  expect(selected?.isolatedClipOwner).toEqual({ id: "card", hfId: "hf-card", sourceFile: "index.html" });
 });

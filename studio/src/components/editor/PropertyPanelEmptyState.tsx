@@ -4,6 +4,7 @@ import { PanelEmptyState } from "../ui/PanelEmptyState";
 import { useEmptyPreview } from "../nle/useEmptyPreview";
 import { useStudioShellContextOptional } from "../../contexts/StudioContext";
 import { RemixIcon } from "../../icons/RemixIcons";
+import { STUDIO_FLAT_INSPECTOR_ENABLED } from "./manualEditingAvailability";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
 import { Eye, Layers } from "../../icons/SystemIcons";
@@ -164,14 +165,14 @@ function FlatMultiSelectState({
 }
 
 export function PropertyPanelEmptyState({
-  multiSelectCount,
+  multiSelectCount = 0,
   flat,
   multiSelectedElements,
   onGroupSelection,
   onHideAllSelected,
   onClearSelection,
 }: {
-  multiSelectCount: number;
+  multiSelectCount?: number;
   flat?: boolean;
   multiSelectedElements?: DomEditSelection[];
   onGroupSelection?: () => void;
@@ -179,7 +180,8 @@ export function PropertyPanelEmptyState({
   onClearSelection?: () => void;
 }) {
   const { t } = useI18n();
-  if (flat) {
+  const mvp = useMvpEditor();
+  if (flat ?? (mvp || STUDIO_FLAT_INSPECTOR_ENABLED)) {
     return multiSelectCount > 1 ? (
       <FlatMultiSelectState
         multiSelectCount={multiSelectCount}

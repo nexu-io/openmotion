@@ -16,13 +16,13 @@ export const templatePrompts: Record<string, string> = {
 };
 
 /** Shared creation brief; source capabilities are resolved after the user submits it. */
-export function formatTemplatePrompt(template: { id: string; title: string }, locale = 'zh-CN'): string {
+export function formatTemplatePrompt(template: { id: string; title: string }, locale = 'zh-CN', installUrl = 'https://github.com/nexu-io/openmotion'): string {
   const message = templatePrompts[catalogLocale(Object.keys(templatePrompts), locale, 'en')];
-  return fillTemplatePrompt(message, template);
+  return fillTemplatePrompt(message, template, installUrl);
 }
 
-function fillTemplatePrompt(message: string, template: { id: string; title: string }): string {
-  const values = { installUrl: 'https://github.com/nexu-io/openmotion', name: template.title, id: template.id };
+function fillTemplatePrompt(message: string, template: { id: string; title: string }, installUrl = 'https://github.com/nexu-io/openmotion'): string {
+  const values = { installUrl, name: template.title, id: template.id };
   return message.replace(/\{(installUrl|name|id)\}/g, (_, key: keyof typeof values) => values[key]);
 }
 
@@ -74,10 +74,10 @@ const handoffBriefs: Record<string, { editable: string; reference: string; requi
   },
 };
 
-export function formatLocalizedTemplateHandoff(template: { id: string; title: string }, editable: boolean, locale: string): string | undefined {
+export function formatLocalizedTemplateHandoff(template: { id: string; title: string }, editable: boolean, locale: string, installUrl = 'https://github.com/nexu-io/openmotion'): string | undefined {
   const language = catalogLocale(Object.keys(templatePrompts), locale, 'en');
   const brief = handoffBriefs[language];
   if (!brief) return undefined;
   const [connection, selection, , requirements] = templatePrompts[language].split('\n');
-  return fillTemplatePrompt([connection, selection, editable ? brief.editable : brief.reference, brief.requirements, requirements, ''].join('\n'), template);
+  return fillTemplatePrompt([connection, selection, editable ? brief.editable : brief.reference, brief.requirements, requirements, ''].join('\n'), template, installUrl);
 }

@@ -146,12 +146,15 @@ describe("useSetElementsAttribute", () => {
     act(() => root.unmount());
   });
 
-  it("leaves live media unchanged when the mute save fails", async () => {
+  it("previews a clip mute immediately and restores it when the save fails", async () => {
     vi.mocked(saveProjectFilesWithHistory).mockRejectedValueOnce(new Error("Save failed"));
     const iframe = document.createElement("iframe");
     document.body.append(iframe);
     iframe.contentDocument!.body.innerHTML = '<audio id="a"></audio>';
-    const postMessage = vi.spyOn(iframe.contentWindow!, "postMessage");
+    const mutedStates: boolean[] = [];
+    vi.spyOn(iframe.contentWindow!, "postMessage").mockImplementation(() => {
+      mutedStates.push(iframe.contentDocument!.getElementById("a")!.hasAttribute("muted"));
+    });
     const showToast = vi.fn();
     let write: ReturnType<typeof useSetElementsAttribute> | null = null;
     function Probe() {
@@ -170,7 +173,7 @@ describe("useSetElementsAttribute", () => {
     act(() => root.render(createElement(Probe)));
     await write?.([{ element: clip("a"), value: "true" }], "muted", "Mute audio");
     expect(iframe.contentDocument!.getElementById("a")!.hasAttribute("muted")).toBe(false);
-    expect(postMessage).not.toHaveBeenCalled();
+    expect(mutedStates).toEqual([true, false]);
     expect(showToast).toHaveBeenCalledWith("Save failed", "error");
     act(() => root.unmount());
   });

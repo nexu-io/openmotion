@@ -83,6 +83,7 @@ export function McpDeveloperDrawer({
   const brandKit = useCloudFeatureEnabled('brandKit');
   const asr = useCloudFeatureEnabled('asr');
   const visibleExamples = [...mcpCapabilities, ...mcpScenarios].filter(({ id }) => {
+    if (id === 'timeline-hover' || id === 'fullscreen') return false;
     if (!designStudio && id.startsWith('design-')) return false;
     if (!workflows && id.startsWith('scenario-')) return false;
     if (!reviewComments && id === 'review-comments') return false;
@@ -178,7 +179,9 @@ export function McpDeveloperDrawer({
                       {t(
                         tool.name === 'openmotion_assets'
                           ? 'Compatibility name for the original nine asset actions. Use openmotion_assets_use to read media content.'
-                          : mcpCapabilities.find(item => (item.tools as readonly string[]).includes(tool.name))?.description || tool.description,
+                          : visibleExamples.find(item => (item.tools as readonly string[]).includes(tool.name) && item.tools.length === 1)?.description
+                            || tool.description.split(/(?<=[.!?])\s+|\n/)[0]
+                            || tool.description,
                       )}
                     </span>
                   </div>
@@ -227,7 +230,7 @@ export function McpDeveloperDrawer({
                   <Button
                     variant="plain"
                     className="om-text-link"
-                    disabled={!supported || (item.id === 'review-comments' && !info)}
+                    disabled={item.id === 'review-comments' && !info}
                     onClick={() => void onCopyCapability(item)}
                   >
                     {t('Copy an example')}

@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SHADOW_READY_BUDGETS, SHADOW_READY_TIMEOUT_MS } from "./useShadowPreviewReload";
 import { refusedPreviewMessage } from "@hyperframes/core/studio-preview-mark";
 import { usePlayerStore } from "../store/playerStore";
+import { rememberBridgeTimelineState } from "../lib/playbackAdapter";
+import { PREVIEW_BRIDGE_SOURCE, PREVIEW_BRIDGE_VERSION } from "../lib/previewAdapter";
 import { isPreviewChanging } from "../previewReloading";
 import { studioWriteHeaders } from "../../utils/studioFileVersion";
 import { NLEProvider, useNLEContext, type NLEContextValue } from "../../components/nle/NLEContext";
@@ -1209,7 +1211,7 @@ describe("useTimelinePlayer scene swap", () => {
     expect(shadow.adapter.isPlaying()).toBe(true);
   });
 
-  it("disposes the retired isolated bridge adapter and its window message listener on shadow promotion", () => {
+  it("disposes the retired isolated bridge adapter and its window message listener on shadow promotion", async () => {
     const meta = document.createElement("meta");
     meta.name = "openmotion-preview-origin";
     meta.content = "https://preview.test";
@@ -1224,7 +1226,28 @@ describe("useTimelinePlayer scene swap", () => {
       vi.spyOn(iframe, "getAttribute").mockReturnValue(
         `https://preview.test/api/projects/p1/preview?pt=${token}`,
       );
-      const fakeWin = { postMessage: vi.fn() } as unknown as Window;
+      const fakeWin = {
+        postMessage: vi.fn((data: Record<string, unknown>) => {
+          if (data?.type === "playback-control" && typeof data.requestId === "string") {
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                origin: "https://preview.test",
+                source: fakeWin,
+                data: {
+                  source: "openmotion-preview-bridge",
+                  version: 1,
+                  type: "response",
+                  projectId: "p1",
+                  token,
+                  requestId: data.requestId,
+                  ok: true,
+                  result: { duration: 12, currentTime: Number(data.time) || 0, isPlaying: false },
+                },
+              }),
+            );
+          }
+        }),
+      } as unknown as Window;
       Object.defineProperty(iframe, "contentWindow", { configurable: true, value: fakeWin });
       return { iframe, fakeWin };
     };
@@ -1242,7 +1265,7 @@ describe("useTimelinePlayer scene swap", () => {
       act(() => harness.getApi().refreshPlayer());
       const gen = harness.getApi().previewSlots.find((s) => s.role === "shadow")!.gen;
       const shadow = makeIsolatedFrame("tok-shadow");
-      act(() => {
+      await act(async () => {
         harness.getApi().setShadowIframeNode(shadow.iframe);
         harness.getApi().onShadowIframeLoad(gen);
         window.dispatchEvent(
@@ -1261,11 +1284,13 @@ describe("useTimelinePlayer scene swap", () => {
             },
           }),
         );
+        await Promise.resolve();
       });
 
       const removedBeforePromote = removeSpy.mock.calls.filter(([type]) => type === "message").length;
-      act(() => {
+      await act(async () => {
         harness.getApi().onShadowReadyChange(gen, true);
+        await Promise.resolve();
       });
       const removedAfterPromote = removeSpy.mock.calls.filter(([type]) => type === "message").length;
       // Promotion must dispose the retired live iframe's bridge adapter and remove its window message listener.
@@ -1275,5 +1300,197 @@ describe("useTimelinePlayer scene swap", () => {
       unmount(harness.root);
       meta.remove();
     }
+  });
+});
+
+describe("isolated cross-origin bridge shadow reload", () => {
+  function makeIsolatedIframe(token: string, origin = "https://preview.test") {
+    const posted: Array<{ data: Record<string, unknown>; targetOrigin: string }> = [];
+    const contentWindow = {
+      postMessage: vi.fn((data: Record<string, unknown>, targetOrigin: string) => {
+        posted.push({ data, targetOrigin });
+      }),
+    } as unknown as Window;
+    const iframe = document.createElement("iframe");
+    const src = `${origin}/api/projects/demo/preview?pt=${token}`;
+    iframe.setAttribute("src", src);
+    Object.defineProperty(iframe, "src", { value: src, configurable: true });
+    Object.defineProperty(iframe, "contentWindow", { value: contentWindow, configurable: true });
+    Object.defineProperty(iframe, "contentDocument", { value: null, configurable: true });
+    document.body.appendChild(iframe);
+
+    const respond = (requestId: string, result: Record<string, unknown>) => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin,
+          source: contentWindow,
+          data: {
+            source: PREVIEW_BRIDGE_SOURCE,
+            version: PREVIEW_BRIDGE_VERSION,
+            type: "response",
+            projectId: "demo",
+            token,
+            requestId,
+            ok: true,
+            result,
+          },
+        }),
+      );
+    };
+
+    const emitState = (state: { currentTime: number; duration: number; isPlaying?: boolean }) => {
+      rememberBridgeTimelineState(iframe, token, state);
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin,
+          source: contentWindow,
+          data: {
+            source: PREVIEW_BRIDGE_SOURCE,
+            version: PREVIEW_BRIDGE_VERSION,
+            type: "timeline-state",
+            projectId: "demo",
+            token,
+            ...state,
+          },
+        }),
+      );
+    };
+
+    return { iframe, posted, respond, emitState };
+  }
+
+  it("waits for bridge seek-and-paint before promoting and avoids a redundant post-promotion seek", async () => {
+    const { getApi, root } = renderTimelinePlayerHarness();
+    const live = makeIsolatedIframe("live-tok");
+    live.emitState({ currentTime: 0, duration: 30, isPlaying: false });
+    act(() => {
+      getApi().iframeRef.current = live.iframe;
+      getApi().onIframeLoad();
+    });
+    act(() => {
+      getApi().seek(12.5);
+    });
+    act(() => {
+      getApi().refreshPlayer();
+    });
+
+    const shadowSlot = getApi().previewSlots.find((s) => s.role === "shadow")!;
+    const shadow = makeIsolatedIframe("shadow-tok");
+    // IsolatedPlayer records the first timeline-state before calling onLoad().
+    rememberBridgeTimelineState(shadow.iframe, "shadow-tok", {
+      currentTime: 0,
+      duration: 30,
+      isPlaying: false,
+    });
+    act(() => {
+      getApi().setShadowIframeNode(shadow.iframe);
+      getApi().onShadowIframeLoad(shadowSlot.gen);
+      getApi().onShadowReadyChange(shadowSlot.gen, true);
+    });
+
+    // Must settle immediately from cached first timeline-state and issue one awaited seek.
+    const seekRequests = shadow.posted.filter(
+      (entry) => entry.data.type === "playback-control" && entry.data.action === "seek",
+    );
+    expect(seekRequests).toHaveLength(1);
+    expect(seekRequests[0]!.data).toMatchObject({
+      action: "seek",
+      time: 12.5,
+      reseek: true,
+      waitForPaint: true,
+    });
+    // Live iframe MUST stay visible until the shadow bridge confirms seek + paint.
+    expect(getApi().iframeRef.current).toBe(live.iframe);
+    expect(getApi().previewSlots).toHaveLength(2);
+
+    await act(async () => {
+      shadow.respond(String(seekRequests[0]!.data.requestId), {
+        currentTime: 12.5,
+        duration: 30,
+        isPlaying: false,
+      });
+      await Promise.resolve();
+    });
+
+    expect(getApi().iframeRef.current).toBe(shadow.iframe);
+    expect(getApi().previewSlots).toEqual([{ ...shadowSlot, role: "live" }]);
+    expect(usePlayerStore.getState().currentTime).toBe(12.5);
+    // No duplicate fire-and-forget seek after promotion when already painted at liveTime.
+    const afterSeeks = shadow.posted.filter(
+      (entry) => entry.data.type === "playback-control" && entry.data.action === "seek",
+    );
+    expect(afterSeeks).toHaveLength(1);
+    unmount(root);
+  });
+
+  it("paints a catch-up seek before promoting when the user scrubbed while the shadow was loading", async () => {
+    const { getApi, root } = renderTimelinePlayerHarness();
+    const live = makeIsolatedIframe("live-tok-2");
+    live.emitState({ currentTime: 0, duration: 30, isPlaying: false });
+    act(() => {
+      getApi().iframeRef.current = live.iframe;
+      getApi().onIframeLoad();
+    });
+    act(() => {
+      getApi().seek(5);
+    });
+    act(() => {
+      getApi().refreshPlayer();
+    });
+
+    const shadowSlot = getApi().previewSlots.find((s) => s.role === "shadow")!;
+    const shadow = makeIsolatedIframe("shadow-tok-2");
+    rememberBridgeTimelineState(shadow.iframe, "shadow-tok-2", {
+      currentTime: 0,
+      duration: 30,
+      isPlaying: false,
+    });
+    act(() => {
+      getApi().setShadowIframeNode(shadow.iframe);
+      getApi().onShadowIframeLoad(shadowSlot.gen);
+      getApi().onShadowReadyChange(shadowSlot.gen, true);
+    });
+
+    // User scrubs the still-visible live preview to 18s while the shadow is painting 5s.
+    act(() => {
+      getApi().seek(18);
+    });
+
+    const firstSeek = shadow.posted.find(
+      (entry) => entry.data.type === "playback-control" && entry.data.action === "seek",
+    )!;
+    await act(async () => {
+      shadow.respond(String(firstSeek.data.requestId), {
+        currentTime: 5,
+        duration: 30,
+        isPlaying: false,
+      });
+      await Promise.resolve();
+    });
+
+    // Must still keep live iframe visible while catching up shadow to 18s.
+    expect(getApi().iframeRef.current).toBe(live.iframe);
+    const seeks = shadow.posted.filter(
+      (entry) => entry.data.type === "playback-control" && entry.data.action === "seek",
+    );
+    expect(seeks).toHaveLength(2);
+    expect(seeks[1]!.data).toMatchObject({
+      action: "seek",
+      time: 18,
+      waitForPaint: true,
+    });
+
+    await act(async () => {
+      shadow.respond(String(seeks[1]!.data.requestId), {
+        currentTime: 18,
+        duration: 30,
+        isPlaying: false,
+      });
+      await Promise.resolve();
+    });
+
+    expect(getApi().iframeRef.current).toBe(shadow.iframe);
+    expect(usePlayerStore.getState().currentTime).toBe(18);
+    unmount(root);
   });
 });

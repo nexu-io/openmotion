@@ -194,7 +194,7 @@ jobs:
           platforms: linux/amd64
           push: true
           cache-from: type=gha,scope=openmotion-${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=openmotion-${{ matrix.target }}
+          cache-to: type=gha,mode=max,ignore-error=true,scope=openmotion-${{ matrix.target }}
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}

@@ -26,12 +26,12 @@ export function TimelineTrackControls({ elements, track, number, label, hidden, 
   const running = useRef(false);
   const locked = elements.some(el => el.timelineLocked);
   const disabled = busy || !!readOnly || !!shell?.writeBlockedReason || !!shell?.renderQueue?.isRendering;
-  const run = async (action: () => Promise<unknown> | unknown) => {
+  const run = async (action: () => Promise<unknown> | unknown, exclusive = false) => {
     if (disabled || running.current) return;
-    running.current = true; setBusy(true);
+    if (exclusive) { running.current = true; setBusy(true); }
     try { await action(); }
     catch (error) { shell?.showToast(error instanceof Error ? error.message : 'Changes could not be saved.', 'error'); }
-    finally { running.current = false; setBusy(false); }
+    finally { if (exclusive) { running.current = false; setBusy(false); } }
   };
   const kind = identity?.kind || trackKind(elements), code = identity?.code || `${kind}${number || 1}`;
   const name = t('Track {number}' , { number: number ?? '' });
@@ -50,6 +50,6 @@ export function TimelineTrackControls({ elements, track, number, label, hidden, 
       onUnhide={() => { void toggleHidden?.(track, false, number); }} />
     {children}
     <Tooltip label={t('Delete track')} wrap><IconButton variant="plain" type="button" aria-label={`${t('Delete track')} · ${name}`}
-      disabled={disabled || locked || !edits.onDeleteTrack} onClick={() => void run(() => edits.onDeleteTrack?.(track))} icon={<RemixIcon name="delete-bin-line" size={16} />} /></Tooltip>
+      disabled={disabled || locked || !edits.onDeleteTrack} onClick={() => void run(() => edits.onDeleteTrack?.(track), true)} icon={<RemixIcon name="delete-bin-line" size={16} />} /></Tooltip>
   </div>;
 }

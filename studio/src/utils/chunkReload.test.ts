@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { warmModule } from './chunkLoadRecovery';
 import { describe, expect, it, vi } from 'vitest';
 import { attemptChunkReload, bindVitePreloadErrorReload, isChunkLoadError } from './chunkReload';
 
@@ -42,6 +43,28 @@ describe('chunkReload', () => {
     clock += 20_000;
     expect(attemptChunkReload({ href: urlB, now: () => clock, storage, reload })).toBe(true);
     expect(reload).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps a failed speculative import from refreshing the editor, while a simultaneous required failure still recovers', async () => {
+    vi.useFakeTimers();
+    const reload = vi.fn();
+    const dispose = bindVitePreloadErrorReload(window, { storage: memoryStorage(), reload });
+    const raise = (error: Error) => window.dispatchEvent(Object.assign(new Event('vite:preloadError'), { payload: error }));
+    try {
+      await warmModule(async () => {
+        const error = new Error('failed optional download');
+        raise(error);
+        throw error;
+      });
+      await vi.runAllTimersAsync();
+      expect(reload).not.toHaveBeenCalled();
+      await warmModule(async () => { raise(new Error('failed required download')); });
+      await vi.runAllTimersAsync();
+      expect(reload).toHaveBeenCalledOnce();
+    } finally {
+      dispose();
+      vi.useRealTimers();
+    }
   });
 
   it('handles vite:preloadError by preventing default and reloading once', () => {

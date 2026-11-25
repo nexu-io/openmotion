@@ -2,11 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import type { AuthContext } from '../../contracts/auth.ts';
 import { CloudError, featureDeferredP2 } from '../../contracts/errors.ts';
 import type { JobProgressEvent } from '../../contracts/events.ts';
 import type { VideoSpriteManifest } from '../../contracts/storage.ts';
 import { asInsert, asUpdate } from '../../db/helpers.ts';
 import { jobs } from '../../db/schema/jobs.ts';
+import { projectTextRevisions } from '../../db/schema/project-files.ts';
+import { requestTextCheckpoint } from '../../services/text-checkpoints.ts';
 import {
   buildImageThumbnailJobId,
   buildMediaProbeJobId,
@@ -68,17 +71,29 @@ function parseIntRange(raw: string | undefined, min: number, max: number, fallba
 export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variables: StudioVariables }> {
   const app = new Hono<{ Variables: StudioVariables }>();
   // Media jobs derive keys from a physical content digest.
-  async function resolveMediaFile(workspaceId: string, file: Awaited<ReturnType<typeof deps.files.getFile>>) {
+  async function resolveMediaFile(workspaceId: string, file: Awaited<ReturnType<typeof deps.files.getFile>>,
+    read?: Context<{ Variables: StudioVariables }>, cacheMiss?: 204 | 404) {
     if (!file) return null;
     if (file.blobScope !== 'patch') return { ...file, blobScope: file.blobScope };
     if (!isProbeableMediaAsset(file.mimeType, file.path)) return null;
+    if (read) {
+      const [revision] = await deps.db.select({ sha: projectTextRevisions.checkpointSha }).from(projectTextRevisions)
+        .where(and(eq(projectTextRevisions.workspaceId, workspaceId), eq(projectTextRevisions.id, file.sha256)));
+      if (!revision) return null;
+      if (revision.sha) return { ...file, sha256: revision.sha, blobScope: 'workspace' as const };
+      read.header('Cache-Control', 'no-store');
+      if (cacheMiss || read.req.method === 'HEAD') return read.body(null, cacheMiss ?? 404);
+      await requestTextCheckpoint(deps.db, workspaceId, file.sha256);
+      read.header('Retry-After', '5');
+      return read.json({ pending: true, path: file.path, sha256: null, version: formatFileVersion('patch', file.sha256) }, 202);
+    }
+    // An explicit processing job needs a physical source before it can be submitted.
     if (!deps.storage.ensureTextCheckpoint) throw new CloudError('STORAGE_ERROR', 'Text revision store unavailable.', { status: 503 });
-    const sha256 = await deps.storage.ensureTextCheckpoint(workspaceId, file.sha256);
-    return { ...file, sha256, blobScope: 'workspace' as const };
+    return { ...file, sha256: await deps.storage.ensureTextCheckpoint(workspaceId, file.sha256), blobScope: 'workspace' as const };
   }
 
-  async function getMediaFile(...args: Parameters<typeof deps.files.getFile>) {
-    return resolveMediaFile(args[0].workspaceId, await deps.files.getFile(...args));
+  async function readMediaFile(c: Context<{ Variables: StudioVariables }>, auth: AuthContext, projectId: string, path: string, cacheMiss?: 204 | 404) {
+    return resolveMediaFile(auth.workspaceId, await deps.files.getFile(auth, projectId, path), c, cacheMiss);
   }
 
   // GET /api/projects/:id/media/metadata?path=... — Serve cached ffprobe/Sharp metadata from PG (zero ffprobe on web pod).
@@ -115,7 +130,9 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
       });
     }
 
-    const file = (await resolveMediaFile(auth.workspaceId, source))!;
+    const file = await resolveMediaFile(auth.workspaceId, source, c);
+    if (file instanceof Response) return file;
+    if (!file) return c.json({ error: 'Media file not found', path: safePath }, 404);
     if (file.metadata) {
       return c.json({
         path: file.path,
@@ -174,7 +191,8 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
     const projectId = c.req.param('id') ?? '';
     const rawPath = extractWildcardPath(c.req.url, marker);
     const safePath = normalizeSafeProjectPath(rawPath);
-    const file = await getMediaFile(auth, projectId, safePath);
+    const file = await readMediaFile(c, auth, projectId, safePath);
+    if (file instanceof Response) return file;
     if (!file) return c.json({ error: 'Media file not found', path: safePath }, 404);
 
     if (file.metadata?.hasAudio === false) {
@@ -209,20 +227,24 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
       return c.body(buf.toString('utf8'), 200);
     }
 
-    if (deps.queues) {
-      void deps.queues
-        .enqueueMediaIngest(
-          'extract_waveform_peaks',
-          {
-            workspaceId: auth.workspaceId,
-            blobScope: file.blobScope,
-            sha256: file.sha256,
-            projectId,
-            samples,
-          },
-          { jobId: buildWaveformPeaksJobId(auth.workspaceId, file.sha256) },
-        )
-        .catch(() => {});
+    if (!deps.queues) {
+      return c.json({ error: 'Waveform extraction unavailable', path: safePath }, 503);
+    }
+
+    try {
+      await deps.queues.enqueueMediaIngest(
+        'extract_waveform_peaks',
+        {
+          workspaceId: auth.workspaceId,
+          blobScope: file.blobScope,
+          sha256: file.sha256,
+          projectId,
+          samples,
+        },
+        { jobId: buildWaveformPeaksJobId(auth.workspaceId, file.sha256) },
+      );
+    } catch {
+      return c.json({ error: 'Waveform extraction unavailable', path: safePath }, 503);
     }
 
     return c.json({ pending: true, path: safePath, sha256: file.sha256 }, 202);
@@ -237,7 +259,8 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
     const projectId = c.req.param('id') ?? '';
     const rawPath = extractWildcardPath(c.req.url, '/sprite/');
     const safePath = normalizeSafeProjectPath(rawPath);
-    const file = await getMediaFile(auth, projectId, safePath);
+    const file = await readMediaFile(c, auth, projectId, safePath);
+    if (file instanceof Response) return file;
     if (!file) return c.json({ error: 'Media file not found', path: safePath }, 404);
 
     if (file.metadata?.sprite?.status === 'failed') {
@@ -308,7 +331,8 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
     const marker = `/sprite-sheet/${sheetIndexRaw}/`;
     const rawPath = extractWildcardPath(c.req.url, marker);
     const safePath = normalizeSafeProjectPath(rawPath);
-    const file = await getMediaFile(auth, projectId, safePath);
+    const file = await readMediaFile(c, auth, projectId, safePath, 404);
+    if (file instanceof Response) return file;
     if (!file) {
       return c.req.method === 'HEAD' ? c.body(null, 404) : c.json({ error: 'Media file not found', path: safePath }, 404);
     }
@@ -350,7 +374,8 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
     const projectId = c.req.param('id');
     const rawPath = extractWildcardPath(c.req.url, '/image-thumbnail/');
     const safePath = normalizeSafeProjectPath(rawPath);
-    const file = await getMediaFile(auth, projectId, safePath);
+    const file = await readMediaFile(c, auth, projectId, safePath, c.req.query('cached') === '1' ? 204 : undefined);
+    if (file instanceof Response) return file;
     if (!file) {
       return c.req.method === 'HEAD'
         ? c.body(null, 404)
@@ -497,7 +522,8 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
         applied: false,
       });
     }
-    const file = await getMediaFile(auth, projectId, sourcePath);
+    const file = await resolveMediaFile(auth.workspaceId, await deps.files.getFile(auth, projectId, sourcePath));
+    if (file instanceof Response) return file;
     if (!file) return c.json({ error: 'Audio source file not found', path: sourcePath }, 404);
 
     const targetPath = normalizeSafeProjectPath(

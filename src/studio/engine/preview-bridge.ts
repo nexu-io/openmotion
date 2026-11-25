@@ -7,10 +7,15 @@ import { PREVIEW_TIMELINE_MANIFEST } from './preview-timeline-manifest.ts';
 import { PREVIEW_LAYERS } from './preview-layers.ts';
 import { PREVIEW_INLINE_TEXT } from './preview-inline-text.ts';
 import { PREVIEW_CANVAS_DRAG } from './preview-canvas-drag.ts';
+import { PREVIEW_TIMELINE_CONTROLS } from './preview-timeline-controls.ts';
+import { PREVIEW_PARKED_SCENE } from './preview-parked-scene.ts';
+import { PREVIEW_SCENE_GESTURES } from './preview-scene-gestures.ts';
 import { PREVIEW_PEER_TIMING } from './preview-peer-timing.ts';
 import type { PreviewLiveEdits } from '../../../shared/preview-timing.ts';
 import { PREVIEW_THUMBNAIL_CAPTURE } from './preview-thumbnail-capture.ts';
 import { PREVIEW_BROWSER_EXPORT } from './preview-browser-export.ts';
+import { canvasFrameTransform } from '../../../packages/edit-core/composition-canvas.ts';
+import { paintCanvasFraming } from '../../../shared/preview-canvas-framing.ts';
 
 function scopedScript(configuration: string, body: string): string {
   return `(function(){
@@ -53,6 +58,8 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   var settings=JSON.parse(document.currentScript.getAttribute('data-openmotion-preview'));
   var projectId=settings.projectId, compositionPath=settings.compositionPath, sourceVersions=settings.sourceVersions;`, `
   ${PREVIEW_SOURCE_IDENTITY}
+  const paintCanvasFraming = ${paintCanvasFraming.toString()};
+  const canvasFrameTransform = ${canvasFrameTransform.toString()};
   var pickMode=false, picked=null;
   var isCaptureMode=new globalThis.URL(location.href).searchParams.get('capture')==='1';
   var durationBootAnnounced=false;
@@ -65,12 +72,40 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     if(!(duration>0)) return {status:'loading',completed:0,total:0,failed:[]};
     return ensureAssetTracker(function(snapshot){ post('asset-readiness',snapshot); }).snapshot();
   }
+  function mediaTimingWindow(node){
+    var start=0, end=Infinity, chain=[], owner=node;
+    while(owner){ if(owner.hasAttribute && owner.hasAttribute('data-start')) chain.push(owner); owner=owner.parentElement; }
+    for(var i=chain.length-1;i>=0;i--){
+      start+=Number(chain[i].getAttribute('data-start'))||0;
+      var dur=Number(chain[i].getAttribute('data-duration'));
+      if(dur>0) end=Math.min(end,start+dur);
+    }
+    return {start:start,end:end};
+  }
+  function isMediaBuffering(time){
+    if(isCaptureMode) return false;
+    var nodes=document.querySelectorAll('video,audio');
+    for(var i=0;i<nodes.length;i++){
+      var node=nodes[i];
+      if(node.hasAttribute('data-hf-clip-hidden') || (node.closest && node.closest('[data-hyperframes-ignore]'))) continue;
+      if(node.error || node.networkState===3) continue;
+      if(!node.currentSrc && !node.getAttribute('src') && !(node.querySelector && node.querySelector('source[src]'))) continue;
+      var win=mediaTimingWindow(node);
+      if(time < win.start - 0.05 || time >= win.end) continue;
+      if(node.readyState < 3) return true;
+    }
+    return false;
+  }
+  var lastReportedBuffering=false;
   function timeline(includeManifest){
     var p=player();
     var currentTime=p&&typeof p.getTime==='function'?Number(p.getTime())||0:0;
     var duration=p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0;
+    var buffering=duration>0?isMediaBuffering(currentTime):false;
+    lastReportedBuffering=buffering;
     return {currentTime:currentTime,duration:duration,firstFrame:isCaptureMode?'ready':(duration>0?visualFrameStatus(currentTime):'loading'),
       assets:assetState(duration),
+      buffering:buffering,
       isPlaying:p&&typeof p.isPlaying==='function'?p.isPlaying()===true:false,
       width:window.__clipManifest&&window.__clipManifest.compositionWidth, height:window.__clipManifest&&window.__clipManifest.compositionHeight,
       fps:window.__clipManifest&&window.__clipManifest.fps,
@@ -97,11 +132,70 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   ${PREVIEW_TIMELINE_MANIFEST}
   ${PREVIEW_CANVAS_DRAG}
   ${PREVIEW_INLINE_TEXT}
+  ${PREVIEW_TIMELINE_CONTROLS}
   ${PREVIEW_PEER_TIMING}
+  ${PREVIEW_PARKED_SCENE}
+  ${PREVIEW_SCENE_GESTURES}
   ${PREVIEW_INSPECTOR}
   ${PREVIEW_INSPECTOR_STYLES}
   ${PREVIEW_LAYERS}
   ${PREVIEW_THUMBNAIL_CAPTURE}
+  function waitPaintFrames(count){
+    return new Promise(function(resolve){
+      var done=false, remaining=count||2;
+      var timer=null;
+      var finish=function(){
+        if(done) return;
+        done=true;
+        if(timer!==null && typeof clearTimeout==='function') clearTimeout(timer);
+        resolve();
+      };
+      if(typeof setTimeout==='function') timer=setTimeout(finish,250);
+      function step(){
+        if(done) return;
+        if(--remaining<=0) finish();
+        else if(typeof requestAnimationFrame==='function') requestAnimationFrame(step);
+        else finish();
+      }
+      if(typeof requestAnimationFrame==='function') requestAnimationFrame(step);
+      else finish();
+    });
+  }
+  function waitVisibleImagesAt(time){
+    if(typeof document==='undefined' || typeof document.querySelectorAll!=='function') return Promise.resolve();
+    var pending=[];
+    Array.from(document.querySelectorAll('img[src],img[srcset]')).forEach(function(node){
+      if(node.complete) return;
+      if(node.checkVisibility && !node.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return;
+      var rect=node.getBoundingClientRect&&node.getBoundingClientRect();
+      if(rect && (!rect.width || !rect.height || rect.right<=0 || rect.bottom<=0 || rect.top>=innerHeight || rect.left>=innerWidth)) return;
+      var start=0, end=Infinity, chain=[], owner=node;
+      while(owner){ if(owner.hasAttribute&&owner.hasAttribute('data-start')) chain.push(owner); owner=owner.parentElement; }
+      for(var i=chain.length-1;i>=0;i--){
+        start+=Number(chain[i].getAttribute('data-start'))||0;
+        var dur=Number(chain[i].getAttribute('data-duration'));
+        if(dur>0) end=Math.min(end,start+dur);
+      }
+      if(time<start || time>=end) return;
+      if(node.loading==='lazy') node.loading='eager';
+      if(typeof node.decode==='function') pending.push(node.decode().catch(function(){}));
+    });
+    if(!pending.length) return Promise.resolve();
+    var all=Promise.all(pending);
+    if(typeof setTimeout!=='function') return all;
+    return Promise.race([all,new Promise(function(resolve){ setTimeout(resolve,500); })]);
+  }
+  function waitSeekPainted(time){
+    var seekDone=typeof window.__hfWaitForSeekCompletion==='function'
+      ? (function(){
+          var pending=Promise.resolve().then(function(){ return window.__hfWaitForSeekCompletion(); }).catch(function(){});
+          return typeof setTimeout==='function'
+            ? Promise.race([pending,new Promise(function(resolve){ setTimeout(resolve,3000); })])
+            : pending;
+        })()
+      : Promise.resolve();
+    return seekDone.then(function(){ return waitVisibleImagesAt(time); }).then(function(){ return waitPaintFrames(2); });
+  }
   ${PREVIEW_BROWSER_EXPORT}
   function respond(requestId,result,error,transfer,explicitOrigin){
     var message=Object.assign({source:SOURCE,version:VERSION,type:'response',projectId:projectId,token:token},error?{ok:false,error:String(error)}:{ok:true,result:result});
@@ -111,7 +205,9 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     else parentWindow.postMessage(message,targetOrigin);
   }
   function ready(){
-    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:settings.liveEdits,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
+    var paths=[compositionPath].concat(settings.smallMountedSources||[]);
+    var mountedVersions=Object.fromEntries(paths.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}).filter(function(entry){return typeof entry[1]==='string';}));
+    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:Object.assign({presentation:true},settings.liveEdits),mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
     var state=timeline(true);
     if(state.duration>0){
       durationBootAnnounced=true;
@@ -136,9 +232,24 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     if(!message || message.source!==PARENT || message.version!==VERSION || message.projectId!==projectId || message.token!==token) return;
     var requestId=message.requestId;
     try {
+      if(message.type==='mounted-file-version'){
+        if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
+        const mounted = styleDocumentId && message.documentId === styleDocumentId && typeof message.path === 'string' &&
+          Object.hasOwn(sourceVersions, message.path) && sourceIdentity(sourceVersions[message.path]).fileVersion;
+        respond(requestId,mounted || null); return;
+      }
       if(message.type==='peer-timing' || message.type==='peer-presentation'){
         if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
         respond(requestId,applyPeerTiming(message)); return;
+      }
+      if(message.type==='refresh-parked-scene'){
+        if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
+        refreshParkedScene(message).then(value => respond(requestId,value), () => respond(requestId,false));
+        return;
+      }
+      if(message.type==='timeline-controls'){
+        if(settings.studioOrigin && settings.studioOrigin === event.origin) previewTimelineControls(message);
+        return;
       }
       if(message.type==='handshake'){
         if(message.timelineOnly) post('timeline-state',timeline(true));
@@ -183,13 +294,35 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
         if(!p) throw new Error('Preview player is not ready');
         if(action==='play' && typeof p.play==='function') p.play();
         else if(action==='pause' && typeof p.pause==='function') p.pause();
-        else if(action==='seek' && typeof p.seek==='function') p.seek(Math.max(0,Number(message.time)||0));
+        else if(action==='seek' && typeof p.seek==='function'){
+          var target=Math.max(0,Number(message.time)||0);
+          if(message.reseek===true) p.seek(target>0.001?Math.max(0,target-0.001):0.001);
+          p.seek(target);
+          if(message.waitForPaint===true){
+            waitSeekPainted(target).then(function(){
+              var state=timeline();
+              post('timeline-state',state);
+              respond(requestId,state);
+            },function(){
+              var state=timeline();
+              post('timeline-state',state);
+              respond(requestId,state);
+            });
+            return;
+          }
+        }
         else throw new Error('Unsupported playback action');
         post('timeline-state',timeline()); respond(requestId,timeline()); return;
       }
       if(message.type==='canvas-framing'){
         var canvas=document.querySelector('[data-composition-id]');
-        respond(requestId,canvas?{sourceFile:compositionPath,fit:canvas.getAttribute('data-canvas-fit')==='cover'?'cover':'contain'}:null); return;
+        if(message.draft){
+          if(settings.studioOrigin!==event.origin || message.path!==compositionPath) return;
+          var size=paintCanvasFraming(document,message.draft,canvasFrameTransform);
+          if(size) post('canvas-framing',size);
+          return;
+        }
+        respond(requestId,canvas?{sourceFile:compositionPath,width:Number(canvas.getAttribute('data-width')),height:Number(canvas.getAttribute('data-height')),fit:canvas.getAttribute('data-canvas-fit')==='cover'?'cover':'contain'}:null); return;
       }
       if(message.type==='inspect-element'){ respond(requestId,inspectPreviewElement(message)); return; }
       if(message.type==='inspector-styles'){
@@ -200,17 +333,27 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       if(message.type==='layer-family'){ respond(requestId,previewLayerFamily(message)); return; }
       if(message.type==='layer-select'){ respond(requestId,selectPreviewLayer(message)); return; }
       if(message.type==='inline-text'){
-        var textTarget=editInlineText(message);
-        if(message.phase==='pick') respond(requestId,textTarget);
+        var textTarget=sceneInlineText(message);
+        if(message.phase==='pick') Promise.resolve(textTarget).then(value => respond(requestId,value), () => respond(requestId,null));
         return;
       }
       if(message.type==='canvas-drag'){
-        var result=canvasDrag(message);
-        if(message.phase==='start'){
-          const hit=result?drag.element:document.elementFromPoint(message.x * innerWidth,message.y * innerHeight)?.closest('[data-hf-id],[id]');
-          if(hit && hit!==document.body && hit!==document.documentElement) reportLayerSelection(hit, result?drag.selection:describe(hit));
+        var result=sceneCanvasDrag(message);
+        if(message.phase==='move' && drag?.corner && drag.id===message.gestureId && !drag.boundsScheduled){
+          const active=drag;
+          active.boundsScheduled=true;
+          requestAnimationFrame(function(){
+            active.boundsScheduled=false;
+            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...resizeFrameBounds(active.element)});
+          });
         }
-        if(message.phase==='start' || message.phase==='finish') respond(requestId,result);
+        if(message.phase==='start'){
+          const started=drag?.id===message.gestureId ? drag : null;
+          const hit=started?.element || (!message.corner && !message.target && canvasPointHit(message.x, message.y));
+          if(hit && hit!==document.body && hit!==document.documentElement) reportLayerSelection(hit, started?.selection || describe(hit), message.additive);
+        }
+        if(message.phase==='start') respond(requestId,result);
+        if(message.phase==='finish') Promise.resolve(result).then(value => respond(requestId,value), () => respond(requestId,null));
         return;
       }
       if(message.type==='pick-mode'){
@@ -259,6 +402,21 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
     },25);
   }
+  if(!isCaptureMode){
+    var syncBufferingState=function(event){
+      var target=event&&event.target;
+      if(!target || (target.tagName!=='VIDEO' && target.tagName!=='AUDIO')) return;
+      var p=player();
+      var duration=p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0;
+      if(!(duration>0)) return;
+      var currentTime=p&&typeof p.getTime==='function'?Number(p.getTime())||0:0;
+      var next=isMediaBuffering(currentTime);
+      if(next!==lastReportedBuffering) post('timeline-state',timeline());
+    };
+    ['waiting','playing','canplay','canplaythrough','error'].forEach(function(type){
+      document.addEventListener(type,syncBufferingState,true);
+    });
+  }
   setInterval(function(){ if(document.visibilityState!=='hidden' && !(isCaptureMode && durationBootAnnounced)) post('timeline-state',timeline()); },500);
 `);
 
@@ -272,9 +430,12 @@ function htmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export function bridgeDocumentTags(origin: string, projectId: string, compositionPath: string, sourceVersions: Record<string, string>, studioOrigin?: string, canRebindTiming?: boolean, htmlSources?: string[], liveEdits?: PreviewLiveEdits) {
+export function bridgeDocumentTags(origin: string, projectId: string, compositionPath: string, sourceVersions: Record<string, string>, options: {
+  studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; liveEdits?: PreviewLiveEdits; smallMountedSources?: string[];
+} = {}) {
+  const { studioOrigin, canRebindTiming, htmlSources, liveEdits, smallMountedSources } = options;
   const src = new URL(PREVIEW_BRIDGE_ASSET, origin);
-  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, ...(canRebindTiming && { canRebindTiming }) }));
+  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, smallMountedSources, ...(canRebindTiming && { canRebindTiming }) }));
   // A pod from before this route existed may still serve an asset request
   // during rollout. Reuse the player's bounded preview retry if loading fails.
   const retry = htmlAttribute(previewBuildBusyScript(projectId, 1));

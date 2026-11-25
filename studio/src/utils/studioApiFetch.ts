@@ -8,7 +8,10 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 function studioApiCredentials(): RequestCredentials {
   if (STUDIO_API_SAME_ORIGIN_CREDENTIALS) return "same-origin";
   const host = globalThis.location?.hostname;
-  return !host || LOOPBACK_HOSTS.has(host) ? "omit" : "same-origin";
+  if (host && !LOOPBACK_HOSTS.has(host)) return "same-origin";
+  // The cloud shell also authenticates with same-origin cookies when served locally.
+  const cloudShell = globalThis.document?.head?.querySelector('meta[name="openmotion-runtime"][content="cloud-diskless"]');
+  return cloudShell ? "same-origin" : "omit";
 }
 
 export function studioApiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

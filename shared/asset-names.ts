@@ -3,6 +3,10 @@ import localizedLabels from './asset-name-ui.json' with { type: 'json' };
 export const IMAGE_EXT = /\.(?:png|jpe?g|webp|gif|svg|avif|ico)$/i;
 export const VIDEO_EXT = /\.(?:mp4|mov|webm|mkv|m4v)$/i;
 export const AUDIO_EXT = /\.(?:mp3|wav|m4a|aac|ogg|flac|aiff?)$/i;
+export function isBeatMedia(path: string, file?: { mimeType: string; isText: boolean }) {
+  return !!file && !file.isText && (/^(audio|video)\//i.test(file.mimeType) ||
+    (file.mimeType === 'application/octet-stream' && (AUDIO_EXT.test(path) || VIDEO_EXT.test(path))));
+}
 export const FONT_EXT = /\.(?:ttf|otf|ttc|woff2?|eot)$/i;
 export const MEDIA_EXT = new RegExp([IMAGE_EXT, VIDEO_EXT, AUDIO_EXT].map(pattern => pattern.source).join('|'), 'i');
 const kinds = ['Image', 'Video', 'Audio', 'Font'] as const;

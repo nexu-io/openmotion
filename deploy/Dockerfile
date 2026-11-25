@@ -80,7 +80,7 @@ COPY skills/ ./skills/
 COPY library/components/registry/ ./library/components/registry/
 COPY library/design/ ./library/design/
 COPY library/skills/ ./library/skills/
-COPY docs/transcripts.md ./docs/transcripts.md
+COPY docs/transcripts.md docs/install.md ./docs/
 COPY packages/design-system/ ./packages/design-system/
 COPY packages/edit-core/ ./packages/edit-core/
 COPY packages/motion-package/ ./packages/motion-package/
@@ -90,11 +90,44 @@ COPY templates/index.html ./templates/index.html
 COPY web/ ./web/
 COPY mcp-ui/template-recommendations/manifest.json \
      mcp-ui/template-recommendations/inline.fragment.html \
+     mcp-ui/template-recommendations/i18n.ts \
+     mcp-ui/template-recommendations/types.ts \
      mcp-ui/template-recommendations/LICENSE \
      mcp-ui/template-recommendations/NOTICE.md \
      ./mcp-ui/template-recommendations/
 COPY mcp-ui/template-recommendations/assets/ ./mcp-ui/template-recommendations/assets/
 COPY mcp-ui/template-recommendations/project-previews/ ./mcp-ui/template-recommendations/project-previews/
+# Curated 4-template onboarding metadata (~320 KB total) required by
+# `loadTemplatePresentation()` and `/api/onboarding/*` while keeping the ~87 MB
+# full catalog excluded from the lean `api` image.
+COPY library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/template.json \
+     library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/TEMPLATE.md \
+     ./library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/
+COPY library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/motion.md \
+     library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/preview.html \
+     library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/manifest.json \
+     ./library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/
+COPY library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/template.json \
+     library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/TEMPLATE.md \
+     ./library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/
+COPY library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/motion.md \
+     library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/preview.html \
+     library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/manifest.json \
+     ./library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/
+COPY library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/template.json \
+     library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/TEMPLATE.md \
+     ./library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/
+COPY library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/motion.md \
+     library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/preview.html \
+     library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/manifest.json \
+     ./library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/
+COPY library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/template.json \
+     library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/TEMPLATE.md \
+     ./library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/
+COPY library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/motion.md \
+     library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/preview.html \
+     library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/manifest.json \
+     ./library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/
 COPY scripts/verify-export.ts scripts/init-s3.ts scripts/lint-project.mjs scripts/zip.mjs ./scripts/
 COPY hyperframes.ts server.ts template-library.ts LICENSE ./
 

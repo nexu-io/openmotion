@@ -3,6 +3,7 @@ import type { WorkspacePage } from '../motion/workspacePageRouting';
 
 export type WorkspaceRouteId =
   | 'templates'
+  | 'not-found'
   | 'explore'
   | 'mcp'
   | 'brand-kit'
@@ -47,6 +48,13 @@ export const workspaceRouteRegistry: readonly WorkspaceRouteDefinition[] = [
     standalone: true,
     trackingPage: 'studio',
     matches: (_page, { templatesPage }) => templatesPage,
+  },
+  {
+    id: 'not-found',
+    keepAlive: false,
+    standalone: true,
+    trackingPage: 'explore',
+    matches: page => page.notFound,
   },
   {
     id: 'explore',
@@ -193,6 +201,7 @@ export function resolveNavTrackingPage(
 
 export function isWorkspacePageOpen(page: WorkspacePage, templatesPage: boolean): boolean {
   return templatesPage
+    || page.notFound
     || page.motion
     || Boolean(page.cinemaLanding)
     || Boolean(page.designScene)

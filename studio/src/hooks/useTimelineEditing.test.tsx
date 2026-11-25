@@ -1,3 +1,4 @@
+import { orderedEditFixture } from "../../tests/orderedEditFixture";
 import { applyLegacyClipMove } from "../../../packages/edit-core";
 import { applyTimelineCommand } from "../../../packages/edit-core/timeline-commands";
 // fallow-ignore-file code-duplication
@@ -525,22 +526,15 @@ describe("useTimelineEditing timeline z-index reorder", () => {
     usePlayerStore.setState({elements:[clip, other], duration:5});
     const zWrite = vi.fn();
     let fail = false;
-    const write = vi.fn(async (url: RequestInfo | URL, init: RequestInit) => {
-      expect(requestUrl(url)).toBe("/api/projects/p1/edits/index.html");
-      expect(new Headers(init.headers).get("if-match")).toMatch(/^"sha256:/);
-      return fail ? new Response("save failed", {status:400}) : jsonResponse({version:"saved"});
-    });
+    const server = orderedEditFixture("p1", { "index.html": source }, () => fail ? new Response("save failed", {status:400}) : undefined);
     const history = vi.fn(async () => {});
     setCachedCloudDisklessMode(true);
-    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?:RequestInit) =>
-      init?.method === "POST" ? write(url, init) : Promise.resolve(jsonResponse({content:source})));
     const hook = renderTimelineEditingHook({timelineElements:[clip,other], iframe, projectId:"p1", useFileWriter: true, recordEdit:history, onZIndexCommit:zWrite});
     try {
       await act(() => hook.move(clip, {start: 1, track: 0, stackingReorder:{contextKey:"root",placement:{type:"above",layerId:"front"},zIndexChanges:[{key:"back",zIndex:2}]}}));
       expect(zWrite).not.toHaveBeenCalled();
-      expect(write).toHaveBeenCalledTimes(1);
-      const command = JSON.parse(String(write.mock.calls[0]![1].body));
-      const after = applyTimelineCommand(source, command);
+      expect(server.packets).toHaveLength(1);
+      const after = server.files["index.html"]!;
       expect(history).toHaveBeenCalledWith(expect.objectContaining({files: {"index.html": {before:source,after}}}));
       const saved = new DOMParser().parseFromString(after, "text/html").querySelector("#back") as HTMLElement;
       expect(saved.style.zIndex).toBe("2");
@@ -555,7 +549,7 @@ describe("useTimelineEditing timeline z-index reorder", () => {
       await expect(failed).rejects.toThrow();
       expect(live.style.zIndex).toBe("2");
       await expect(hook.move({...clip,domId:"preview-only", selector:undefined}, {start:2,track:0})).rejects.toThrow(/preview-only/);
-      expect(write).toHaveBeenCalledTimes(2);
+      expect(server.packets).toHaveLength(2);
       expect(history).toHaveBeenCalledTimes(1);
     } finally {
       hook.unmount();
@@ -563,22 +557,21 @@ describe("useTimelineEditing timeline z-index reorder", () => {
     }
   });
 
-  it("saves a trim as one cloud command and derives the media in-point in core", async () => {
+  it("saves a trim as one ordered file edit and derives the media in-point in core", async () => {
     setCachedCloudDisklessMode(true);
     const source = '<div data-composition-id="scene" data-duration="4"><video id="clip" data-hf-id="hf-clip" src="a.mp4" data-start="0" data-duration="4" data-media-start="1" data-playback-rate="2"></video></div>';
     const iframe = createPreviewIframe();
     iframe.contentDocument!.body.innerHTML = source;
     const clip = { ...timelineElement({ id: "clip", tag: "video", track: 0, zIndex: 0 }), duration: 4 };
     usePlayerStore.setState({ elements: [clip], duration: 4 });
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => jsonResponse(init?.method === "POST" ? {version:"saved"} : { content:source }));
-    vi.stubGlobal("fetch", fetchMock);
+    const server = orderedEditFixture("p1", {"index.html": source});
     const history = vi.fn(async () => {});
     const hook = renderTimelineEditingHook({ timelineElements:[clip], iframe, projectId:"p1", useFileWriter:true, onZIndexCommit:vi.fn(), recordEdit:history });
     try {
       await act(() => hook.resize(clip, {start: 1, duration:3}));
-      const writes = fetchMock.mock.calls.filter(([,init]) => init?.method === "POST");
-      expect(writes).toHaveLength(1);
-      expect(JSON.parse(String(writes[0]![1]?.body))).toEqual({kind:"trimClips", changes:[{hfId:"hf-clip",start:1,duration:3}]});
+      expect(server.packets).toHaveLength(1);
+      expect(server.packets[0]).toHaveLength(1);
+      expect(server.files["index.html"]).toContain('data-media-start="3"');
       expect(history).toHaveBeenCalledWith(expect.objectContaining({files: {"index.html":{before:source, after:expect.stringContaining('data-media-start="3"')}}}));
     } finally {
       hook.unmount();
@@ -586,7 +579,7 @@ describe("useTimelineEditing timeline z-index reorder", () => {
     }
   });
 
-  it("shows a cloud move before the save completes and sends just the move command", async () => {
+  it("shows a cloud move before the save completes and sends one ordered file edit", async () => {
     setCachedCloudDisklessMode(true);
     const source = ROOT_DURATION_FALLBACK_SOURCE;
     const iframe = createPreviewIframe();
@@ -596,18 +589,7 @@ describe("useTimelineEditing timeline z-index reorder", () => {
     const session = await openComposition(source);
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        expect(requestUrl(input)).toBe("/api/projects/p1/edits/index.html");
-        expect(JSON.parse(String(init.body))).toEqual({ kind: "moveClip", hfId: "hf-clip", start: 1.23 });
-        expect(new Headers(init.headers).get("if-match")).toMatch(/^"sha256:/);
-        expect(new Headers(init.headers).get("idempotency-key")).toBeTruthy();
-        await pending;
-        return jsonResponse({ version: "saved" });
-      }
-      return jsonResponse({ content: source });
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const server = orderedEditFixture("p1", {"index.html": source}, () => pending);
     const history = vi.fn(async () => {});
     const hook = renderTimelineEditingHook({ timelineElements: [clip], iframe, projectId: "p1", useFileWriter: true,
       onZIndexCommit: vi.fn(), recordEdit: history, sdkSession: session,
@@ -615,12 +597,12 @@ describe("useTimelineEditing timeline z-index reorder", () => {
     try {
       const saving = hook.move(clip, { start: 1.234, track: 0 });
       expect(iframe.contentDocument!.getElementById("clip")!.getAttribute("data-start")).toBe("1.23");
-      await vi.waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
+      await vi.waitFor(() => expect(server.packets).toHaveLength(1));
       expect(history).not.toHaveBeenCalled();
       release();
       await act(() => saving);
       expect(history).toHaveBeenCalledTimes(1);
-      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+      expect(server.files["index.html"]).toContain('data-start="1.23"');
     } finally {
       release();
       hook.unmount();

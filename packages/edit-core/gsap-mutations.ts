@@ -1,6 +1,6 @@
 import { planWholePathOffset } from './animation-path.ts';
 import { planAuthoredAnimatedValues } from './playhead-edit.ts';
-import { extractGsapScriptBlock as readGsapBlock } from './gsap-block.ts';
+import { extractGsapScriptBlock as readGsapBlock, hasStudioTransform } from './gsap-block.ts';
 export type { ExtractedGsapBlock } from './gsap-block.ts';
 import { gsapCdnDist } from '@hyperframes/core/gsap-cdn';
 import {
@@ -45,7 +45,7 @@ import {
   updateMotionPathPointInScript,
   type ClipTweenRetime,
 } from '@hyperframes/parsers/gsap-writer-acorn';
-import { ensureHfIds } from '@hyperframes/parsers/hf-ids';
+import { stampHfIdsInPlace } from '@hyperframes/parsers/hf-ids';
 import { findUnsafeMutationValues } from '@hyperframes/studio-server/finite-mutation';
 
 const HOLD_SYNC_MUTATION_TYPES = new Set([
@@ -70,11 +70,11 @@ const HOLD_SYNC_MUTATION_TYPES = new Set([
 ]);
 
 export function extractGsapScriptBlock(html: string) {
-  return readGsapBlock(ensureHfIds(html));
+  return readGsapBlock(stampHfIdsInPlace(html));
 }
 
 export function parseGsapAnimationsFromHtml(html: string) {
-  const block = extractGsapScriptBlock(html);
+  const block = readGsapBlock(html);
   if (!block) {
     return {
       animations: [],
@@ -209,12 +209,11 @@ export function validateGsapMutationPayload(
   return { ok: true, mutation: type === rec.type ? rec : { ...rec, type } };
 }
 
-function stripStudioEditsFromTarget(document: Document, selector: string): void {
+function collectStudioTransforms(root: ParentNode, selector: string, clear: Set<Element>): void {
   if (!selector) return;
   try {
-    for (const el of Array.from(document.querySelectorAll(selector))) {
-      el.removeAttribute('data-hf-studio-path-offset');
-      el.removeAttribute('data-hf-studio-rotation');
+    for (const el of Array.from(root.querySelectorAll(selector))) {
+      if (hasStudioTransform(el)) clear.add(el);
     }
   } catch {
     // Ignore non-CSS selectors.
@@ -302,6 +301,7 @@ export function applyGsapMutationsInMemory(
 
   const hasLayerLocks = /data-timeline-locked/i.test(beforeHtml);
   const initialScript = block.scriptText;
+  const clearTransforms = new Set<Element>();
   const skippedSelectors = new Set<string>();
   const mutationChanges: boolean[] = [];
 
@@ -410,7 +410,7 @@ export function applyGsapMutationsInMemory(
         if (typeof body.targetSelector === 'string') {
           const keys = Object.keys((body.properties ?? {}) as Record<string, unknown>);
           if (keys.some((k) => ['x', 'y', 'rotation', 'rotate'].includes(k))) {
-            stripStudioEditsFromTarget(block.document, body.targetSelector);
+            collectStudioTransforms(block.root, body.targetSelector, clearTransforms);
           }
         }
         nextScript = addAnimationToScript(previousScript, {
@@ -428,7 +428,7 @@ export function applyGsapMutationsInMemory(
       case 'delete': {
         const found = requireAnim(previousScript, String(body.animationId));
         if (!('err' in found) && body.stripStudioEdits) {
-          stripStudioEditsFromTarget(block.document, found.anim.targetSelector);
+          collectStudioTransforms(block.root, found.anim.targetSelector, clearTransforms);
         }
         nextScript = removeAnimationFromScript(previousScript, String(body.animationId));
         break;
@@ -437,7 +437,7 @@ export function applyGsapMutationsInMemory(
         const parsed = parseGsapScriptAcorn(previousScript);
         const matching = parsed.animations.filter((a) => a.targetSelector === body.targetSelector);
         if (matching.length > 0) {
-          stripStudioEditsFromTarget(block.document, String(body.targetSelector));
+          collectStudioTransforms(block.root, String(body.targetSelector), clearTransforms);
           for (const anim of [...matching].reverse()) {
             nextScript = removeAnimationFromScript(nextScript, anim.id);
           }
@@ -731,7 +731,7 @@ export function applyGsapMutationsInMemory(
   }
 
   const changed = block.scriptText !== initialScript || html !== beforeHtml;
-  const after = changed ? block.replaceScript(block.scriptText) : beforeHtml;
+  const after = changed ? block.replaceScript(block.scriptText, clearTransforms) : beforeHtml;
 
   return {
     ok: true,

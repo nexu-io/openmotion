@@ -1,5 +1,6 @@
 {
   "zh-CN": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "这次画布编辑未保存，请在预览就绪后重试。",
     "Content fit": "内容适配",
     "Letterbox": "留边",
     "Canvas updated": "画幅已更新",
@@ -10,6 +11,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "读取当前工程及其 revision/version，保持现有内容。先调用 openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). 随后重新读取版本身份，再调用 openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). 每次操作使用稳定的 requestId 和最新 expectedRevision、expectedVersionId；尊重轨道锁定，冲突后重读。打开已保存预览并检查画幅和 C1 轨道。无需模型，不生成文稿或编造字幕。"
   },
   "ja": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "キャンバスの編集を保存できませんでした。プレビューの準備ができたら、もう一度お試しください。",
     "Content fit": "コンテンツの合わせ方",
     "Letterbox": "余白を付ける",
     "Canvas updated": "画面比率を更新しました",
@@ -20,6 +22,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "現在のプロジェクトと revision/version を読み、内容を保持します。最初に呼び出す操作： openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). 版情報を読み直してから呼び出す操作： openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). 操作ごとに固定の requestId と最新の expectedRevision、expectedVersionId を使用します。ロックを尊重し、競合後は再読込します。保存済みプレビューで画面比率と C1 を確認します。モデル不要で、文稿や架空の字幕は生成しません。"
   },
   "ko": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "캔버스 편집을 저장하지 못했습니다. 미리보기가 준비되면 다시 시도하세요.",
     "Content fit": "콘텐츠 맞춤",
     "Letterbox": "여백 유지",
     "Canvas updated": "화면 비율이 업데이트되었습니다",
@@ -30,6 +33,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "현재 프로젝트와 revision/version을 읽고 내용을 유지하세요. 먼저 호출: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). 버전 정보를 다시 읽은 뒤 호출: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). 각 작업에 고정 requestId와 최신 expectedRevision, expectedVersionId를 사용하세요. 잠금을 존중하고 충돌 후 다시 읽으세요. 저장된 미리보기에서 화면 비율과 C1을 확인하세요. 모델이 필요 없으며 대본이나 가짜 자막을 생성하지 않습니다."
   },
   "de": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "Diese Änderung wurde nicht gespeichert. Versuche es erneut, sobald die Vorschau bereit ist.",
     "Content fit": "Inhalt anpassen",
     "Letterbox": "Mit Rändern",
     "Canvas updated": "Bildformat aktualisiert",
@@ -40,6 +44,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Lies das aktuelle Projekt und revision/version, behalte den Inhalt. Zuerst aufrufen: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Lies die Versionsdaten erneut, dann aufrufen: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Pro Vorgang stabile requestId und aktuelle expectedRevision/expectedVersionId verwenden. Sperren beachten, bei Konflikten neu lesen. Gespeicherte Vorschau, Bildformat und C1 prüfen. Kein Modell, kein Transkript und keine erfundenen Untertitel."
   },
   "fr": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "La modification n’a pas été enregistrée. Réessayez une fois l’aperçu prêt.",
     "Content fit": "Ajustement du contenu",
     "Letterbox": "Avec bandes",
     "Canvas updated": "Format mis à jour",
@@ -50,6 +55,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Lisez le projet actuel et revision/version, en préservant le contenu. Appelez d’abord : openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Relisez les identifiants de version, puis appelez : openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Utilisez un requestId stable par opération et les valeurs actuelles expectedRevision/expectedVersionId. Respectez les verrouillages, relisez après conflit. Vérifiez le format et C1 dans l’aperçu enregistré. Aucun modèle, transcription ou sous-titre inventé."
   },
   "ru": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "Изменение на холсте не сохранено. Повторите попытку, когда предпросмотр будет готов.",
     "Content fit": "Размещение содержимого",
     "Letterbox": "С полями",
     "Canvas updated": "Формат кадра обновлён",
@@ -60,6 +66,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Прочитайте текущий проект и revision/version, сохраняя содержимое. Сначала вызовите: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Повторно прочитайте версии, затем вызовите: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Используйте стабильный requestId для каждой операции и актуальные expectedRevision/expectedVersionId. Учитывайте блокировки, перечитывайте после конфликта. Проверьте кадр и C1 в сохранённом предпросмотре. Модель не нужна; не создавайте выдуманный текст."
   },
   "es": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "No se ha guardado este cambio en el lienzo. Inténtalo de nuevo cuando la vista previa esté lista.",
     "Content fit": "Ajuste del contenido",
     "Letterbox": "Con bandas",
     "Canvas updated": "Formato actualizado",
@@ -70,6 +77,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Lee el proyecto actual y revision/version, preservando el contenido. Primero llama: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Vuelve a leer los identificadores de versión y llama: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Usa un requestId estable por operación y expectedRevision/expectedVersionId actuales. Respeta bloqueos y relee tras conflictos. Comprueba el formato y C1 en la vista previa guardada. Sin modelo, transcripción ni subtítulos inventados."
   },
   "pt-BR": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "Esta edição da tela não foi salva. Tente novamente quando a prévia estiver pronta.",
     "Content fit": "Ajuste do conteúdo",
     "Letterbox": "Com faixas",
     "Canvas updated": "Formato atualizado",
@@ -80,6 +88,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Leia o projeto atual e revision/version, preservando o conteúdo. Primeiro chame: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Leia novamente as versões e chame: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use um requestId estável por operação e expectedRevision/expectedVersionId atuais. Respeite bloqueios e releia após conflitos. Confira o formato e C1 na prévia salva. Sem modelo, transcrição ou legendas inventadas."
   },
   "it": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "La modifica all’area di lavoro non è stata salvata. Riprova quando l’anteprima è pronta.",
     "Content fit": "Adattamento contenuto",
     "Letterbox": "Con bande",
     "Canvas updated": "Formato aggiornato",
@@ -90,6 +99,7 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Leggi il progetto attuale e revision/version, preservando i contenuti. Prima chiama: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Rileggi le versioni, poi chiama: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Usa un requestId stabile per operazione e expectedRevision/expectedVersionId aggiornati. Rispetta i blocchi e rileggi dopo conflitti. Controlla formato e C1 nella preview salvata. Nessun modello, trascrizione o sottotitolo inventato."
   },
   "tr": {
+    "This canvas edit was not saved. Try again when the preview is ready.": "Tuvaldeki bu değişiklik kaydedilmedi. Önizleme hazır olduğunda yeniden deneyin.",
     "Content fit": "İçeriği sığdır",
     "Letterbox": "Kenar boşluğu",
     "Canvas updated": "Çerçeve güncellendi",

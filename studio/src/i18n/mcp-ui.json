@@ -306,6 +306,7 @@
     "Claim now": "立即领取",
     "Cursor install prompt triggered. If Cursor did not open, click Manual setup to copy the JSON.": "已触发 Cursor 一键安装弹窗（若未安装 Cursor，可点右侧「手动配置」复制 JSON）。",
     "Copied. Paste into {agent} to finish setup.": "已复制，粘贴给 {agent} 完成安装。",
+    "Copied. Paste into your Agent to finish setup.": "已复制，粘贴给你的 Agent 完成安装。",
     "Optional: embed the Studio editor right inside DeepSeek Harness with the standalone host plugin (remove the plain MCP entry above first).": "可选：想把 Studio 编辑器直接嵌进 DSH 右侧分栏，可安装独立宿主插件（需先移除上方纯 MCP 条目）。",
     "Note: Claude Desktop has no local terminal access — keep your local OpenDesign service running before merging this JSON.": "提示：Claude Desktop 无本机终端权限，需先保持本机 OpenDesign 服务运行后再合并此 JSON。",
     "MCP showcase stage": "首屏成片演示舞台",
@@ -871,7 +872,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "openmotion_get_project でコンポジションを読み、下の例に data-hf-id と現在のバージョンを入れてください。絶対位置の5秒に移動し、edit を単独で送信します。タイムアウト時は同じ要求を再送し、バージョン競合時は再取得して新しい要求 ID を使います。",
     "Edit a cloud composition": "クラウドのコンポジションを編集",
     "Edit elements, clips, media and animations in the same history as Studio.": "Studio と同じ履歴で要素、クリップ、メディア、アニメーションを編集します。",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "現在のコンポジションと要素の固定 ID を読み取ります。一度の編集に含まれる変更をまとめて適用し、複数のコンポジションにまたがる場合はバッチを使います。"
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "現在のコンポジションと要素の固定 ID を読み取ります。一度の編集に含まれる変更をまとめて適用し、複数のコンポジションにまたがる場合はバッチを使います。",
+    "Copied. Paste into your Agent to finish setup.": "コピーしました。お使いの Agent に貼り付けてセットアップを完了してください。"
   },
   "ko": {
     "Run the command in your local terminal, then reload the Agent connection.": "로컬 터미널에서 명령을 실행한 뒤 Agent 연결을 다시 불러오세요.",
@@ -1217,7 +1219,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "openmotion_get_project로 컴포지션을 읽고 아래 예시에 data-hf-id와 현재 버전을 넣으세요. 절대 위치 5초로 이동하고 edit만 제출하세요. 시간 초과 시 같은 요청을 재시도하고, 버전 충돌 시 다시 읽고 새 요청 ID를 사용하세요.",
     "Edit a cloud composition": "클라우드 컴포지션 편집",
     "Edit elements, clips, media and animations in the same history as Studio.": "Studio와 같은 기록에서 요소, 클립, 미디어 및 애니메이션을 편집합니다.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "현재 컴포지션과 요소의 고정 ID를 읽으세요. 한 번의 편집에 속하는 변경 사항은 함께 적용하세요. 한 동작이 여러 컴포지션을 변경하면 일괄 명령을 사용하세요."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "현재 컴포지션과 요소의 고정 ID를 읽으세요. 한 번의 편집에 속하는 변경 사항은 함께 적용하세요. 한 동작이 여러 컴포지션을 변경하면 일괄 명령을 사용하세요.",
+    "Copied. Paste into your Agent to finish setup.": "복사했습니다. 사용 중인 Agent에 붙여넣어 설정을 완료하세요."
   },
   "de": {
     "Run the command in your local terminal, then reload the Agent connection.": "Führe den Befehl im lokalen Terminal aus und lade die Agent-Verbindung neu.",
@@ -1563,7 +1566,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "Lies die Komposition mit openmotion_get_project und setze data-hf-id und die aktuellen Versionen unten ein. Verschiebe den Clip auf Sekunde 5 und sende edit allein. Wiederhole bei Zeitüberschreitung dieselbe Anfrage. Lies bei Versionskonflikten erneut und verwende eine neue Anfrage-ID.",
     "Edit a cloud composition": "Cloud-Komposition bearbeiten",
     "Edit elements, clips, media and animations in the same history as Studio.": "Bearbeite Elemente, Clips, Medien und Animationen im selben Verlauf wie Studio.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Lies die aktuelle Komposition und ihre stabilen Element-IDs. Übernimm zusammengehörige Änderungen gemeinsam. Ändert eine Geste mehrere Kompositionen, nutze einen Batch."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Lies die aktuelle Komposition und ihre stabilen Element-IDs. Übernimm zusammengehörige Änderungen gemeinsam. Ändert eine Geste mehrere Kompositionen, nutze einen Batch.",
+    "Copied. Paste into your Agent to finish setup.": "Kopiert. In Ihren Agent einfügen, um die Einrichtung abzuschließen."
   },
   "fr": {
     "Run the command in your local terminal, then reload the Agent connection.": "Exécutez la commande dans le terminal local, puis rechargez la connexion de l’agent.",
@@ -1909,7 +1913,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "Lisez la composition avec openmotion_get_project et insérez son data-hf-id et ses versions actuelles ci-dessous. Déplacez le clip à la seconde 5 et envoyez edit seul. En cas de délai dépassé, répétez la même requête. En cas de conflit de version, relisez la composition et utilisez un nouvel identifiant de requête.",
     "Edit a cloud composition": "Modifier une composition cloud",
     "Edit elements, clips, media and animations in the same history as Studio.": "Modifiez les éléments, clips, médias et animations dans le même historique que Studio.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Lisez la composition et les identifiants stables de ses éléments. Regroupez les changements d’une même modification. Utilisez un lot si un geste modifie plusieurs compositions."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Lisez la composition et les identifiants stables de ses éléments. Regroupez les changements d’une même modification. Utilisez un lot si un geste modifie plusieurs compositions.",
+    "Copied. Paste into your Agent to finish setup.": "Copié. Collez dans votre Agent pour terminer la configuration."
   },
   "ru": {
     "Run the command in your local terminal, then reload the Agent connection.": "Выполните команду в локальном терминале и перезагрузите подключение агента.",
@@ -2255,7 +2260,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "Прочитайте композицию через openmotion_get_project и подставьте data-hf-id и текущие версии в пример ниже. Переместите клип на отметку 5 секунд, отправив только edit. После тайм-аута повторите тот же запрос. При конфликте версий перечитайте данные и используйте новый ID запроса.",
     "Edit a cloud composition": "Редактирование облачной композиции",
     "Edit elements, clips, media and animations in the same history as Studio.": "Изменяйте элементы, клипы, медиа и анимацию в общей со Studio истории.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Прочитайте текущую композицию и постоянные ID её элементов. Применяйте вместе изменения одного действия. Если оно затрагивает несколько композиций, используйте пакет."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Прочитайте текущую композицию и постоянные ID её элементов. Применяйте вместе изменения одного действия. Если оно затрагивает несколько композиций, используйте пакет.",
+    "Copied. Paste into your Agent to finish setup.": "Скопировано. Вставьте в ваш Agent, чтобы завершить настройку."
   },
   "es": {
     "Run the command in your local terminal, then reload the Agent connection.": "Ejecuta el comando en el terminal local y recarga la conexión del agente.",
@@ -2601,7 +2607,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "Lee la composición con openmotion_get_project e introduce su data-hf-id y las versiones actuales en el ejemplo. Mueve el clip al segundo 5 y envía edit por separado. Si se agota el tiempo, repite la misma solicitud. Si hay un conflicto de versiones, vuelve a leer y usa un ID de solicitud nuevo.",
     "Edit a cloud composition": "Editar una composición en la nube",
     "Edit elements, clips, media and animations in the same history as Studio.": "Edita elementos, clips, medios y animaciones con el mismo historial que Studio.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Lee la composición actual y los identificadores estables de sus elementos. Aplica juntos los cambios de una edición. Usa un lote si un gesto modifica varias composiciones."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Lee la composición actual y los identificadores estables de sus elementos. Aplica juntos los cambios de una edición. Usa un lote si un gesto modifica varias composiciones.",
+    "Copied. Paste into your Agent to finish setup.": "Copiado. Pégalo en tu Agent para completar la configuración."
   },
   "pt-BR": {
     "Run the command in your local terminal, then reload the Agent connection.": "Execute o comando no terminal local e recarregue a conexão do agente.",
@@ -2947,7 +2954,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "Leia a composição com openmotion_get_project e preencha o exemplo com data-hf-id e as versões atuais. Mova o clipe para o segundo 5 e envie edit sozinho. Se o tempo esgotar, repita a mesma solicitação. Se houver conflito de versão, leia novamente e use um novo ID de solicitação.",
     "Edit a cloud composition": "Editar uma composição na nuvem",
     "Edit elements, clips, media and animations in the same history as Studio.": "Edite elementos, clipes, mídia e animações no mesmo histórico do Studio.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Leia a composição atual e os IDs estáveis dos elementos. Aplique juntas as mudanças de uma edição. Use um lote quando um gesto alterar várias composições."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Leia a composição atual e os IDs estáveis dos elementos. Aplique juntas as mudanças de uma edição. Use um lote quando um gesto alterar várias composições.",
+    "Copied. Paste into your Agent to finish setup.": "Copiado. Cole em seu Agent para concluir a configuração."
   },
   "it": {
     "Run the command in your local terminal, then reload the Agent connection.": "Esegui il comando nel terminale locale, poi ricarica la connessione dell’agente.",
@@ -3293,7 +3301,8 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "Leggi la composizione con openmotion_get_project e inserisci data-hf-id e le versioni correnti nell’esempio. Sposta la clip al secondo 5 e invia solo edit. In caso di timeout ripeti la stessa richiesta. In caso di conflitto di versione rileggi i dati e usa un nuovo ID richiesta.",
     "Edit a cloud composition": "Modificare una composizione cloud",
     "Edit elements, clips, media and animations in the same history as Studio.": "Modifica elementi, clip, media e animazioni nella stessa cronologia di Studio.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Leggi la composizione e gli ID stabili degli elementi. Applica insieme le modifiche di una singola operazione. Usa un batch se un gesto modifica più composizioni."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Leggi la composizione e gli ID stabili degli elementi. Applica insieme le modifiche di una singola operazione. Usa un batch se un gesto modifica più composizioni.",
+    "Copied. Paste into your Agent to finish setup.": "Copiato. Incolla in il tuo Agent per completare la configurazione."
   },
   "tr": {
     "Run the command in your local terminal, then reload the Agent connection.": "Komutu yerel terminalde çalıştır, sonra Agent bağlantısını yeniden yükle.",
@@ -3639,6 +3648,7 @@
     "Read the composition with openmotion_get_project. Use its data-hf-id and current versions in the example below. Move to absolute second 5. Send edit alone. Retry the same request after a timeout. After a version conflict, reread and use a new request ID.": "Kompozisyonu openmotion_get_project ile okuyup aşağıdaki örneğe data-hf-id ve güncel sürümleri girin. Klibi 5. saniyeye taşıyın ve yalnızca edit gönderin. Zaman aşımında aynı isteği yineleyin. Sürüm çakışmasında yeniden okuyup yeni bir istek kimliği kullanın.",
     "Edit a cloud composition": "Bulut kompozisyonunu düzenle",
     "Edit elements, clips, media and animations in the same history as Studio.": "Öğeleri, klipleri, medyayı ve animasyonları Studio ile aynı geçmişte düzenleyin.",
-    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Geçerli kompozisyonu ve öğelerin sabit kimliklerini okuyun. Bir düzenlemeye ait değişiklikleri birlikte uygulayın. Tek bir hareket birden çok kompozisyonu değiştiriyorsa toplu işlem kullanın."
+    "Read the current composition and its stable element IDs. Apply all changes belonging to one edit together. Use a batch when one gesture changes several compositions.": "Geçerli kompozisyonu ve öğelerin sabit kimliklerini okuyun. Bir düzenlemeye ait değişiklikleri birlikte uygulayın. Tek bir hareket birden çok kompozisyonu değiştiriyorsa toplu işlem kullanın.",
+    "Copied. Paste into your Agent to finish setup.": "Kopyalandı. Kurulumu tamamlamak için Agent’ınız içine yapıştırın."
   }
 }

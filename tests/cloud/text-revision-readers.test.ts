@@ -8,11 +8,14 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import type { AuthContext } from '../../src/contracts/auth.ts';
 import type { ProjectEvent } from '../../src/contracts/events.ts';
 import { isCloudError } from '../../src/contracts/errors.ts';
-import { applyWorkspaceBlobRefDeltas, finalizeBlobDeletion, type BlobRefDelta } from '../../src/db/cas.ts';
+import { applyWorkspaceBlobRefDeltas, finalizeBlobDeletion, markZeroRefForDeletion, type BlobRefDelta } from '../../src/db/cas.ts';
 import * as schema from '../../src/db/schema/index.ts';
 import { createDbHandle } from '../../src/db/client.ts';
 import { runMigrations } from '../../src/db/migrate.ts';
+import { TextRevisionStorage } from '../../src/infra/text-revisions.ts';
 import { StorageService, archiveKey, workspaceBlobKey } from '../../src/infra/storage.ts';
+import { createTextCheckpoints, requestTextCheckpoint } from '../../src/services/text-checkpoints.ts';
+import { createLogger } from '../../src/infra/logger.ts';
 import { ProjectArchiveService } from '../../src/services/project-archive-service.ts';
 import { ProjectFilesService } from '../../src/services/project-files-service.ts';
 import { VersionHistoryService } from '../../src/services/version-history-service.ts';
@@ -26,6 +29,9 @@ import { readMcpProjectFile, type ProjectFileQuery } from '../../src/mcp/project
 import { AssetNamesService } from '../../src/services/asset-names-service.ts';
 import { createStudioFilesRoutes } from '../../src/studio/routes/files.ts';
 import { createStudioGsapRoutes } from '../../src/studio/routes/gsap.ts';
+import { createStudioProjectsRoutes } from '../../src/studio/routes/projects.ts';
+import { createStudioPreviewRoutes } from '../../src/studio/routes/preview.ts';
+import { createStudioMediaRoutes } from '../../src/studio/routes/media.ts';
 
 // Only the object bucket is replaced. Logical references still use the production storage adapter,
 // database, manifest, authoring services, signing, archive writer and renderer hydration.
@@ -105,6 +111,50 @@ it('commits missing dependencies and the host patch as one collaborative catalog
   } finally { await cleanup(); }
 });
 
+it('accepts large localized patches from an upgraded editor during a rolling deployment', { skip: !connectionString }, async () => {
+  const { auth, workspace, files, cleanup } = await fixture();
+  try {
+    const path = 'large.html';
+    const original = 'a'.repeat(1024 * 1024);
+    const inserted = '中\n\\'.repeat(60 * 1024);
+    assert.equal(Buffer.byteLength(inserted), 300 * 1024);
+    const escapedPath = 'escaped.txt';
+    const prefix = 'a'.repeat(300 * 1024);
+    const retained = '\u0001'.repeat(8);
+    const { projectId } = await workspace.createProject(auth, { initialFiles: [
+      { path, content: original }, { path: escapedPath, content: prefix + retained },
+    ] });
+    const base = (await files.readTextFile(auth, projectId, path))!;
+    const saved = await files.commitTextEdits(auth, projectId, { files: [
+      { path, baseVersion: base.version, patch: [[0, Buffer.byteLength(inserted), inserted]] },
+    ] }, { source: 'studio', requestId: randomUUID() });
+    const current = (await files.readTextFile(auth, projectId, path))!;
+    assert.equal(current.version, saved.versionsByPath[path]);
+    assert.equal(current.content, inserted + original.slice(Buffer.byteLength(inserted)));
+
+    const requestId = randomUUID();
+    const size = Buffer.byteLength(current.content);
+    await assert.rejects(files.commitTextEdits(auth, projectId, { files: [
+      { path, baseVersion: current.version, patch: [[0, size / 2, inserted], [size / 2, size / 2, inserted]] },
+    ] }, { source: 'studio', requestId }), /Send content/);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.version, current.version);
+    const full = await files.commitTextEdits(auth, projectId, { files: [
+      { path, baseVersion: current.version, content: inserted + inserted },
+    ] }, { source: 'studio', requestId });
+    assert.match(full.versionsByPath[path], /^"sha256:/);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, inserted + inserted);
+
+    // The patch is bigger than the raw result but smaller than its escaped wire representation.
+    const escapedBase = (await files.readTextFile(auth, projectId, escapedPath))!;
+    const patch = [[0, prefix.length, inserted]] as const;
+    assert.ok(Buffer.byteLength(JSON.stringify({ patch })) > Buffer.byteLength(inserted + retained));
+    assert.ok(Buffer.byteLength(JSON.stringify({ patch })) < Buffer.byteLength(JSON.stringify({ content: inserted + retained })));
+    await files.commitTextEdits(auth, projectId, { files: [{ path: escapedPath, baseVersion: escapedBase.version, patch }] },
+      { source: 'studio', requestId: randomUUID() });
+    assert.equal((await files.readTextFile(auth, projectId, escapedPath))!.content, inserted + retained);
+  } finally { await cleanup(); }
+});
+
 it('publishes one exact file version and one history change for a patch, undo, redo and deletion', { skip: !connectionString }, async () => {
   const { events, auth, workspace, files, history, cleanup } = await fixture();
   try {
@@ -139,6 +189,110 @@ it('publishes one exact file version and one history change for a patch, undo, r
     await history.step(auth, projectId, 'back');
     await expectDelivery(patch);
   } finally { await cleanup(); }
+});
+
+it('opens a project and reads its compiled preview and byte ranges while its checkpoint row is locked', {
+  skip: !connectionString, timeout: 15_000,
+}, async t => {
+  const { db, pool, storage, auth, workspaceId, files, workspace, history, cleanup } = await fixture();
+  const locker = await pool.connect();
+  try {
+    const initial = '<!doctype html><main data-composition-id="root"><h1>暖冬</h1></main>';
+    const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path: 'index.html', content: initial }] });
+    const head = (await files.readTextFile(auth, projectId, 'index.html'))!;
+    const offset = Buffer.byteLength(initial.slice(0, initial.indexOf('暖冬')));
+    const expected = Buffer.from(initial.replace('暖冬', '新🎄'));
+    const result = await files.commitTextEdits(auth, projectId, { files: [
+      { path: head.file.path, baseVersion: head.version, patch: [[offset, 6, '新🎄']] },
+    ] }, { requestId: randomUUID(), source: 'studio' });
+    const version = result.versionsByPath['index.html'];
+    const id = version.slice(7, -1);
+    await locker.query('BEGIN');
+    const locked = await locker.query('SELECT checkpoint_sha FROM project_text_revisions WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [workspaceId, id]);
+    assert.deepEqual(locked.rows, [{ checkpoint_sha: null }]);
+    t.mock.method(storage, 'ensureTextCheckpoint', async () => { throw new Error('reader attempted a checkpoint'); });
+    storage.writes = 0;
+    const deps = { db, files, storage, workspace, history, assetNames: new AssetNamesService({ db, files }), resolveAuth: () => auth, skipDeterministicFonts: true };
+    const prefix = `/api/projects/${projectId}`;
+    assert.equal((await createStudioProjectsRoutes(deps).request(prefix)).status, 200);
+    const preview = createStudioPreviewRoutes(deps);
+    const doc = await preview.request(prefix + '/preview');
+    assert.equal(doc.status, 200);
+    assert.match(await doc.text(), /新🎄/);
+    const metadata = await createStudioMediaRoutes(deps).request(prefix + '/media/metadata?path=index.html');
+    assert.equal(metadata.status, 200);
+    assert.equal((await metadata.json()).pending, false);
+    const raw = prefix + '/preview/index.html';
+    for (const [range, start, end] of [
+      [`bytes=${offset + 1}-${offset + 3}`, offset + 1, offset + 4], // Includes partial UTF-8 characters.
+      ['bytes=-4', expected.length - 4, expected.length],
+      ['bytes=3-', 3, expected.length], ['bytes=0-9999999999', 0, expected.length],
+    ] as const) {
+      const part = await preview.request(raw, { headers: { Range: range, 'If-Range': version } });
+      assert.equal(part.status, 206);
+      assert.equal(part.headers.get('etag'), version);
+      assert.equal(part.headers.get('content-range'), `bytes ${start}-${end - 1}/${expected.length}`);
+      assert.equal(Number(part.headers.get('content-length')), end - start);
+      assert.deepEqual(Buffer.from(await part.arrayBuffer()), expected.subarray(start, end));
+    }
+    const reads = storage.reads;
+    const outOfBounds = await preview.request(raw, { headers: { Range: 'bytes=9999-' } });
+    assert.equal(outOfBounds.status, 416);
+    assert.equal(outOfBounds.headers.get('content-range'), `bytes */${expected.length}`);
+    assert.equal((await preview.request(raw, { method: 'HEAD' })).status, 200);
+    assert.equal((await preview.request(raw, { headers: { 'If-None-Match': version } })).status, 304);
+    assert.equal(storage.reads, reads);
+    const full = await preview.request(raw, { headers: { Range: 'bytes=0-1', 'If-Range': head.version } });
+    assert.equal(full.status, 200);
+    assert.deepEqual(Buffer.from(await full.arrayBuffer()), expected);
+    assert.equal(storage.writes, 0);
+  } finally {
+    await locker.query('ROLLBACK');
+    locker.release();
+    await cleanup();
+  }
+});
+
+it('returns pending for an edited text image while only the background checkpoint worker can prepare its media input', { skip: !connectionString }, async () => {
+  const { db, pool, storage, auth, workspaceId, files, workspace, history, cleanup } = await fixture();
+  const locker = await pool.connect();
+  try {
+    // Portable graymap is a real image format with an editable ASCII representation.
+    const path = 'assets/gray.pgm', content = 'P2\n1 1\n255\n128\n';
+    const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path, mimeType: 'image/x-portable-graymap', content }] });
+    const original = (await files.readTextFile(auth, projectId, path))!;
+    const revision = await files.commitTextEdits(auth, projectId, { files: [{ path, baseVersion: original.version,
+      patch: [[content.indexOf('128'), 3, '255']] }] }, { requestId: randomUUID(), source: 'studio' });
+    const version = revision.versionsByPath[path], id = version.slice(7, -1);
+    const app = createStudioMediaRoutes({ db, files, storage, workspace, history, assetNames: new AssetNamesService({ db, files }), resolveAuth: () => auth });
+    const prefix = `/api/projects/${projectId}`;
+    const meta = () => app.request(prefix + '/media/metadata?path=' + path);
+    const checkpoint = async () => (await pool.query('SELECT checkpoint_sha,checkpoint_due_at FROM project_text_revisions WHERE workspace_id=$1 AND id=$2', [workspaceId, id])).rows[0];
+    storage.writes = 0;
+    assert.equal((await app.request(prefix + '/image-thumbnail/' + path + '?cached=1')).status, 204);
+    assert.equal((await app.request(prefix + '/image-thumbnail/' + path, { method: 'HEAD' })).status, 404);
+    assert.deepEqual(await checkpoint(), { checkpoint_sha: null, checkpoint_due_at: null });
+    await locker.query('BEGIN');
+    await locker.query('SELECT id FROM project_text_revisions WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [workspaceId, id]);
+    const pending = await meta();
+    assert.equal(pending.status, 202);
+    assert.deepEqual(await pending.json(), { pending: true, path, sha256: null, version });
+    await locker.query('ROLLBACK');
+    assert.equal((await meta()).status, 202);
+    const requested = await checkpoint();
+    assert.equal(requested.checkpoint_sha, null);
+    assert.ok(requested.checkpoint_due_at);
+    assert.equal(storage.writes, 0);
+    const digest = await storage.ensureTextCheckpoint(workspaceId, id);
+    const readyToProbe = await meta();
+    assert.equal(readyToProbe.status, 202);
+    assert.equal((await readyToProbe.json()).sha256, digest);
+    assert.equal(storage.writes, 1);
+  } finally {
+    await locker.query('ROLLBACK');
+    locker.release();
+    await cleanup();
+  }
 });
 
 it('reads the same saved patch in preview, history, render, download, ZIP and an independent project copy', {
@@ -575,34 +729,129 @@ it('keeps immutable autosave versions in one undo step and separates confirmed c
   }
 });
 
-it('checkpoints the parent before cumulative UTF-8 patch bytes would exceed 256 KiB', { skip: !connectionString }, async () => {
+it('commits a checkpoint candidate when cumulative UTF-8 bytes cross the threshold, without touching the bucket', { skip: !connectionString }, async () => {
   const { auth, files, workspace, storage, pool, cleanup } = await fixture();
   try {
     const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path: 'index.html', content: 'x' }] });
-    let version = `"sha256:${sha256Hex('x')}"`;
-    const inserted = '🌙'.repeat(14_000); // 56,000 UTF-8 bytes
+    let version = formatFileVersion('workspace', sha256Hex('x'));
+    const inserted = '🌙'.repeat(14_000);
     const patch = [[1, 0, inserted]];
     const encodedBytes = Buffer.byteLength(JSON.stringify(patch));
     storage.reads = storage.writes = 0;
-    for (let i = 1; i <= 5; i++) {
-      const previous = version;
+    for (let i = 1; i <= 6; i++) {
       version = (await files.commitTextEdits(auth, projectId, { files: [{ path: 'index.html', baseVersion: version, patch }] },
         { requestId: randomUUID(), source: 'studio' })).versionsByPath['index.html'];
-      const { rows: [row] } = await pool.query('SELECT depth,chain_patch_bytes FROM project_text_revisions WHERE workspace_id=$1 AND id=$2',
-        [auth.workspaceId, version.slice(7, -1)]);
-      const depth = i === 5 ? 1 : i;
-      assert.deepEqual(row, { depth, chain_patch_bytes: depth * encodedBytes });
-      assert.deepEqual([storage.reads, storage.writes], i === 5 ? [1, 1] : [0, 0]);
-      if (i === 5) {
-        const { rows: [parent] } = await pool.query('SELECT checkpoint_sha FROM project_text_revisions WHERE workspace_id=$1 AND id=$2',
-          [auth.workspaceId, previous.slice(7, -1)]);
-        assert.equal(parent.checkpoint_sha, sha256Hex('x' + inserted.repeat(4)));
-      }
+      const { rows: [row] } = await pool.query(`SELECT depth, chain_patch_bytes, checkpoint_due_at IS NOT NULL AS due, checkpoint_sha
+        FROM project_text_revisions WHERE workspace_id=$1 AND id=$2`, [auth.workspaceId, version.slice(7, -1)]);
+      const depth = i === 6 ? 1 : i;
+      assert.deepEqual(row, { depth, chain_patch_bytes: depth * encodedBytes, due: i === 5, checkpoint_sha: null });
+      assert.deepEqual([storage.reads, storage.writes], [0, 0]);
     }
-    assert.equal((await files.readTextFile(auth, projectId, 'index.html'))?.content, 'x' + inserted.repeat(5));
-  } finally {
-    await cleanup();
-  }
+    assert.equal((await files.readTextFile(auth, projectId, 'index.html'))?.content, 'x' + inserted.repeat(6));
+  } finally { await cleanup(); }
+});
+
+it('records a 300 KiB splice once, retries checkpoint failures and keeps saving while that upload is blocked', { skip: !connectionString, timeout: 20000 }, async t => {
+  const { auth, db, files, workspace, storage, pool, cleanup } = await fixture();
+  const releaseUpload = Promise.withResolvers<void>();
+  try {
+    const path = 'index.html';
+    const baseline = 'x'.repeat(1024 * 1024);
+    const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path, content: baseline }] });
+    let version = formatFileVersion('workspace', sha256Hex(baseline));
+    async function append(text: string) {
+      const result = await files.commitTextEdits(auth, projectId, { files: [{ path, baseVersion: version, patch: [[baseline.length, 0, text]] }] },
+        { requestId: randomUUID(), source: 'studio' });
+      version = result.versionsByPath[path];
+      return version.slice(7, -1);
+    }
+    const large = 'X'.repeat(300 * 1024), small = 'y'.repeat(1024);
+    storage.reads = storage.writes = 0;
+    const candidate = await append(large);
+    await append(small);
+    assert.deepEqual([storage.reads, storage.writes], [0, 0]);
+    const worker = { db, storage, logger: createLogger({ sink() {} }) };
+    const prioritize = () => pool.query("UPDATE project_text_revisions SET checkpoint_due_at='-infinity' WHERE workspace_id=$1 AND id=$2",
+      [auth.workspaceId, candidate]);
+    await prioritize();
+    const ensure = storage.ensureTextCheckpoint.bind(storage);
+    t.mock.method(storage, 'ensureTextCheckpoint', async () => { throw new Error('Bucket temporarily unavailable'); }, { times: 1 });
+    assert.deepEqual(await createTextCheckpoints(worker, { batchSize: 1 }), { completed: 0, failed: 1 });
+    const { rows: [retry] } = await pool.query('SELECT checkpoint_sha, checkpoint_due_at > now() AS deferred FROM project_text_revisions WHERE id=$1', [candidate]);
+    assert.deepEqual(retry, { checkpoint_sha: null, deferred: true });
+    await requestTextCheckpoint(db, auth.workspaceId, candidate);
+    const { rows: [stillDeferred] } = await pool.query('SELECT checkpoint_due_at > now() AS deferred FROM project_text_revisions WHERE id=$1', [candidate]);
+    assert.equal(stillDeferred.deferred, true);
+
+    await prioritize();
+    const uploading = Promise.withResolvers<void>();
+    const upload = storage.putBlobIfAbsent.bind(storage);
+    t.mock.method(storage, 'putBlobIfAbsent', async (key: string, bytes: Buffer) => {
+      uploading.resolve();
+      await releaseUpload.promise;
+      return upload(key, bytes);
+    });
+    const work = createTextCheckpoints(worker, { batchSize: 1 });
+    try {
+      await Promise.race([uploading.promise, work.then(() => { throw new Error('Checkpoint ended before upload'); })]);
+      // The welcome bootstrap also takes this lock on a cold workspace.
+      await pool.query("SELECT id FROM workspaces WHERE id=$1 FOR UPDATE NOWAIT", [auth.workspaceId]);
+      // The reservation survives a crash, but the upload holds no database transaction or object locks.
+      const { rows: [reservation] } = await pool.query('SELECT checkpoint_pending_sha, checkpoint_sha FROM project_text_revisions WHERE id=$1 FOR UPDATE NOWAIT', [candidate]);
+      assert.deepEqual(reservation, { checkpoint_pending_sha: sha256Hex(baseline + large), checkpoint_sha: null });
+      await pool.query('SELECT sha256 FROM workspace_blobs WHERE workspace_id=$1 AND sha256=$2 FOR UPDATE NOWAIT', [auth.workspaceId, reservation.checkpoint_pending_sha]);
+      assert.ok(!(await markZeroRefForDeletion(db, { graceSeconds: 0, batchSize: 128 })).some(row => row.sha256 === reservation.checkpoint_pending_sha));
+      await requestTextCheckpoint(db, auth.workspaceId, candidate);
+      await append(small);
+      const { rows } = await pool.query(`SELECT depth, chain_patch_bytes, checkpoint_due_at IS NOT NULL AS due FROM project_text_revisions
+        WHERE project_id=$1 ORDER BY chain_patch_bytes DESC`, [projectId]);
+      const smallBytes = Buffer.byteLength(JSON.stringify([[baseline.length, 0, small]]));
+      assert.deepEqual(rows, [
+        { depth: 1, chain_patch_bytes: Buffer.byteLength(JSON.stringify([[baseline.length, 0, large]])), due: true },
+        { depth: 2, chain_patch_bytes: smallBytes * 2, due: false }, { depth: 1, chain_patch_bytes: smallBytes, due: false },
+      ]);
+    } finally { releaseUpload.resolve(); await work; }
+    assert.deepEqual(await work, { completed: 1, failed: 0 });
+    assert.equal(await ensure(auth.workspaceId, candidate), sha256Hex(baseline + large));
+    assert.equal((await files.readTextFile(auth, projectId, path))?.content, baseline + small + small + large);
+  } finally { releaseUpload.resolve(); await cleanup(); }
+});
+
+it('lets another process publish identical bytes while a checkpoint upload stalls and retry after a lost acknowledgement', {
+  skip: !connectionString, timeout: 10000,
+}, async t => {
+  const { db, pool, storage, auth, workspace, files, cleanup } = await fixture();
+  const reached = Promise.withResolvers<void>(), resume = Promise.withResolvers<void>();
+  try {
+    const target = 'shared target', sha = sha256Hex(target);
+    async function revision(source: string) {
+      const path = 'scene.html';
+      const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path, content: source }] });
+      const baseVersion = formatFileVersion('workspace', sha256Hex(source));
+      const result = await files.commitTextEdits(auth, projectId, { files: [{ path, baseVersion, patch: [[0, source.length, target]] }] },
+        { requestId: randomUUID(), source: 'studio' });
+      return result.versionsByPath[path].slice(7, -1);
+    }
+    const [a, b] = await Promise.all([revision('first'), revision('second')]);
+    const put = storage.putBlobIfAbsent.bind(storage);
+    t.mock.method(storage, 'putBlobIfAbsent', async (key: string, data: Buffer) => {
+      reached.resolve();
+      await resume.promise;
+      await put(key, data);
+      throw new Error('Lost upload acknowledgement');
+    }, { times: 1 });
+    const first = storage.ensureTextCheckpoint(auth.workspaceId, a);
+    try {
+      await reached.promise;
+      await assert.doesNotReject(pool.query('SELECT id FROM project_text_revisions WHERE id=$1 FOR UPDATE NOWAIT', [a]));
+      assert.equal(await new TextRevisionStorage(db, storage).checkpoint(auth.workspaceId, b), sha);
+    } finally { resume.resolve(); await assert.rejects(first, /Lost upload acknowledgement/); }
+    const { rows: [pending] } = await pool.query('SELECT checkpoint_pending_sha, checkpoint_sha FROM project_text_revisions WHERE id=$1', [a]);
+    assert.deepEqual(pending, { checkpoint_pending_sha: sha, checkpoint_sha: null });
+    assert.equal(await new TextRevisionStorage(db, storage).checkpoint(auth.workspaceId, a), sha);
+    const { rows } = await pool.query('SELECT checkpoint_pending_sha, checkpoint_sha FROM project_text_revisions WHERE id IN ($1,$2)', [a,b]);
+    assert.deepEqual(rows, [1, 2].map(() => ({ checkpoint_pending_sha: null, checkpoint_sha: sha })));
+  } finally { resume.resolve(); await cleanup(); }
 });
 
 it('pins all unchanged snapshot files in one SQL round trip per concurrent project edit', { skip: !connectionString }, async () => {
@@ -657,5 +906,76 @@ it('rolls back a mixed CAS batch on a GC claim or underflow and preserves per-ob
     await retain([{ ...blob(first), metadata: { height: 20 } }, { ...blob(second), delta: 3, sizeBytes: 19, mimeType: 'text/html' }]);
     const [a, b] = await rows();
     assert.deepEqual([a.ref_count, a.metadata, b.ref_count, Number(b.size_bytes), b.mime_type], [2, { width: 40, height: 20 }, 3, 19, 'text/html']);
+  } finally { await cleanup(); }
+});
+
+it('keeps a hundred ordered Studio edits, their undo points and replay receipts across HTTP batches', { skip: !connectionString }, async () => {
+  const { auth, db, storage, workspace, files, history, events, cleanup } = await fixture();
+  try {
+    const path = 'index.html';
+    const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path, content: '0' }] });
+    const app = createStudioFilesRoutes({ db, storage, files, workspace, history,
+      assetNames: new AssetNamesService({db, files}), resolveAuth: () => auth });
+    app.onError((error, c) => isCloudError(error) ? c.json(error.toJSON(), error.status as 400) : c.json({}, 500));
+
+    const url = '/api/projects/' + projectId;
+    const send = (operations: object[]) => app.request(url + '/text-edits/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({operations}),
+    });
+    const start = await app.request(url + '/files/' + path);
+    assert.equal(start.headers.get('X-OpenMotion-Ordered-Edits'), '1');
+    const initial = (await start.json()).version as string;
+    const ids = Array.from({length: 100}, () => randomUUID());
+    const operations = ids.map((id, i) => ({ id, files: [{ path,
+      baseVersion: i ? {after: ids[i - 1]} : initial, patch: [[0, String(i).length, String(i + 1)]],
+    }] }));
+
+    // A malformed dependency graph must not leave an accepted prefix.
+    assert.equal((await send([operations[0], operations[0]])).status, 400);
+    assert.equal((await send([operations[0], operations[3]])).status, 400);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.version, initial);
+
+    events.length = 0;
+    storage.reads = storage.writes = 0;
+    const response = await send(operations);
+    assert.deepEqual([storage.reads, storage.writes], [0, 0]);
+    assert.equal(response.status, 200);
+    const { committed, failed } = await response.json();
+    assert.equal(failed, undefined);
+    assert.deepEqual(events.map(event => event.type), ['files-changed', 'history-changed']);
+    const forwarded = events[0];
+    assert.ok(forwarded.type === 'files-changed');
+    assert.equal(forwarded.indexHeadHash, undefined);
+    assert.deepEqual(forwarded.ordered?.steps.map(step => step.id), ids);
+    assert.ok(forwarded.ordered?.steps.every(step => step.patches?.length === 1));
+    events.length = 0;
+    assert.deepEqual(committed.map((r: { id: string }) => r.id), ids);
+    assert.equal(new Set(committed.map((r: { versionId: string }) => r.versionId)).size, 100);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, '100');
+    const historyBeforeReplay = await history.listHistory(auth, projectId);
+    assert.deepEqual((await (await send(operations)).json()).committed, committed);
+    assert.equal((await history.listHistory(auth, projectId)).currentSeq, historyBeforeReplay.currentSeq);
+    assert.equal(events.length, 0);
+
+    // A retry with a changed operation must stop at that step. The suffix was never executed.
+    const different = {...operations[1], label: 'Changed intent'};
+    const badId = await (await send([operations[0], different])).json();
+    assert.deepEqual(badId.committed, [committed[0]]);
+    assert.equal(badId.failed.code, 'REQUEST_ID_CONFLICT');
+    const tail = { id: randomUUID(), files: [{ path, baseVersion: committed[99].versions[path], content: 'tail' }] };
+    const stale = { id: randomUUID(), files: [{ path, baseVersion: initial, content: 'stale' }] };
+    const prefix = await (await send([tail, stale, {id: randomUUID(), files: [{path, baseVersion: {after: tail.id}, content: 'wrong'}]}])).json();
+    assert.equal(prefix.committed.length, 1);
+    const partial = events.find(event => event.type === 'files-changed');
+    assert.ok(partial?.type === 'files-changed');
+    assert.equal(partial.indexHeadHash, sha256Hex('').slice(0, 12));
+    assert.deepEqual(partial.ordered?.steps.map(step => step.id), [tail.id]);
+    assert.deepEqual([prefix.failed.id, prefix.failed.status, prefix.failed.path, prefix.failed.currentVersion],
+      [stale.id, 409, path, prefix.committed[0].versions[path]]);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, 'tail');
+    await history.step(auth, projectId, 'back');
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, '100');
+    await history.step(auth, projectId, 'back');
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, '99');
   } finally { await cleanup(); }
 });

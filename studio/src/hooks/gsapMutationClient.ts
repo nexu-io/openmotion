@@ -1,5 +1,6 @@
 import type { StudioWriteHistory } from "../utils/studioFileHistory";
 import { studioWriteHeaders } from "../utils/studioFileVersion";
+import { runOrderedProjectBarrier } from "../utils/orderedProjectEdits";
 import { studioApiFetch } from "../utils/studioApiFetch";
 
 export class GsapPreviewConvergenceError extends Error {}
@@ -98,14 +99,14 @@ export function requestGsapMutation(
   body: unknown,
   history?: StudioWriteHistory,
 ): Promise<Response> {
-  return studioApiFetch(
+  return runOrderedProjectBarrier(projectId, () => studioApiFetch(
     `/api/projects/${encodeURIComponent(projectId)}/${route}/${encodeURIComponent(filePath)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json", ...studioWriteHeaders(history) },
       body: JSON.stringify(body),
     },
-  );
+  ));
 }
 
 async function postOwnedGsapMutation(

@@ -118,9 +118,9 @@ export async function readMcpProjectFile(
   if (mode === 'sync') {
     if (query.fromFileVersion === fileVersion) return { ...info, patches: [] };
     if (deps.files.textPatchWrites && file.blobScope === 'patch') {
-      const chain = await loadTextRevisionChain(deps.db, auth.workspaceId, file.sha256, query.fromFileVersion);
-      const base = chain.base;
-      if (Buffer.byteLength(JSON.stringify(chain.changes)) < Math.min(256 * 1024, file.sizeBytes)) {
+      const chain = await loadTextRevisionChain(deps.db, auth.workspaceId, file.sha256, query.fromFileVersion, Math.min(256 * 1024, file.sizeBytes));
+      if (chain) {
+        const base = chain.base;
         const held = formatFileVersion(base.scope, base.id) === query.fromFileVersion;
         return { ...info, ...(held ? {} : { baseline: await download(base.scope, base.id) }), patches: chain.changes };
       }

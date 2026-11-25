@@ -8,7 +8,7 @@ import {
   type EncoderOptionsBody,
 } from '@hyperframes/studio-server/encoder-options';
 import { CloudError } from '../../contracts/errors.ts';
-import type { JobProgressEvent } from '../../contracts/events.ts';
+import type { JobProgressEvent, RenderWorkerHealth } from '../../contracts/events.ts';
 import type { JobState } from '../../contracts/jobs.ts';
 import { asInsert, asUpdate } from '../../db/helpers.ts';
 import { jobs } from '../../db/schema/jobs.ts';
@@ -32,6 +32,9 @@ import { assertValidUuid, loadProjectOrThrow } from '../../services/project-file
 type RenderFormat = 'mp4' | 'mov' | 'webm' | 'gif';
 
 const ACTIVE_JOB_STATES: readonly JobState[] = ['queued', 'running', 'cancelling'];
+const RENDER_WORKER_HEALTH_WINDOW_MS = 60_000;
+const STALE_ORPHAN_RENDER_MS = 60_000;
+const DEFAULT_RENDER_PROGRESS_KEEPALIVE_MS = 20_000;
 
 function mapJobStateToStudioStatus(state: JobState): string {
   switch (state) {
@@ -51,6 +54,33 @@ function mapJobStateToStudioStatus(state: JobState): string {
 
 function isTerminalState(state: string): boolean {
   return state === 'completed' || state === 'failed' || state === 'cancelled';
+}
+
+async function readAliveRenderWorkers(
+  deps: DisklessStudioDeps,
+): Promise<RenderWorkerHealth[] | null> {
+  if (!deps.eventBus) return null;
+  try {
+    return await deps.eventBus.getRenderWorkersHealth(RENDER_WORKER_HEALTH_WINDOW_MS);
+  } catch {
+    return null;
+  }
+}
+
+function resolveRenderWorkerActive(
+  row: Pick<typeof jobs.$inferSelect, 'state' | 'workerId'>,
+  aliveWorkers: readonly RenderWorkerHealth[] | null,
+): boolean | undefined {
+  if (isTerminalState(row.state)) return false;
+  // Queued exports have not been claimed by a specific worker yet; keep them in
+  // their pending/waiting state instead of downgrading to `unknown` while the
+  // active-export slot is still held.
+  if (row.state === 'queued') return undefined;
+  if (aliveWorkers === null) return undefined;
+  if (row.workerId) {
+    return aliveWorkers.some((worker) => worker.workerId === row.workerId);
+  }
+  return aliveWorkers.length > 0;
 }
 
 function readResultSizeBytes(result: Record<string, unknown>): number | undefined {
@@ -73,11 +103,18 @@ function readResultFilename(
   );
 }
 
-function formatRenderAttempt(row: typeof jobs.$inferSelect): Record<string, unknown> {
+function formatRenderAttempt(
+  row: typeof jobs.$inferSelect,
+  aliveWorkers: readonly RenderWorkerHealth[] | null = null,
+): Record<string, unknown> {
   const input = (row.inputPayload ?? {}) as Record<string, unknown>;
   const result = (row.resultJson ?? {}) as Record<string, unknown>;
   const filename = readResultFilename(result, input, row.id);
   const sizeBytes = readResultSizeBytes(result);
+  const workerActive = resolveRenderWorkerActive(row, aliveWorkers);
+  const status = !isTerminalState(row.state) && workerActive === false
+    ? 'unknown'
+    : mapJobStateToStudioStatus(row.state);
 
   const durationMs =
     row.startedAt && row.terminalAt
@@ -90,8 +127,9 @@ function formatRenderAttempt(row: typeof jobs.$inferSelect): Record<string, unkn
     nativeJobId: row.id,
     requestId: row.requestId ?? undefined,
     filename,
-    status: mapJobStateToStudioStatus(row.state),
+    status,
     state: row.state,
+    ...(workerActive !== undefined ? { workerActive } : {}),
     progress: Number(row.progress ?? 0),
     stage: row.stage ?? undefined,
     createdAt: row.createdAt.getTime(),
@@ -191,7 +229,11 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           ),
         );
       if (existing[0]) {
-        const formatted = formatRenderAttempt(existing[0]);
+        const aliveWorkers =
+          existing[0].state === 'running' || existing[0].state === 'cancelling'
+            ? await readAliveRenderWorkers(deps)
+            : null;
+        const formatted = formatRenderAttempt(existing[0], aliveWorkers);
         return c.json({
           ...formatted,
           replayed: true,
@@ -201,7 +243,7 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
 
     // Enforce single active export per project (also backed by DB unique partial index uq_jobs_active_export_per_project).
     const activeRows = await deps.db
-      .select({ id: jobs.id })
+      .select()
       .from(jobs)
       .where(
         and(
@@ -212,15 +254,77 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
         ),
       );
     if (activeRows.length > 0) {
-      return c.json(
-        {
-          code: 'EXPORT_BUSY',
-          applied: false,
-          error: 'An export is already in progress. Check the original task.',
-          activeJobId: activeRows[0].id,
-        },
-        409,
-      );
+      const aliveWorkers = await readAliveRenderWorkers(deps);
+      const nowMs = Date.now();
+      const remainingActive: Array<typeof jobs.$inferSelect> = [];
+      for (const activeRow of activeRows) {
+        const orphanedWorker =
+          (activeRow.state === 'running' || activeRow.state === 'cancelling') &&
+          resolveRenderWorkerActive(activeRow, aliveWorkers) === false &&
+          nowMs - activeRow.updatedAt.getTime() >= STALE_ORPHAN_RENDER_MS;
+        if (!orphanedWorker) {
+          remainingActive.push(activeRow);
+          continue;
+        }
+        const terminalAt = new Date();
+        const nextTerminalState: JobState = activeRow.state === 'cancelling' ? 'cancelled' : 'failed';
+        const errorCode = nextTerminalState === 'failed' ? 'EXPORT_WORKER_LOST' : undefined;
+        const errorMessage =
+          nextTerminalState === 'failed'
+            ? 'Render worker disconnected before finishing the export.'
+            : undefined;
+        const reconciled = await deps.db
+          .update(jobs)
+          .set(
+            asUpdate(jobs, {
+              state: nextTerminalState,
+              stage: nextTerminalState,
+              ...(nextTerminalState === 'failed'
+                ? {
+                    errorCode,
+                    errorMessage,
+                  }
+                : {}),
+              terminalAt,
+              updatedAt: terminalAt,
+            }),
+          )
+          .where(
+            and(
+              eq(jobs.workspaceId, auth.workspaceId),
+              eq(jobs.id, activeRow.id),
+              inArray(jobs.state, ['running', 'cancelling']),
+            ),
+          )
+          .returning({ id: jobs.id });
+        if (reconciled.length > 0 && deps.eventBus) {
+          void deps.eventBus
+            .publish(jobChannel(activeRow.id), {
+              jobId: activeRow.id,
+              workspaceId: auth.workspaceId,
+              projectId: activeRow.projectId ?? project.id,
+              kind: 'export_render',
+              state: nextTerminalState,
+              stage: nextTerminalState,
+              progress: nextTerminalState === 'cancelled' ? 0 : Number(activeRow.progress ?? 0),
+              ...(errorCode ? { errorCode } : {}),
+              ...(errorMessage ? { errorMessage } : {}),
+              ts: terminalAt.getTime(),
+            } satisfies JobProgressEvent)
+            .catch(() => {});
+        }
+      }
+      if (remainingActive.length > 0) {
+        return c.json(
+          {
+            code: 'EXPORT_BUSY',
+            applied: false,
+            error: 'An export is already in progress. Check the original task.',
+            activeJobId: remainingActive[0].id,
+          },
+          409,
+        );
+      }
     }
 
     let workId: string | null = null;
@@ -353,7 +457,11 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       .orderBy(desc(jobs.createdAt))
       .limit(100);
 
-    return c.json({ renders: rows.map(formatRenderAttempt) });
+    const aliveWorkers = rows.some((row) => row.state === 'running' || row.state === 'cancelling')
+      ? await readAliveRenderWorkers(deps)
+      : null;
+
+    return c.json({ renders: rows.map((row) => formatRenderAttempt(row, aliveWorkers)) });
   });
 
   // GET /api/render/:jobId/progress — SSE progress stream backed by PG replay + Redis `om:job:{jobId}`.
@@ -375,13 +483,19 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
     const job = rows[0];
     if (!job) return c.notFound();
 
+    const aliveWorkers =
+      job.state === 'running' || job.state === 'cancelling'
+        ? await readAliveRenderWorkers(deps)
+        : null;
+    const initialWorkerActive = resolveRenderWorkerActive(job, aliveWorkers);
+
     return streamSSE(c, async (stream) => {
       await stream.writeSSE({
         event: 'progress',
-        data: JSON.stringify(formatRenderAttempt(job)),
+        data: JSON.stringify(formatRenderAttempt(job, aliveWorkers)),
       });
 
-      if (isTerminalState(job.state) || !deps.eventBus) {
+      if (isTerminalState(job.state) || !deps.eventBus || initialWorkerActive === false) {
         return;
       }
 
@@ -390,8 +504,19 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       const donePromise = new Promise<void>((resolve) => {
         resolveDone = resolve;
       });
+      const finishStream = () => {
+        done = true;
+        resolveDone?.();
+      };
 
       const initialInput = (job.inputPayload ?? {}) as Record<string, unknown>;
+      const keepaliveMs =
+        typeof deps.renderProgressKeepaliveMs === 'number' &&
+        Number.isFinite(deps.renderProgressKeepaliveMs) &&
+        deps.renderProgressKeepaliveMs > 0
+          ? deps.renderProgressKeepaliveMs
+          : DEFAULT_RENDER_PROGRESS_KEEPALIVE_MS;
+
       const unsubscribe = await deps.eventBus.subscribe(jobChannel(jobId), (payload) => {
         if (done || stream.aborted) return;
         const evt = payload as Partial<JobProgressEvent>;
@@ -409,6 +534,7 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           filename,
           status: evt.state ? mapJobStateToStudioStatus(evt.state) : 'rendering',
           state: evt.state ?? 'running',
+          workerActive: evt.state ? !isTerminalState(evt.state) : true,
           progress: typeof evt.progress === 'number' ? evt.progress : 0,
           stage: evt.stage,
           error: evt.errorMessage,
@@ -417,27 +543,95 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           ...(durationMs !== undefined ? { durationMs } : {}),
           ...(typeof result.sha256 === 'string' ? { sha256: result.sha256 } : {}),
         };
-        void stream.writeSSE({ event: 'progress', data: JSON.stringify(mapped) }).catch(() => {});
+        const writePromise = stream.writeSSE({ event: 'progress', data: JSON.stringify(mapped) }).catch(() => {});
         if (evt.state && isTerminalState(evt.state)) {
           done = true;
-          resolveDone?.();
+          void writePromise.finally(() => {
+            resolveDone?.();
+          });
         }
       });
 
-      const keepalive = setInterval(() => {
-        if (done || stream.aborted) return;
-        void stream.write(': keepalive\n\n').catch(() => {});
-      }, 20_000);
+      const recheckJobLiveness = async (): Promise<boolean> => {
+        if (done || stream.aborted) return true;
+        const latestRows = await deps.db
+          .select()
+          .from(jobs)
+          .where(
+            and(
+              eq(jobs.workspaceId, auth.workspaceId),
+              eq(jobs.id, jobId),
+              isNull(jobs.deletedAt),
+            ),
+          );
+        if (done || stream.aborted) return true;
+        const latestJob = latestRows[0];
+        if (!latestJob) {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify({
+              ...formatRenderAttempt(job, []),
+              status: 'unknown',
+              workerActive: false,
+            }),
+          });
+          finishStream();
+          return true;
+        }
+        if (isTerminalState(latestJob.state)) {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify(formatRenderAttempt(latestJob, null)),
+          });
+          finishStream();
+          return true;
+        }
+        if (latestJob.state === 'queued') {
+          return false;
+        }
+        const latestAliveWorkers = await readAliveRenderWorkers(deps);
+        if (done || stream.aborted) return true;
+        if (resolveRenderWorkerActive(latestJob, latestAliveWorkers) === false) {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify(formatRenderAttempt(latestJob, latestAliveWorkers)),
+          });
+          finishStream();
+          return true;
+        }
+        return false;
+      };
 
       stream.onAbort(() => {
-        done = true;
-        resolveDone?.();
+        finishStream();
       });
 
+      let keepalive: ReturnType<typeof setInterval> | undefined;
+      let checkingLiveness = false;
       try {
-        await donePromise;
+        // Re-check PG + worker liveness right after subscribing so a terminal transition or
+        // worker loss during subscribe never leaves SSE hanging.
+        if (!(await recheckJobLiveness()) && !done && !stream.aborted) {
+          keepalive = setInterval(() => {
+            if (done || stream.aborted || checkingLiveness) return;
+            checkingLiveness = true;
+            void (async () => {
+              try {
+                const closed = await recheckJobLiveness();
+                if (!closed && !done && !stream.aborted) {
+                  await stream.write(': keepalive\n\n');
+                }
+              } catch {
+                // Transient keepalive/liveness check error; retry on the next interval tick.
+              } finally {
+                checkingLiveness = false;
+              }
+            })();
+          }, keepaliveMs);
+          await donePromise;
+        }
       } finally {
-        clearInterval(keepalive);
+        if (keepalive) clearInterval(keepalive);
         await unsubscribe().catch(() => {});
       }
     });
@@ -456,23 +650,45 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
     const job = rows[0];
     if (!job) return c.notFound();
 
+    const aliveWorkers =
+      job.state === 'running' || job.state === 'cancelling'
+        ? await readAliveRenderWorkers(deps)
+        : null;
+    const workerActive = resolveRenderWorkerActive(job, aliveWorkers);
+
     let nextState: JobState = job.state;
+    let finalizedCancelled = false;
     const now = new Date();
     if (job.state === 'queued') {
       nextState = 'cancelled';
+      finalizedCancelled = true;
       await deps.db
         .update(jobs)
-        .set(asUpdate(jobs, { state: 'cancelled', terminalAt: now, updatedAt: now }))
-        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId)));
+        .set(asUpdate(jobs, { state: 'cancelled', stage: 'cancelled', terminalAt: now, updatedAt: now }))
+        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.state, 'queued')));
+    } else if ((job.state === 'running' || job.state === 'cancelling') && workerActive === false) {
+      // No live worker holds this render job; finalize cancellation immediately so re-export is unblocked.
+      nextState = 'cancelled';
+      finalizedCancelled = true;
+      await deps.db
+        .update(jobs)
+        .set(asUpdate(jobs, { state: 'cancelled', stage: 'cancelled', terminalAt: now, updatedAt: now }))
+        .where(
+          and(
+            eq(jobs.workspaceId, auth.workspaceId),
+            eq(jobs.id, jobId),
+            inArray(jobs.state, ['running', 'cancelling']),
+          ),
+        );
     } else if (job.state === 'running') {
       nextState = 'cancelling';
       await deps.db
         .update(jobs)
         .set(asUpdate(jobs, { state: 'cancelling', updatedAt: now }))
-        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId)));
+        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.state, 'running')));
     }
 
-    if (deps.eventBus && (job.state === 'queued' || job.state === 'running')) {
+    if (deps.eventBus && (job.state === 'queued' || job.state === 'running' || finalizedCancelled)) {
       void deps.eventBus
         .publish(cancelChannel(jobId), {
           jobId,
@@ -480,12 +696,27 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           requestedAt: Date.now(),
         })
         .catch(() => {});
+      if (finalizedCancelled) {
+        void deps.eventBus
+          .publish(jobChannel(jobId), {
+            jobId,
+            workspaceId: auth.workspaceId,
+            projectId: job.projectId ?? undefined,
+            kind: 'export_render',
+            state: 'cancelled',
+            stage: 'cancelled',
+            progress: 0,
+            ts: Date.now(),
+          } satisfies JobProgressEvent)
+          .catch(() => {});
+      }
     }
 
     return c.json({
       jobId,
       status: mapJobStateToStudioStatus(nextState),
       state: nextState,
+      workerActive: isTerminalState(nextState) ? false : workerActive,
     });
   });
 

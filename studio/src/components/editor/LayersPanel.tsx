@@ -365,9 +365,9 @@ const LocalLayersPanel = memo(function LocalLayersPanel({ host }: { host: Layers
       // rapid successive gestures cannot interleave phases — see
       // runZLaneGesture.
       runZLaneGesture({
-        commitZ: () => handleDomZIndexReorderCommit(entries, coalesceKey, "layer-drag"),
-        mirror: () =>
-          mirrorLayerReorderToTimeline({ selectionKey: movedKey, desiredOrderKeys, coalesceKey }),
+        commitZ: lanes => handleDomZIndexReorderCommit(entries, coalesceKey, "layer-drag", lanes),
+        mirror: commitTogether =>
+          mirrorLayerReorderToTimeline({ selectionKey: movedKey, desiredOrderKeys, coalesceKey }, commitTogether),
       }).catch(() => undefined);
     },
     [handleDomZIndexReorderCommit, mirrorLayerReorderToTimeline],

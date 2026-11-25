@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "entries": {
+    "0dcc6b19e76ff3ff69c20d5eb9645fa0005e36ae86d659e40ad6e47625aec366": {
+      "templateId": "decision-tree",
+      "path": "compositions/decision_tree.html",
+      "file": "decision-tree/decision_tree.jpg",
+      "depsSha256": "90df01775971b614725a106e66133aae4786626f6a7f255f948c31c2badb298d",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "2761c713d00fa142b5533844173fc77d78b355729fe36199fb49fe7db0d50ff2": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/intro.html",
+      "file": "openmotion-welcome/intro.jpg",
+      "depsSha256": "d6e0ccac13e33fdb28acaacb7b1628cdbc635ea8a8e5c79e86ce18c8d8157eda",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "65464931119635f053a62225484988654979e60ccc77565b27de516c8dad2d5e": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/reel.html",
+      "file": "openmotion-welcome/reel.jpg",
+      "depsSha256": "d6e0ccac13e33fdb28acaacb7b1628cdbc635ea8a8e5c79e86ce18c8d8157eda",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "6704b461f86c28755a07a3c86a9f25138f66647d514e9312328ab2f340dbc723": {
+      "templateId": "product-promo",
+      "path": "compositions/scene1-logo-intro.html",
+      "file": "product-promo/scene1-logo-intro.jpg",
+      "depsSha256": "882230b7c088b6658d94aab6da2afc6d08a98bc49a782b4e5fbd0995a7619019",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "6a83e906a1681589f6266acdb1d8e265f9063b2672dac433ae5e0c45c9d99f1a": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/gallery.html",
+      "file": "openmotion-welcome/gallery.jpg",
+      "depsSha256": "d6e0ccac13e33fdb28acaacb7b1628cdbc635ea8a8e5c79e86ce18c8d8157eda",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "983fe8533b5d6ef321af491b7a9ab6eedb381e775abf2304ab7e20956563f5d7": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/editor.html",
+      "file": "openmotion-welcome/editor.jpg",
+      "depsSha256": "d6e0ccac13e33fdb28acaacb7b1628cdbc635ea8a8e5c79e86ce18c8d8157eda",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "a133b6a3aaee671035e66f50d5f070bd8d2ab8d578c62354efac69e7568ff724": {
+      "templateId": "product-promo",
+      "path": "compositions/scene2-4-canvas.html",
+      "file": "product-promo/scene2-4-canvas.jpg",
+      "depsSha256": "882230b7c088b6658d94aab6da2afc6d08a98bc49a782b4e5fbd0995a7619019",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "aab294f5cd9a598c00160866e3b0506057eca33c3773bf146cd29c5d6f75a2db": {
+      "templateId": "nyt-graph",
+      "path": "compositions/nyt-chart.html",
+      "file": "nyt-graph/nyt-chart.jpg",
+      "depsSha256": "f0e82428d66dcd130c34640132eefba0d0920c47ef73b5446b3122c26a700425",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "b72f19623692f1f640cc7db119238d47b53b722452ce0b6fb5052a6ac1057283": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/outro.html",
+      "file": "openmotion-welcome/outro.jpg",
+      "depsSha256": "d6e0ccac13e33fdb28acaacb7b1628cdbc635ea8a8e5c79e86ce18c8d8157eda",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "d3fe96a2136ac198d7ecc690f5bf01b6f60c7fdf641928265ed28e8e777c4c09": {
+      "templateId": "product-promo",
+      "path": "compositions/scene5-logo-outro.html",
+      "file": "product-promo/scene5-logo-outro.jpg",
+      "depsSha256": "882230b7c088b6658d94aab6da2afc6d08a98bc49a782b4e5fbd0995a7619019",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "d78b7e6e5bfd10b9ea4e1c7370e1e3f0ddc430247eb05e15c65bd1618f04a204": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/choice.html",
+      "file": "openmotion-welcome/choice.jpg",
+      "depsSha256": "d6e0ccac13e33fdb28acaacb7b1628cdbc635ea8a8e5c79e86ce18c8d8157eda",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    },
+    "fd7edae5604b916014f431f87229576c906dddc97d6a137f4b1e776d0f87e944": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/statement.html",
+      "file": "openmotion-welcome/statement.jpg",
+      "depsSha256": "d6e0ccac13e33fdb28acaacb7b1628cdbc635ea8a8e5c79e86ce18c8d8157eda",
+      "frameCount": 8,
+      "frameWidth": 160,
+      "frameHeight": 90,
+      "aspect": 1.7778
+    }
+  }
+}
