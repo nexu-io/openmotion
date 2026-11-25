@@ -86,25 +86,7 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
 
   app.get('/', async (c) => {
     try {
-      const auth = getOptionalAuth(c);
-      if (!auth) {
-        const modality = c.req.query('modality');
-        const query = c.req.query('query')?.trim().toLowerCase() ?? '';
-        const models = await loadPublicModels(c.req.raw.signal);
-        const filtered = models.filter((m) => {
-          if (modality && m.modality !== modality) return false;
-          if (query && !m.id.toLowerCase().includes(query) && !m.label.toLowerCase().includes(query)) {
-            return false;
-          }
-          return true;
-        });
-        return c.json({
-          provider: deps.gateway.providerId,
-          mode: deps.gateway.mode,
-          defaults: {},
-          models: filtered,
-        });
-      }
+      const auth = getAuthContext(c);
       assertScope(auth, 'assets:read');
       const refresh = c.req.query('refresh') === 'true';
       const modality = c.req.query('modality');
