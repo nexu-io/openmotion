@@ -534,7 +534,7 @@ export function SoundComposer({
             size={17}
             className={busy ? 'om-busy-icon' : undefined}
           />
-          <span>{t(studio.guestPreview ? 'Sign in with OpenDesign' : SUBMIT_LABEL[tabId])}</span>
+          <span>{t(SUBMIT_LABEL[tabId])}</span>
           {!busy && <kbd className="om-sound-kbd" aria-hidden="true">⌘↵</kbd>}
         </Button>
       </div>

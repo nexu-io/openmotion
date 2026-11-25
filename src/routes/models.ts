@@ -12,7 +12,7 @@ import {
   gatewayCallContextFromAuth,
   type PlatformModelGateway,
 } from '../services/model-gateway.ts';
-import { buildOpenDesignPreviewModels } from '../services/preview-model-catalog.ts';
+import { buildOpenDesignPreviewModels } from '../../shared/opendesign-preview-catalog.ts';
 
 const VALID_DEFAULT_MODEL_REGEX = /^(?:opendesign:)?[a-zA-Z0-9][a-zA-Z0-9._/-]{0,179}$/;
 
@@ -135,19 +135,25 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
       }
       assertScope(auth, 'assets:read');
       const refresh = c.req.query('refresh') === 'true';
+      const ctx = gatewayCallContextFromAuth(auth, { signal: c.req.raw.signal });
       const [liveModels, defaults] = await Promise.all([
-        deps.gateway.listMediaModels(
-          gatewayCallContextFromAuth(auth, { signal: c.req.raw.signal }),
-          { refresh },
-        ),
+        deps.gateway.listMediaModels(ctx, { refresh }),
         loadWorkspaceDefaults(auth.workspaceId),
       ]);
-      const models =
-        liveModels.length > 0
-          ? liveModels
-          : deps.gateway.mode === 'opendesign'
-            ? buildOpenDesignPreviewModels()
-            : liveModels;
+      let models = liveModels;
+      if (
+        liveModels.length === 0 &&
+        deps.gateway.mode === 'opendesign' &&
+        deps.gateway.getBillingSummary
+      ) {
+        const billing = await deps.gateway.getBillingSummary(ctx, { refresh }).catch(() => null);
+        const plan = billing?.plan?.trim().toLowerCase();
+        const isNonEntitled =
+          billing?.mediaEntitlement === 'not-included' || plan === 'free' || plan === 'go';
+        if (isNonEntitled) {
+          models = buildOpenDesignPreviewModels();
+        }
+      }
       return c.json({
         provider: deps.gateway.providerId,
         mode: deps.gateway.mode,
