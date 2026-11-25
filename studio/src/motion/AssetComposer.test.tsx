@@ -1600,10 +1600,8 @@ it('uses Model gateway instead of BYOK API-key footer copy in unified cloud mode
       }}
     />,
   ));
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
-  const footer = document.querySelector('.om-picker-popover .om-picker-footer');
-  expect(footer?.textContent).toContain('Model gateway');
-  expect(footer?.textContent).not.toContain('API keys');
+  expect(container.querySelector('button[aria-label="Provider"]')).toBeNull();
+  expect(container.querySelector('button[aria-label="Generation model"]')).not.toBeNull();
 });
 
 it('shows feature-specific cloud unavailability with Model gateway action when unified cloud catalog has models but none support the feature', async () => {

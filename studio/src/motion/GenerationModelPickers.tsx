@@ -140,6 +140,12 @@ export function CreationModelPicker({ models, providers, selected, providerHeadi
     </div>
   </Popover>;
 
+  if (unifiedCloudOnly) {
+    return <div className="om-generation-pickers">
+      <div className="om-generation-picker">{modelHeading}{modelPicker}</div>
+    </div>;
+  }
+
   return <div className="om-generation-pickers" data-paired>
     <div className="om-generation-picker">{providerHeading ?? <span className="om-eyebrow">{t('Provider')}</span>}{providerPicker}</div>
     <div className="om-generation-picker">{modelHeading}{modelPicker}</div>

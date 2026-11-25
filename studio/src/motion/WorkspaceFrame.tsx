@@ -396,6 +396,17 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [editorActive, openSettings, toggleSidebar]);
   const cloudWeb = useCloudWebMode();
   const guestMode = Boolean(workspace.authRequired);
+  useEffect(() => {
+    if (!guestMode || typeof window === 'undefined') return;
+    if (!window.location.hash.startsWith('#project/')) return;
+    if (!page.explore && !page.motion && !page.settings && !page.assets && !page.studio) return;
+    const cleanUrl = `${window.location.pathname}${window.location.search}`;
+    try {
+      window.history.replaceState(window.history.state, '', cleanUrl);
+    } catch {
+      // Ignore history API restrictions in embedded frames.
+    }
+  }, [guestMode, page.explore, page.motion, page.settings, page.assets, page.studio]);
   const startGuestSignIn = useCallback((intent: GuestSignInIntent) => {
     const returnTo = currentReturnToPath();
     saveAuthPendingDraft({
