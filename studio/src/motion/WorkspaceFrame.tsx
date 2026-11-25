@@ -382,6 +382,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     if (!workspace.status || guestMode || workspace.busy) return;
     const pending = readAuthPendingDraft();
     if (!pending?.autoResume) return;
+    if (pending.action === 'open_editor' && !workspace.catalogLoaded) return;
     if (autoResumedKeyRef.current === pending.idempotencyKey) return;
     autoResumedKeyRef.current = pending.idempotencyKey;
     clearAuthPendingDraft();
@@ -400,7 +401,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         void workspace.create(undefined, pending.idempotencyKey);
       }
     }
-  }, [workspace.status, guestMode, workspace.busy, workspace.projects, projectId, sessionId]);
+  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, workspace.projects, projectId, sessionId]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
   const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
   const motionEditorDisabled = libraryBusy || (!guestMode && (!workspace.status || workspace.projects.length === 0));

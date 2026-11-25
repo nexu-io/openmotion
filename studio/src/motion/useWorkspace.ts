@@ -91,6 +91,7 @@ export function useWorkspace(
   }, [projects, sessions]);
   const [status, setStatus] = useState<WorkspaceStatus | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  const [catalogLoaded, setCatalogLoaded] = useState(() => Boolean(initialCachedCatalog.current));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [navigationError, setNavigationError] = useState<{ message: string } | null>(null);
@@ -190,6 +191,7 @@ export function useWorkspace(
         if (status === 401) {
           if (!controller.signal.aborted) {
             setAuthRequired(true);
+            setCatalogLoaded(false);
             setCatalogRead({ attempt: connectionCheck, error: '' });
           }
           return Infinity;
@@ -198,6 +200,7 @@ export function useWorkspace(
       }
       if (controller.signal.aborted) return Infinity;
       setAuthRequired(false);
+      setCatalogLoaded(true);
       updateCatalog(catalog);
       const awaitingArtifact = sessionWithoutProject
         && !isStandaloneSpaPath(location.pathname, location.search, location.hash)
@@ -274,6 +277,7 @@ export function useWorkspace(
       setActiveProjectId(null);
       setSessions([]);
       setAuthRequired(false);
+      setCatalogLoaded(false);
       refreshStatus(0);
       refreshWorkspaceCatalog.current?.(0);
     };
@@ -415,5 +419,5 @@ export function useWorkspace(
   const activeProjects = useMemo(() => displayedProjects.filter(project => !project.trashedAt), [displayedProjects]);
   const trashedProjects = useMemo(() => displayedProjects.filter(project => Boolean(project.trashedAt)), [displayedProjects]);
   const currentSession = useMemo(() => visibleSessions.find(item => item.id === sessionId), [visibleSessions, sessionId]);
-  return { projects: activeProjects, activeProjectId, trashedProjects, sessions: visibleSessions, session: currentSession, status, authRequired, busy, actingRef: acting, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError };
+  return { projects: activeProjects, activeProjectId, trashedProjects, sessions: visibleSessions, session: currentSession, status, authRequired, catalogLoaded, busy, actingRef: acting, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError };
 }

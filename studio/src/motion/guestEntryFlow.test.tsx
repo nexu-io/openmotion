@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { MotionStudioPage } from './MotionStudioPage';
 import { TemplateLibraryDialog } from './TemplateLibraryDialog';
+import { WorkspaceFrame } from './WorkspaceFrame';
 import { WorkspaceChromeContext, type WorkspaceChrome } from './WorkspaceChromeContext';
 import {
   clearAuthPendingDraft,
@@ -204,5 +205,79 @@ describe('Guest creation entry points (OPEND-5648)', () => {
     expect(consumeAuthCancelledFromUrl()).toBe(true);
     expect(window.location.search).toBe('?template=custom-agents');
     expect(readAuthPendingDraft()).toBeNull();
+  });
+
+  it('waits for the project catalog before resuming open_editor so existing projects are opened instead of creating a duplicate blank project', async () => {
+    window.history.replaceState(null, '', '/motion');
+    saveAuthPendingDraft({
+      action: 'open_editor',
+      returnTo: '/motion',
+      autoResume: true,
+    });
+
+    let resolveCatalog!: (response: Response) => void;
+    const catalogPromise = new Promise<Response>((resolve) => {
+      resolveCatalog = resolve;
+    });
+    const requests: Array<{ url: string; method: string }> = [];
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const method = (init?.method ?? 'GET').toUpperCase();
+      requests.push({ url, method });
+      if (url.includes('/motion-api/project/status')) {
+        return new Response(
+          JSON.stringify({ projectId: 'proj-existing', projectTitle: 'Existing', revision: 'rev-1', exportJob: null }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/motion-api/projects') && method === 'GET') {
+        return catalogPromise;
+      }
+      if (url.includes('/motion-api/projects/proj-existing/open') && method === 'POST') {
+        return new Response(
+          JSON.stringify({ projectId: 'proj-existing', projectTitle: 'Existing', revision: 'rev-1', exportJob: null }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    const onNavigate = vi.fn();
+    await act(async () => {
+      root.render(
+        <I18nProvider initialLocale="en">
+          <WorkspaceFrame waitForSaves={async () => {}} onNavigate={onNavigate}>
+            <div>Editor</div>
+          </WorkspaceFrame>
+        </I18nProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    // Status has resolved, but catalog is still pending: pending intent must NOT be consumed or POST /projects.
+    expect(readAuthPendingDraft()?.action).toBe('open_editor');
+    expect(requests.some(r => r.url.endsWith('/motion-api/projects') && r.method === 'POST')).toBe(false);
+
+    // Now resolve the delayed catalog containing an existing project.
+    await act(async () => {
+      resolveCatalog(
+        new Response(
+          JSON.stringify({
+            activeId: 'proj-existing',
+            projects: [{ id: 'proj-existing', title: 'Existing' }],
+            sessions: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+
+    expect(readAuthPendingDraft()).toBeNull();
+    expect(requests.some(r => r.url.endsWith('/motion-api/projects') && r.method === 'POST')).toBe(false);
+    expect(requests.some(r => r.url.includes('/motion-api/projects/proj-existing/open') && r.method === 'POST')).toBe(true);
   });
 });
