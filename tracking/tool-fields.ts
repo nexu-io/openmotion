@@ -18,7 +18,7 @@ const actionSets = {
   openmotion_design_project: ['create', 'list', 'get', 'rename', 'duplicate', 'trash', 'restore', 'delete', 'open', 'open_in', 'export', 'import', 'deploy', 'deploy_status', 'unpublish'],
   openmotion_design_edit: ['read_file', 'write', 'list_versions', 'restore_version', 'import_asset'],
   openmotion_design_comments: ['list', 'create', 'update', 'delete'],
-  openmotion_cloud_deploy: ['publish', 'status', 'unpublish', 'list'],
+  openmotion_cloud_deploy: ['publish', 'status', 'visibility', 'unpublish', 'list'],
   openmotion_cloud_comments: ['inspect_elements', 'list', 'comment', 'reply', 'update', 'delete'],
 } as const;
 const targets = ['project', 'templates', 'providers'] as const;
@@ -112,7 +112,8 @@ const invalidFields = [
   'shareUrl', 'slug', 'parentCommentId', 'note', 'elementId', 'selector', 'htmlHint', 'label',
   'position', 'position.left', 'position.top', 'position.width', 'position.height',
   'position.viewportWidth', 'position.viewportHeight', 'includeResolved', 'sinceSeq',
-  'targetKind', 'targetId', 'workspaceId', 'deployMode', 'embedUrl', 'expectedVersion', 'idempotencyKey',
+  'targetKind', 'targetId', 'workspaceId', 'deployMode', 'visibility', 'allowRemix', 'embedUrl', 'expectedVersion', 'idempotencyKey',
+  'replyToCommentId', 'targetType', 'images', 'images[]', 'images[].path', 'images[].filePath', 'images[].alt', 'imagePaths', 'imagePaths[]',
 ] as const;
 export const toolErrorCodes = [
   'CAPABILITY_NOT_FOUND', 'CAPABILITY_COMING_SOON', 'CAPABILITY_DEPRECATED', 'CAPABILITY_CHANNEL_DISABLED',
