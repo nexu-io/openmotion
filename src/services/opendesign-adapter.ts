@@ -569,6 +569,10 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
       headers: this.buildHeaders(ctx, {
         'Content-Type': 'application/json',
         'Idempotency-Key': ctx.idempotencyKey ?? input.jobId,
+        ...(this.apiUrl === 'https://amr-api.open-design.ai' && {
+          'X-Source-Product': 'openmotion',
+          'X-OpenMotion-Job-Id': input.jobId,
+        }),
       }),
       body: JSON.stringify(payload),
       signal: ctx.signal,

@@ -385,6 +385,13 @@ describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero 
     assert.equal(polled.status, 'succeeded');
     const downloaded = await streamToBuffer(await gateway.downloadOutput(ctx, polled.outputs![0]));
     assert.deepEqual(downloaded, sampleMp4);
+    for (const call of calls) {
+      const jobId = call.method === 'POST' && call.url.endsWith('/images/edits') ? 'job-edit-1'
+        : call.method === 'POST' && call.url.endsWith('/videos/tasks') ? 'job-vid-s2s' : undefined;
+      assert.equal(call.headers['x-openmotion-job-id'], jobId);
+      assert.equal(call.headers['x-source-product'], jobId ? 'openmotion' : undefined);
+      if (jobId) assert.equal(call.headers['idempotency-key'], ctx.idempotencyKey);
+    }
 
     // 5. Billing sync disabled by default (no upstream call)
     const billing = await gateway.getBillingSummary(ctx);
@@ -395,6 +402,24 @@ describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero 
       () => gateway.transcribeAudio(ctx, { audioWav: generateDeterministicWav('asr') }),
       (err: unknown) => isCloudError(err) && err.code === 'FEATURE_DEFERRED_P2' && err.status === 501,
     );
+  });
+
+  it('keeps custom gateway task submissions on the existing idempotency protocol', async () => {
+    const gateway = new OpenDesignModelGateway({
+      apiUrl: 'https://custom.example.test', linkUrl: 'https://link.example.test',
+      fetcher: async (_url, init) => {
+        const headers = new Headers(init?.headers);
+        assert.equal(headers.get('idempotency-key'), 'retry-key');
+        assert.equal(headers.has('x-openmotion-job-id'), false);
+        assert.equal(headers.has('x-source-product'), false);
+        return Response.json({ task_id: 'custom-task' });
+      },
+    });
+    const result = await gateway.submitTask({ workspaceId: 'workspace', idempotencyKey: 'retry-key' }, {
+      jobId: 'internal-job', modality: 'video', mode: 'text-to-video', modelId: 'video-model',
+      prompt: 'Ocean waves', parameters: {}, inputs: [],
+    });
+    assert.equal(result.remoteTaskId, 'custom-task');
   });
 
   it('returns an honest empty catalog without fabricated fallback models, skips caching empty results, and scopes cache by actor', async () => {

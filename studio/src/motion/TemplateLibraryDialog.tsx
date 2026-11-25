@@ -37,7 +37,7 @@ import { facetValues as values, templateFacets as facets, templateAspect, templa
 import { TemplateGalleryCard as TemplateCard, TopBrandsLabel, TemplatePoster, TemplateIdentity as Identity } from './TemplateGalleryCard';
 import { useTemplatePlayback } from './useTemplatePlayback';
 import { useTemplateImpressions } from './useTemplateImpressions';
-import { matchesTemplateSearch, normalizedTemplateQuery } from './templateSearch';
+import { matchesTemplateSearch, normalizedTemplateQuery, prepareTemplateSearchIndex, scoreTemplateSearchMap } from './templateSearch';
 import { TemplateReferenceDialog, TemplateSearchRecovery } from './TemplateSearchRecovery';
 import { useTemplateSearchContext } from './useTemplateSearchContext';
 import * as tracking from './templateLibraryTracking';
@@ -356,13 +356,16 @@ export function TemplateLibraryDialog(props: Props) {
   const industries = available.find(facet => facet.key === 'industries')?.values ?? [];
   const sortOptions = [['recommended', 'Recommended order'], ['name', 'Name A–Z'], ['reverse', 'Name Z–A'], ['duration', 'Duration']] as const;
   const hasFilters = Boolean(format || libraryQuery || editableOnly || brandsOnly || compareWithout || Object.values(selected).some(items => items?.length));
-  const searchable = useMemo(() => catalog.filter(item => (props.creators || ((!format || matchesTemplateCategory(item, format)) && (!brandsOnly || Boolean(item.brand?.trim())) && (!compareWithout || item.brand !== compareWithout))) && matchesTemplateSearch(item, libraryQuery, t)), [catalog, libraryQuery, format, brandsOnly, compareWithout, props.creators, t]);
+  const searchingLibrary = Boolean(libraryQuery.trim());
+  const searchIndex = useMemo(() => searchingLibrary ? prepareTemplateSearchIndex(catalog, t) : [], [catalog, t, searchingLibrary]);
+  const scores = useMemo(() => searchingLibrary ? scoreTemplateSearchMap(searchIndex, libraryQuery) : null, [searchIndex, libraryQuery, searchingLibrary]);
+  const searchable = useMemo(() => catalog.filter(item => (props.creators || ((!format || matchesTemplateCategory(item, format)) && (!brandsOnly || Boolean(item.brand?.trim())) && (!compareWithout || item.brand !== compareWithout))) && (!scores || scores.has(item.id))), [catalog, scores, format, brandsOnly, compareWithout, props.creators]);
   const draftCount = useMemo(() => filtersOpen ? searchable.filter(item => matchesFilters(item, draftFilters, draftEditable)).length : 0, [filtersOpen, searchable, draftFilters, draftEditable]);
   const hasDraftFilters = draftEditable || Object.values(draftFilters).some(items => items?.length);
   const visible = useMemo(() => {
     if (props.creators) return props.creator ? searchable.filter(item => templateCredit(item)?.id === props.creator) : [];
-    return searchable.filter(item => matchesFilters(item, selected, editableOnly)).sort((a, b) => sort === 'recommended' ? (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) : sort === 'duration' ? (a.duration ?? Infinity) - (b.duration ?? Infinity) : a.title.localeCompare(b.title, locale) * (sort === 'reverse' ? -1 : 1));
-  }, [searchable, selected, sort, locale, editableOnly, props.creators, props.creator]);
+    return searchable.filter(item => matchesFilters(item, selected, editableOnly)).sort((a, b) => sort === 'recommended' ? ((scores?.get(b.id) ?? 0) - (scores?.get(a.id) ?? 0) || (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity)) : sort === 'duration' ? (a.duration ?? Infinity) - (b.duration ?? Infinity) : a.title.localeCompare(b.title, locale) * (sort === 'reverse' ? -1 : 1));
+  }, [searchable, scores, selected, sort, locale, editableOnly, props.creators, props.creator]);
   useEffect(() => { if (dialog.current) dialog.current.scrollTop = 0; }, [libraryQuery, selected, sort, editableOnly, brandsOnly, compareWithout, blackFriday]);
   const filterCount = Number(Boolean(format)) + Object.values(selected).flat().length + Number(editableOnly) + Number(brandsOnly) + Number(Boolean(compareWithout));
   const hasAppliedFilters = filterCount > 0;
@@ -406,7 +409,7 @@ export function TemplateLibraryDialog(props: Props) {
   const showEmptyRecovery = !loading && !error && !visible.length;
   const suggestedRemoval = useMemo(() => {
     if (!showEmptyRecovery || !stableSearch || !hasAppliedFilters || !catalog.length) return;
-    const matches = catalog.filter(item => (!format || matchesTemplateCategory(item, format)) && (!compareWithout || item.brand !== compareWithout) && matchesTemplateSearch(item, libraryQuery, t));
+    const matches = catalog.filter(item => (!format || matchesTemplateCategory(item, format)) && (!compareWithout || item.brand !== compareWithout) && (!scores || scores.has(item.id)));
     const count = (filters: Filters, editable: boolean, brands: boolean) => matches.filter(item =>
       (!brands || Boolean(item.brand?.trim())) && matchesFilters(item, filters, editable)).length;
     const options = facets.flatMap(([key]) => (selected[key] ?? []).map(value => ({
@@ -418,7 +421,7 @@ export function TemplateLibraryDialog(props: Props) {
       ...(brandsOnly ? [{ key: 'top' as const, value: '', label: t('TOP 100 brands'), count: count(selected, editableOnly, false) }] : []),
     ];
     return [...options, ...special].filter(option => option.count > 0).sort((a, b) => b.count - a.count)[0];
-  }, [showEmptyRecovery, stableSearch, hasAppliedFilters, format, catalog, libraryQuery, t, selected, editableOnly, brandsOnly, compareWithout]);
+  }, [showEmptyRecovery, stableSearch, hasAppliedFilters, format, catalog, scores, t, selected, editableOnly, brandsOnly, compareWithout]);
   // A filter, category or sort result is reported after the changed list has rendered, with the count the user now sees.
   useEffect(() => {
     const action = pendingResult.current; pendingResult.current = undefined;

@@ -439,7 +439,7 @@ backend/data directory. Deterministic coverage lives in
   opens report `studio_bar/open_template` with both `scene_id` and `template_id`.
   The Motion Studio banner's editor button reports `studio_bar/open_editor` with `studio_id=motion`.
   The Motion Studio template shelf reuses `studio_bar/category_select`, `load_more`, `view_all_templates`
-  and `open_template`. Explore Design template cards and their Try buttons report `explore_collection/open_template`
+  and `open_template`; the shelf loads its next batch automatically when scrolled near the end, and `load_more` reports each such batch. Explore Design template cards and their Try buttons report `explore_collection/open_template`
   with their Design scenario and template IDs.
   The Explore banner's editor button retains `explore_spotlight/slide_action` for the first Motion slide.
   A Cinema template card uses `studio_bar/try_prompt` with its `template_id`, `scene_id` and zero-based `position`.
