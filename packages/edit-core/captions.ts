@@ -5,6 +5,16 @@ import { captionArtwork, captionSettings, type CaptionSettings } from '../../sha
 
 export type CaptionPlacement = TranscriptPlacement;
 export type CaptionTrack = { id: string; kind: 'text' | 'caption'; track: number; label: string; cueCount: number; settings: CaptionSettings; locked: boolean };
+export type CaptionSourceCommand = 'caption_add' | 'caption_update' | 'caption_toggle';
+export interface CaptionSourceOptions {
+  segments?: TranscriptSegment[];
+  subtitles?: string;
+  timelineStart?: number;
+  textKind?: 'text' | 'caption';
+  captionSettings?: Partial<CaptionSettings>;
+  visible?: boolean;
+  remove?: boolean;
+}
 
 export function createCaptionSourceOperations({ decodeAuthoredAttribute, scanHtmlOpeningTags }: typeof HtmlParser, parseDocument: typeof parseMarkup) {
   const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -203,5 +213,12 @@ export function createCaptionSourceOperations({ decodeAuthoredAttribute, scanHtm
     for (const track of tracks) if (track.settings.visible !== visible) html = updateCaptionTrackSource(html, track.id, { visible }).content;
     return { content: html, count: tracks.reduce((sum, track) => sum + track.cueCount, 0), trackId: tracks[0]?.id };
   }
-  return { captionTracks, updateCaptionTrackSource, transcriptCaptionSource, manualCaptionSource, toggleCaptionSource };
+  function editCaptionSource(html: string, command: CaptionSourceCommand, id: string, options: CaptionSourceOptions) {
+    if (command === 'caption_toggle') return toggleCaptionSource(html, id, Boolean(options.visible));
+    if (command === 'caption_update') {
+      return { ...updateCaptionTrackSource(html, id, options.captionSettings ?? {}, options.remove === true), trackId: id };
+    }
+    return { ...manualCaptionSource(html, id, { ...options, textKind: options.textKind === 'text' ? 'text' : 'caption' }), trackId: id };
+  }
+  return { captionTracks, updateCaptionTrackSource, transcriptCaptionSource, manualCaptionSource, toggleCaptionSource, editCaptionSource };
 }

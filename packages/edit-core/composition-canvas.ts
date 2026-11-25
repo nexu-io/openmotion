@@ -10,8 +10,36 @@ export const canvasPresets = [
 export type CanvasRatio = typeof canvasPresets[number]['ratio'];
 export type CanvasFit = 'contain' | 'cover';
 export type CanvasSettings = { width: number; height: number; ratio: string; fit: CanvasFit };
+export function canvasFrameTransform(sourceWidth: number, sourceHeight: number, width: number, height: number, fit: CanvasFit) {
+  const scale = Math[fit === 'cover' ? 'max' : 'min'](width / sourceWidth, height / sourceHeight);
+  return `translate(${(width - sourceWidth * scale) / 2}px,${(height - sourceHeight * scale) / 2}px) scale(${scale})`;
+}
 export function canvasRatio(width: number, height: number): string {
   return canvasPresets.find(item => Math.abs(item.width / item.height - width / height) < 0.001)?.ratio || `${width}:${height}`;
+}
+
+type Span = { start: { offset: number }; end: { offset: number } };
+type CanvasCssParser = {
+  parse(source: string, options: { positions: boolean }): unknown;
+  walk(ast: unknown, visitor: { visit: string; enter(node: { loc: Span; name: { name: string; loc: Span } }): void }): void;
+  ident: { decode(name: string): string };
+};
+
+export function canvasStyleRewriter(css: CanvasCssParser) {
+  return (source: string, aliases: Map<string, string>) => {
+    const edits: { start: number; end: number; text: string }[] = [];
+    css.walk(css.parse(source, { positions: true }), { visit: 'AttributeSelector', enter(node) {
+      const alias = aliases.get(css.ident.decode(node.name.name).toLowerCase());
+      if (!alias) return;
+      const start = node.loc.start.offset, end = node.loc.end.offset;
+      const selector = source.slice(start, end);
+      const authored = source.slice(start, node.name.loc.start.offset) + alias + source.slice(node.name.loc.end.offset, end);
+      // Also retain nested composition matches, with the original specificity.
+      edits.push({ start, end, text: `:is(${authored},${selector}:not(:where([data-canvas-fit])))` });
+    } });
+    for (const edit of edits.reverse()) source = source.slice(0, edit.start) + edit.text + source.slice(edit.end);
+    return source;
+  };
 }
 
 /** Native source owns framing. Preview and export consume these same dimensions and transforms. */
@@ -46,9 +74,7 @@ export function compositionCanvasSource(html: string, parsers: { parseHTML: type
   }
   const sourceWidth = Number(root.getAttribute('data-canvas-source-width')), sourceHeight = Number(root.getAttribute('data-canvas-source-height'));
   if (![sourceWidth, sourceHeight].every(value => Number.isFinite(value) && value > 0)) throw new Error('Canvas framing metadata changed; restore the composition before reframing');
-  const scale = Math[change.fit === 'cover' ? 'max' : 'min'](preset.width / sourceWidth, preset.height / sourceHeight);
-  const x = (preset.width - sourceWidth * scale) / 2, y = (preset.height - sourceHeight * scale) / 2;
-  frame.setAttribute('style', `position:absolute;left:0;top:0;width:${sourceWidth}px;height:${sourceHeight}px;transform-origin:0 0;transform:translate(${x}px,${y}px) scale(${scale})`);
+  frame.setAttribute('style', `position:absolute;left:0;top:0;width:${sourceWidth}px;height:${sourceHeight}px;transform-origin:0 0;transform:${canvasFrameTransform(sourceWidth, sourceHeight, preset.width, preset.height, change.fit)}`);
   root.setAttribute('data-width', String(preset.width)); root.setAttribute('data-height', String(preset.height)); root.setAttribute('data-canvas-fit', change.fit);
   root.setAttribute('style', `position:relative;width:${preset.width}px;height:${preset.height}px;overflow:hidden;background:#000`);
   return { content: document.toString(), canvas: { width: preset.width, height: preset.height, ratio: preset.ratio, fit: change.fit } };

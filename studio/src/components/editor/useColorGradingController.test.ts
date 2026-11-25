@@ -8,6 +8,7 @@ import { runtimeProtocolMetadata } from "@hyperframes/core/runtime/protocol";
 import { usePreviewIframeStore } from "../../player/store/previewIframeStore";
 import { useColorGradingController } from "./useColorGradingController";
 import { sceneSwapFor } from "../../player/sceneSwap";
+import { observeSourceRead } from "../../utils/confirmedTextSources";
 import type { DomEditSelection } from "./domEditing";
 
 function brightPopGrading() {
@@ -315,6 +316,35 @@ describe("useColorGradingController", () => {
       expect.stringContaining('"enabled":false'),
     );
     act(() => root.unmount());
+  });
+
+  it("accepts the next preset or scope while an ordered save is pending", async () => {
+    const project = "ordered-grade-controls";
+    observeSourceRead(project, "index.html", new Response(null, {headers: {"X-OpenMotion-Ordered-Edits": "1"}}), {});
+    const hold = Promise.withResolvers<void>();
+    const apply = vi.fn(async () => { await hold.promise; return { changedFiles: 1, changedElements: 1 }; });
+    const write = vi.fn((_attr: string, _value: string | null, _settled?: (ok: boolean) => void) => hold.promise);
+    const {root, getState} = renderHook(write, makeElement(), undefined, apply, project);
+    try {
+      act(() => {
+        getState().commitColorGrading(brightPopGrading());
+        getState().commitColorGrading(cleanStudioGrading());
+      });
+      expect(write).toHaveBeenCalledTimes(2);
+      expect(getState().grading.preset).toBe("clean-studio");
+      const first = getState().applyToScope(), second = getState().applyToScope();
+      expect(apply).toHaveBeenCalledTimes(2);
+      expect(getState().applyBusy).toBe(false);
+      act(() => write.mock.calls[0]![2]?.(true));
+      expect(getState().grading.preset).toBe("clean-studio");
+      act(() => write.mock.calls[1]![2]?.(false));
+      expect(getState().grading.preset).toBe("bright-pop");
+      hold.resolve();
+      await Promise.all([first, second]);
+    } finally {
+      hold.resolve();
+      act(() => root.unmount());
+    }
   });
 
   it("requests exact effect families and retains earlier family images", async () => {

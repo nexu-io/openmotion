@@ -1,3 +1,5 @@
+import { AUDIO_EXT, VIDEO_EXT } from './asset-names.ts';
+
 // Hyperframes 0.9.7 includes these native Studio manifests in render inputs.
 // Everything else in .hyperframes is cache metadata and must not affect revision hashes.
 export const STUDIO_MANIFESTS: readonly string[] = [
@@ -44,6 +46,14 @@ export const NON_PREVIEW_FILES: ReadonlySet<string> = new Set([
   'NOTICE.md',
 ]);
 
+/** Media beat grids are Studio timeline annotations. The beat reader observes them separately. */
+export function isNonPreviewFile(path: string): boolean {
+  if (NON_PREVIEW_FILES.has(path)) return true;
+  if (!path.startsWith('beats/') || !path.endsWith('.json')) return false;
+  const audio = path.slice('beats/'.length, -'.json'.length);
+  return AUDIO_EXT.test(audio) || VIDEO_EXT.test(audio);
+}
+
 /** Extract the inner `<head>...</head>` markup from `index.html` (empty string when absent). */
 export function extractIndexHeadMarkup(indexHtml: string | null | undefined): string {
   if (!indexHtml) return '';
@@ -65,7 +75,7 @@ export function computePreviewImpact(paths: readonly string[]): PreviewImpact {
 
   for (const rawPath of paths) {
     const normalized = rawPath.replace(/^\/+/, '');
-    if (NON_PREVIEW_FILES.has(normalized)) continue;
+    if (isNonPreviewFile(normalized)) continue;
     if (STUDIO_MANIFESTS.includes(normalized) || normalized === 'hyperframes.json') {
       affectsPreview = true;
       compositions.add('index.html');

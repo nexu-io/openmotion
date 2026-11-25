@@ -1,4 +1,4 @@
-import { NON_PREVIEW_FILES } from "../../../../shared/preview-impact";
+import { isNonPreviewFile } from "../../../../shared/preview-impact";
 import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
 import { usePlayerStore } from "../store/playerStore";
 import { thumbnailRevisionOf } from "../store/thumbnailSlice";
@@ -582,7 +582,7 @@ export function updateCachedCompositionRevisions(
   const isPreviewSharedNonHtml = (rawPath: string): boolean => {
     const key = normalizeCompositionPathForGate(rawPath);
     if (!key || key === "." || HTML_FILE_RE.test(key)) return false;
-    return !NON_PREVIEW_FILES.has(key);
+    return !isNonPreviewFile(key);
   };
 
   const projectRev = projectRevisionByProjectId.get(projectId) ?? "";

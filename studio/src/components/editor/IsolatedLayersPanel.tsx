@@ -80,9 +80,9 @@ export function IsolatedLayersPanel({ iframe }: { iframe: HTMLIFrameElement | nu
     if (!plan) return;
     const coalesceKey = "layer-drag:" + crypto.randomUUID();
     await runZLaneGesture({
-      commitZ: () => connection.current === active ? commitDomEditPatchBatches(plan.batches,
-        { label: "Reorder layers", coalesceKey }) : Promise.resolve({ changed: false, allMatched: false, durable: false }),
-      mirror: () => mirror({ selectionKey: plan.selectionKey, desiredOrderKeys: plan.desiredOrderKeys, coalesceKey }),
+      commitZ: linkedLanes => connection.current === active ? commitDomEditPatchBatches(plan.batches,
+        { label: "Reorder layers", coalesceKey, ...(linkedLanes && { linkedLanes }) }) : Promise.resolve({ changed: false, allMatched: false, durable: false }),
+      mirror: commitTogether => mirror({ selectionKey: plan.selectionKey, desiredOrderKeys: plan.desiredOrderKeys, coalesceKey }, commitTogether),
     });
   }
   const drag = useLayerDrag({ visibleLayers, scrollContainerRef, isDraggable: row => !writeBlockedReason && row.draggable === true,

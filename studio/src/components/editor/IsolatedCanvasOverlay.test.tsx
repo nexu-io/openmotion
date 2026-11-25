@@ -185,7 +185,8 @@ it.each(["replacement", "navigation"])("ignores a late finish after frame %s", a
   expect(state.commitDomEditPatchBatches).not.toHaveBeenCalled();
 });
 
-it("accepts a second pointerdown before the first measurement returns", async () => {
+it.each([false, true])("accepts a second pointerdown before the first measurement returns (batch %s)", async batch => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(batch);
   state.commitDomEditPatchBatches.mockResolvedValue({ durable: true, changed: true, savedCanvasVersion: '"patch:next"' });
   pointer("pointerdown", 60);
   pointer("pointerup", 80);
@@ -197,7 +198,7 @@ it("accepts a second pointerdown before the first measurement returns", async ()
   await reply("finish", result, first);
   await reply("finish", { ...result, predecessor: first, left: 88 }, second);
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(2);
-  expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{ ifMatch: '"patch:next"', box: { left: 88 } }]);
+  expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{ ifMatch: batch ? '"sha256:' + result.sha256 + '"' : '"patch:next"', box: { left: 88 } }]);
 });
 
 it("keeps nested canvas input open on a server with single versioned writes", async () => {
@@ -218,10 +219,12 @@ it("keeps nested canvas input open on a server with single versioned writes", as
   expect(state.showToast).not.toHaveBeenCalled();
 });
 
-it("does not replace a reported conflict with a preview warning on dependent gestures", async () => {
+it.each([false, true])("does not replace a reported conflict with a preview warning on dependent gestures (batch %s)", async batch => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(batch);
   vi.spyOn(sources, "supportsProjectTextEdits").mockReturnValue(true);
   const first = Promise.withResolvers<{durable: boolean; changed: boolean}>();
   state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  if (batch) state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
   for (const left of [100, 130]) {
     pointer("pointerdown", 60);
     pointer("pointerup", 90);
@@ -229,7 +232,7 @@ it("does not replace a reported conflict with a preview warning on dependent ges
     await reply("finish", {...result, left, predecessor:starts.at(-2)?.gestureId}, starts.at(-1)!.gestureId);
   }
   await act(async () => first.reject(new Error("Version conflict")));
-  expect(state.commitDomEditPatchBatches).toHaveBeenCalledOnce();
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(batch ? 2 : 1);
   expect(messages.filter(m => m.phase === "cancel")).toHaveLength(2);
   expect(state.showToast).not.toHaveBeenCalled();
 });
@@ -259,7 +262,8 @@ it("rejects a measurement returned after a same-URL document load", async () => 
   expect(state.showToast).toHaveBeenCalledOnce();
 });
 
-it("saves a completed second drag against its stored predecessor after a preview replacement", async () => {
+it.each([false, true])("retains both completed drags across preview replacement (batch %s)", async batch => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(batch);
   const receipt = Promise.withResolvers<{ durable: boolean; savedCanvasVersion: string }>();
   state.commitDomEditPatchBatches.mockReturnValueOnce(receipt.promise);
   pointer("pointerdown", 60);
@@ -271,12 +275,12 @@ it("saves a completed second drag against its stored predecessor after a preview
   pointer("pointerup", 98);
   await reply("start", null);
   await reply("finish", { ...result, predecessor, left: 110 });
-  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(batch ? 2 : 1);
   state.previewIframeRef.current = document.createElement("iframe");
   await act(async () => receipt.resolve({ durable: true, savedCanvasVersion: '"patch:latest"' }));
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(2);
   expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{
-    sourceFile: result.sourceFile, ifMatch: '"patch:latest"', box: { left: 110 },
+    sourceFile: result.sourceFile, ifMatch: batch ? '"sha256:' + result.sha256 + '"' : '"patch:latest"', box: { left: 110 },
     patches: [{ target: { id: result.elementId } }],
   }]);
 });

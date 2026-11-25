@@ -1,7 +1,7 @@
 import { readCurrentProjectSource } from "../utils/readCurrentProjectSource";
 import { confirmedSource, supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { runOrderedProjectBarrier } from "../utils/orderedProjectEdits";
-import { tryStudioTextEdit, tryStudioCommandPatches, resolveEditSource } from "../utils/studioTextEdits";
+import { tryStudioTextEdit, tryStudioCommandPatches, resolveEditSource, saveOrderedStudioFile } from "../utils/studioTextEdits";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import type { StudioWriteHistory } from "../utils/studioFileHistory";
 import { acceptFileEditReceipt, type RebasedFileEdit } from "../utils/rebasedFileEdit";
@@ -75,14 +75,34 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
     function write(path: string, content: string, expectedContent: string | undefined, command: ProjectEditCommand | undefined, history?: StudioWriteHistory): Promise<void | RebasedFileEdit>;
     async function write(path: string, content: string, expectedContent?: string, command?: ProjectEditCommand, history?: StudioWriteHistory): Promise<void | RebasedFileEdit> {
       if (!projectId) throw new Error("No active project");
-      // Preserve a raw editor's exact before/after pair. Its before text may be
-      // the preceding local edit in the same packet and not yet exist on the server.
-      const orderedRaw = supportsOrderedTextEdits(projectId) && !command && expectedContent !== undefined && fileVersions.get(path) !== null;
-      const source = expectedContent !== undefined && !orderedRaw && fileVersions.get(path) !== null
+      // Reserve the gesture's place before any asynchronous read. Its predecessor
+      // may still exist only in this browser's ordered edits.
+      if (supportsOrderedTextEdits(projectId)) {
+        const cached = confirmedSource(projectId, path);
+        const seen = fileVersions.get(path);
+        const version = cached && cached.content === expectedContent ? cached.version : seen;
+        const before = expectedContent ?? cached?.content;
+        const result = command
+          ? await tryStudioCommandPatches(projectId, [{ ...command, compositionPath: path }], version ? { [path]: version } : {},
+              history, () => content, () => expectedContent)
+          : await saveOrderedStudioFile(projectId, path, content, expectedContent, version, history);
+        if (!result) throw new Error('Could not prepare the edit for ' + path);
+        const saved = result.versions[path];
+        const latest = confirmedSource(projectId, path);
+        if (latest && saved !== latest.version) return;
+        if (saved) fileVersions.set(path, saved);
+        updateCachedCompositionRevisions(projectId, result.versions, before !== undefined && path === 'index.html' &&
+          extractIndexHeadMarkup(before) !== extractIndexHeadMarkup(content) ? {indexHeadChanged: true} : undefined);
+        if ('divergent' in result && Array.isArray(result.divergent) && result.divergent.length) return result.divergent[0];
+        if (latest && latest.content !== content) onSavedContent?.(projectId, path, latest.content, content);
+        else onSavedContent?.(projectId, path, content);
+        return;
+      }
+      const source = expectedContent !== undefined && fileVersions.get(path) !== null
         ? await resolveEditSource(projectId, path, current => current.content === expectedContent, content)
         : confirmedSource(projectId, path);
       const trustedBase = source && (expectedContent === undefined ? fileVersions.get(path) === source.version : expectedContent === source.content);
-      const before = orderedRaw ? expectedContent : trustedBase ? source.content : undefined;
+      const before = trustedBase ? source.content : undefined;
       if (before !== undefined) {
         const saved = command && source
           ? await tryStudioCommandPatches(projectId, [{ ...command, compositionPath: path }], { [path]: source.version }, history, () => content)

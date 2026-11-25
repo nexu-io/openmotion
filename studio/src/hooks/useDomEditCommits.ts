@@ -1,10 +1,11 @@
-import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
+import { saveLayerOrder } from "./orderedLayerReorder";
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { trackStudioPendingEdit } from "../utils/studioPendingEdits";
 import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { cloudHistoryForWrite } from "../utils/studioFileHistory";
 import { buildProjectApiPath } from "../utils/projectRouting";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { findUnsafeDomPatchValues } from "@hyperframes/core/studio-api/finite-mutation";
 import { FONT_EXT } from "../utils/mediaTypes";
 import { primaryFontFamilyValue } from "../utils/studioFontHelpers";
@@ -26,7 +27,7 @@ import {
   batchesAreInlineStyleOnly,
   formatUnsafeFieldList,
   patchElementBatches,
-  isolatedCanvasCommands,
+  canvasBatchCommands,
 } from "./useDomEditCommitsHelpers";
 import type { CutoverResult } from "../utils/sdkCutover";
 import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordinator";
@@ -151,8 +152,8 @@ export function useDomEditCommits({
       const expectedProjectId = projectIdRef.current;
       if (!expectedProjectId) return Promise.reject(new Error("No active project"));
       const history = cloudHistoryForWrite(writeProjectFile, options);
-      const intent = history && isolatedCanvasCommands(batches);
-      const ordered = !!intent && supportsOrderedTextEdits(expectedProjectId);
+      if (!batches.length) return Promise.resolve({ durable: true, allMatched: true, changed: false });
+      const ordered = getCachedCloudDisklessMode();
       // The ordered transport serializes preparation and commits; older hosts use the file locks.
       // fallow-ignore-next-line complexity
       const perform = async () => {
@@ -173,7 +174,14 @@ export function useDomEditCommits({
 
         const sourceFiles = batches.map((batch) => batch.sourceFile);
         async function saveFiles() {
-          if (intent) {
+          if (ordered) {
+            const intent = canvasBatchCommands(batches);
+            if (options.linkedLanes?.length) {
+              const result = await saveLayerOrder(pid, intent.commands, intent.versions, options.linkedLanes, activeCompPath, {
+                ...options, recordEdit: editHistory.recordEdit, frame: previewIframeRef, refresh: reloadPreview,
+              });
+              return { ...result, allMatched: true, reconcileFromServer: false, previewScheduled: true, presentPaths: result.changedPaths };
+            }
             const result = await submitIsolatedCanvasEdit(pid, intent.commands, intent.versions, history, previewIframeRef, reloadPreview, options.coalesceKey);
             const changed = result.changedPaths.length > 0;
             if (changed) await editHistory.recordEdit({ ...options, files: {} });
@@ -259,6 +267,7 @@ export function useDomEditCommits({
       return saved;
     },
     [
+      activeCompPath,
       editHistory,
       forceReloadSdkSession,
       previewIframeRef,
@@ -338,6 +347,9 @@ export function useDomEditCommits({
 
   // ── Element lifecycle (delete, z-index reorder) ──
 
+  const selectedRef = useRef(domEditSelection);
+  selectedRef.current = domEditSelection;
+  const currentSelection = useCallback(() => selectedRef.current, []);
   const { handleDomEditElementsDelete, handleDomZIndexReorderCommit } = useElementLifecycleOps({
     activeCompPath,
     showToast,
@@ -346,6 +358,8 @@ export function useDomEditCommits({
     projectIdRef,
     reloadPreview,
     clearDomSelection,
+    currentSelection,
+    previewIframeRef,
     onTrySdkDelete,
     onReorderShadow,
     forceReloadSdkSession,

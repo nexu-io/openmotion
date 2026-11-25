@@ -1,3 +1,4 @@
+import type { TimelineAtomicMoveEdit } from "./timelineMoveAdapter";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import type { DomEditSelection } from "../components/editor/domEditing";
 import type { ImportedFontAsset } from "../components/editor/fontAssets";
@@ -24,6 +25,8 @@ export type CommitDomEditPatchBatches = (
     label: string;
     coalesceKey: string;
     continuous?: boolean;
+    /** Authored lane changes belonging to this same canvas layer reorder. */
+    linkedLanes?: TimelineAtomicMoveEdit[];
     /** Per-entry undo coalesce window override (ms) — see EditHistoryEntry.coalesceMs. */
     coalesceMs?: number;
     /**

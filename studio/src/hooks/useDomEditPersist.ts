@@ -1,9 +1,10 @@
 import { mountedCanvasVersion, isolatedSourceVersion } from "../components/editor/isolatedSourceTarget";
-import { confirmedSource, supportsOrderedTextEdits, observedSourceVersion } from "../utils/confirmedTextSources";
+import { confirmedSource } from "../utils/confirmedTextSources";
+import { scheduleCommittedPreview } from "../player/committedPreview";
 import { isolatedEditVersion } from "../utils/isolatedEditVersions";
+import { savePreparedDomEdit } from "./orderedDomEdit";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import { submitStudioCommands } from "../utils/projectEditBatch";
-import { scheduleCommittedPreview } from "../player/committedPreview";
 import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { useCallback, useRef } from "react";
@@ -123,18 +124,37 @@ export function useDomEditPersist({
         });
       }
 
-      // An imported font or prepareContent takes the server patch; the SDK serializes only the patched
-      // DOM. The SDK re-reads in the file queue; this read is its fallback.
-      let cloudCommand: ProjectEditCommand | undefined;
+      const history = {
+        label: options?.label ?? "Edit layer",
+        coalesceKey: options?.coalesceKey,
+        coalesceMs: options?.coalesceMs,
+      };
       if (getCachedCloudDisklessMode()) {
-        cloudCommand = options?.projectEdit;
-        if (!cloudCommand && !options?.prepareContent) {
-          cloudCommand = options?.canvasPosition
-            ? { kind: "moveCanvasElement", target: patchTarget, time: usePlayerStore.getState().currentTime, ...options.canvasPosition }
-            : { kind: "editElements", patches: [patchBody] };
+        const command: ProjectEditCommand = options?.projectEdit ?? (options?.canvasPosition
+          ? { kind: "moveCanvasElement", target: patchTarget, time: usePlayerStore.getState().currentTime, ...options.canvasPosition }
+          : { kind: "editElements", patches: [patchBody] });
+        const edit = { ...command, compositionPath: targetPath };
+        const writeHistory = studioHistoryForWrite(writeProjectFile, history.label, history.coalesceKey, history.coalesceMs, options?.continuous);
+        const shown = selection.isolatedTarget ? isolatedSourceVersion(selection.isolatedTarget)
+          : selection.element && mountedCanvasVersion(selection.element.ownerDocument, pid, targetPath);
+        if (options?.prepareContent || options?.validateContent) {
+          return savePreparedDomEdit(pid, edit, shown, options, writeHistory, editHistory.recordEdit, {
+            frame: previewIframeRef, projectId: projectIdRef, activePath: activeCompPath, refresh: reloadPreview,
+          });
         }
+        const versions = shown ? { [targetPath]: shown } : {};
+        const result = selection.isolatedTarget
+          ? await submitIsolatedCanvasEdit(pid, [edit], versions, writeHistory, previewIframeRef, reloadPreview, options?.coalesceKey)
+          : { ...await submitStudioCommands(pid, [edit], versions, writeHistory), presentChanged: true, deferPresentation: false };
+        const changed = result.changedPaths.includes(targetPath);
+        if (changed) await editHistory.recordEdit({ ...history, files: {} });
+        if (projectIdRef.current === pid && changed && result.presentChanged && !result.divergent.length && !result.deferPresentation) {
+          forceReloadSdkSession?.({ projectId: pid, versions: result.versions });
+          if (!selection.isolatedTarget && !options?.skipRefresh) reloadPreview(targetPath);
+        }
+        return completePersistence({ sourceFile: targetPath, version: result.versions[targetPath], changed }, changed);
       }
-      if (!cloudCommand && onTrySdkPersist && !selection.isolatedTarget && !font && !options?.prepareContent && !options?.validateContent) {
+      if (onTrySdkPersist && !selection.isolatedTarget && !font && !options?.prepareContent && !options?.validateContent) {
         const originalContent = await readTarget();
         if (originalContent === null) return;
         const cutover = await onTrySdkPersist(selection, operations, originalContent, targetPath, {
@@ -153,63 +173,16 @@ export function useDomEditPersist({
         }
       }
 
-      const history = {
-        label: options?.label ?? "Edit layer",
-        coalesceKey: options?.coalesceKey,
-        coalesceMs: options?.coalesceMs,
-      };
-      const writeHistory = getCachedCloudDisklessMode() ? studioHistoryForWrite(writeProjectFile, history.label, history.coalesceKey, history.coalesceMs, options?.continuous) : undefined;
-      const ordered = supportsOrderedTextEdits(pid);
-      const shown = selection.isolatedTarget ? isolatedSourceVersion(selection.isolatedTarget)
-        : ordered && mountedCanvasVersion(selection.element.ownerDocument, pid, targetPath);
-      if (cloudCommand && shown && !options?.prepareContent && !options?.validateContent) {
-        const command = { ...cloudCommand, compositionPath: targetPath };
-        const versions = { [targetPath]: shown };
-        const submit = async () => {
-          if (projectIdRef.current !== expectedProjectId) throw new Error("Active project changed before the edit could be saved");
-          if (options?.shouldSave && !options.shouldSave()) return null;
-          if (!selection.isolatedTarget) {
-            const result = await submitStudioCommands(pid, [command], versions, writeHistory);
-            return { ...result, needsRefresh: options?.skipRefresh !== true, deferPresentation: false, presentChanged: result.changedPaths.length > 0 };
-          }
-          return { ...await submitIsolatedCanvasEdit(pid, [command], versions, writeHistory, previewIframeRef, reloadPreview, options?.coalesceKey), needsRefresh: false };
-        };
-        const result = ordered ? await submit() : await serializeStudioFileMutations(writeProjectFile, [targetPath], submit);
-        if (!result) return;
-        const changed = result.changedPaths.includes(targetPath);
-        if (changed) await editHistory.recordEdit({ ...history, files: {} });
-        if (result.presentChanged && !result.divergent.length && !result.deferPresentation) {
-          forceReloadSdkSession?.({ projectId: pid, versions: result.versions });
-          if (result.needsRefresh) reloadPreview(targetPath);
-        }
-        return completePersistence({ sourceFile: targetPath, version: result.versions[targetPath], changed }, changed);
-      }
-      const originalVersion = selection.isolatedTarget && isolatedEditVersion(pid, targetPath, isolatedSourceVersion(selection.isolatedTarget));
-      const writeEdit = writeHistory
-        ? (path: string, content: string, expected?: string, command?: ProjectEditCommand) => writeProjectFile(path, content, expected, command, writeHistory)
-        : writeProjectFile;
-      const prepare = cloudCommand ? undefined : options?.prepareContent;
+      const prepare = options?.prepareContent;
       let preparedWriteFailed = false;
       // Read, server patch, follow-up write and history hold the file's queue, so no save lands between them.
+      const originalVersion = selection.isolatedTarget && isolatedEditVersion(pid, targetPath, isolatedSourceVersion(selection.isolatedTarget));
       const saved = await serializeStudioFileMutations(writeProjectFile, [targetPath], async () => {
         const originalContent = await readTarget();
         if (originalContent === null) return null;
         options?.validateContent?.(originalContent);
         let patchData: PatchElementResponse;
-        if (cloudCommand) {
-          if (selection.isolatedTarget) {
-            const shown = isolatedEditVersion(pid, targetPath, isolatedSourceVersion(selection.isolatedTarget));
-            if (shown !== await observedSourceVersion(pid, targetPath, originalContent)) throw new Error("The selected frame is out of date.");
-          }
-          const {applyProjectEdit} = await import("../../../packages/edit-core/commands");
-          const {content} = await applyProjectEdit(originalContent, {...cloudCommand,compositionPath:targetPath},new Map());
-          const changed = content !== originalContent;
-          if (changed) {
-            const rebased = await writeEdit(targetPath, content, originalContent, cloudCommand);
-            if (rebased) return { rebased };
-          }
-          patchData = {matched: true, changed, content, path: targetPath, version: await observedSourceVersion(pid, targetPath, content)};
-        } else if (
+        if (
           selection.element?.namespaceURI === "http://www.w3.org/2000/svg" &&
           selection.hfId && !font &&
           operations.length > 0 &&
@@ -222,11 +195,11 @@ export function useDomEditPersist({
             ? operations.reduce((html, op) => applyPatchByTarget(html, target, op), originalContent)
             : originalContent;
           const changed = content !== originalContent;
-          if (changed) await writeEdit(targetPath, content, originalContent);
+          if (changed) await writeProjectFile(targetPath, content, originalContent);
           patchData = { matched, changed, content, path: targetPath };
         } else {
           patchData = await postPatchElement(pid, targetPath, patchBody, showToast,
-            selection.isolatedTarget && isolatedSourceVersion(selection.isolatedTarget), writeHistory);
+            selection.isolatedTarget && isolatedSourceVersion(selection.isolatedTarget));
         }
         if (!patchData.changed) return { patchData, originalContent, patchedContent: null, finalContent: null };
 
@@ -237,7 +210,7 @@ export function useDomEditPersist({
               targetPath,
               patchedContent,
               prepare,
-              async (path, content, expected) => { await writeEdit(path, content, expected); },
+              async (path, content, expected) => { await writeProjectFile(path, content, expected); },
               showToast,
             )
           : { content: patchedContent, failed: false };
@@ -262,10 +235,6 @@ export function useDomEditPersist({
         return { patchData, originalContent, patchedContent, finalContent };
       });
       if (saved === null) return;
-      if (saved.rebased) {
-        // The coordinator refreshes the preview and SDK from the merged source.
-        return { sourceFile: targetPath, version: saved.rebased.version, changed: saved.rebased.changed };
-      }
       const { patchData, originalContent, patchedContent, finalContent } = saved;
 
       if (finalContent === null) {
@@ -343,8 +312,7 @@ export function useDomEditPersist({
       if (!expectedProjectId) return Promise.reject(new Error("No active project"));
       // Counted, so a preview reload requested before this save settles is not shown over it.
       const perform = () => performPersistDomEditOperations(selection, operations, options, expectedProjectId);
-      const ordered = supportsOrderedTextEdits(expectedProjectId) && !options?.prepareContent && !options?.validateContent &&
-        (selection.isolatedTarget || mountedCanvasVersion(selection.element.ownerDocument, expectedProjectId, selection.sourceFile || activeCompPath || "index.html"));
+      const ordered = getCachedCloudDisklessMode();
       const save = () => {
         if (!ordered) return queueDomEditSave(perform);
         const result = perform();
@@ -353,7 +321,7 @@ export function useDomEditPersist({
       };
       return selection.element ? countStudioManualEditSave(selection.element, save) : save();
     },
-    [activeCompPath, performPersistDomEditOperations, projectIdRef, queueDomEditSave],
+    [performPersistDomEditOperations, projectIdRef, queueDomEditSave],
   );
 
   return persistDomEditOperations;

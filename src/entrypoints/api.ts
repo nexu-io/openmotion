@@ -33,7 +33,7 @@ import {
   injectRuntimeConfigIntoHtml,
 } from '../../packages/observability/config.ts';
 import { commitProjectEdit } from '../services/project-edit.ts';
-import { compositionCanvasSource, type CanvasFit, type CanvasRatio } from '../../shared/composition-canvas.ts';
+import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
 import {
   agentGuide,
   buildCloudIntegrationInfo,
@@ -81,7 +81,7 @@ import {
 import { PREVIEW_BRIDGE_ASSET_RE, PREVIEW_BRIDGE_PATH } from '../studio/engine/preview-bridge.ts';
 import { BROWSER_EXPORT_VENDOR_PATH } from '../studio/routes/preview.ts';
 import { isAssetLease, renewAssetLease, resolveAssetWorkspace } from '../auth/preview-asset-lease.ts';
-import { hasMinRole, hasScope, type AuthContext } from '../contracts/auth.ts';
+import { hasMinRole, hasScope, requireProgrammaticEdit, type AuthContext } from '../contracts/auth.ts';
 import { CloudError, featureDeferredP2, isCloudError } from '../contracts/errors.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import { createDbHandle, type Database, type DbHandle } from '../db/client.ts';
@@ -1111,6 +1111,7 @@ function createMcpDomainPorts(deps: {
     }).catch(() => undefined);
   }
   let cachedCaptionOps: Awaited<ReturnType<typeof loadCaptionSourceOperations>> | null = null;
+  let canvasOps: ReturnType<typeof import('../../shared/composition-canvas-source.ts').loadCanvasSourceOperations> | undefined;
   const getCaptionOps = async () => {
     if (!cachedCaptionOps) {
       cachedCaptionOps = await loadCaptionSourceOperations(deps.runtimeRoot);
@@ -1309,6 +1310,7 @@ function createMcpDomainPorts(deps: {
       },
 
       async editProject(auth, args) {
+        if (args.canvas !== undefined || args.edit !== undefined) requireProgrammaticEdit(auth);
         const projectId = String(args.projectId ?? '');
         const requestId = String(args.requestId ?? '');
         const expectedRevision = String(args.expectedRevision ?? '');
@@ -1347,21 +1349,9 @@ function createMcpDomainPorts(deps: {
               applied: false,
             });
           }
-          const captionOps = await getCaptionOps();
-          const reframed = compositionCanvasSource(
-            existing.content,
-            {
-              parseHTML: captionOps.parseHTML,
-              rewriteStyles: (source, aliases) => {
-                let next = source;
-                for (const [from, to] of aliases) {
-                  next = next.replaceAll(`[${from}]`, `[${to}]`).replaceAll(`[${from}=`, `[${to}=`);
-                }
-                return next;
-              },
-            },
-            { ratio: canvas.ratio, fit: canvas.fit },
-          );
+          const { compositionCanvasSource } = await import('../../packages/edit-core/composition-canvas.ts');
+          const { loadCanvasSourceOperations } = await import('../../shared/composition-canvas-source.ts');
+          const reframed = compositionCanvasSource(existing.content, await (canvasOps ??= loadCanvasSourceOperations(deps.runtimeRoot)), canvas);
           ops.push({
             op: 'upsert_text',
             path: canvas.compositionPath,
@@ -1690,6 +1680,7 @@ function createMcpDomainPorts(deps: {
           }
           const captionOps = await getCaptionOps();
           if (command === 'caption_add' || command === 'caption_update' || command === 'caption_toggle') {
+            requireProgrammaticEdit(auth);
             return commitCaptionCommand(deps.files, auth, captionOps, projectId, compositionPath, command, transcript);
           }
           const current = await deps.files.readTextFile(auth, projectId, compositionPath);

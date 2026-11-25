@@ -156,6 +156,10 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           }
           return;
         }
+        if (event.data.type === "canvas-framing") {
+          setSize(event.data.width, event.data.height);
+          return;
+        }
         if (event.data.type === "preview-ready") {
           if (!receivedHtmlSources) {
             rememberPreviewHtmlSources(iframe!, event.data.projectId, event.data.htmlSources);
@@ -206,13 +210,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           clearTimeout(busyTimer);
           setError(undefined);
           clearTimeout(deadline);
-          const { width, height } = event.data;
-          if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384) {
-            size = [width, height];
-            iframe!.width = String(width);
-            iframe!.height = String(height);
-          }
-          resize();
+          setSize(event.data.width, event.data.height);
           callbacks.current.onLoad();
           if (!passive) announcePreviewDocumentLoaded(iframe!);
           if (tracksAssets && !passive) {
@@ -274,6 +272,14 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         callbacks.current.onReadyToShowChange?.(true);
         store.markPreviewBooted();
       };
+      function setSize(width: number, height: number) {
+        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384) {
+          size = [width, height];
+          iframe!.width = String(width);
+          iframe!.height = String(height);
+        }
+        resize();
+      }
       const observer = new ResizeObserver(resize);
       observer.observe(stage);
       window.addEventListener("message", message);

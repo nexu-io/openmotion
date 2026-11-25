@@ -4,7 +4,7 @@ Read and follow [AGENTS.md](AGENTS.md) before working in this repository. It is 
 
 Use `CLAUDE.md` as the Claude Code instruction entry. Record future repository-rule updates here and keep them aligned with `AGENTS.md`.
 
-Follow the [project editing contract](docs/product/edit-core.md) when changing Studio, cloud or headless editing behavior.
+Follow the [project editing contract](docs/product/edit-core.md) when changing Studio, cloud or headless editing behavior. Hosted Studio submits locally prepared edits in order. Programmatic clients can submit semantic commands.
 
 ## Branch workflow
 

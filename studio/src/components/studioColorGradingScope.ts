@@ -1,4 +1,3 @@
-import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { saveTimelineFiles } from "../utils/orderedTimelineEdits";
 import { supportsProjectTextEdits, supportsOrderedTextEdits, confirmedSource } from "../utils/confirmedTextSources";
 import { scheduleCommittedTimelinePreview } from "../player/committedTimelinePreview";
@@ -77,12 +76,11 @@ export async function applyColorGradingScopeUpdate({
     return result.html;
   };
   const paths = colorGradingScopePaths(scope, selectedSourceFile, compositionPaths);
-  const local = supportsProjectTextEdits(projectId);
   const ordered = supportsOrderedTextEdits(projectId);
+  const local = ordered || supportsProjectTextEdits(projectId);
   if (!ordered) await waitForPendingDomEditSaves();
   let projection: ReturnType<typeof projectColorGrade> | undefined;
   const changedPaths = await saveTimelineFiles({
-    ...(!local && getCachedCloudDisklessMode() && { commandForWrite: () => ({ kind: 'gradeMedia' as const, value }) }),
     projectId,
     label: value ? "Apply color grading" : "Clear color grading",
     files: Object.fromEntries(paths.map((path) => [path, patchGrading(path)])),

@@ -6,6 +6,7 @@ import { tryApplyPeerChanges } from "../player/peerTimingPreview";
 import { isPreviewChanging } from "../player/previewReloading";
 import { scheduleCommittedPreview } from "../player/committedPreview";
 import { confirmedSource, supportsOrderedTextEdits, type ConfirmedSource } from "../utils/confirmedTextSources";
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { submitStudioCommands } from "../utils/projectEditBatch";
 import type { StudioWriteHistory } from "../utils/studioFileHistory";
 
@@ -58,8 +59,9 @@ export async function submitIsolatedCanvasEdit(
 ) {
   const path = commands[0]?.compositionPath;
   const frame = frameRef.current;
-  const ordered = supportsOrderedTextEdits(project);
-  const bases = new Map(Object.keys(versions).map(file => [file, confirmedSource(project, file)]));
+  const ordered = getCachedCloudDisklessMode() || supportsOrderedTextEdits(project);
+  const paths = new Set(commands.map(command => command.compositionPath));
+  const bases = new Map([...paths].map(file => [file, confirmedSource(project, file)]));
   const group = frame && path && ordered ? beginPresentation(frame, path, bases.get(path)) : undefined;
   let last = true;
   const saved = submitStudioCommands(project, commands, versions, history);

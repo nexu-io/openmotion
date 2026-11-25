@@ -1,6 +1,5 @@
 import { MAX_ORDERED_TEXT_EDITS, type OrderedTextEditOperation, type OrderedTextEditReceipt, type OrderedTextEditResult } from '../../../shared/ordered-text-edits';
-import type { ConfirmedSource } from './confirmedTextSources';
-import { confirmedSource, forgetSource, rememberSource, supportsOrderedTextEdits } from './confirmedTextSources';
+import { confirmedSource, forgetSource, rememberSource, supportsOrderedTextEdits, supportsProjectTextEdits } from './confirmedTextSources';
 import { acknowledgeFileEdit } from './isolatedEditVersions';
 import { reconcileFileEdit } from './rebasedFileEdit';
 import { studioApiFetch } from './studioApiFetch';
@@ -9,10 +8,15 @@ import { createStudioSaveHttpError, retryStudioSave, StudioFileConflictError, St
 import { trackStudioProjectSave } from './studioSaveState';
 
 type Output = { versions: Record<string, string>; changedPaths: string[] };
-export type EditFile = { path: string; before: string; after: string; version: string };
-type Prepare = (drafts: ReadonlyMap<string, ConfirmedSource>) => Promise<{ edits: EditFile[]; label: string; undoGroup?: string; dependencies?: Record<string, string> }>;
+export type EditFile<Version extends string | null = string> = { path: string; before: string; after: string; version: Version };
+export type DraftSource = { content: string; version: string | null };
+type PreparedFile = EditFile<string | null>;
+type Plan = Omit<OrderedTextEditOperation, 'id' | 'files' | 'dependencies'> & {
+  edits: PreparedFile[]; label: string; dependencies?: Record<string, string | null>;
+};
+type Prepare = (drafts: ReadonlyMap<string, DraftSource>) => Promise<Plan>;
 type Intent = { at: number; prepare: Prepare; allowReplay: boolean; resolve(value: Output): void; reject(reason: unknown): void };
-type Step = { intent: Intent; edits: EditFile[]; payload: OrderedTextEditOperation };
+type Step = { intent: Intent; edits: PreparedFile[]; payload: OrderedTextEditOperation };
 type Barrier = { at: number; run(): Promise<void>; reject(reason: unknown): void };
 type Queue = { project: string; waiting: (Intent | Barrier)[]; running: boolean; timer?: ReturnType<typeof setTimeout> };
 const queues = new Map<string, Queue>();
@@ -90,7 +94,7 @@ async function prepareSteps(queue: Queue, steps: Step[]) {
   const count = Math.min(queue.waiting.length, MAX_ORDERED_TEXT_EDITS);
   const { createTextPatch } = await import('../../../shared/create-text-patch');
   const { stampHfIdsInPlace } = await import('@hyperframes/parsers/hf-ids');
-  const drafts = new Map<string, ConfirmedSource>();
+  const drafts = new Map<string, DraftSource>();
   const producers = new Map<string, string>();
   let retainedChars = 0;
   // Bound transient source copies. A single large edit always makes progress.
@@ -111,37 +115,41 @@ async function prepareSteps(queue: Queue, steps: Step[]) {
     for (const edit of plan.edits) {
       const prior = producers.get(edit.path);
       const baseVersion = prior ? { after: prior } : edit.version;
-      if (edit.before === edit.after) {
+      if (edit.before === edit.after && baseVersion !== null) {
         dependencies[edit.path] = baseVersion;
         continue;
       }
       if (/\.html?$/i.test(edit.path)) edit.after = stampHfIdsInPlace(edit.after);
-      const patch = createTextPatch(edit.before, edit.after);
+      const patch = baseVersion === null || !supportsProjectTextEdits(queue.project) ? null : createTextPatch(edit.before, edit.after);
       files.push({ path: edit.path, baseVersion, ...(patch === null ? { content: edit.after } : { patch }) });
     }
     if (!files.length && steps.length) break; // Resolve a no-op against confirmed versions.
     queue.waiting.shift();
     if (!files.length) {
-      intent.resolve({ versions: Object.fromEntries(plan.edits.map(edit => [edit.path, edit.version])), changedPaths: [] });
+      intent.resolve({ versions: Object.fromEntries(plan.edits.flatMap(edit => edit.version === null ? [] : [[edit.path, edit.version]])), changedPaths: [] });
       continue;
     }
+    const written = new Set(files.map(file => file.path));
     for (const edit of plan.edits) {
-      if (edit.before === edit.after) continue;
+      if (!written.has(edit.path)) continue;
       drafts.set(edit.path, { content: edit.after, version: edit.version });
       producers.set(edit.path, id);
       retainedChars += edit.after.length;
     }
-    steps.push({ intent, edits: plan.edits, payload: { id, label: plan.label, undoGroup: plan.undoGroup, dependencies, files } });
+    const { edits, ...metadata } = plan;
+    steps.push({ intent, edits, payload: { ...metadata, id, dependencies, files } });
   }
 }
 
 function accept(project: string, step: Step, receipt: OrderedTextEditReceipt, priorVersions: Map<string, string>) {
   const versions = { ...receipt.versions };
+  const written = new Set(step.payload.files.map(file => file.path));
   for (const file of step.edits) {
     const before = priorVersions.get(file.path) ?? file.version;
     const version = versions[file.path] ?? before;
+    if (version === null) continue;
     versions[file.path] = version;
-    if (file.before === file.after) continue;
+    if (!written.has(file.path)) continue;
     priorVersions.set(file.path, version);
     const observed = confirmedSource(project, file.path);
     // A peer read may already be newer than the delayed acknowledgement.

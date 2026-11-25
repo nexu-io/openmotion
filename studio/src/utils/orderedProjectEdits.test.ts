@@ -2,7 +2,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { OrderedTextEditOperation } from '../../../shared/ordered-text-edits';
 import { confirmedSource, observeSourceRead } from './confirmedTextSources';
-import { tryStudioCommandPatches, tryStudioTextEdit } from './studioTextEdits';
+import { readStudioAssetVersion, saveOrderedStudioFile, tryStudioCommandPatches, tryStudioTextEdit } from './studioTextEdits';
+import { orderedEditFixture } from '../../tests/orderedEditFixture';
+import { setCachedCloudDisklessMode } from './cloudRuntime';
 import { applyTextPatch } from '../../../shared/text-patch';
 import { getStudioSaveSnapshot, trackStudioProjectSave } from './studioSaveState';
 import { RejectedCanvasGesture } from './studioSaveDiagnostics';
@@ -161,4 +163,65 @@ it('starts the first batch by its deadline when continuous input precedes timer 
   }
   await Promise.all(saves);
   expect(batches.map(batch => batch.length)).toEqual([21, 4]);
+});
+
+it('chains a newly created empty file across an unrelated edit in the same packet', async () => {
+  const project = 'ordered-new-file';
+  setCachedCloudDisklessMode(true);
+  try {
+    const api = orderedEditFixture(project, { 'notes.txt': 'old' });
+    await Promise.all([
+      saveOrderedStudioFile(project, 'new.txt', '', undefined, null),
+      saveOrderedStudioFile(project, 'notes.txt', 'changed', 'old', await api.getVersion('notes.txt')),
+      saveOrderedStudioFile(project, 'new.txt', 'draft', '', null),
+    ]);
+    expect(api.packets).toHaveLength(1);
+    const [create, other, write] = api.packets[0]!;
+    expect(create?.files[0]?.baseVersion).toBe(null);
+    expect(typeof other?.files[0]?.baseVersion).toBe('string');
+    expect(write?.files[0]?.baseVersion).toEqual({after:create!.id});
+    expect(api.files).toEqual({'new.txt':'draft', 'notes.txt':'changed'});
+    expect(confirmedSource(project, 'new.txt')?.content).toBe('draft');
+  } finally {
+    setCachedCloudDisklessMode(null);
+  }
+});
+
+it('uses the freshly authored child file for the following operation before its first receipt', async () => {
+  const project = 'create-then-reference', path = 'child.html', host = 'index.html';
+  const source = '<main data-hf-id="hf-scene" data-composition-id="child" data-duration="5"></main>';
+  const gate = Promise.withResolvers<void>();
+  setCachedCloudDisklessMode(true);
+  try {
+    const api = orderedEditFixture(project, {[host]:'<main data-hf-id="hf-host" data-composition-id="host"></main>'}, () => gate.promise);
+    const { saveOrderedTimeline, projectedTimelineText } = await import('./orderedTimelineEdits');
+    const created = saveOrderedStudioFile(project, path, source, undefined, null);
+    const placed = saveOrderedTimeline(project, [{
+      path: host, apply: (html, inputs) => html.replace('</main>', '<p>' + inputs.get(path)!.match(/data-duration="(\d+)"/)![1] + '</p></main>'),
+    }], 'Use new composition', {readPaths:[path], recordEdit:vi.fn()});
+    expect(await projectedTimelineText(project, host)).toContain('<p>5</p>');
+    gate.resolve();
+    await Promise.all([created, placed]);
+    expect(api.packets).toHaveLength(1);
+    const [create, use] = api.packets[0]!;
+    expect(use!.dependencies?.[path]).toEqual({after:create!.id});
+    expect(api.files[host]).toMatch(/>5<\/p>/);
+    expect(api.request.mock.calls.some(([url]) => String(url).endsWith('/files/' + path))).toBe(false);
+  } finally {
+    gate.resolve();
+    setCachedCloudDisklessMode(null);
+  }
+});
+
+it('shares an in-flight metadata read for a binary dependency', async () => {
+  const gate = Promise.withResolvers<Response>();
+  const fetch = vi.fn().mockReturnValue(gate.promise);
+  vi.stubGlobal('fetch', fetch);
+  const path = 'media/song.mp3';
+  const first = readStudioAssetVersion('cold-media', path);
+  const second = readStudioAssetVersion('cold-media', path);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(String(fetch.mock.calls[0]![0])).toContain('media%2Fsong.mp3?view=metadata');
+  gate.resolve(Response.json({version:'audio-v1'}));
+  expect(await Promise.all([first, second])).toEqual(['audio-v1','audio-v1']);
 });

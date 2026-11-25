@@ -14,6 +14,8 @@ import { PREVIEW_PEER_TIMING } from './preview-peer-timing.ts';
 import type { PreviewLiveEdits } from '../../../shared/preview-timing.ts';
 import { PREVIEW_THUMBNAIL_CAPTURE } from './preview-thumbnail-capture.ts';
 import { PREVIEW_BROWSER_EXPORT } from './preview-browser-export.ts';
+import { canvasFrameTransform } from '../../../packages/edit-core/composition-canvas.ts';
+import { paintCanvasFraming } from '../../../shared/preview-canvas-framing.ts';
 
 function scopedScript(configuration: string, body: string): string {
   return `(function(){
@@ -56,6 +58,8 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   var settings=JSON.parse(document.currentScript.getAttribute('data-openmotion-preview'));
   var projectId=settings.projectId, compositionPath=settings.compositionPath, sourceVersions=settings.sourceVersions;`, `
   ${PREVIEW_SOURCE_IDENTITY}
+  const paintCanvasFraming = ${paintCanvasFraming.toString()};
+  const canvasFrameTransform = ${canvasFrameTransform.toString()};
   var pickMode=false, picked=null;
   var isCaptureMode=new globalThis.URL(location.href).searchParams.get('capture')==='1';
   var durationBootAnnounced=false;
@@ -312,7 +316,13 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='canvas-framing'){
         var canvas=document.querySelector('[data-composition-id]');
-        respond(requestId,canvas?{sourceFile:compositionPath,fit:canvas.getAttribute('data-canvas-fit')==='cover'?'cover':'contain'}:null); return;
+        if(message.draft){
+          if(settings.studioOrigin!==event.origin || message.path!==compositionPath) return;
+          var size=paintCanvasFraming(document,message.draft,canvasFrameTransform);
+          if(size) post('canvas-framing',size);
+          return;
+        }
+        respond(requestId,canvas?{sourceFile:compositionPath,width:Number(canvas.getAttribute('data-width')),height:Number(canvas.getAttribute('data-height')),fit:canvas.getAttribute('data-canvas-fit')==='cover'?'cover':'contain'}:null); return;
       }
       if(message.type==='inspect-element'){ respond(requestId,inspectPreviewElement(message)); return; }
       if(message.type==='inspector-styles'){

@@ -7,7 +7,7 @@ import { editRequestSchema, editSchemaDefinitions } from '../../packages/edit-co
 import { validateInput } from '../../shared/phase1-tools.ts';
 import { isBeatMedia } from '../../shared/asset-names.ts';
 import { ToolInputError } from '../../shared/tool-input-error.ts';
-import type { AuthContext } from '../contracts/auth.ts';
+import { requireProgrammaticEdit, type AuthContext } from '../contracts/auth.ts';
 import { CloudError, isCloudError } from '../contracts/errors.ts';
 import { sha256Hex } from '../studio/etag.ts';
 import { normalizeSafeProjectPath, type ProjectFilesService } from './project-files-service.ts';
@@ -95,6 +95,7 @@ function onNewBase(command: CompositionEdit): CompositionEdit | undefined {
 
 export async function commitProjectEdit(files: ProjectFilesService, auth: AuthContext, projectId: string,
   input: unknown, requestId: string, guard: EditGuard) {
+  requireProgrammaticEdit(auth);
   validateEdit(input);
   if (!requestId || requestId.length > 100 ||
       (guard.source === 'agent' && (!guard.expectedRevision || !guard.expectedVersionId))) {

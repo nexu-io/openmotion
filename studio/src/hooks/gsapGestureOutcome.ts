@@ -1,3 +1,5 @@
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import { whileScriptWrites } from "../player/previewReloading";
 import type {
   CommitMutationCall,
   CommitMutation,
@@ -13,6 +15,11 @@ import {
 } from "../utils/keyframeUsage";
 import type { GeometryCommitResult } from "../utils/previewFeatureUsage";
 import { adoptingStudioPendingEdit } from "../utils/studioPendingEdits";
+
+/** A hosted edit paints locally. An outstanding receipt does not change the mounted preview. */
+export function duringGsapGesture<T>(run: () => Promise<T>): Promise<T> {
+  return getCachedCloudDisklessMode() ? run() : whileScriptWrites(run);
+}
 
 export function observeGsapGesture(writer: CommitMutation | null) {
   const edit = adoptingStudioPendingEdit();

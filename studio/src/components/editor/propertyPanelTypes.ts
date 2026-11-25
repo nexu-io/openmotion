@@ -55,11 +55,14 @@ export interface PropertyPanelProps {
    *  of the two writes or leave them half-applied. Falls back to sequential
    *  `onSetAttribute` calls where omitted. */
   onSetAttributes?: (selection: DomEditSelection, attrs: Record<string, string>) => Promise<void>;
+  /** Commit an attribute the runtime can apply in place and report its save result. */
   onSetAttributeLive: (
     attr: string,
     value: string | null,
     onSettled?: (ok: boolean) => void,
   ) => void | Promise<void>;
+  /** Update the preview while a dial is moving. Release commits through the edit queue. */
+  onPreviewAttribute?: (attr: string, value: string | null) => void | Promise<void>;
   /** Persists without reloading the preview, but re-reads the selection after —
    *  for attributes the runtime applies to the live graph itself, where a reload
    *  would only interrupt playback, and where the panel still has to see the

@@ -1,27 +1,9 @@
+import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
+import type { TimelineAtomicMoveEdit } from "../../hooks/timelineMoveAdapter";
 import type { DomEditPatchBatchesResult } from "../../hooks/domEditCommitTypes";
 
-/**
- * Run one COMPLETE z→lane gesture — the z-index persist followed by its
- * timeline lane mirror — as a single serialized transaction.
- *
- * Why a queue: the two phases persist through DIFFERENT pipelines (the z patch
- * rides the DOM-edit save queue, the lane move rides the timeline/SDK move
- * path). Each gesture orders its own phases by awaiting the z persist, but
- * without cross-gesture serialization a second rapid gesture can land between
- * the first gesture's phases and the interleaved file writes can clobber each
- * other. Canvas z→lane and timeline lane→z gestures both chain through this
- * single module-level tail, so gesture B cannot start until gesture A settled.
- *
- * Why the durability gate: a resolved z commit is not necessarily durable —
- * when the server cannot match a patch target, commitDomEditPatchBatches
- * resolves with `durable: false` (after scheduling a reload to
- * reconverge). Mirroring a lane move onto a z state that disk never held
- * would desync track order from what actually paints, so the mirror phase is
- * skipped and the gesture resolves `false`.
- *
- * Failures never wedge the queue: a rejected gesture propagates to ITS caller
- * while the tail continues for the next gesture.
- */
+/** Native mode writes z order and the mirrored track through separate APIs. Keep both
+ * phases together even when a second gesture starts before the first write returns. */
 let gestureTail: Promise<void> | null = null;
 
 /** The single ordering owner for every gesture that crosses z/lane persistence. */
@@ -50,18 +32,23 @@ export function serializeZLaneGesture<Result>(run: () => Promise<Result>): Promi
   return gesture;
 }
 
+export type CommitLayerOrder = (lanes?: TimelineAtomicMoveEdit[]) => Promise<void>;
+
 export function runZLaneGesture(input: {
-  /** Phase 1: persist the z patch (handleDomZIndexReorderCommit). */
-  commitZ: () => Promise<DomEditPatchBatchesResult | undefined | void>;
-  /** Phase 2: mirror into a timeline lane move; only runs on a durable phase 1. */
-  mirror: () => Promise<boolean>;
+  commitZ: (lanes?: TimelineAtomicMoveEdit[]) => Promise<DomEditPatchBatchesResult | undefined | void>;
+  mirror: (commitTogether?: CommitLayerOrder) => Promise<boolean>;
 }): Promise<boolean> {
-  const run = async (): Promise<boolean> => {
+  if (getCachedCloudDisklessMode()) {
+    return input.mirror(async (...lanes) => {
+      const result = await input.commitZ(...lanes);
+      if (result && !result.durable) throw new Error("Could not reorder layers.");
+    });
+  }
+  return serializeZLaneGesture(async () => {
     const result = await input.commitZ();
     if (result && !result.durable) return false;
     return input.mirror();
-  };
-  return serializeZLaneGesture(run);
+  });
 }
 
 /** Run one lane→z gesture under the same owner as canvas z→lane gestures. */

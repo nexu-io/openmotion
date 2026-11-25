@@ -154,24 +154,23 @@ export function useDomEditZOrder(): DomEditZOrder {
       if (entries.length === 0) return false;
       // One coalesce key for the z write and the lane mirror: one undo entry.
       const coalesceKey = zReorderCoalesceKey(entries, action);
-      // One serialized z→lane transaction: the mirror runs only AFTER a durable z commit and
-      // no second gesture interleaves (see runZLaneGesture). A failed z commit has already
-      // toasted and rolled back, so the catch only keeps its rejection from going unhandled.
+      // Hosted edits include the lane in the same source change. The native mirror
+      // runs after its z commit. Both paths report and revert failed writes.
       let changed = false;
       runZLaneGesture({
-        commitZ: async () => {
-          const result = await handleDomZIndexReorderCommit(entries, coalesceKey, action);
+        commitZ: async (...lanes) => {
+          const result = await handleDomZIndexReorderCommit(entries, coalesceKey, action, ...lanes);
           changed = result?.durable === true && result.changed;
           return result;
         },
-        mirror: () =>
+        mirror: commitTogether =>
           mirrorZOrderToTimeline({
             selectionKey: entries.find((e) => e.element === sel.element)?.key,
             action,
             crossed,
             sourceFile: sel.sourceFile,
             coalesceKey,
-          }),
+          }, commitTogether),
       })
         .then(() => {
           if (changed) trackPreviewFeatureUsed("z_order", "button");

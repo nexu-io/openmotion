@@ -1,5 +1,4 @@
-import { observedSourceVersion } from "./confirmedTextSources";
-import { runOrderedProjectBarrier } from "./orderedProjectEdits";
+import { observedSourceVersion, supportsOrderedTextEdits } from "./confirmedTextSources";
 import { tryStudioCommandPatches } from "./studioTextEdits";
 import type { CompositionEdit, ProjectEditCommand } from "../../../packages/edit-core/commands";
 import type { StudioWriteHistory } from "./studioFileHistory";
@@ -32,7 +31,8 @@ export async function submitStudioCommands(projectId: string, commands: Composit
   if (!commands.length) throw new Error("No editing commands supplied.");
   const patched = await tryStudioCommandPatches(projectId, commands, versions, history, attempted);
   if (patched) return patched;
-  return runOrderedProjectBarrier(projectId, () => submitSemanticCommands(projectId, commands, versions, history, attempted));
+  if (supportsOrderedTextEdits(projectId)) throw new Error("Could not prepare the project edit in Studio.");
+  return submitSemanticCommands(projectId, commands, versions, history, attempted);
 }
 
 async function submitSemanticCommands(projectId: string, commands: CompositionEdit[], versions: Record<string,string>,

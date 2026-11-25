@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { OrderedTextEditOperation } from "../../../shared/ordered-text-edits";
+import { applyTextPatch } from "../../../shared/text-patch";
 import { compositionInsertionFailureMessage } from "../i18n/editorErrors";
+import { setCachedCloudDisklessMode } from "./cloudRuntime";
 import { observeSourceRead } from "./confirmedTextSources";
+import { saveOrderedTimeline } from "./orderedTimelineEdits";
 import { commitTimelineCompositionInsertion } from "./timelineCompositionInsert";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setCachedCloudDisklessMode(null);
+});
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -13,6 +20,72 @@ function response(body: unknown, status = 200): Response {
 }
 
 describe("commitTimelineCompositionInsertion", () => {
+  it("projects successive cold drops while the first receipt is held, including an edit to the child between drops", async () => {
+    setCachedCloudDisklessMode(true);
+    const projectId = "cold-ordered-drops";
+    const targetPath = "index.html", sourcePath = "compositions/slide.html";
+    const sources: Record<string, string> = {
+      [targetPath]: '<main id="root" data-composition-id="main"></main>',
+      [sourcePath]: '<main data-composition-id="slide" data-duration="2"></main>',
+    };
+    const writes: OrderedTextEditOperation[][] = [];
+    const reads: string[] = [];
+    const first = Promise.withResolvers<void>();
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        const path = decodeURIComponent(url.split("/files/")[1]!);
+        reads.push(path);
+        return Response.json({ content: sources[path], version: "initial" }, { headers: {
+          "X-OpenMotion-Text-Edits": "1", "X-OpenMotion-Ordered-Edits": "1",
+        } });
+      }
+      expect(url).toBe("/api/projects/" + projectId + "/text-edits/batch");
+      const ops: OrderedTextEditOperation[] = JSON.parse(String(init.body)).operations;
+      writes.push(ops);
+      if (writes.length === 1) await first.promise;
+      const committed = ops.map(op => {
+        const file = op.files[0]!;
+        sources[file.path] = "content" in file ? file.content : applyTextPatch(sources[file.path]!, file.patch);
+        return { id: op.id, changedPaths: [file.path], versions: { [file.path]: "accepted-" + op.id } };
+      });
+      return Response.json({ committed });
+    });
+
+    const writeFile = vi.fn(), recordEdit = vi.fn(), selectHost = vi.fn(), onProjected = vi.fn(), refresh = vi.fn();
+    const drop = () => commitTimelineCompositionInsertion({
+      projectId, targetPath, sourcePath, start: 0, track: 0, writeFile, recordEdit, selectHost, onProjected, refresh,
+    });
+    const initial = drop();
+    try {
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
+      const childEdit = saveOrderedTimeline(projectId, [{ path: sourcePath, apply: source => source.replace('duration="2"', 'duration="3"') }],
+        "Change child duration", { recordEdit });
+      const second = drop(), third = drop();
+      await vi.waitFor(() => expect(onProjected).toHaveBeenCalledTimes(3));
+      expect(writes).toHaveLength(1);
+      expect(recordEdit).not.toHaveBeenCalled();
+      expect(onProjected.mock.calls.map(([host]) => [host.track, host.duration])).toEqual([[0, 2], [1, 3], [2, 3]]);
+      expect(new Set(selectHost.mock.calls.map(([key]) => key)).size).toBe(3);
+      first.resolve();
+      await Promise.all([initial, childEdit, second, third]);
+
+      expect(reads.sort()).toEqual([sourcePath, targetPath].sort());
+      expect(writes.map(ops => ops.length)).toEqual([1, 3]);
+      const [child, parent, following] = writes[1]!;
+      expect(parent!.dependencies).toEqual({ [sourcePath]: { after: child!.id } });
+      expect(parent!.files[0]!.baseVersion).toBe("accepted-" + writes[0]![0]!.id);
+      expect(following!.files[0]!.baseVersion).toEqual({ after: parent!.id });
+      expect(following!.dependencies).toEqual({ [sourcePath]: { after: child!.id } });
+      expect(sources[targetPath]!.match(/data-composition-src=/g)).toHaveLength(3);
+      expect(selectHost).toHaveBeenCalledTimes(3);
+      expect(recordEdit).toHaveBeenCalledTimes(4);
+      expect(refresh).toHaveBeenCalledOnce();
+      expect(writeFile).not.toHaveBeenCalled();
+    } finally {
+      first.resolve();
+    }
+  });
+
   it("explains an invalid duration on a cached composition before doing any writes", async () => {
     const projectId = "cached-invalid-duration";
     const supported = new Response(null, { headers: { "X-OpenMotion-Text-Edits": "1" } });

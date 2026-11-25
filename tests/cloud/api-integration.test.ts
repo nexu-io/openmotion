@@ -1,3 +1,4 @@
+import { applyProjectEdit } from '../../packages/edit-core/commands.ts';
 import { TEXT_PATCH_BASE_HEADER } from '../../shared/text-patch.ts';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
@@ -1646,21 +1647,24 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const base = `/api/projects/${projectId}`;
     const file = base + '/files/scene.html';
     await json(file, { method: 'PUT', headers: { 'If-None-Match': '*' }, body:
-      '<html><body><main data-composition-id="main" data-duration="6"><div id="first" data-start="0" data-duration="2"></div><div id="middle" data-start="2" data-duration="2"></div><div id="tail" data-start="4" data-duration="2"></div></main></body></html>' });
+      '<html><body><main data-composition-id="main" data-duration="6"><div id="first" data-track-index="0" data-start="0" data-duration="2"></div><div id="middle" data-track-index="0" data-start="2" data-duration="2"></div><div id="tail" data-track-index="0" data-start="4" data-duration="2"></div></main></body></html>' });
     const before = await json(file);
     const { currentSeq } = await json(base + '/history');
     const label = 'Delete timeline clip';
-    const gesture = { 'X-OpenMotion-Edit-Window': randomUUID(), 'X-OpenMotion-Edit-Label': encodeURIComponent(label) };
-    const removed = await json(base + '/file-mutations/remove-elements/scene.html', {
-      method: 'POST', headers: { ...gesture, 'Content-Type': 'application/json', 'If-Match': before.version },
-      body: JSON.stringify({ targets: [{ id: 'middle' }] }),
+    const middle = before.content.match(/<div [^>]*id="middle"[^>]*>/)?.[0].match(/data-hf-id="([^"]+)"/)?.[1];
+    assert.ok(middle);
+    const deleted = await applyProjectEdit(before.content, {
+      kind: 'deleteClips', hfIds: [middle], rippleTrack: 0, compositionPath: 'scene.html',
+    }, new Map());
+    const saved = await json(base + '/text-edits/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({operations: [{id: 'delete-and-ripple', label,
+        files: [{path: 'scene.html', baseVersion: before.version, content: deleted.content}]}]}),
     });
-    assert.doesNotMatch(removed.content, /id="middle"/);
-    assert.match(removed.content, /data-duration="6"/);
-    const shrunk = removed.content.replace('data-start="4"', 'data-start="2"').replace('data-duration="6"', 'data-duration="4"');
-    assert.doesNotMatch(shrunk, /data-start="4"|data-duration="6"/);
-    await json(file, { method: 'PUT', headers: { ...gesture, 'If-Match': removed.version }, body: shrunk });
-    assert.equal((await json(file)).content, shrunk);
+    assert.equal(saved.committed.length, 1);
+    const shrunk = (await json(file)).content;
+    assert.doesNotMatch(shrunk, /id="middle"|data-start="4"/);
+    assert.match(shrunk, /id="tail"/);
     const after = await json(base + '/history');
     assert.equal(after.currentSeq, currentSeq + 1);
     assert.equal(after.back.label, label);
@@ -1732,7 +1736,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     assert.equal((await read({ path, mode: 'download', offset: 1 })).isError, true);
   });
 
-  it('persists the same clip and animation through Studio and headless MCP, once per request', async () => {
+  it('persists the same clip and animation through programmatic HTTP and remote MCP, once per request', async () => {
     const { app, config, services } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
       app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -1748,7 +1752,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const base = original.version;
     const command = { kind: 'moveClip', hfId: 'hf-title', start: 5 };
     const studio = (key: string) => post(`/api/projects/${projectId}/edits/ui.html`, command,
-      { 'If-Match': base, 'Idempotency-Key': key });
+      { 'If-Match': base, 'Idempotency-Key': key, Authorization: 'Bearer ' + config.DEV_PAT });
     const first = await studio('drag');
     assert.equal(first.status, 200, await first.clone().text());
     assert.equal((await (await studio('drag')).json()).version, (await first.json()).version);
@@ -1811,9 +1815,9 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
   });
 
   it('reapplies a competing audio trim to the current file and replays the original acknowledgements', async () => {
-    const { app, services } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const { app, config, services } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
-      app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+      app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.DEV_PAT, ...headers }, body: JSON.stringify(body) });
     const { projectId } = await (await post('/motion-api/projects', { title: 'Concurrent audio trims' })).json();
     const base = '/api/projects/' + projectId;
     const path = 'scene.html';
@@ -1882,9 +1886,9 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
   });
 
   it('creates, replays and updates beat grids over HTTP while rejecting invalid project media', async () => {
-    const { app, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) => app.request(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.DEV_PAT, ...headers }, body: JSON.stringify(body),
     });
     const { projectId } = await (await post('/motion-api/projects', { title: 'Beat markers' })).json();
     const base = '/api/projects/' + projectId;
@@ -2017,7 +2021,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     }
   });
 
-  it('commits canvas properties and timeline edits as one undoable gesture through Studio or remote MCP', async () => {
+  it('commits canvas properties and timeline edits as one undoable gesture through programmatic HTTP or remote MCP', async () => {
     const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
       app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -2043,7 +2047,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const versions = { 'ui.html': version, 'ui-track.html': version };
     const historyCount = () => pgClient.tables.get('project_history_entries')!.length;
     const count = historyCount();
-    const studio = (body: unknown, key: string) => post(base + '/edits', body, { 'Idempotency-Key': key });
+    const studio = (body: unknown, key: string) => post(base + '/edits', body, { 'Idempotency-Key': key, Authorization: 'Bearer ' + config.DEV_PAT });
     const bad = edit(paths[0]!, paths[1]!);
     Object.assign(bad.commands[2]!, { hfIds: ['missing'] });
     assert.equal((await studio({ edit: bad, versions }, 'invalid-batch')).status, 400);
@@ -2098,8 +2102,14 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const animationId = before.animations[0].id;
     const at = {time:2};
     const values = {x:44,y:28};
-    const studio = await post(base+'/gsap-mutations/studio.html',{type:'set-animated-values',animationId,at,values});
+    const ui = await (await app.request(base + '/files/studio.html')).json();
+    const local = await applyProjectEdit(ui.content, {kind:'editAnimation', compositionPath:'studio.html',
+      mutations:[{type:'set-animated-values', animationId, at, values}]}, new Map());
+    const studio = await post(base + '/text-edits/batch', {operations:[{
+      id:'local-keyframe', label:local.label, files:[{path:'studio.html', baseVersion:ui.version, content:local.content}],
+    }]});
     assert.equal(studio.status,200,await studio.clone().text());
+    assert.equal((await studio.json()).committed.length, 1);
     const headers: Record<string,string> = {Authorization:'Bearer '+config.DEV_PAT,Accept:'application/json, text/event-stream'};
     const rpc = (method:string,params:unknown) => post('/mcp',{jsonrpc:'2.0',id:1,method,params},headers);
     const init = await rpc('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'canvas',version:'1'}});
@@ -2120,9 +2130,9 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
   });
 
   it('replays caption commands with the original track and guards both project versions', async () => {
-    const { app } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const { app, config } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (path: string, data: unknown) => app.request('/motion-api/' + path, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.DEV_PAT }, body: JSON.stringify(data),
     });
     const { projectId } = await (await post('projects', { title: 'Caption retries' })).json();
     const call = (name: string, args: unknown) => post('phase1/call', { name, arguments: args });

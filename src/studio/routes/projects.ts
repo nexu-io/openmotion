@@ -4,7 +4,7 @@ import { decodedUrlPath } from '@hyperframes/parsers/asset-paths';
 import { and, desc, eq, gt, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { FONT_EXT } from '../../../shared/asset-names.ts';
-import { extractIndexHeadMarkup, NON_PREVIEW_FILES } from '../../../shared/preview-impact.ts';
+import { extractIndexHeadMarkup, isNonPreviewFile } from '../../../shared/preview-impact.ts';
 import { uploadTickets } from '../../db/schema/blobs-assets.ts';
 import { jobs } from '../../db/schema/jobs.ts';
 import type { AuthContext } from '../../contracts/auth.ts';
@@ -138,7 +138,7 @@ export function computeCompositionRevisions(
         : 'workspace';
     const version = formatFileVersion(scope, file.sha256);
     byPath.set(file.path, version);
-    if (file.path !== 'index.html' && !compSet.has(file.path) && !NON_PREVIEW_FILES.has(file.path)) {
+    if (file.path !== 'index.html' && !compSet.has(file.path) && !isNonPreviewFile(file.path)) {
       sharedHash.update(file.path);
       sharedHash.update(':');
       sharedHash.update(version);
