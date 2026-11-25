@@ -9,6 +9,7 @@ import { IsolatedCanvasOverlay } from "./IsolatedCanvasOverlay";
 import { observePreviewDocument, PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
 import { liveTime, usePlayerStore } from "../../player/store/playerStore";
 import { announcePreviewPromoted } from "../../player/sceneSwap";
+import { paintWithIsolatedSelection, type SelectionPaintReply } from "../../player/isolatedSelectionPaint";
 
 const state = vi.hoisted(() => ({
   writeBlockedReason: null as string | null,
@@ -16,9 +17,10 @@ const state = vi.hoisted(() => ({
   previewIframeRef: { current: null as HTMLIFrameElement | null },
   compositionRect: { left: 10, top: 10, width: 200, height: 100 },
   commitDomEditPatchBatches: vi.fn(),
+  applyDomSelection: vi.fn(),
   showToast: vi.fn(),
 }));
-vi.mock("../../contexts/DomEditContext", () => ({ useDomEditActionsContext: () => state, useDomEditSelectionContext: () => state }));
+vi.mock("../../contexts/DomEditContext", () => ({ useDomEditActionsContext: () => state, useDomEditSelectionContext: () => ({ ...state, domEditSelectionRef: selectionRef }) }));
 vi.mock("../../contexts/StudioContext", () => ({
   useStudioShellContext: () => ({ ...state, projectId: "project-1" }),
 }));
@@ -30,6 +32,7 @@ let messages: PreviewBridgeMessage[];
 const origin = "https://preview.test";
 const result = { sourceFile: "compositions/title.html", sha256: "a".repeat(64),
   elementId: "title", left: 12, top: 34, makeRelative: true };
+const selectionRef = { get current() { return state.domEditSelection; } };
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -395,6 +398,44 @@ it("keeps the selected element outlined across frame loads and layout changes un
   state.domEditSelection = null;
   act(() => root.render(<IsolatedCanvasOverlay />));
   expect(canvas.firstElementChild).toBeNull();
+});
+
+it("applies the latest measured history bounds to the selected target without another inspection", async () => {
+  const geometry = { x: -12.5, y: 30, width: 152, height: 78.5 };
+  const measured = { applied: true, viewport: { width: 400, height: 200 }, geometry };
+  const target = { sourceFile: result.sourceFile, elementId: result.elementId };
+  state.domEditSelection = { isolatedTarget: target, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const older = Promise.withResolvers<SelectionPaintReply>();
+  const paint = (request: Parameters<typeof paintWithIsolatedSelection>[4]) =>
+    paintWithIsolatedSelection(frame, result.sourceFile, true, () => true, request);
+  const late = paint(() => older.promise);
+  const send = vi.fn().mockResolvedValue(measured);
+  await act(async () => { expect(await paint(send)).toBe(true); });
+  expect(send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(target));
+  expect(state.applyDomSelection).toHaveBeenCalledExactlyOnceWith({ ...state.domEditSelection,
+    boundingBox: geometry, isolatedBounds: { x: -12.5 / 400, y: .15, width: .38, height: 78.5 / 200 },
+  }, { preserveGroup: true, revealPanel: false, announce: false });
+  older.resolve({ ...measured, geometry: { ...geometry, x: 99 } });
+  await late;
+  expect(state.applyDomSelection).toHaveBeenCalledTimes(1);
+  expect(messages).toHaveLength(0);
+});
+
+it.each(["selection", "gesture"])('ignores a history measurement after a new %s takes ownership', async change => {
+  const selection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  state.domEditSelection = selection;
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const reply = Promise.withResolvers<SelectionPaintReply>();
+  const paint = paintWithIsolatedSelection(frame, result.sourceFile, true, () => true, () => reply.promise);
+  if (change === "gesture") { pointer("pointerdown", 60); pointer("pointerup", 60); }
+  else {
+    state.domEditSelection = { ...selection, isolatedTarget: { ...result, sourceFile: 'other.html' } };
+    act(() => root.render(<IsolatedCanvasOverlay />));
+  }
+  reply.resolve({ applied: true, geometry: { x: 10, y: 25, width: 60, height: 50 }, viewport: { width: 100, height: 100 } });
+  await paint;
+  expect(state.applyDomSelection).not.toHaveBeenCalled();
 });
 
 it.each([false, true])("only shows handles within the selected clip's interval (descendant %s)", child => {

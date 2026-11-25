@@ -1,4 +1,5 @@
 import { diffGroupChange } from "./visualGroupChange";
+import { paintWithIsolatedSelection, type SelectionPaintReply } from "./isolatedSelectionPaint";
 import { isLiveMediaMove } from "../../../shared/preview-live-media";
 import { takeInsertedClip, takeRemovedClip } from "./visualClipStructure";
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from "../../../packages/edit-core/canvas-position";
@@ -13,7 +14,8 @@ type FileSnapshot = { content: string; version: string };
 
 // A WindowProxy survives navigation. Bind a request to the document that acknowledged the handshake.
 const documents = new WeakMap<HTMLIFrameElement, { token: string; id: string; canRebind: boolean; canRefreshParked: boolean; mountedVersions: Map<string, string>; liveEdits: PreviewLiveEdits; timingFile?: { path: string; version: string } }>();
-const historyDrafts = new WeakMap<HTMLIFrameElement, {documentId: string; path: string; mounted: string; visible: string; alternative: string}>();
+type HistoryDraft = {documentId: string; path: string; mounted: string; visible: string; alternative: string; presented?: string};
+const historyDrafts = new WeakMap<HTMLIFrameElement, HistoryDraft>();
 export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: string | null, timingId: unknown, styleId?: unknown, liveEdits: PreviewLiveEdits = {}, canRefreshParked = false, mountedVersions?: Record<string, string>): void {
   const id = timingId ?? styleId;
   if (token && typeof id === "string" && id.length > 0 && id.length <= 64) {
@@ -291,12 +293,16 @@ async function applyPeerChanges(
   const timeout = 350;
   const sentFrom = document.mountedVersions.get(update.path);
   try {
-    const paint = adapter.request<boolean>(presentation ? "peer-presentation" : "peer-timing", {
+    const request = (selectionTarget?: {sourceFile: string}) => adapter.request<SelectionPaintReply>(presentation ? "peer-presentation" : "peer-timing", {
       documentId: document.id, path: update.path, before: update.previous.version, after: update.current.version,
       changes, ...(sameContent && { sameContent: true }), ...(draftId && { structureDraftId: draftId }),
       ...(historyDraftId && { historyDraftId }), ...(historyRestore && { historyRestore: true }),
-      ...(temporary && { temporary: true }), ...(localSave && { localSave: true, gestureId: localSave.gestureId }), expiresAt: Date.now() + timeout,
+      ...(selectionTarget && { selectionTarget }), ...(temporary && { temporary: true }), ...(localSave && { localSave: true, gestureId: localSave.gestureId }), expiresAt: Date.now() + timeout,
     }, timeout);
+    const replacingDraft = originalDraft?.documentId === document.id && originalDraft.path === update.path;
+    const paint = (historyDraftId || historyRestore || replacingDraft) && presentation
+      ? paintWithIsolatedSelection(frame, update.path, !(replacingDraft && originalDraft.presented === current.content), () => sameDocument() && isCurrent(), request)
+      : request();
     // A provisional style can paint in parallel with the authoritative script rebuild.
     if (temporary && options === "keep-visible") {
       void paint.catch(() => {});
@@ -321,7 +327,10 @@ async function applyPeerChanges(
     if (!isCurrent()) return "superseded";
     if (applied === false) return "requires-scene-rebuild";
     if (applied !== true) return "unconfirmed";
-    if (historyDraftId) return "applied";
+    if (historyDraftId) {
+      if (originalDraft && historyDrafts.get(frame) === originalDraft) originalDraft.presented = current.content;
+      return "applied";
+    }
     if (!temporary && !draftId && originalDraft?.path === update.path && historyDrafts.get(frame) === originalDraft) historyDrafts.delete(frame);
     if (draftId) {
       const group = changes[0]?.group;
@@ -355,8 +364,11 @@ export function stagePeerHistoryGeometry(frame: HTMLIFrameElement, path: string,
   const discard = () => {
     active = false;
     if (historyDrafts.get(frame) === draft) historyDrafts.delete(frame);
-    if (frame.isConnected && documents.get(frame) === doc)
-      adapter.send("peer-timing", {documentId: doc.id, path, discardDraftId: historyDraftId});
+    if (frame.isConnected && documents.get(frame) === doc) {
+      const payload = {documentId: doc.id, path, discardDraftId: historyDraftId};
+      void paintWithIsolatedSelection(frame, path, true, () => frame.isConnected && documents.get(frame) === doc,
+        target => target ? adapter.request<SelectionPaintReply>("peer-timing", {...payload, selectionTarget: target}, 350) : Promise.resolve(!!adapter.send("peer-timing", payload))).catch(() => {});
+    }
   };
   discard.supersede = () => { active = false; };
   return discard;

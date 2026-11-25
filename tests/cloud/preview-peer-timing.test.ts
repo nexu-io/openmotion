@@ -243,6 +243,28 @@ it('discards only the geometry a refused canvas history draft still owns', () =>
   assert.deepEqual(frame.hooks, []);
 });
 
+it('returns the requested mounted selection bounds with the local history paint and rollback', () => {
+  const frame = preview(false, { position: true });
+  const node = frame.document.getElementById('title')!;
+  const target = { sourceFile: 'index.html', elementId: 'title' };
+  // A transformed layout has a different bounding rect from its inline left and width.
+  const measured = () => ({ x: parseFloat(node.style.left) + 31.25, y: -3.5, width: 157.75, height: 91.25 });
+  Object.defineProperty(node, 'getBoundingClientRect', { value: measured });
+  const checkPaint = (message: Record<string, unknown>, left: string) => {
+    const reply = frame.send({ ...message, selectionTarget: target });
+    assert.equal(node.style.left, left);
+    assert.deepEqual(JSON.parse(JSON.stringify(reply)), { applied: true, geometry: measured(), viewport: { width: 800, height: 450 } });
+    assert.equal(frame.replies.length, 1);
+  };
+  const changes = [{ id: 'title', tag: 'div', attributes: [], styles: [['left', '10px', '5px']] }];
+  const stage = { type: 'peer-presentation', changes, after: etag(1), historyDraftId: 'undo' };
+  checkPaint(stage, '5px');
+  checkPaint({ discardDraftId: 'undo' }, '10px');
+  checkPaint(stage, '5px');
+  checkPaint({ type: 'peer-presentation', changes, historyRestore: true }, '5px');
+  assert.equal(frame.send({ ...stage, before: etag(2), after: etag(2), selectionTarget: { ...target, sourceFile: 'other.html' } }), true);
+});
+
 it('confirms nested geometry and a stamped BR caption atomically, then carries both across parking', () => {
   const path = 'scenes/intro.html';
   for (const local of [false, true]) {

@@ -4,7 +4,9 @@ import { useIsolatedInlineText } from "./useIsolatedInlineText";
 import { isIsolatedSourceTarget, isolatedPatchTarget, isolatedSourceVersion, type IsolatedSourceTarget } from "./isolatedSourceTarget";
 import { usePreviewOverlayContext } from "./PreviewOverlayProvider";
 import { relativeLayerBounds, type LayerBounds } from "./isolatedLayerBounds";
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { flushSync } from "react-dom";
+import { observeIsolatedSelection } from "../../player/isolatedSelectionPaint";
 import { useDomEditActionsContext, useDomEditSelectionContext } from "../../contexts/DomEditContext";
 import { useStudioShellContext } from "../../contexts/StudioContext";
 import { useI18n } from "../../i18n/I18n";
@@ -37,6 +39,7 @@ interface Drag {
   corner?: Corner;
   liveResizeBounds?: boolean;
   bounds?: LayerBounds;
+  target?: IsolatedSourceTarget;
   offset?: { x: number; y: number };
 }
 
@@ -76,39 +79,56 @@ function positionPatch(result: DragResult) {
 /** Input and persistence stay in Studio. The scoped frame only measures and previews layout. */
 export function IsolatedCanvasOverlay() {
   const { t } = useI18n();
-  const { commitDomEditPatchBatches, clearDomSelection } = useDomEditActionsContext();
+  const { commitDomEditPatchBatches, clearDomSelection, applyDomSelection } = useDomEditActionsContext();
   const { previewIframeRef, projectId, showToast, writeBlockedReason } = useStudioShellContext();
   const select = usePlayerStore(state => state.activeTool === "select");
   const text = useIsolatedInlineText(previewIframeRef, projectId, select && !writeBlockedReason);
   const drag = useRef<Drag | null>(null);
   const lastPick = useRef<Drag | null>(null);
   const [menu, setMenu] = useState<CanvasMenuPick | null>(null);
-  const { domEditSelection } = useDomEditSelectionContext();
+  const { domEditSelection, domEditSelectionRef } = useDomEditSelectionContext();
   const inFrame = useCanvasClipVisibility(domEditSelection);
-  const [draft, setDraft] = useState<{ frame: HTMLIFrameElement; bounds: LayerBounds } | null>(null);
-  const box = draft && draft.frame === previewIframeRef.current ? draft.bounds : domEditSelection?.isolatedBounds;
+  const [draft, setDraft] = useState<{ frame: HTMLIFrameElement; bounds: LayerBounds; target?: IsolatedSourceTarget } | null>(null);
+  const selected = domEditSelection?.isolatedTarget;
+  const matchesDraft = !draft?.target || !selected || (draft.target.sourceFile === selected.sourceFile &&
+    (draft.target.hfId || draft.target.elementId) === (selected.hfId || selected.elementId));
+  const box = draft && draft.frame === previewIframeRef.current && matchesDraft ? draft.bounds : domEditSelection?.isolatedBounds;
   const { state: { compositionRect } } = usePreviewOverlayContext();
+  const pickGeneration = useRef(0);
+  const frame = previewIframeRef.current;
+  const sourceFile = domEditSelection?.isolatedTarget?.sourceFile;
+  const hfId = domEditSelection?.isolatedTarget?.hfId;
+  const elementId = domEditSelection?.isolatedTarget?.elementId;
+  useLayoutEffect(() => {
+    if (!select || !inFrame || !frame || !sourceFile || (!elementId && !hfId)) return;
+    return observeIsolatedSelection(frame, () => {
+      if (drag.current) return;
+      const generation = pickGeneration.current;
+      return { target: { sourceFile, hfId, elementId }, apply(bounds, geometry) {
+        const current = domEditSelectionRef.current;
+        const target = current?.isolatedTarget;
+        if (!current || !target || drag.current || generation !== pickGeneration.current || frame !== previewIframeRef.current ||
+            target.sourceFile !== sourceFile || target.hfId !== hfId || target.elementId !== elementId) return;
+        // The restored geometry supersedes the released gesture and any older inspector read.
+        lastPick.current = null;
+        flushSync(() => {
+          setDraft(null);
+          applyDomSelection({ ...current, isolatedBounds: bounds, boundingBox: geometry }, { preserveGroup: true, revealPanel: false, announce: false });
+        });
+      } };
+    });
+  }, [select, inFrame, frame, sourceFile, hfId, elementId, domEditSelectionRef, previewIframeRef, applyDomSelection]);
   useEffect(() => {
     function updateBounds(event: MessageEvent) {
       const active = drag.current;
-      if (event.data?.type === "selection-geometry" && event.data.historyRestore === true) {
-        const frame = previewIframeRef.current;
-        const target = event.data.selection;
-        if (active || !frame || !projectPreviewAdapter(frame, projectId)?.accepts(event) || !domEditSelection ||
-            target?.sourceFile !== domEditSelection.sourceFile || (domEditSelection.hfId
-              ? target.hfId !== domEditSelection.hfId : target.elementId !== domEditSelection.id)) return;
-        const bounds = relativeLayerBounds(target);
-        if (bounds) setDraft({ frame, bounds });
-        return;
-      }
       if ((!active?.corner && !active?.liveResizeBounds) || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
           event.data.gestureId !== active.gestureId || !active.adapter.accepts(event)) return;
       const bounds = relativeLayerBounds(event.data);
-      if (bounds) setDraft({ frame: active.adapter.iframe, bounds });
+      if (bounds) setDraft({ frame: active.adapter.iframe, bounds, target: active.target });
     }
     window.addEventListener("message", updateBounds);
     return () => window.removeEventListener("message", updateBounds);
-  }, [domEditSelection, previewIframeRef, projectId]);
+  }, []);
   useEffect(() => {
     if (!lastPick.current) setDraft(null);
   }, [domEditSelection]);
@@ -164,7 +184,7 @@ export function IsolatedCanvasOverlay() {
     const y = (active.offset?.y ?? 0) / active.frame.height;
     const rect = active.bounds, corner = active.corner;
     const west = corner?.endsWith("w"), north = corner?.startsWith("n");
-    setDraft({ frame: active.adapter.iframe, bounds: { x: rect.x + (corner && !west ? 0 : x), y: rect.y + (corner && !north ? 0 : y),
+    setDraft({ frame: active.adapter.iframe, target: active.target, bounds: { x: rect.x + (corner && !west ? 0 : x), y: rect.y + (corner && !north ? 0 : y),
       width: Math.max(1 / active.frame.width, rect.width + (corner ? west ? -x : x : 0)),
       height: Math.max(1 / active.frame.height, rect.height + (corner ? north ? -y : y : 0)) } });
   }
@@ -210,6 +230,7 @@ export function IsolatedCanvasOverlay() {
       finishSettled: false,
     };
     if (active.optimistic) active.hold = beginStudioManualEditGesture(iframe, corner ? "resize" : "move");
+    pickGeneration.current++;
     drag.current = lastPick.current = active;
     // Keep the last visible bounds until the new hit has been measured.
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -218,6 +239,7 @@ export function IsolatedCanvasOverlay() {
       .then(pick => {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
+        active.target = pick.target;
         if (active.optimistic && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
           active.scope = { frame: iframe, paths: [pick.target.sourceFile] };
           if (active.hold) scopeStudioManualEditGesture(iframe, active.hold, active.scope.paths);
@@ -258,7 +280,7 @@ export function IsolatedCanvasOverlay() {
     const payload = { phase, dx: dx / active.frame.width, dy: dy / active.frame.height, gestureId: active.gestureId };
     if (phase !== "cancel" && (active.offset || Math.hypot(dx, dy) >= 3)) {
       active.offset = { x: dx, y: dy };
-      if (!active.liveResizeBounds) showBounds(active);
+      if (!active.liveResizeBounds && active.bounds) flushSync(() => showBounds(active));
     }
     if (phase === "move") {
       if (active.offset) active.adapter.send("canvas-drag", payload);
@@ -298,7 +320,7 @@ export function IsolatedCanvasOverlay() {
       if (active.hold) scopeStudioManualEditGesture(frame, active.hold, active.scope.paths);
       trackStudioPendingEdit(finished, active.scope);
       const finalBounds = (active.corner || active.liveResizeBounds) && relativeLayerBounds(result);
-      if (lastPick.current === active && finalBounds) setDraft({ frame, bounds: finalBounds });
+      if (lastPick.current === active && finalBounds) setDraft({ frame, bounds: finalBounds, target: result });
       const write = async (version?: string) => {
         const patch = positionPatch(result);
         // The authenticated measurement is complete. A preview swap while a prior
@@ -370,7 +392,7 @@ export function IsolatedCanvasOverlay() {
     onPointerUp={event => update(event, "finish")} onPointerCancel={event => update(event, "cancel")}
     onLostPointerCapture={lostCapture}>
     {menu && <IsolatedCanvasContextMenu pick={menu} close={() => setMenu(null)} />}
-    {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div data-isolated-selection="" className="absolute border border-studio-accent"
+    {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div data-isolated-selection="" className="absolute will-change-transform border border-studio-accent"
       style={{ left: compositionRect.left + box.x * compositionRect.width,
         top: compositionRect.top + box.y * compositionRect.height,
         width: box.width * compositionRect.width, height: box.height * compositionRect.height }}>

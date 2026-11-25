@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { launchStudioChrome } from './chrome-executable.mjs';
+import { selectionPaint } from './selection-paint.mjs';
 import { drag, inputPoint, liveFrame, mountProbe, openEditor, until } from './preview-receipt-harness.mjs';
 
 const origin = new URL(process.env.STUDIO_URL).origin;
@@ -179,11 +180,13 @@ async function run(mode) {
     await source.bringToFront();
     const initial = await observe(source);
     assert(initial, 'fixture target is visible');
-    let point;
+    let point, selection;
     if (!timeline) {
       point = await inputPoint(source, 'reel-canvas');
       await source.mouse.click(point.x, point.y);
       await source.waitForFunction(() => location.href.includes('selId=reel-canvas') && document.querySelector('[data-resize-corner]'));
+      selection = await selectionPaint(source, await liveFrame(source), preview, mode, evidence, report);
+      await selection.checkpoint('selected', initial);
     }
     const move = async (dx, dy, from) => {
       if (timeline) {
@@ -195,9 +198,11 @@ async function run(mode) {
       const expected = [from[0] + dx / point.scaleX, from[1] + dy / point.scaleY, ...from.slice(2)];
       return sample(source, expected, 'canvas visibly moved');
     };
-    const first = await move(timeline ? 60 : 18, 6, initial);
+    // Keep the selection's four edges inside the editor's clipped preview pane.
+    const first = await move(timeline ? 60 : 18, 8, initial);
     await saved(1);
     await sample(source, first, 'first saved move');
+    await selection?.controls(first);
     await source.waitForSelector(`${undo}:not(:disabled)`, { timeout: 6000 });
     const originalFrame = await liveFrame(source);
     const previewOrigin = new URL(originalFrame.url()).origin;
@@ -212,7 +217,7 @@ async function run(mode) {
     const rows = () => source.evaluate(key => window.__undoTrace[key], timeline ? 'timeline' : 'preview');
     let gate;
     if (immediate) gate = await holdResponses(source, id, true, report);
-    const second = await move(timeline ? 45 : -8, 15, first);
+    const second = await move(timeline ? 45 : -8, -11, first);
     if (!immediate) {
       await saved(2);
       await verifyTab(peer, second, 'peer must show the second move before undo');
@@ -236,6 +241,7 @@ async function run(mode) {
     if (immediate) assert.equal(receipts.length, 1, 'second save already acknowledged');
     assert.equal(await source.$eval(action, button => button.disabled), false, 'history toolbar button must accept the click');
     const priorRequests = new Set(traffic.keys());
+    await selection?.start();
     await source.click(action);
     const click = report.clickAt = await source.evaluate(() => window.__historyClick);
     assert(click, 'trusted history click was not delivered');
@@ -256,12 +262,17 @@ async function run(mode) {
     if (immediate) await delay(holdMs);
     const beforeHistory = (await rows()).find(correct);
     report.preHistoryAckPaintMs = beforeHistory ? Math.round(beforeHistory.at - click) : null;
+    await selection?.checkpoint('history-held', expected);
     await gate.release('history');
     await gate.finish();
     await sample(source, expected, 'source must show restored position after ACK');
     await verifyTab(peer, expected, 'peer must receive the history step');
     await source.waitForSelector(`${isRedo ? undo : redo}:not(:disabled)`, { timeout: 10000 });
     await delay(350);
+    if (selection) {
+      await selection.finish(click, report.network.history.releasedAt, expected);
+      await selection.checkpoint('confirmed', expected);
+    }
     const trace = await source.evaluate(() => window.__undoTrace);
     const frames = timeline ? trace.timeline : trace.preview;
     const firstCorrect = frames.findIndex(correct);
@@ -282,10 +293,14 @@ async function run(mode) {
     if (steps.length !== 1 || steps[0].path !== 'history/step-guarded' || report.network.history.direction !== (isRedo ? 'forward' : 'back'))
       report.violations.push('expected one guarded history step in the requested direction');
     await source.emulateNetworkConditions(null);
-    if (!timeline && !isRedo) point = { ...point, x: point.x + 8, y: point.y - 15 };
-    const third = await move(timeline ? 155 : 12, -15, expected);
+    if (!timeline && !isRedo) point = { ...point, x: point.x + 8, y: point.y + 11 };
+    const third = await move(timeline ? 155 : 12, 0, expected);
     assert(!close(third, second, timeline), 'new move must be distinct from the second move');
     await saved(3);
+    if (selection) {
+      await selection.checkpoint('following-drag', third);
+      await selection.close();
+    }
     for (const [name, page] of Object.entries({ source, peer, cold: await open('cold') })) {
       await page.bringToFront();
       await verifyTab(page, third, `${name} must retain the later edit`);
