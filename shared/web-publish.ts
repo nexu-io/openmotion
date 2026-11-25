@@ -98,6 +98,8 @@ export type WebPublicationRecord = {
   feedStatus?: WebPublishFeedStatus;
   /** True only when a publish/resume attempted `PUT /game-listing` and remote sync failed transiently. */
   listingSyncPending?: boolean;
+  /** Target visibility awaiting remote confirmation when `listingSyncPending` is true. */
+  pendingVisibility?: WebPublishVisibility;
   publishedAt: number;
   updatedAt: number;
   fileCount: number;

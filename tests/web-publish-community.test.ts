@@ -939,6 +939,179 @@ test('status() never auto-enrolls legacy pre-community game shares or overwrites
   }
 });
 
+test('reopening a stopped public game as Unlisted confirms Unlisted before resume and handles lost PUT responses & 403 mislabeling', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-reopen-unlisted-guard-'));
+  try {
+    const gameDir = path.join(root, 'reopen-unlisted');
+    await mkdir(gameDir, { recursive: true });
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Reopen Guard Game</h1>');
+
+    const baseMock = createCommunityMockAccount('go');
+    let failPut503BeforeCommit = false;
+    let dropPutResponseAfterCommit = false;
+    let resumeCalls = 0;
+    const client: WebPublishAccountClient = {
+      isSignedIn: baseMock.client.isSignedIn,
+      listWorkspaces: baseMock.client.listWorkspaces,
+      summary: baseMock.client.summary,
+      async runWithEnv(args, extraEnv, opts) {
+        if (args[0] === 'share' && args[1] === 'resume-existing') {
+          resumeCalls += 1;
+        }
+        return baseMock.client.runWithEnv(args, extraEnv, opts);
+      },
+      async controlApiJson(apiPath: string, options?: { method?: string; body?: unknown }) {
+        const method = options?.method ?? 'GET';
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing$/.test(apiPath) && method === 'PUT') {
+          if (failPut503BeforeCommit) {
+            throw new AccountRequestError(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', status: 503 }));
+          }
+          if (dropPutResponseAfterCommit) {
+            await baseMock.client.controlApiJson!(apiPath, options);
+            throw new Error('Request timed out after response commit');
+          }
+        }
+        return baseMock.client.controlApiJson!(apiPath, options);
+      },
+    };
+
+    const service = new WebPublishService(path.join(root, 'pub-data'), client);
+    const target = {
+      kind: 'game' as const,
+      id: 'reopen-unlisted',
+      title: 'Reopen Guard Game',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-1',
+      sourcePath: gameDir,
+      gameMeta: {
+        title: 'Reopen Guard Game',
+        description: 'Must not return to feed when reopened as Unlisted.',
+        genre: 'arcade',
+        orientation: 'landscape' as const,
+        controls: 'Arrows',
+      },
+    };
+
+    // 1. Publish as public and mark featured, then stop the share link.
+    const initial = await service.publish(target, { visibility: 'public' });
+    const initialListing = baseMock.listings.get(initial.publication.slug)!;
+    baseMock.listings.set(initial.publication.slug, { ...initialListing, feedStatus: 'featured' });
+    await service.unpublish(target);
+
+    // 2. Reopen as Unlisted while PUT /game-listing fails BEFORE commit:
+    // share resume-existing MUST NOT run, remote listing stays public, share stays stopped.
+    failPut503BeforeCommit = true;
+    resumeCalls = 0;
+    await assert.rejects(
+      () => service.publish(target, { mode: 'resume', visibility: 'unlisted' }),
+      /Could not confirm Unlisted visibility/i,
+    );
+    assert.equal(resumeCalls, 0, 'share resume-existing must not execute if Unlisted write did not commit');
+    assert.equal(baseMock.listings.get(initial.publication.slug)?.visibility, 'public');
+    const stoppedStatus = await service.status(target);
+    assert.equal(stoppedStatus.active?.status, 'stopped');
+
+    // 3. Retry reopening as Unlisted when PUT commits on server but drops its HTTP response:
+    // GET probe confirms server holds 'unlisted', resume-existing runs, and status stays Link only.
+    failPut503BeforeCommit = false;
+    dropPutResponseAfterCommit = true;
+    const resumed = await service.publish(target, { mode: 'resume', visibility: 'unlisted' });
+    assert.equal(resumeCalls, 1);
+    assert.equal(resumed.publication.status, 'published');
+    assert.equal(resumed.publication.slug, initial.publication.slug);
+    assert.equal(resumed.publication.visibility, 'unlisted');
+    assert.equal(resumed.publication.listingSyncPending, undefined);
+    const afterStatus = await service.status(target, { refresh: true });
+    assert.equal(afterStatus.active?.visibility, 'unlisted');
+    assert.equal(baseMock.listings.get(initial.publication.slug)?.visibility, 'unlisted');
+
+    // 4. Full publish requesting Unlisted when pre-upload entitlement check failed transiently (503)
+    // and PUT /game-listing rejects with 403 must NOT label the saved publication as 'unlisted'.
+    const freeBase = createCommunityMockAccount('free');
+    const freeClient: WebPublishAccountClient = {
+      ...freeBase.client,
+      async controlApiJson(apiPath: string, options?: { method?: string; body?: unknown }) {
+        if (apiPath === '/api/v1/collab/game-share-entitlement') {
+          throw new AccountRequestError(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', status: 503 }));
+        }
+        return freeBase.client.controlApiJson!(apiPath, options);
+      },
+    };
+    const freeService = new WebPublishService(path.join(root, 'free-pub-data'), freeClient);
+    const freeTarget = { ...target, id: 'free-403-check' };
+    await assert.rejects(
+      () => freeService.publish(freeTarget, { visibility: 'unlisted' }),
+      (err: unknown) =>
+        (err instanceof AccountRequestError &&
+          err.status === 403 &&
+          err.code === 'PRIVATE_SHARE_REQUIRES_PAID_PLAN') ||
+        (err instanceof Error && err.message.includes('PRIVATE_SHARE_REQUIRES_PAID_PLAN')),
+    );
+    const freeStatus = await freeService.status(freeTarget);
+    assert.equal(freeStatus.active?.visibility, 'public');
+    assert.equal(freeStatus.active?.listingSyncPending, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('status() retries mismatched pendingVisibility against a 200 remote listing instead of discarding it', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-pending-vis-retry-'));
+  try {
+    const gameDir = path.join(root, 'pending-vis');
+    await mkdir(gameDir, { recursive: true });
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Pending Visibility Game</h1>');
+
+    const baseMock = createCommunityMockAccount('go');
+    let failSecondPut = false;
+    const client: WebPublishAccountClient = {
+      isSignedIn: baseMock.client.isSignedIn,
+      listWorkspaces: baseMock.client.listWorkspaces,
+      summary: baseMock.client.summary,
+      runWithEnv: baseMock.client.runWithEnv,
+      async controlApiJson(apiPath: string, options?: { method?: string; body?: unknown }) {
+        const method = options?.method ?? 'GET';
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing$/.test(apiPath) && method === 'PUT' && failSecondPut) {
+          throw new AccountRequestError(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', status: 503 }));
+        }
+        return baseMock.client.controlApiJson!(apiPath, options);
+      },
+    };
+
+    const service = new WebPublishService(path.join(root, 'pub-data'), client);
+    const target = {
+      kind: 'game' as const,
+      id: 'pending-vis',
+      title: 'Pending Visibility Game',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-1',
+      sourcePath: gameDir,
+    };
+
+    // First publish succeeds as public.
+    const first = await service.publish(target, { visibility: 'public' });
+    // Second publish changes sourceRevision & requests unlisted, but PUT fails transiently.
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Pending Visibility Game v2</h1>');
+    failSecondPut = true;
+    const targetV2 = { ...target, sourceRevision: 'rev-2' };
+    const second = await service.publish(targetV2, { visibility: 'unlisted' });
+    assert.equal(second.publication.slug, first.publication.slug);
+    assert.equal(second.publication.visibility, 'public');
+    assert.equal(second.publication.listingSyncPending, true);
+    assert.equal(second.publication.pendingVisibility, 'unlisted');
+
+    // Recover API and call status(): it must retry PUT with pendingVisibility='unlisted' and apply it.
+    failSecondPut = false;
+    const reconciled = await service.status(targetV2);
+    assert.equal(reconciled.active?.visibility, 'unlisted');
+    assert.equal(reconciled.active?.listingSyncPending, undefined);
+    assert.equal(reconciled.active?.pendingVisibility, undefined);
+    assert.equal(baseMock.listings.get(first.publication.slug)?.visibility, 'unlisted');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('defaultTemplateDeployDataDir resolves outside the repository checkout', () => {
   const previous = process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR;
   delete process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR;

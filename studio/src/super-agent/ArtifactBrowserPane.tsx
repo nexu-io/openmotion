@@ -3391,7 +3391,7 @@ export function ArtifactBrowserPane({
                   <span className="om-sa-newtab-community-copy">
                     <span className="om-sa-newtab-community-title-row">
                       <strong>{t('Surprise me')}</strong>
-                      <span className="om-sa-newtab-community-badge">{t('Community')}</span>
+                      <span className="om-sa-newtab-community-badge">{t('Game Community')}</span>
                     </span>
                     <small>{t('Drop into a playable community game, swipe for more & remix in one click')}</small>
                   </span>
