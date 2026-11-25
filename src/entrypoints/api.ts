@@ -21,6 +21,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { routePath } from 'hono/route';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Redis } from 'ioredis';
 import {
@@ -2139,7 +2140,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const auth = c.get('auth') as AuthContext | undefined;
     logger.info('HTTP request completed', {
       method: c.req.method,
-      path,
+      path: routePath(c),
       status: c.res.status,
       durationMs: Date.now() - startedAt,
       ...(auth
