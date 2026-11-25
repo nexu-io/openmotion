@@ -44,7 +44,8 @@ export interface ThumbnailRequest {
   contentRevision?: number;
   /** Server-side composition content hash revision associated with this request. */
   compositionRevision?: string;
-  load: (signal: AbortSignal) => Promise<ThumbnailLoadedResult>;
+  /** A versioned capture may finish after its tile unmounts once it has started rendering. */
+  load: (signal: AbortSignal, finishInBackground?: () => void) => Promise<ThumbnailLoadedResult>;
 }
 
 export type ThumbnailSnapshot =
@@ -89,6 +90,7 @@ interface ThumbnailEntry {
   snapshot: ThumbnailSnapshot;
   /** Aborted by the preview-reload hold, to run again once the hold lifts. */
   preempted: boolean;
+  backgroundCapture: "eligible" | "retained" | "disabled";
 }
 
 const PRIORITY_SCORE: Readonly<Record<ThumbnailPriority, number>> = {
@@ -193,6 +195,7 @@ export class ThumbnailScheduler {
         lastAccess: this.nextSequence++,
         snapshot: Object.freeze({ status: "queued" }),
         preempted: false,
+        backgroundCapture: concurrencyBucket(request) === "client-capture" ? "eligible" : "disabled",
       };
       this.entries.set(scopedKey, entry);
     } else if (request.gatePriority && !entry.request.gatePriority && entry.state === "queued") {
@@ -225,7 +228,10 @@ export class ThumbnailScheduler {
         if (current.leases.size === 0) {
           if (current.state === "queued") {
             this.deleteEntry(scopedKey, current);
-          } else if (current.state === "loading") {
+          } else if (
+            current.state === "loading" &&
+            (current.backgroundCapture !== "retained" || current.discardWhenReleased || current.controller?.signal.aborted)
+          ) {
             current.controller?.abort();
             this.deleteEntry(scopedKey, current);
           } else if (current.state === "ready" && !current.cached) {
@@ -311,6 +317,19 @@ export class ThumbnailScheduler {
   private preempt(entry: ThumbnailEntry): void {
     entry.preempted = true;
     entry.controller?.abort();
+    if (entry.leases.size === 0) this.deleteEntry(entry.scopedKey, entry);
+  }
+
+  /** Leaving the project ends background captures without disturbing other thumbnail consumers. */
+  endBackgroundCaptures(projectId: string): void {
+    for (const [key, entry] of this.entries) {
+      if (entry.request.projectId !== projectId || entry.backgroundCapture === "disabled") continue;
+      if (entry.state !== "queued" && entry.state !== "loading") continue;
+      entry.backgroundCapture = "disabled";
+      if (entry.leases.size > 0) continue;
+      entry.controller?.abort();
+      this.deleteEntry(key, entry);
+    }
   }
 
   /** Evict project cache entries that are no longer owned by mounted consumers. */
@@ -440,6 +459,7 @@ export class ThumbnailScheduler {
 
   private start(entry: ThumbnailEntry, bucket: ThumbnailConcurrencyBucket): void {
     entry.state = "loading";
+    if (entry.backgroundCapture === "retained") entry.backgroundCapture = "eligible";
     entry.snapshot = Object.freeze({ status: "loading" });
     const controller = new AbortController();
     entry.controller = controller;
@@ -602,7 +622,11 @@ export class ThumbnailScheduler {
   ): Promise<ThumbnailLoadedResult> {
     let load: Promise<ThumbnailLoadedResult>;
     try {
-      load = entry.request.load(controller.signal);
+      load = entry.request.load(controller.signal, () => {
+        if (!controller.signal.aborted && entry.backgroundCapture === "eligible") {
+          entry.backgroundCapture = "retained";
+        }
+      });
     } catch (reason) {
       load = Promise.reject(reason);
     }

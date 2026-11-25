@@ -6,7 +6,7 @@ import { serializeBeats } from "@hyperframes/core/beats";
 import { useMusicBeatAnalysis } from "./useMusicBeatAnalysis";
 import { notifyExternalFileReload } from "./externalFileReloadBus";
 import { usePlayerStore } from "../player/store/playerStore";
-import { observeSourceRead } from "../utils/confirmedTextSources";
+import { observeSourceRead, trackSourceReadStream } from "../utils/confirmedTextSources";
 import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { getStudioSaveSnapshot } from "../utils/studioSaveState";
 import { applyTextPatch } from "../../../shared/text-patch";
@@ -38,6 +38,63 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   setCachedCloudDisklessMode(null);
+});
+
+it("reuses a verified missing or present beat grid across clip switches and retries after changes or a failed read", async () => {
+  class Stream extends EventTarget { static OPEN = 1; readyState = 1; }
+  vi.stubGlobal("EventSource", Stream);
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const stream = new Stream();
+  const project = "welcome-sidecar";
+  const stop = trackSourceReadStream(project, stream as unknown as EventSource);
+  stream.dispatchEvent(new Event("open"));
+  const store = usePlayerStore.getState();
+  store.beginTimelineSession(project);
+  store.markPreviewBooted();
+  store.setElements([]);
+  const track = { id: "music", tag: "audio", src: asset, duration: 5, start: 0, track: 1 };
+  const enter = () => act(async () => store.setElements([track]));
+  const leave = () => act(async () => store.setElements([]));
+  function Probe() { useMusicBeatAnalysis(); return null; }
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => root.render(<Probe />));
+    await enter(); await leave(); await enter();
+    expect(readOptionalProjectFile).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().beatAnalysis).toBeNull();
+
+    await leave();
+    stream.dispatchEvent(new Event("file-change"));
+    readOptionalProjectFile.mockRejectedValueOnce(new Error("temporarily unavailable"));
+    await enter(); await leave();
+    const content = serializeBeats([0.75], [1], asset);
+    readOptionalProjectFile.mockImplementationOnce(async (_path, observe) => {
+      observe({ content, version: version(8) }); return content;
+    });
+    await enter(); await leave(); await enter();
+    expect(readOptionalProjectFile).toHaveBeenCalledTimes(3);
+    expect(usePlayerStore.getState().beatAnalysis?.beatTimes).toEqual([0.75]);
+
+    await leave();
+    assetMetadata[asset] = { version: version(9) };
+    await enter();
+    expect(readOptionalProjectFile).toHaveBeenCalledTimes(4);
+    expect(usePlayerStore.getState().beatAnalysis).toBeNull();
+
+    await leave();
+    stream.dispatchEvent(new Event("error"));
+    await enter(); await leave(); await enter();
+    expect(readOptionalProjectFile).toHaveBeenCalledTimes(6);
+    await leave();
+    store.beginTimelineSession("another-project");
+    store.markPreviewBooted();
+    await enter();
+    expect(readOptionalProjectFile).toHaveBeenCalledTimes(7);
+  } finally {
+    stop?.();
+    assetMetadata[asset] = { version: version(1) };
+    await act(async () => root.unmount());
+  }
 });
 
 it("reads only cold media metadata, discards a replaced audio base, and accepts edits on the refreshed grid", async () => {

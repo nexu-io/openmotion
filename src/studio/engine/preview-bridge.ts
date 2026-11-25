@@ -390,6 +390,11 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   },true);
   window.addEventListener('error',function(event){ post('runtime-error',{message:String(event.message||'Preview runtime error'),filename:event.filename||null,line:event.lineno||null}); });
   window.addEventListener('unhandledrejection',function(event){ post('runtime-error',{message:String(event.reason&&event.reason.message||event.reason||'Unhandled preview rejection')}); });
+  if(styleDocumentId){
+    post('preview-document',{id:styleDocumentId});
+    window.addEventListener('pagehide',function(){ post('preview-document',{id:styleDocumentId,leaving:true}); });
+    window.addEventListener('pageshow',function(event){ if(event.persisted) post('preview-document',{id:styleDocumentId}); });
+  }
   window.addEventListener('load',ready);
   document.addEventListener('DOMContentLoaded',announceDurationIfReady);
   if(isCaptureMode) loadSnapdom().catch(function(){});

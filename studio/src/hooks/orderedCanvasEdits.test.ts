@@ -10,6 +10,8 @@ import { makeSelection } from "./domSelectionTestHarness";
 import { saveOrderedGsapEdit } from "./orderedGsapEdits";
 import { savePreparedDomEdit } from "./orderedDomEdit";
 import { saveLayerOrder } from "./orderedLayerReorder";
+import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
+import * as committedPreview from "../player/committedPreview";
 
 afterEach(() => {
   setCachedCloudDisklessMode(null);
@@ -40,6 +42,30 @@ function delayedCloud(project: string, initial: string) {
   });
   return { operations, release: gate.resolve, source: () => source };
 }
+
+it("reuses the source read by a cold canvas edit when presenting its receipt", async () => {
+  const project = "cold-canvas-preview", path = "scene.html", html = '<div id="picture"></div>';
+  setCachedCloudDisklessMode(true);
+  const sent: string[] = [];
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    sent.push(String(url));
+    if (String(url).endsWith("/files/scene.html")) return Response.json({ content: html, version: "v0" }, {
+      headers: { "X-OpenMotion-Text-Edits": "1", "X-OpenMotion-Ordered-Edits": "1" },
+    });
+    const [op] = JSON.parse(String(init.body)).operations;
+    return Response.json({ committed: [{ id: op.id, versions: { [path]: "v1" }, changedPaths: [path] }] });
+  });
+  const frame = document.createElement("iframe");
+  const present = vi.spyOn(committedPreview, "scheduleCommittedPreview").mockImplementation(() => {});
+  try {
+    await submitIsolatedCanvasEdit(project, [{kind: "moveCanvasElement", compositionPath: path,
+      target: { id: "picture" }, delta: { x: 12, y: 0 }}], { [path]: "v0" }, undefined, { current: frame }, () => {});
+    expect(sent).toHaveLength(2);
+    expect(present.mock.calls[0]?.[2]).toMatchObject([{ path, previous: { content: html, version: "v0" }, current: { version: "v1" } }]);
+  } finally {
+    present.mockRestore();
+  }
+});
 
 it("adds a target id with its tween and projects another animation before the first response", async () => {
   const project = "ordered-gsap-burst";

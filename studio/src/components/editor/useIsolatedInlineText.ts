@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useDomEditActionsContext } from "../../contexts/DomEditContext";
-import { createPreviewAdapter, type PreviewAdapter } from "../../player/lib/previewAdapter";
+import { createPreviewAdapter, onPreviewDocumentLeft, type PreviewAdapter } from "../../player/lib/previewAdapter";
 import { isolatedPreviewOrigin } from "../../player/lib/previewLease";
 import { SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwap";
 import { useLivePreviewIframe } from "../../player/store/previewIframeStore";
@@ -39,8 +39,8 @@ export function useIsolatedInlineText(
   useEffect(() => {
     const cancel = () => { if (active.current) close(active.current, false); };
     const frame = preview.current;
-    frame?.addEventListener("load", cancel);
-    return () => { frame?.removeEventListener("load", cancel); cancel(); };
+    const stop = frame && onPreviewDocumentLeft(frame, cancel);
+    return () => { stop?.(); cancel(); };
   }, [close, enabled, projectId, liveFrame, preview]);
 
   useEffect(() => {

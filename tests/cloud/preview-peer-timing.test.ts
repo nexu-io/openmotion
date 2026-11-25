@@ -267,6 +267,27 @@ it('only moves the existing canvas box when the project certifies a placement ch
   }
 });
 
+it('resizes a mounted media box without replacing its drawing buffer, image or decoder', () => {
+  const path = 'scenes/intro.html';
+  for (const tag of ['canvas', 'img', 'video']) {
+    const { send, document, hooks } = preview(false, undefined, [path]);
+    const host = document.querySelector('main')!;
+    host.setAttribute('data-composition-file', path);
+    const node = document.createElement(tag);
+    node.id = 'picture';
+    node.setAttribute('width', '1200');
+    host.append(node);
+    const change = { id: 'picture', tag, attributes: [], styles: [['width', '', '1100px'], ['height', '', '600px']] };
+    const message = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes: [change] };
+    assert.equal(send({ ...message, before: etag(2) }), false);
+    assert.equal(send(message), true);
+    assert.equal(document.getElementById('picture'), node);
+    assert.equal(node.getAttribute('width'), '1200');
+    assert.equal(node.style.width, '1100px');
+    assert.deepEqual(hooks, []);
+  }
+});
+
 it('hot-resizes a nested CSS-animated canvas once on its verified revision, including the opposite-corner translation', () => {
   const path = 'scenes/intro.html';
   const changes = [{ id: 'drawing', tag: 'canvas', attributes: [], styles: [

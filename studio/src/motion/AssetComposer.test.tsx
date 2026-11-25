@@ -624,11 +624,12 @@ it('chooses a provider, then one of its fixed-list models, keeping unconfigured 
   const { studioDestination } = await import('./creativeStudios');
   const base = { modality: 'image' as const, mode: 'text-to-image' as const, source: 'live' as const };
   const seedream: Model = { ...base, id: 'account:seedream-5.5', provider: 'account', modelId: 'seedream-5.5', label: 'seedream-5.5' };
+  const cloudSeedream: Model = { ...base, id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'seedream-5.5' };
   const flare: Model = { ...base, id: 'account:gpt-image-2.6-flare', provider: 'account', modelId: 'gpt-image-2.6-flare', label: 'gpt-image-2.6-flare' };
   const nano: Model = { ...base, id: 'account:nano-banana-2', provider: 'account', modelId: 'nano-banana-2', label: 'nano-banana-2' };
   const flux: Model = { ...base, id: 'fal:fal-ai/flux/schnell', provider: 'fal', modelId: 'fal-ai/flux/schnell', label: 'FLUX Schnell' };
   const codex: Model = { ...base, id: 'codex:image-generation', provider: 'codex', modelId: 'image-generation', label: 'Codex Image', source: 'builtin' };
-  const catalog = { models: [nano, seedream, flux, flare, codex], status: { routes: {}, providers: [
+  const catalog = { models: [nano, seedream, cloudSeedream, flux, flare, codex], status: { routes: {}, providers: [
     { id: 'account', label: 'OpenDesign', available: true }, { id: 'opendesign', label: 'OpenDesign Cloud', available: false },
     { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true },
   ] } };
@@ -663,6 +664,7 @@ it('offers only OpenDesign providers for feature entries and keeps the prompt wh
   const { studioDestination } = await import('./creativeStudios');
   const base = { modality: 'image' as const, mode: 'text-to-image' as const, source: 'live' as const, supportsImageReference: true, maxInputImages: 1 };
   const cloud: Model = { ...base, id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'seedream-5.5' };
+  const accountSeedream: Model = { ...base, id: 'account:seedream-5.5', provider: 'account', modelId: 'seedream-5.5', label: 'seedream-5.5' };
   const flux: Model = { ...base, id: 'fal:fal-ai/flux/schnell', provider: 'fal', modelId: 'fal-ai/flux/schnell', label: 'FLUX Schnell' };
   const codex: Model = { ...base, id: 'codex:image-generation', provider: 'codex', modelId: 'image-generation', label: 'Codex Image', source: 'builtin' };
   const chooseModel = vi.fn();
@@ -672,13 +674,13 @@ it('offers only OpenDesign providers for feature entries and keeps the prompt wh
   }} />));
   const names = () => [...document.querySelectorAll('[role="option"] strong')].map(node => node.textContent);
   // Ordinary non-feature Studio entries keep Codex Image alongside OpenDesign and persist choices via studio.chooseModel.
-  await render('text-to-image', [flux, cloud, codex], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
+  await render('text-to-image', [flux, cloud, accountSeedream, codex], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
   expect(names()).toEqual(['OpenDesign Cloud', 'OpenDesign', 'Codex']);
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')][2].click());
   expect(chooseModel).toHaveBeenCalledWith(codex.id);
   // Feature scenes restrict strictly to OpenDesign providers and preserve the prompt when OpenDesign needs setup.
-  await render('relight', [flux, cloud, codex], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
+  await render('relight', [flux, cloud, accountSeedream, codex], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
   expect(names()).toEqual(['OpenDesign Cloud', 'OpenDesign']);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
@@ -1419,5 +1421,199 @@ it('opens upgrade modal directly when a Plus user clicks 2K on a size-based host
   } finally {
     unsubscribe();
     setCachedCloudDisklessMode(null);
+  }
+});
+
+it('hides placeholder model dropdowns and shows Cloud upgrade guidance across image and video studios when the workspace has zero models', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const emptyCloudCatalog = {
+    models: [] as Model[],
+    status: {
+      consoleUrl: 'https://console.example.test',
+      providers: [
+        {
+          id: 'opendesign',
+          label: 'OpenDesign',
+          enabled: true,
+          configured: true,
+          available: false,
+          credentialSource: 'environment' as const,
+          verification: 'verified' as const,
+          reason: 'No media models are currently available for this OpenDesign workspace. Upgrade your plan or sync models.',
+          mediaEntitlement: 'unknown' as const,
+        },
+      ],
+      agents: [],
+      routes: {},
+      capabilities: [],
+    },
+    mode: 'opendesign' as const,
+  };
+
+  for (const [sceneId, modality, pinnedModel] of [
+    ['text-to-image', 'image', null],
+    ['text-to-image', 'image', 'opendesign:gpt-image-2.6-flare'],
+    ['relight', 'image', null],
+    ['text-to-video', 'video', null],
+    ['video-multi-shot', 'video', null],
+  ] as const) {
+    chrome.openSubscriptionSettings.mockClear();
+    await act(async () => root.render(
+      <AssetComposer
+        {...props}
+        draft={{ modality, prompt: 'A serene mountain lake', references: [] }}
+        studio={{
+          catalog: { catalog: emptyCloudCatalog, failed: false, retry: vi.fn() },
+          chooseModel: vi.fn(),
+          remember: vi.fn(),
+          destination: mediaEditorDestination(sceneId, pinnedModel),
+        }}
+      />,
+    ));
+
+    // Must NOT synthesize fake placeholder model options or show legacy BYOK/API-key prompts.
+    expect(container.querySelector('button[aria-label="Provider"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Generation model"]')).toBeNull();
+    expect(container.textContent).not.toContain('GPT Image 2.6 Flare');
+    expect(container.textContent).not.toContain('Seedream 5.5');
+    expect(container.textContent).not.toContain('Seedance 2.5');
+    expect(container.textContent).not.toContain('API key');
+    expect(container.textContent).not.toContain('Set up to generate');
+    expect(container.textContent).not.toContain('This task’s model is unavailable');
+
+    const notice = container.querySelector('[data-empty-models="true"]');
+    expect(notice, sceneId).not.toBeNull();
+    const upgradeLink = notice?.querySelector<HTMLAnchorElement>('a');
+    expect(upgradeLink?.textContent).toContain('Upgrade to Plus');
+    const url = new URL(upgradeLink!.href);
+    expect(url.origin + url.pathname).toBe('https://console.example.test/dashboard');
+    expect(url.searchParams.get('billing')).toBe('plan');
+    expect(url.searchParams.get('od_origin')).toBe('openmotion');
+    expect(url.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+
+    const checkPlanBtn = [...notice!.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.trim() === 'Check account & plan')!;
+    expect(checkPlanBtn).toBeTruthy();
+    await act(async () => checkPlanBtn.click());
+    expect(chrome.openSubscriptionSettings).toHaveBeenCalledTimes(1);
+
+    const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+    expect(submit.disabled).toBe(true);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+  }
+});
+
+it('uses Model gateway instead of BYOK API-key footer copy in unified cloud mode', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const unifiedCatalog = {
+    models: [existing.sunburst],
+    status: {
+      providers: [
+        {
+          id: 'opendesign',
+          label: 'OpenDesign',
+          enabled: true,
+          configured: true,
+          available: true,
+          credentialSource: 'environment' as const,
+          verification: 'verified' as const,
+          reason: 'Unified OpenDesign platform gateway',
+        },
+      ],
+      agents: [],
+      routes: { image: existing.sunburst.id },
+      capabilities: [],
+    },
+  };
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={{ modality: 'image', prompt: 'Sunrise', references: [] }}
+      studio={{
+        catalog: { catalog: unifiedCatalog, failed: false, retry: vi.fn() },
+        chooseModel: vi.fn(),
+        remember: vi.fn(),
+        destination: mediaEditorDestination('text-to-image'),
+      }}
+    />,
+  ));
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
+  const footer = document.querySelector('.om-picker-popover .om-picker-footer');
+  expect(footer?.textContent).toContain('Model gateway');
+  expect(footer?.textContent).not.toContain('API keys');
+});
+
+it('shows feature-specific cloud unavailability with Model gateway action when unified cloud catalog has models but none support the feature', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const audioOnlyCloudCatalog = {
+    models: [
+      {
+        id: 'opendesign:elevenlabs-v3',
+        provider: 'opendesign',
+        modelId: 'elevenlabs-v3',
+        label: 'Eleven v3',
+        modality: 'audio' as const,
+        mode: 'text-to-speech',
+        source: 'live' as const,
+      },
+    ],
+    status: {
+      consoleUrl: 'https://console.example.test',
+      providers: [
+        {
+          id: 'opendesign',
+          label: 'OpenDesign',
+          enabled: true,
+          configured: true,
+          available: true,
+          credentialSource: 'environment' as const,
+          verification: 'verified' as const,
+          reason: 'Unified OpenDesign platform gateway',
+        },
+      ],
+      agents: [],
+      routes: { audio: 'opendesign:elevenlabs-v3' },
+      capabilities: [],
+    },
+    mode: 'opendesign' as const,
+  };
+
+  for (const [sceneId, modality] of [
+    ['relight', 'image'],
+    ['video-multi-shot', 'video'],
+  ] as const) {
+    chrome.openModelSettings.mockClear();
+    await act(async () => root.render(
+      <AssetComposer
+        {...props}
+        draft={{ modality, prompt: 'Warm studio portrait', references: [] }}
+        studio={{
+          catalog: { catalog: audioOnlyCloudCatalog, failed: false, retry: vi.fn() },
+          chooseModel: vi.fn(),
+          remember: vi.fn(),
+          destination: mediaEditorDestination(sceneId, null),
+        }}
+      />,
+    ));
+
+    expect(container.querySelector('[data-empty-models="true"]'), sceneId).toBeNull();
+    expect(container.textContent).toContain('No compatible OpenDesign models are currently available for this feature. Check Model gateway or sync models.');
+    expect(container.textContent).not.toContain('API key');
+    expect(container.textContent).not.toContain('Sign in with OpenDesign');
+    expect(container.textContent).not.toContain('Configure OpenDesign');
+    expect(container.textContent).not.toContain('Set up to generate');
+
+    const gatewayBtn = [...container.querySelectorAll<HTMLButtonElement>('.om-creation-setup button')].find(btn => btn.textContent?.trim() === 'Model gateway')!;
+    expect(gatewayBtn, sceneId).toBeTruthy();
+    await act(async () => gatewayBtn.click());
+    expect(chrome.openModelSettings).toHaveBeenCalledTimes(1);
+
+    const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+    expect(submit.disabled).toBe(true);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
   }
 });

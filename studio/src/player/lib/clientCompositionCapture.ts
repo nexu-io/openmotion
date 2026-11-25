@@ -1484,6 +1484,7 @@ async function captureSameOrigin(
   docKey: string,
   signal: AbortSignal,
   onFrame?: ProgressiveFrameCallback,
+  onCaptureStarted?: () => void,
 ): Promise<{ blobs: Blob[]; aspect: number; width: number; height: number }> {
   const snapdom = await loadLocalSnapdom();
   if (!snapdom) throw new Error("SnapDOM unavailable");
@@ -1491,6 +1492,7 @@ async function captureSameOrigin(
 
   const compPath = normalizeCompositionPathForGate(input.previewUrl);
   const { rev: compRev } = resolveCompositionRevision(input.projectId, input.previewUrl);
+  onCaptureStarted?.();
   const slot = acquireCaptureSlot(1280, 720, docKey);
   const iframe = slot.iframe;
   const captureUrl = buildCaptureUrl(input.previewUrl, input.contentRevision, compRev);
@@ -1706,6 +1708,7 @@ async function captureIsolatedOrigin(
   docKey: string,
   signal: AbortSignal,
   onFrame?: ProgressiveFrameCallback,
+  onCaptureStarted?: () => void,
 ): Promise<{ blobs: Blob[]; aspect: number; width: number; height: number }> {
   const expectedOrigin = new URL(previewOrigin).origin;
   const grant = await acquireSharedPreviewGrant(input.projectId, expectedOrigin, signal);
@@ -1721,6 +1724,8 @@ async function captureIsolatedOrigin(
   if (revisionToken) isolatedUrl.searchParams.set("revision", revisionToken);
   isolatedUrl.searchParams.set("pt", token);
 
+  if (signal.aborted) throw abortError();
+  onCaptureStarted?.();
   const slot = acquireCaptureSlot(1920, 1080, docKey);
   const iframe = slot.iframe;
   let resetSlot = false;
@@ -2401,6 +2406,7 @@ export function acquireCachedCompositionCaptureFromIdb(
 async function runClientCompositionCapture(
   input: ClientCaptureInput,
   signal: AbortSignal,
+  onCaptureStarted?: () => void,
 ): Promise<ThumbnailLoadedResult> {
   const { idbKey, baseCoverKey, compPathKey, meta } = stripMemoryCacheKey(input);
 
@@ -2534,8 +2540,8 @@ async function runClientCompositionCapture(
       await waitUntilInteractiveIdle(signal, gatePriority);
       if (signal.aborted) throw abortError();
       return previewOrigin
-        ? captureIsolatedOrigin(input, previewOrigin, docKey, signal, onProgressiveFrame)
-        : captureSameOrigin(input, docKey, signal, onProgressiveFrame);
+        ? captureIsolatedOrigin(input, previewOrigin, docKey, signal, onProgressiveFrame, onCaptureStarted)
+        : captureSameOrigin(input, docKey, signal, onProgressiveFrame, onCaptureStarted);
     });
 
     if (signal.aborted) throw abortError();
@@ -2645,6 +2651,7 @@ export function createClientCompositionCaptureRequest(input: ClientCaptureInput)
     compositionPath: normalizeCompositionPathForGate(input.previewUrl),
     contentRevision: hasFileVersion ? 0 : input.contentRevision,
     compositionRevision: compRev,
-    load: (signal) => runClientCompositionCapture(input, signal),
+    load: (signal, finishInBackground) =>
+      runClientCompositionCapture(input, signal, compRev ? finishInBackground : undefined),
   };
 }

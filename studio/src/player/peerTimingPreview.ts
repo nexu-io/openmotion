@@ -113,7 +113,7 @@ function changedStyles(left: HTMLElement, right: HTMLElement): PreviewChange["st
   return styles.length && projected.style.cssText === next.cssText ? styles : null;
 }
 
-type BoxCapabilities = { measured?: boolean; cssLayoutOffset?: boolean };
+type BoxCapabilities = { measured?: boolean; mounted?: boolean; cssLayoutOffset?: boolean };
 
 /** Strip only supported changes, then compare the entire remaining document before touching the player. */
 export function diffPreviewChanges(previous: string, current: string, box: BoxCapabilities = {}): PreviewChange[] | null {
@@ -181,9 +181,9 @@ export function diffPreviewChanges(previous: string, current: string, box: BoxCa
     const compositionId = left.getAttribute("data-composition-id");
     if (!hfId && !left.id && !compositionId) return null;
     const change = { hfId, id: left.id, compositionId, tag: left.localName, attributes, styles, text, captureOriginalTranslate };
-    // Moving the canvas DOM box preserves its drawing buffer. Its content and dimensions are owned by the renderer.
+    // CSS geometry preserves a canvas drawing buffer or media decoder. Intrinsic dimensions and source URLs still need separate handling.
     if (!presentationTags.has(change.tag) && (styles || text) && !isPaintOnlyChange(change) && !(box.measured && isMediaBoxChange(change)) &&
-        !(box.cssLayoutOffset && isPixelBoxChange(change, true)) &&
+        !(box.mounted && isPixelBoxChange(change)) && !(box.cssLayoutOffset && isPixelBoxChange(change, true)) &&
         !(change.tag === "canvas" && isLivePositionEdit([change]))) return null;
     changes.push(change);
   }
@@ -224,11 +224,11 @@ export async function tryApplyPeerChanges(
   const sameContent = !options && document.canRebind && previous.content === current.content;
   const measured = typeof options === "object" && "gestureId" in options && !!options.gestureId;
   const cssLayoutOffset = document.canRebind || document.liveEdits.cssLayoutOffset === true;
+  const mounted = document.mountedVersions.has(update.path);
   const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
-    await diffMountedPreview(previous.content, current.content, { measured, cssLayoutOffset });
+    await diffMountedPreview(previous.content, current.content, { measured, mounted, cssLayoutOffset });
   if (!changes || !isCurrent() || (options === "paint-only" && !changes.every(isPaintOnlyChange))) return false;
-  const nestedBox = document.mountedVersions.has(update.path) && changes.length > 0 &&
-    changes.every(change => presentationTags.has(change.tag) && isPixelBoxChange(change));
+  const nestedBox = mounted && changes.length > 0 && changes.every(change => isPixelBoxChange(change));
   const grade = changes.length > 0 && changes.every(isGradeOnlyChange);
   const cssBox = cssLayoutOffset && changes.length > 0 && changes.every(change => isPixelBoxChange(change, true));
   const canAdvance = grade || nestedBox || cssBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||

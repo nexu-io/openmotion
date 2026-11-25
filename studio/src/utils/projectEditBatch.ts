@@ -72,6 +72,6 @@ async function submitSemanticCommands(projectId: string, commands: CompositionEd
       const file = await acceptFileEditReceipt(projectId, path, before, attempted?.(path), version, result);
       if (file) divergent.push(file);
     }
-    return { changedPaths, versions: result.versions, divergent };
+    return { changedPaths, versions: result.versions, divergent, observedSources: undefined };
   }));
 }

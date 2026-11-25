@@ -267,7 +267,7 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
       divergent.push(reconcileFileEdit(project, file.path, saved.versions[file.path], saved.changedPaths.includes(file.path)));
     }
   }
-  return { ...saved, divergent };
+  return { ...saved, divergent, observedSources: captured };
 }
 
 function staleSource(path: string, source: DraftSource, attemptedContent: string) {

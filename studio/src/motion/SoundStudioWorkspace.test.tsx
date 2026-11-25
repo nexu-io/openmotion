@@ -1111,4 +1111,57 @@ describe('SoundStudioWorkspace', () => {
     expect(classifyAudioTrackTab('opendesign:acme/narrator-v2', undefined, 'generated', 'speech')).toBe('speech');
     expect(classifyAudioTrackTab('opendesign:acme/impact-v1', undefined, 'generated', 'sfx')).toBe('sfx');
   });
+
+  it('shows Cloud upgrade guidance instead of legacy BYOK/fal setup when the unified gateway has zero models', async () => {
+    const soundStudio = findMediaStudio('sound')!;
+    const emptyCloudStudio: StudioCreation = {
+      destination: studioDestination(soundStudio, 'music', null),
+      soundTab: 'music',
+      catalog: {
+        catalog: {
+          models: [],
+          status: {
+            consoleUrl: 'https://console.example.test',
+            providers: [
+              {
+                id: 'opendesign',
+                label: 'OpenDesign',
+                enabled: true,
+                configured: true,
+                available: false,
+                credentialSource: 'environment',
+                verification: 'verified',
+                reason: 'No media models are currently available for this OpenDesign workspace. Upgrade your plan or sync models.',
+              },
+            ],
+            agents: [],
+            routes: {},
+            capabilities: [],
+          },
+          mode: 'opendesign',
+        },
+        failed: false,
+        retry: vi.fn(),
+      },
+      chooseModel: vi.fn(),
+      remember: vi.fn(),
+    };
+
+    chromeMocks.openSubscriptionSettings.mockClear();
+    await renderSound(emptyCloudStudio, { assets: [] });
+
+    const notice = host.querySelector('[data-empty-models="true"]');
+    expect(notice).not.toBeNull();
+    expect(host.textContent).not.toContain('Configure a sound-effects provider');
+    expect(host.textContent).not.toContain('Configure a provider or sign in');
+    const upgradeLink = notice?.querySelector<HTMLAnchorElement>('a');
+    expect(upgradeLink?.textContent).toContain('Upgrade to Plus');
+    const url = new URL(upgradeLink!.href);
+    expect(url.origin + url.pathname).toBe('https://console.example.test/dashboard');
+    expect(url.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+    const checkPlanBtn = [...notice!.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.trim() === 'Check account & plan')!;
+    await act(async () => { checkPlanBtn.click(); });
+    expect(chromeMocks.openSubscriptionSettings).toHaveBeenCalledTimes(1);
+    expect(host.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
+  });
 });
