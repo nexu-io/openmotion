@@ -6,7 +6,7 @@ import { previewIsEnabled } from "./dockResponsiveSides";
 
 const DEFAULT_AUTO_TIMELINE_MAX_H = 224;
 
-/** Content-sized by default; a deliberate sash resize keeps a pixel preference. */
+/** Automatic heights fit the workspace; a deliberate sash resize keeps a pixel preference. */
 export function fittedTimelineHeight(content: number, host: number, manual: number | null) {
   const available = Math.max(96, host - 108);
   return Math.round(Math.min(
@@ -19,6 +19,8 @@ export function installDockWorkspace(api: DockviewApi, controller: DockControlle
   const saved = readStudioUiPreferences(undefined, projectId, storageKey).workspaceLayout;
   let manual = saved?.timelineHeight ?? null;
   let content = 192;
+  let source: string | undefined;
+  let heldContentHeight: number | null = null;
   let frame: number | undefined;
   let dragging = false;
   let startHeight = 0;
@@ -30,7 +32,7 @@ export function installDockWorkspace(api: DockviewApi, controller: DockControlle
       frame = undefined;
       const group = timeline();
       if (!group?.api.isVisible || api.hasMaximizedGroup() || dragging || api.height <= 0) return;
-      const target = fittedTimelineHeight(content, api.height, manual);
+      const target = fittedTimelineHeight(heldContentHeight ?? content, api.height, manual);
       if (Math.abs(group.height - target) > 1) group.api.setSize({ height: target });
     });
   };
@@ -62,12 +64,17 @@ export function installDockWorkspace(api: DockviewApi, controller: DockControlle
   };
   controller.fitTimeline = () => {
     manual = null;
+    heldContentHeight = null;
     timeline()?.api.setVisible(true);
     remember();
     schedule();
   };
-  controller.setTimelineContentHeight = height => {
+  controller.setTimelineContentHeight = (height, nextSource) => {
     if (!Number.isFinite(height) || height <= 0) return;
+    // Navigating between clips keeps the workspace split. Keep measuring the
+    // new clip so an explicit Fit can follow its rows again.
+    if (source !== undefined && source !== nextSource) heldContentHeight ??= content;
+    source = nextSource;
     content = height;
     schedule();
   };
@@ -78,6 +85,7 @@ export function installDockWorkspace(api: DockviewApi, controller: DockControlle
     timeline()?.api.setVisible(preset === "edit");
     if (preset === "edit") {
       manual = null;
+      heldContentHeight = null;
       if (dockWidth() >= COMPACT_DOCK_WIDTH) {
         controller.activate("compositions");
         controller.activate("design");

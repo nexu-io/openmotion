@@ -45,7 +45,14 @@ export async function resolveWorkspaceRoute(projectId: string | null, sessionId:
     if (route) return route;
   }
 
-  const catalog = await motionApi<ProjectCatalog>('/projects', { signal });
+  let catalog: ProjectCatalog;
+  try {
+    catalog = await motionApi<ProjectCatalog>('/projects', { signal });
+  } catch (error) {
+    // A project-less legacy template overlay can browse without a private workspace.
+    if (libraryOnly && !projectId && !sessionId && (error as { status?: number }).status === 401) return null;
+    throw error;
+  }
   signal.throwIfAborted();
   const target = projectId ?? (sessionId ? null : catalog.activeId);
   if (libraryOnly && target === 'project') return null;

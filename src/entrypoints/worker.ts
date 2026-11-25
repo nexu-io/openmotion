@@ -16,6 +16,7 @@ export async function runWorkerEntrypoint(): Promise<WorkerRuntimeHandle> {
     nodeEnv: config.NODE_ENV,
     mediaConcurrency: config.MEDIA_CONCURRENCY,
     renderConcurrency: config.RENDER_CONCURRENCY,
+    renderCaptureWorkers: config.RENDER_CAPTURE_WORKERS,
     modelGatewayMode: config.MODEL_GATEWAY_MODE,
   });
   const modelGateway =

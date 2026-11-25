@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import {
   hasMinRole,
+  requireProgrammaticEdit,
   hasScope,
   type AuthContext,
   type PatScope,
@@ -111,6 +112,13 @@ export function assertAuthAccess(
       details: { requiredScope: requirements.scope },
     });
   }
+}
+
+/** Legacy semantic HTTP routes remain available to authenticated API integrations. */
+export async function getSemanticEditAuth(c: Context<{ Variables: StudioVariables }>, deps: DisklessStudioDeps) {
+  const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+  requireProgrammaticEdit(auth);
+  return auth;
 }
 
 /** Extract a wildcard path segment after `marker` (e.g. `"/files/"`), safely URI-decoded. */

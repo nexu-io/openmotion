@@ -396,7 +396,7 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
     const plainRes = await disabledApi.app.request('/');
     assert.equal(plainRes.status, 200);
     const plainHtml = await plainRes.text();
-    assert.ok(plainHtml.includes('<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">'));
+    assert.ok(plainHtml.includes('<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1" data-file-source="query">'));
     assert.equal(await (await disabledApi.app.request('/index.html')).text(), plainHtml);
     assert.ok(!plainHtml.includes(RUNTIME_CONFIG_GLOBAL_KEY));
     assert.ok(!plainHtml.includes(RUNTIME_CONFIG_PLACEHOLDER));
@@ -404,7 +404,7 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
     const projectId = '10000000-0000-4000-8000-000000000001';
     const editorHtml = await (await disabledApi.app.request(`/editor/${projectId}`)).text();
     assert.ok(editorHtml.includes(`href="/api/projects/${projectId}?view=editor"`));
-    assert.ok(editorHtml.includes(`href="/api/projects/${projectId}/files/index.html"`));
+    assert.ok(editorHtml.includes(`href="/api/projects/${projectId}/file-source?path=index.html"`));
     for (const route of ['/explore?project=' + projectId, '/editor/not-an-id', '/editor/' + projectId + '?templates=1']) {
       assert.ok(!(await (await disabledApi.app.request(route)).text()).includes('data-editor-bootstrap'), route);
     }

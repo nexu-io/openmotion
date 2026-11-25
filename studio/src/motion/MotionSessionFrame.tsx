@@ -53,8 +53,26 @@ function SessionBrowser({ children, sessionId, projectId, artifacts }: { childre
     // Initial state is captured once per session; later actions persist before any navigation.
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const node = element.current!; const measure = () => setWidth(node.getBoundingClientRect().width);
-    measure(); const observer = new ResizeObserver(measure); observer.observe(node); return () => observer.disconnect();
+    const node = element.current!;
+    let frame = 0;
+    const commit = (rawWidth: number) => {
+      const rounded = Math.round(rawWidth);
+      if (rounded > 0) setWidth(prev => prev === rounded ? prev : rounded);
+    };
+    commit(node.getBoundingClientRect().width);
+    const observer = new ResizeObserver(entries => {
+      const entryWidth = entries[0]?.contentRect.width ?? 0;
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        commit(entryWidth > 0 ? entryWidth : node.getBoundingClientRect().width);
+      });
+    });
+    observer.observe(node);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, []);
   useEffect(() => {
     element.current?.querySelector<HTMLElement>('.motion-browser-tab[data-active="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });

@@ -48,6 +48,10 @@ export interface ObservabilityContextPatch {
   readonly sessionId?: string | null;
   readonly page?: string | null;
   readonly authMode?: string | null;
+  readonly hostKind?: 'desktop' | 'connect-script' | 'web' | null;
+  readonly shellVersion?: string | null;
+  readonly hostPlatform?: string | null;
+  readonly releaseChannel?: string | null;
 }
 
 export interface CaptureExceptionContext {
@@ -156,6 +160,18 @@ function applyContextToSdk(sdk: SentryBrowserSdkLike, patch: ObservabilityContex
   }
   if ('page' in patch) {
     sdk.setTag('studio_page', patch.page?.trim() || undefined);
+  }
+  if ('hostKind' in patch) {
+    sdk.setTag('host_kind', patch.hostKind?.trim() || undefined);
+  }
+  if ('shellVersion' in patch) {
+    sdk.setTag('shell_version', patch.shellVersion?.trim() || undefined);
+  }
+  if ('hostPlatform' in patch) {
+    sdk.setTag('host_platform', patch.hostPlatform?.trim() || undefined);
+  }
+  if ('releaseChannel' in patch) {
+    sdk.setTag('release_channel', patch.releaseChannel?.trim() || undefined);
   }
   if ('sessionId' in patch) {
     sdk.setContext(

@@ -193,6 +193,8 @@ jobs:
           target: ${{ matrix.target }}
           platforms: linux/amd64
           push: true
+          build-args: |
+            STUDIO_SOURCEMAP=${{ matrix.target == 'api' && 'hidden' || 'false' }}
           cache-from: type=gha,scope=openmotion-${{ matrix.target }}
           cache-to: type=gha,mode=max,ignore-error=true,scope=openmotion-${{ matrix.target }}
           tags: ${{ steps.tags.outputs.tags }}
@@ -200,6 +202,38 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.title=${{ matrix.title }}
+
+      - name: Export and upload Studio sourcemaps to Sentry
+        if: matrix.target == 'api'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_WEB_PROJECT: ${{ vars.SENTRY_WEB_PROJECT }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+          SHA_SHORT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_ORG:-}" ] || [ -z "${SENTRY_WEB_PROJECT:-}" ]; then
+            echo "::notice::Skipping Studio Sentry sourcemap upload (set SENTRY_AUTH_TOKEN secret plus SENTRY_ORG and SENTRY_WEB_PROJECT vars to enable)."
+            exit 0
+          fi
+          SOURCEMAP_DIR="${RUNNER_TEMP}/studio-sourcemaps"
+          rm -rf "${SOURCEMAP_DIR}"
+          docker buildx build \
+            -f deploy/Dockerfile \
+            --target studio-sourcemaps \
+            --build-arg STUDIO_SOURCEMAP=hidden \
+            --cache-from "type=gha,scope=openmotion-api" \
+            --output "type=local,dest=${SOURCEMAP_DIR}" \
+            .
+          npx --yes @sentry/cli@^2 sourcemaps upload \
+            --org "${SENTRY_ORG}" \
+            --project "${SENTRY_WEB_PROJECT}" \
+            --release "openmotion@${SHA_SHORT::12}" \
+            --url-prefix "~/editor-assets" \
+            "${SOURCEMAP_DIR}"
+          rm -rf "${SOURCEMAP_DIR}"
 
       - name: Record the test image digest
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'

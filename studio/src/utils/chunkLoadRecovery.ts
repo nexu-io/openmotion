@@ -64,11 +64,36 @@ export function attemptChunkReload(deps: ReloadDeps = {}): boolean {
   return true;
 }
 
+let warming = 0;
+const warmFailures = new WeakSet<object>();
+
+/** A speculative import may fail when an editor tab outlives a release. Leave the
+ * current editor alone; lazyWithChunkReload recovers if the feature is actually opened. */
+export async function warmModule(load: () => Promise<unknown>): Promise<void> {
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  if (connection?.saveData) return;
+  warming++;
+  try {
+    await load();
+  } catch (error) {
+    if (error && typeof error === "object") warmFailures.add(error);
+  } finally {
+    warming--;
+  }
+}
+
 export function bindVitePreloadErrorReload(
   target: Pick<Window, 'addEventListener' | 'removeEventListener'> = window,
   deps?: ReloadDeps,
 ): () => void {
   const onPreloadError = (event: Event) => {
+    const error = (event as Event & { payload?: Error }).payload;
+    if (warming && error && typeof error === "object") {
+      // Vite emits this before rejecting import(). Let the caller identify the
+      // actual rejection, even if another, required import failed concurrently.
+      setTimeout(() => { if (!warmFailures.has(error)) attemptChunkReload(deps); }, 0);
+      return;
+    }
     if (attemptChunkReload(deps)) {
       event.preventDefault();
     }

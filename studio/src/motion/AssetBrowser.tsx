@@ -15,6 +15,9 @@ import { AssetAudioPreview } from './AssetAudioPreview';
 import { AssetHoverVideo } from './AssetHoverVideo';
 import { SettingsDialog } from './settingsPrimitives';
 import { assetRequest } from './assetClient';
+import { buildLoginUrl } from './AccountSettings';
+import { readSwrCache, writeSwrCache } from './swrCache';
+import { isDesktopApp, startDesktopBrowserLogin } from '../utils/platformHost';
 export const assetKinds = [{ id: 'all', label: 'All assets', icon: 'folder-open-line' }, { id: 'image', label: 'Images', icon: 'image-line' }, { id: 'video', label: 'Videos', icon: 'movie-line' }, { id: 'audio', label: 'Audio', icon: 'music-2-line' }] as const;
 export type AssetKind = typeof assetKinds[number]['id'] | 'trash';
 export const AssetPreview = memo(function AssetPreview({ asset, version = assetVersion(asset)!, controls = false, previewing = false, autoPlay = false }: { asset: LibraryAsset; version?: AssetVersion; controls?: boolean; previewing?: boolean; autoPlay?: boolean }) {
@@ -36,6 +39,35 @@ function AssetPreviewContent({ asset, version, controls, previewing, autoPlay }:
       : <>{asset.modality === 'video' ? <><VideoFrameThumbnail src={src} fallbackLabel={t('Preview unavailable')} />{previewing && <AssetHoverVideo src={src} />}</> : <div className="om-asset-media-symbol"><RemixIcon name="music-2-line" size={40} /></div>}<MediaDurationBadge duration={version.duration} className="absolute top-2 right-2" /></>}
   </div>;
 }
+const assetTitleListeners = new Map<HTMLElement, (overflow: boolean) => void>();
+let sharedTitleResizeObserver: { ctor: typeof ResizeObserver; observer: ResizeObserver } | null = null;
+
+function flushAssetTitleMeasurements(targets?: Iterable<Element>) {
+  const nodes: HTMLElement[] = [];
+  if (targets) {
+    for (const target of targets) {
+      if (target instanceof HTMLElement && assetTitleListeners.has(target)) nodes.push(target);
+    }
+  }
+  const items = nodes.length > 0 ? nodes : [...assetTitleListeners.keys()];
+  // Batch all DOM layout reads before dispatching any React state updates.
+  const results = items.map(el => [el, el.scrollWidth > el.clientWidth] as const);
+  for (const [el, isOverflow] of results) {
+    assetTitleListeners.get(el)?.(isOverflow);
+  }
+}
+
+function getSharedTitleResizeObserver(): ResizeObserver {
+  if (!sharedTitleResizeObserver || sharedTitleResizeObserver.ctor !== ResizeObserver) {
+    sharedTitleResizeObserver?.observer.disconnect();
+    const observer = new ResizeObserver(entries => {
+      flushAssetTitleMeasurements(entries.length > 0 ? entries.map(entry => entry.target) : undefined);
+    });
+    sharedTitleResizeObserver = { ctor: ResizeObserver, observer };
+  }
+  return sharedTitleResizeObserver.observer;
+}
+
 function AssetTitle({ name }: { name: string }) {
   const ref = useRef<HTMLElement>(null), [overflow, setOverflow] = useState(false);
   useEffect(() => {
@@ -43,10 +75,19 @@ function AssetTitle({ name }: { name: string }) {
     if (!element) return;
     const measure = () => setOverflow(element.scrollWidth > element.clientWidth);
     measure();
-    const observer = new ResizeObserver(measure);
+    assetTitleListeners.set(element, setOverflow);
+    const observer = getSharedTitleResizeObserver();
     observer.observe(element);
     document.fonts?.addEventListener('loadingdone', measure);
-    return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', measure); };
+    return () => {
+      assetTitleListeners.delete(element);
+      observer.unobserve(element);
+      if (assetTitleListeners.size === 0 && sharedTitleResizeObserver?.observer === observer) {
+        observer.disconnect();
+        sharedTitleResizeObserver = null;
+      }
+      document.fonts?.removeEventListener('loadingdone', measure);
+    };
   }, [name]);
   return <Tooltip label={name} disabled={!overflow} wrap withinDialog><strong ref={ref}>{name}</strong></Tooltip>;
 }
@@ -55,11 +96,17 @@ export function useAssetBrowser({ kind, revision = 0, active = true, lockedSourc
   const [query, setQuery] = useState(''), [sourceState, setSource] = useState('all'), [sort, setSort] = useState('newest');
   const [audioKind, setAudioKind] = useState<'all' | AudioKind>('all');
   const source = lockedSource ?? sourceState;
-  const [result, setResult] = useState<{ key: string; assets: LibraryAsset[]; total: number; nextOffset: number | null }>();
-  const [error, setError] = useState(false), [loading, setLoading] = useState(true), [retry, setRetry] = useState(0), [page, setPage] = useState(0);
   const effectiveAudioKind = kind === 'audio' ? audioKind : 'all';
   const signature = `${kind}|${effectiveAudioKind}|${query}|${source}|${sort}|${revision}`;
+  const [page, setPage] = useState(0);
   const requestKey = `${signature}|${page}`;
+  const cacheable = page === 0 && !query.trim();
+  const cacheKey = `assets:${kind}:${effectiveAudioKind}:${source}:${sort}`;
+  const [result, setResult] = useState<{ key: string; assets: LibraryAsset[]; total: number; nextOffset: number | null } | undefined>(() => {
+    const cached = readSwrCache<{ assets: LibraryAsset[]; total: number; nextOffset: number | null }>('private', cacheKey);
+    return cached ? { ...cached, key: requestKey } : undefined;
+  });
+  const [error, setError] = useState(false), [authRequired, setAuthRequired] = useState(false), [loading, setLoading] = useState(() => !result), [retry, setRetry] = useState(0);
   // Keep the last settled collection visible while a new filter or tab request
   // is in flight. Skeleton cards are reserved for the initial load, so tab
   // changes do not flash a second loading surface over the existing gallery.
@@ -67,9 +114,33 @@ export function useAssetBrowser({ kind, revision = 0, active = true, lockedSourc
   const stale = Boolean(data && data.key !== requestKey);
   const [previous, setPrevious] = useState(signature);
   if (previous !== signature) { setPrevious(signature); setPage(0); }
+  const hasVisibleResultRef = useRef(Boolean(data));
+  hasVisibleResultRef.current = Boolean(data);
+  useEffect(() => {
+    const onAccountChanged = () => {
+      setAuthRequired(false);
+      setError(false);
+      setRetry(v => v + 1);
+    };
+    window.addEventListener('motion:account-changed', onAccountChanged);
+    return () => window.removeEventListener('motion:account-changed', onAccountChanged);
+  }, []);
   useEffect(() => {
     if (!active) return;
-    let cancelled = false; setLoading(true); setError(false);
+    let cancelled = false;
+    const cached = cacheable
+      ? readSwrCache<{ assets: LibraryAsset[]; total: number; nextOffset: number | null }>('private', cacheKey)
+      : null;
+    if (cached) {
+      setResult(prev => prev && prev.key === requestKey ? prev : { ...cached, key: requestKey });
+      setLoading(false);
+    } else if (!hasVisibleResultRef.current) {
+      setLoading(true);
+    } else {
+      setLoading(true);
+    }
+    setError(false);
+    setAuthRequired(false);
     const timer = setTimeout(() => {
       void assetRequest<{ assets: LibraryAsset[]; total: number; nextOffset: number | null }>({
         action: 'list',
@@ -82,11 +153,28 @@ export function useAssetBrowser({ kind, revision = 0, active = true, lockedSourc
         offset: page * 40,
         limit: 40,
       })
-        .then(result => { if (!cancelled) setResult({ ...result, key: requestKey }); }).catch(() => { if (!cancelled) setError(true); }).finally(() => { if (!cancelled) setLoading(false); });
+        .then(next => {
+          if (cancelled) return;
+          setAuthRequired(false);
+          if (cacheable) writeSwrCache('private', cacheKey, next);
+          setResult({ ...next, key: requestKey });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          const status = (err as { status?: number } | null)?.status;
+          if (status === 401) {
+            setResult(undefined);
+            setAuthRequired(true);
+            setError(false);
+            return;
+          }
+          if (!cached) setError(true);
+        })
+        .finally(() => { if (!cancelled) setLoading(false); });
     }, query ? 180 : 0);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active, kind, effectiveAudioKind, query, source, sort, page, revision, retry, requestKey]);
-  return { kind, audioKind: effectiveAudioKind, setAudioKind, query, setQuery, source, setSource, sort, setSort, data, stale, loading: loading || (stale && !error), error, page, setPage, retry: () => setRetry(v => v + 1) };
+  }, [active, kind, effectiveAudioKind, query, source, sort, page, revision, retry, requestKey, cacheable, cacheKey]);
+  return { kind, audioKind: effectiveAudioKind, setAudioKind, query, setQuery, source, setSource, sort, setSort, data, stale, loading: loading || (stale && !error && !authRequired), error, authRequired, page, setPage, retry: () => setRetry(v => v + 1) };
 }
 type BrowserActions = {
   onOpen: (asset: LibraryAsset) => void;
@@ -103,7 +191,15 @@ export function AssetBrowser({ kind, revision, active, ...actions }: BrowserActi
 }
 export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false, selectedId, selectedIds, attachedIds, onLoadedAssets, toolbar, emptyContent, leadingTiles, hoverPreview = false }: BrowserActions & { browser: ReturnType<typeof useAssetBrowser>; toolbar?: ReactNode; emptyContent?: ReactNode; leadingTiles?: ReactNode; hoverPreview?: boolean }) {
   const { t } = useI18n();
-  const { kind, query, setQuery, source, setSource, sort, setSort, data, stale, loading, error, page, setPage, retry } = browser;
+  const { kind, query, setQuery, source, setSource, sort, setSort, data, stale, loading, error, authRequired, page, setPage, retry } = browser;
+  const startSignIn = () => {
+    const loginUrl = buildLoginUrl();
+    if (isDesktopApp()) {
+      void startDesktopBrowserLogin({ loginUrl });
+      return;
+    }
+    window.location.assign(loginUrl);
+  };
   const [previewId, setPreviewId] = useState<string>();
   const canPreview = hoverPreview && !compact && !loading;
   useEffect(() => {
@@ -138,8 +234,9 @@ export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false
       <Select label={t('Sort')} value={sort} onCommit={setSort} options={[{ value: 'newest', label: t('Newest first') }, { value: 'oldest', label: t('Oldest first') }, { value: 'name', label: t('Name') }]} /></>}
       {(query || source !== 'all') && <Button variant="plain" className="om-nav-item" onClick={() => { setQuery(''); setSource('all'); }}>{t('Clear filters')}</Button>}
     </div>}
-    <div className="om-asset-results" aria-busy={loading} inert={stale && !error}>
-      {error && !leadingTiles ? <div className="om-empty"><RemixIcon name="error-warning-line" size={32} /><p>{t('Could not load assets')}</p><Button variant="ghost" className="om-button h-auto" onClick={retry}>{t('Retry')}</Button></div>
+    <div className="om-asset-results" aria-busy={loading} inert={stale && !error && !authRequired}>
+      {authRequired && !leadingTiles ? <div className="om-empty om-asset-empty" data-guest-auth-guide="true"><RemixIcon name="lock-line" size={32} /><h2 className="om-subtitle">{t('Sign in to view your assets')}</h2><p className="om-muted">{t('Sign in with OpenDesign to view, upload, and manage your personal asset library.')}</p><Button variant="ghost" className="om-button h-auto" data-primary onClick={startSignIn}><RemixIcon name="login-box-line" size={16} />{t('Sign in with OpenDesign')}</Button></div>
+        : error && !leadingTiles ? <div className="om-empty"><RemixIcon name="error-warning-line" size={32} /><p>{t('Could not load assets')}</p><Button variant="ghost" className="om-button h-auto" onClick={retry}>{t('Retry')}</Button></div>
         : !data && !leadingTiles ? <div className="om-asset-grid">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="om-asset-loading-card" />)}</div>
         : !data?.assets.length && !leadingTiles && emptyContent && !query && source === 'all' ? emptyContent
         : !data?.assets.length && !leadingTiles && onCreate && !query && source === 'all' && kind !== 'trash' ? <div className="om-asset-welcome"><span className="om-creation-kicker">{t('YOUR NEXT CREATION STARTS HERE')}</span><h2 className="om-title">{t('One idea. Endless possibilities.')}</h2><p className="om-muted">{t('Upload your own media or create an image, video or audio asset.')}</p><div className="om-asset-starters">{creationKinds.filter(k => kind === 'all' || kind === k.id).map(item => <Button variant="plain" className="om-creation-suggestion om-asset-starter" key={item.id} onClick={() => onCreate(item.id)}><CreationEmblem kind={item.id} /><strong>{t(item.title)}</strong><span className="om-muted">{t(item.hint)}</span><span className="om-asset-starter-action">{t(item.action)}<RemixIcon name="arrow-right-line" size={16} /></span></Button>)}</div></div>

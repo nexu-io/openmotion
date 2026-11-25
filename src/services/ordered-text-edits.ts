@@ -10,11 +10,14 @@ function invalid(message: string) {
 }
 
 /** Validate the envelope and all intra-batch links before accepting the first operation. */
-function parseOperations(input: unknown) {
+function parseOrderedTextEdits(input: unknown, patchWrites: boolean) {
   const parsed = orderedTextEditSchema.safeParse(input);
   if (!parsed.success) throw invalid('Supply a valid ordered text edit batch');
   const previous = new Map<string, Set<string>>();
   for (const op of parsed.data.operations) {
+    if (!patchWrites && op.files.some(file => 'patch' in file)) {
+      throw new CloudError('SERVICE_UNAVAILABLE', 'Text patch writes are disabled', { status: 503, applied: false });
+    }
     if (previous.has(op.id)) throw invalid('Use distinct operation IDs');
     const check = (path: string, base: OrderedTextEditBase) => {
       if (base && typeof base === 'object' && !previous.get(base.after)?.has(path)) {
@@ -35,7 +38,7 @@ type ResolvedOperation = Omit<OrderedTextEditOperation, 'id' | 'files' | 'depend
 
 /** A transport batch preserves each edit's existing transaction and idempotency receipt. */
 export async function commitOrderedTextEdits(
-  body: unknown, commit: (operation: ResolvedOperation, id: string) => Promise<CommitProjectFilesResult>,
+  body: unknown, commit: (operation: ResolvedOperation, id: string) => Promise<CommitProjectFilesResult>, patchWrites = true,
 ): Promise<OrderedTextEditResult> {
   const receipts = new Map<string, OrderedTextEditReceipt>();
   function resolve(path: string, base: OrderedTextEditBase): string | null {
@@ -45,7 +48,7 @@ export async function commitOrderedTextEdits(
     if (!versions || !Object.hasOwn(versions, path)) throw new Error('Missing output version for an accepted edit');
     return versions[path]!;
   }
-  for (const { id, files, dependencies, ...metadata } of parseOperations(body)) {
+  for (const { id, files, dependencies, ...metadata } of parseOrderedTextEdits(body, patchWrites)) {
     try {
       const result = await commit({
         ...metadata,

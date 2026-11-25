@@ -4,7 +4,7 @@ import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { applyPreviewVariablesToUrl } from "../../hooks/previewVariablesStore";
 import { buildProjectApiPath } from "../../utils/projectRouting";
-import { createPreviewAdapter } from "../lib/previewAdapter";
+import { createPreviewAdapter, observePreviewDocument } from "../lib/previewAdapter";
 import { rememberBridgeTimelineState } from "../lib/playbackAdapter";
 import { bindPreviewLease } from "../lib/previewLease";
 import { rememberPausedPreviewPosition, rememberPreviewPosition } from "../lib/previewReconnect";
@@ -149,6 +149,10 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       }
       function message(event: MessageEvent) {
         if (!bridge?.accepts(event)) return;
+        if (event.data.type === "preview-document" && typeof event.data.id === "string") {
+          observePreviewDocument(iframe!, event.data.id, event.data.leaving === true);
+          return;
+        }
         if (callbacks.current.parked) {
           // The pause acknowledgement may be more recent than the last live heartbeat.
           if (event.data.type === "timeline-state" && !event.data.isPlaying && Number.isFinite(event.data.currentTime)) {
@@ -156,9 +160,13 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           }
           return;
         }
+        if (event.data.type === "canvas-framing") {
+          setSize(event.data.width, event.data.height);
+          return;
+        }
         if (event.data.type === "preview-ready") {
           if (!receivedHtmlSources) {
-            rememberPreviewHtmlSources(iframe!, event.data.projectId, event.data.htmlSources);
+            rememberPreviewHtmlSources(iframe!, event.data.projectId, event.data.htmlSources, event.data.independentSceneFiles);
             receivedHtmlSources = true;
           }
           rememberPeerTimingDocument(iframe!, bridge.token, event.data.timingDocumentId, event.data.styleDocumentId, event.data.liveEdits,
@@ -206,13 +214,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           clearTimeout(busyTimer);
           setError(undefined);
           clearTimeout(deadline);
-          const { width, height } = event.data;
-          if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384) {
-            size = [width, height];
-            iframe!.width = String(width);
-            iframe!.height = String(height);
-          }
-          resize();
+          setSize(event.data.width, event.data.height);
           callbacks.current.onLoad();
           if (!passive) announcePreviewDocumentLoaded(iframe!);
           if (tracksAssets && !passive) {
@@ -274,6 +276,14 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         callbacks.current.onReadyToShowChange?.(true);
         store.markPreviewBooted();
       };
+      function setSize(width: number, height: number) {
+        if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 && width <= 16384 && height <= 16384) {
+          size = [width, height];
+          iframe!.width = String(width);
+          iframe!.height = String(height);
+        }
+        resize();
+      }
       const observer = new ResizeObserver(resize);
       observer.observe(stage);
       window.addEventListener("message", message);
@@ -370,7 +380,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           referrerPolicy="no-referrer" tabIndex={passive || props.inert ? -1 : undefined}
           allow={passive ? "autoplay 'none'" : "autoplay; fullscreen"}
           className="absolute left-1/2 top-1/2 max-w-none border-0" />
-        {awaitingFirstFrame && !error && !passive && !props.suppressLoadingOverlay && props.loadingUi !== "host" && <PreviewCompositionLoading />}
+        {awaitingFirstFrame && !error && !passive && props.loadingUi !== "host" && <PreviewCompositionLoading showMark={!props.suppressLoadingOverlay} />}
         {error && !passive && <div data-testid="composition-preview-error" className="absolute inset-0 flex flex-col items-center justify-center bg-studio-surface text-center">
           <p>{t(error)}</p>
           <Button variant="plain" onClick={() => {

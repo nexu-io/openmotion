@@ -606,8 +606,8 @@
 [data-motion-studio] .om-gen-action-pill:hover { border-color: var(--motion-border-strong); background: var(--motion-hover); }
 
 /* Shared Lightbox modal (Image 100% zoom + Video Cinema playback, zero vertical clipping) */
-.om-gen-lightbox { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: var(--motion-space-20); background: color-mix(in srgb, var(--motion-panel) 92%, transparent); }
-.om-gen-lightbox-shell { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(1180px, 100%); height: min(92vh, 900px); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-xl); background: var(--motion-panel); box-shadow: var(--motion-shadow-md); overflow: hidden; }
+.om-gen-lightbox { position: fixed; inset: var(--om-desktop-safe-top, 0px) 0 0 0; z-index: 60; display: grid; place-items: center; padding: var(--motion-space-20); background: color-mix(in srgb, var(--motion-panel) 92%, transparent); }
+.om-gen-lightbox-shell { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: min(1180px, 100%); height: min(calc(100dvh - var(--om-desktop-safe-top, 0px) - 40px), 900px); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-xl); background: var(--motion-panel); box-shadow: var(--motion-shadow-md); overflow: hidden; }
 .om-gen-lightbox-header, .om-gen-lightbox-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--motion-space-12); padding: var(--motion-space-12) var(--motion-space-16); }
 .om-gen-lightbox-header { border-bottom: 1px solid var(--motion-border-subtle); }
 .om-gen-lightbox-footer { border-top: 1px solid var(--motion-border-subtle); }

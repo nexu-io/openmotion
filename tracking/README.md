@@ -118,7 +118,7 @@ correctness incidents and recovery evidence use `incident_confirmed` and
 ## Identity, properties and privacy
 
 `account_sign_in_result` reports each finished OpenDesign connector attempt with
-`source_product=openmotion`, `source_detail=openmotion_editor_login`, and an
+`source_product=openmotion`, `source_detail=openmotion_editor_login` (or one of the `entitlementHookIds` on Web Cloud OIDC callbacks), and an
 `entry_id` / `entry_occurred_at` pair created when the editor starts sign-in.
 Attempts replaced within that sign-in retain the entry pair while their
 `attempt_id` changes. A new explicit sign-in creates a new entry pair. Success
@@ -133,6 +133,8 @@ A `connector_unavailable` failure adds `connector_problem`: `npm_missing` (no np
 was found to install the connector), `install_failed` (npm could not install it)
 or `start_failed` (the installed connector did not run). npm output stays local.
 These fields describe the local OM result; AMR handoff attribution is separate.
+
+`entitlement_refresh_result` reports Studio's automatic `account/summary?refresh=true` sync when the user returns to the window after opening an external Pricing/Upgrade/Black Friday flow (`outcome`: `success` | `failure`, optional `hook_id`, `entry_id`, and `plan_after`). Unavailable billing responses and placeholder plans (`cloud`/`unknown`) report `outcome=failure` without `plan_after`.
 
 The account and subscription settings' **Manage subscription** action, and the Free / Go
 plan card's **Upgrade to Plus** action, carry `od_origin=openmotion`,
@@ -439,7 +441,7 @@ backend/data directory. Deterministic coverage lives in
   opens report `studio_bar/open_template` with both `scene_id` and `template_id`.
   The Motion Studio banner's editor button reports `studio_bar/open_editor` with `studio_id=motion`.
   The Motion Studio template shelf reuses `studio_bar/category_select`, `load_more`, `view_all_templates`
-  and `open_template`. Explore Design template cards and their Try buttons report `explore_collection/open_template`
+  and `open_template`; the shelf loads its next batch automatically when scrolled near the end, and `load_more` reports each such batch. Explore Design template cards and their Try buttons report `explore_collection/open_template`
   with their Design scenario and template IDs.
   The Explore banner's editor button retains `explore_spotlight/slide_action` for the first Motion slide.
   A Cinema template card uses `studio_bar/try_prompt` with its `template_id`, `scene_id` and zero-based `position`.

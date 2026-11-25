@@ -120,10 +120,22 @@ describe('P1 Infra Config Validation & Safety Latch', () => {
     assert.equal(config.PORT, 4173);
     assert.equal(config.AUTH_MODE, 'dev');
     assert.equal(config.MCP_MAX_BODY_BYTES, 10_485_760);
-    assert.equal(config.OPENDESIGN_BILLING_SYNC_ENABLED, false);
+    assert.equal(config.OPENDESIGN_BILLING_SYNC_ENABLED, true);
+    const billingDisabled = parseConfig(baseDevEnv({ OPENDESIGN_BILLING_SYNC_ENABLED: 'false' }));
+    assert.equal(billingDisabled.OPENDESIGN_BILLING_SYNC_ENABLED, false);
     assert.equal(config.ALLOW_DOH_FAKEIP_FALLBACK, false);
     assert.equal(config.S3_PRESIGN_PUT_TTL_SEC, 900);
     assert.equal(config.S3_PRESIGN_GET_TTL_SEC, 300);
+    assert.equal(config.RENDER_CAPTURE_WORKERS, 'auto');
+  });
+
+  it('validates RENDER_CAPTURE_WORKERS as auto or integer 1..8', () => {
+    assert.equal(parseConfig(baseDevEnv({ RENDER_CAPTURE_WORKERS: '' })).RENDER_CAPTURE_WORKERS, 'auto');
+    assert.equal(parseConfig(baseDevEnv({ RENDER_CAPTURE_WORKERS: 'AUTO' })).RENDER_CAPTURE_WORKERS, 'auto');
+    assert.equal(parseConfig(baseDevEnv({ RENDER_CAPTURE_WORKERS: '3' })).RENDER_CAPTURE_WORKERS, 3);
+    assert.throws(() => parseConfig(baseDevEnv({ RENDER_CAPTURE_WORKERS: '0' })), /INVALID_CONFIG/);
+    assert.throws(() => parseConfig(baseDevEnv({ RENDER_CAPTURE_WORKERS: '9' })), /INVALID_CONFIG/);
+    assert.throws(() => parseConfig(baseDevEnv({ RENDER_CAPTURE_WORKERS: 'invalid' })), /INVALID_CONFIG/);
   });
 
   it('refuses startup when NODE_ENV=production and AUTH_MODE=dev without explicit override', () => {

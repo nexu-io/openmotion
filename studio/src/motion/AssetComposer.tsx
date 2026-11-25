@@ -14,6 +14,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { AssetTaskHistory } from './AssetTaskHistory';
 import { AssetGenerationCard, creationKinds } from './AssetCreationVisuals';
 import { GenerationParameters, emptyParameters, parameterInputImageRatio, requestParameters, shotParameters, type ParameterDraft } from './GenerationParameters';
+import { generationOptions, resolveGenerationParameters } from '../../../shared/generation-options';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { useMediaCatalog } from './useMediaCatalog';
@@ -27,7 +28,10 @@ import { Select } from '../components/ui/Select';
 import { attachableReferenceLimit, creationModels } from './creationModels';
 import { isOpenDesignProvider, modelFamilyLabel, providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
-import { ProviderSetupNotice } from './ProviderSetupNotice';
+import { CloudEmptyModelsNotice, isCloudEmptyCatalog, isUnifiedCloudGateway, ProviderSetupNotice } from './ProviderSetupNotice';
+import { exceedsResolutionCap, imageResolutionCap, upgradePlan, useAccountSummary } from './AccountSettings';
+import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
+import { FreePlanGenerationGate } from './EntitlementTouchpointCards';
 
 export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
 export function AssetComposer({ active, studio, draft, setDraft, promptAppliedToken = 0, jobs, showCurrentJob = true, taskId, history, selectingTask, onNew, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onInfo, onClose }: {
@@ -194,9 +198,12 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     document.addEventListener('paste', handleDocumentPaste);
     return () => document.removeEventListener('paste', handleDocumentPaste);
   }, [active, hasUploadFiles, showReferenceSection]);
+  const cloudEmptyCatalog = isCloudEmptyCatalog(gateway, compatible.length);
+  const unifiedCloudOnly = isUnifiedCloudGateway(gateway?.status.providers);
+  const cloudFeatureUnavailable = Boolean(studio && gateway && featureMode && !compatible.length && unifiedCloudOnly && !cloudEmptyCatalog);
   const unknownReferences = selected?.provider === 'opendesign' && selected.modality === 'image' && selected.supportsImageReference === undefined;
-  const cloudModelMissing = !!gateway && !!modelId?.startsWith('opendesign:') && !selected && !unconfiguredPreferred;
-  const openDesignMissing = Boolean(studio && gateway && featureMode && !compatible.length);
+  const cloudModelMissing = !!gateway && !!modelId?.startsWith('opendesign:') && !selected && !unconfiguredPreferred && !cloudEmptyCatalog;
+  const openDesignMissing = Boolean(studio && gateway && featureMode && !compatible.length && !cloudEmptyCatalog && !unifiedCloudOnly);
   const setupProvider = unconfiguredPreferred ? preferred!.provider : openDesignMissing ? 'opendesign' : undefined;
   const syncModels = async () => {
     if (syncing) return; setSyncing(true);
@@ -206,7 +213,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   };
   const invalidReferences = draft.references.length > maximumReferences || Boolean(scene && needsImage(scene) && !draft.references.length);
   const shotPreferences = draft.shotPreferences ?? (studio?.destination.studio.id === 'shorts' ? { aspect: '9:16' } : undefined);
-  const parameterModel = selected;
+  const parameterModel = studio?.guestPreview ? preferred : selected;
   const parameterKey = parameterModel ? `${scene?.id ?? 'direct'}:${parameterModel.id}` : '';
   const studioDefaultValues = (model?: typeof parameterModel): Record<string, unknown> | undefined => {
     if (!model || model.defaults?.quality !== undefined || !isOpenDesignProvider(model.provider) || !/^gpt-image-2\.6-/.test(model.modelId)) return undefined;
@@ -280,19 +287,30 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     </div>
   </div>;
 
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
   const configureProvider = (providerId: string) => providerId === 'account'
-    ? (openAccountSettings ?? openModelSettings)()
+    ? (cloudWeb && hasEntitlementModalListeners()
+      ? openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' })
+      : (openAccountSettings ?? openModelSettings)())
     : openProviderSettings ? openProviderSettings(providerId) : openModelSettings();
-  const providerSetupMessage = t('Configure a provider or sign in to use media models.');
+  const openSubscription = () => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
+  const providerSetupMessage = t(unifiedCloudOnly
+    ? 'No models available'
+    : 'Configure a provider or sign in to use media models.');
+  const cloudFeatureUnavailableMessage = t('No compatible OpenDesign models are currently available for this feature. Check Model gateway or sync models.');
   const openDesignSetupMessage = t('This feature uses OpenDesign models. Add an OpenDesign Cloud API key or sign in to continue.');
-  const manageProviders = <Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t('Model providers')}</Button>;
+  const manageProviders = <Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t(unifiedCloudOnly ? 'Model gateway' : 'Model providers')}</Button>;
   const configureOpenDesign = <>
     <Button variant="ghost" className="om-button h-auto" onClick={() => configureProvider('opendesign')}>{t('Configure {provider}', { provider: providerDisplayName('opendesign', gateway?.status.providers) })}</Button>
     <Button variant="ghost" className="om-button h-auto" onClick={() => configureProvider('account')}>{t('Sign in with OpenDesign')}</Button>
   </>;
   const manageProvidersNotice = imageWorkspace
     ? <ProviderSetupNotice message={providerSetupMessage}>{manageProviders}</ProviderSetupNotice>
-    : <div className="om-creation-setup"><RemixIcon name="plug-line" size={20} /><p className="om-muted">{providerSetupMessage}</p>{manageProviders}</div>;
+    : <div className="om-creation-setup" role={unifiedCloudOnly ? 'status' : undefined}><RemixIcon name={unifiedCloudOnly ? 'information-line' : 'plug-line'} size={unifiedCloudOnly ? 18 : 20} /><p className="om-muted">{providerSetupMessage}</p>{manageProviders}</div>;
+  const cloudFeatureUnavailableNotice = imageWorkspace
+    ? <ProviderSetupNotice message={cloudFeatureUnavailableMessage}>{manageProviders}</ProviderSetupNotice>
+    : <div className="om-creation-setup" role="status"><RemixIcon name="information-line" size={18} /><p className="om-muted">{cloudFeatureUnavailableMessage}</p>{manageProviders}</div>;
   const openDesignSetup = imageWorkspace
     ? <ProviderSetupNotice message={openDesignSetupMessage}>{configureOpenDesign}</ProviderSetupNotice>
     : <div className="om-creation-setup" role="status"><RemixIcon name="plug-line" size={20} /><p className="om-muted">{openDesignSetupMessage}</p><div className="om-control-row">{configureOpenDesign}</div></div>;
@@ -300,14 +318,67 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     setDraft(current => ({ ...current, model, parameters: undefined }));
     if (studio) studio.chooseModel(model);
   };
-  const modelPicker = gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
+  const modelPicker = studio?.guestPreview ? <GenerationModelPickers models={compatible} preferred={preferred} modelHeading={studioModelHeading} disabled={!compatible.length} onChoose={chooseModel} /> : gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
     ? <CreationModelPicker models={compatible} providers={gateway.status.providers} selected={preferred} appearance={imageWorkspace ? 'boxed' : 'standard'}
       providerHeading={providerHeading} modelHeading={studioModelHeading} disabled={busy} onChoose={chooseModel} popupClassName={imagePopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
     : <GenerationModelPickers models={choices} preferred={preferred} modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} />) : <>
     {modelHeading}
-    {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : openDesignMissing ? openDesignSetup : manageProvidersNotice}
+    {failed
+      ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button>
+      : !gateway
+        ? <Skeleton className="om-asset-model-skeleton" />
+        : cloudEmptyCatalog
+          ? <CloudEmptyModelsNotice consoleUrl={gateway.status.consoleUrl} boxed={imageWorkspace} onOpenSubscription={openSubscription} />
+          : cloudFeatureUnavailable
+            ? cloudFeatureUnavailableNotice
+            : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
-  const setup = <>
+  const cloudGuestSubmit = studio?.guestPreview || (cloudWeb && account?.state === 'signed-out');
+  const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
+  const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
+  const resolvedParameters = (() => {
+    if (!selected) return undefined;
+    try {
+      const explicit = requestParameters(parameters, selected, draft.references.length > 0, activeDefaultValues);
+      return resolveGenerationParameters(selected, explicit, draft.references.length > 0);
+    } catch {
+      return undefined;
+    }
+  })();
+  const resolvedFields = selected ? generationOptions(selected, draft.references.length > 0)?.fields ?? [] : [];
+  const resolutionField =
+    resolvedFields.find(field => field.key === 'resolution') ??
+    resolvedFields.find(field => field.key === 'size');
+  const resolutionFieldKey: 'resolution' | 'size' = resolutionField?.key === 'size'
+    ? 'size'
+    : resolutionField?.key === 'resolution'
+      ? 'resolution'
+      : selected?.defaults && 'size' in selected.defaults && !('resolution' in selected.defaults)
+        ? 'size'
+        : resolvedParameters && 'size' in resolvedParameters && !('resolution' in resolvedParameters)
+          ? 'size'
+          : 'resolution';
+  const activeResolution =
+    resolvedParameters?.[resolutionFieldKey] ??
+    parameters.values[resolutionFieldKey] ??
+    draft.parameters?.[resolutionFieldKey] ??
+    resolutionField?.default ??
+    selected?.defaults?.[resolutionFieldKey];
+  const planResCap = isHostedSelected && !hostedPlanUpgrade && draft.modality === 'image'
+    ? imageResolutionCap(account, selected?.modelId)
+    : undefined;
+  const resolutionCapExceeded = (planResCap === '1K' || planResCap === '2K') && exceedsResolutionCap(activeResolution, planResCap);
+  const openResolutionUpgrade = () => {
+    if (cloudWeb && hasEntitlementModalListeners()) {
+      openEntitlementModal({ mode: 'upgrade', hookId: 'studio_res_gate' });
+    } else {
+      (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
+    }
+  };
+  const entitlementGate = hostedPlanUpgrade
+    ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
+    : null;
+  const setup = cloudGuestSubmit ? null : <>
       {unconfiguredPreferred && (imageWorkspace
         ? <ProviderSetupNotice message={t('{provider} needs setup before generating.', { provider: providerLabel })}>
           <Button variant="ghost" className="om-button h-auto" onClick={() => configureProvider(preferred!.provider)}>
@@ -321,24 +392,40 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       {accountNotIncluded && <div className="om-creation-setup" role="status">
         <RemixIcon name="bank-card-line" size={20} />
         <p className="om-muted">{t('Signed in; multimodal generation requires OpenDesign Plus or above')}</p>
-        <Button variant="ghost" className="om-button h-auto" onClick={() => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)()}>
+        <Button variant="ghost" className="om-button h-auto" onClick={openSubscription}>
           {t('Manage subscription')}
         </Button>
       </div>}
-      {gateway && modelId && !selected && !unconfiguredPreferred && !openDesignMissing && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
+      {gateway && modelId && !selected && !unconfiguredPreferred && !openDesignMissing && !cloudFeatureUnavailable && !cloudEmptyCatalog && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
   </>;
   const modelNotice = unknownReferences || cloudModelMissing ? <p className="om-muted" role="status">{unknownReferences && t('Image editing capability is unknown. Sync models to check reference support.')} <Button variant="ghost" className="om-button h-auto" disabled={syncing} onClick={() => void syncModels()}>{t(syncing ? 'Working…' : 'Sync models')}</Button></p> : selected && draft.references.length > 0 && <p className="om-muted">{t(maximumReferences ? draft.modality === 'video' ? 'This video model uses one image as its first frame.' : 'This model edits up to {count} image references.' : 'This model cannot use asset references. Choose an image model that supports editing, or remove the references.', { count: maximumReferences })}</p>;
   const generationSettings = parameterModel && <GenerationParameters key={parameterKey} model={parameterModel} draft={parameters}
     defaultValues={activeDefaultValues} appearance={imageWorkspace ? 'boxed' : 'standard'} popupClassName={imagePopupClass}
     hasInputImage={draft.references.length > 0} hidden={Object.keys(featureRule?.parameters ?? {})} onChange={value => {
+      const nextResolution = value.values[resolutionFieldKey];
+      if ((planResCap === '1K' || planResCap === '2K') && exceedsResolutionCap(nextResolution, planResCap)) {
+        openResolutionUpgrade();
+        return;
+      }
       setParameterDrafts(current => ({ ...current, [parameterKey]: value }));
       try { setDraft({ ...draft, model: parameterModel.id, parameters: requestParameters(value, parameterModel, draft.references.length > 0, activeDefaultValues) }); }
       catch { /* Keep invalid JSON or conflicting parameters in the local editor until corrected. */ }
     }} />;
-  const generate = !imageWorkspace && setupProvider ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary onClick={() => configureProvider(setupProvider)}>
+  const generate = cloudGuestSubmit ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary
+    disabled={busy || uploadingReferences}
+    onClick={() => openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' })}>
+    <RemixIcon name="sparkling-fill" size={19} />{t(featureRule?.actionLabel ?? kind.action)}
+    <RemixIcon name="arrow-right-line" size={18} />
+  </Button> : !imageWorkspace && setupProvider ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary onClick={() => configureProvider(setupProvider)}>
     <RemixIcon name="plug-line" size={19} />{t('Set up to generate')}<RemixIcon name="arrow-right-line" size={18} />
   </Button> : <Button variant="plain" className="om-button om-creation-submit-button" data-primary
-    disabled={busy || uploadingReferences || !selected || !promptReady || invalidReferences} onClick={() => void submit()}>
+    disabled={busy || uploadingReferences || !selected || !promptReady || invalidReferences || Boolean(hostedPlanUpgrade)} onClick={() => {
+      if (resolutionCapExceeded) {
+        openResolutionUpgrade();
+        return;
+      }
+      void submit();
+    }}>
     <RemixIcon name="sparkling-fill" size={19} />{t(busy ? 'Submitting your idea…' : featureRule?.actionLabel ?? kind.action)}
     <RemixIcon name="arrow-right-line" size={18} />
   </Button>;
@@ -417,7 +504,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       </section>}
       {!scene && <div className="om-creation-scene"><span className="om-badge"><RemixIcon name={selected?.mode === 'text-to-speech' ? 'voiceprint-line' : kind.icon} size={14} />{t(selected?.mode === 'text-to-speech' ? 'Text to speech' : draft.modality === 'audio' ? 'Music & sound' : draft.modality === 'video' ? draft.references.length ? 'Image to video' : 'Create video' : draft.references.length && selected?.supportsImageReference ? 'Edit image' : 'Create image')}</span><span className="om-eyebrow">{t('Settings follow your model')}</span></div>}
       {promptField}
-      {!imageWorkspace && <><div className="om-creation-model">{modelPicker}</div>{setup}{modelNotice}</>}
+      {!imageWorkspace && <><div className="om-creation-model">{modelPicker}</div>{setup}{!studio?.guestPreview && modelNotice}</>}
       {inputImageRatio && <p className="om-muted" role="status">{t('Aspect ratio follows the first frame.')} {t('Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.')}</p>}
 
       {!imageWorkspace && generationSettings}
@@ -427,11 +514,11 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
         {generationSettings}
         <div className="om-creation-model">{modelPicker}</div>
         {setup}
-        {modelNotice}
+        {!studio?.guestPreview && modelNotice}
       </div>
-      <div className="om-image-submit">{generate}</div>
+      <div className="om-image-submit">{entitlementGate}{generate}</div>
     </>}
     </div>
-    {!imageWorkspace && <div className="om-creation-submit">{generate}<p className="om-creation-save-note"><RemixIcon name="stack-line" size={13} />{t('Saved automatically to your library')}</p><p className="om-eyebrow om-creation-billing">{t('Model usage is billed to your OpenDesign platform account.')}</p></div>}
+    {!imageWorkspace && <div className="om-creation-submit">{entitlementGate}{generate}<p className="om-creation-save-note"><RemixIcon name="stack-line" size={13} />{t('Saved automatically to your library')}</p><p className="om-eyebrow om-creation-billing">{t('Model usage is billed to your OpenDesign platform account.')}</p></div>}
   </aside>;
 }

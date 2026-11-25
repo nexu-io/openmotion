@@ -11,6 +11,7 @@ import { usePlayerStore } from '../player/store/playerStore';
 import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { useNativeCaptionWrite } from './useNativeCaptionWrite';
 import { transcriptRequest } from './transcriptClient';
+import { gatewayRequest } from './gatewayClient';
 import { useCaptionWorkspace } from './captionWorkspace';
 import { useDockLayoutStore } from '../components/dock/dockLayoutStore';
 import { useCaptionSurfaceActive } from './useCaptionSurfaceActive';
@@ -30,6 +31,8 @@ export function AutoCaptionsPanel({ visible = true }: { visible?: boolean }) {
   const [job, setJob] = useState<TranscriptionJob | null>(null), [ready, setReady] = useState<TranscriptDocument | null>(null);
   const alive = useRef(true), working = useRef(false), mediaInput = useRef<HTMLInputElement>(null), subtitleInput = useRef<HTMLInputElement>(null);
   const submission = useRef<{ signature: string; id: string } | null>(null);
+  const captionRequest = useRef<{ signature: string; payload: Record<string, unknown> } | null>(null);
+  const latestShell = useRef(shell); latestShell.current = shell;
   const placement = useRef<{ sourceStart: number; sourceEnd: number; timelineStart: number; playbackRate: number } | null>(null);
   const anchor = useRef<string | null>(null);
   const selectedId = usePlayerStore(state => state.selectedElementId), elements = usePlayerStore(state => state.elements);
@@ -69,8 +72,34 @@ export function AutoCaptionsPanel({ visible = true }: { visible?: boolean }) {
       const start = clip.playbackStart || 0, rate = clip.playbackRate || 1;
       range = { sourceStart: start, sourceEnd: start + clip.duration * rate, timelineStart: clip.start, playbackRate: rate };
     }
-    const ok = await write({ command: 'captions', transcriptId: doc.id, expectedTranscriptRevision: doc.revision, ...range, sourceEnd: Math.min(range.sourceEnd, doc.source.duration) });
-    if (ok && alive.current) { setReady(null); useCaptionWorkspace.getState().select(shell.projectId, doc.source.path, doc.id); }
+    // The recognition service owns the versioned transcript document referenced by this operation.
+    const { projectId } = shell, compositionPath = shell.activeCompPath || 'index.html';
+    const valid = () => alive.current && latestShell.current.projectId === projectId && (latestShell.current.activeCompPath || 'index.html') === compositionPath &&
+      !latestShell.current.writeBlockedReason && !latestShell.current.renderQueue.isRendering;
+    const input = { command: 'captions', projectId, compositionPath, transcriptId: doc.id, expectedTranscriptRevision: doc.revision,
+      ...range, sourceEnd: Math.min(range.sourceEnd, doc.source.duration) };
+    try {
+      await shell.waitForPendingDomEditSaves();
+      if (!valid()) return;
+      const signature = JSON.stringify(input);
+      if (captionRequest.current?.signature !== signature) {
+        const project = await gatewayRequest<{ revision: string; currentVersionId: string }>('phase1/call', 'POST', { name: 'openmotion_get_project', arguments: { projectId } });
+        captionRequest.current = { signature, payload: { ...input, expectedRevision: project.revision, expectedVersionId: project.currentVersionId, requestId: crypto.randomUUID() } };
+      }
+      if (!valid()) return;
+      const result = await transcriptRequest<{trackId?: string}>(captionRequest.current.payload);
+      captionRequest.current = null;
+      if (!valid()) return;
+      setReady(null);
+      const workspace = useCaptionWorkspace.getState();
+      workspace.changed();
+      workspace.open(projectId, { compositionPath, trackId: result.trackId ?? doc.id, selectClip: true, mode: 'style' });
+      workspace.select(projectId, doc.source.path, doc.id);
+      shell.showToast(t('Captions added to the video'), 'info');
+    } catch (error) {
+      if (error instanceof Error && /CONFLICT/.test(error.message)) captionRequest.current = null;
+      if (valid()) shell.showToast(t(error instanceof Error ? error.message : 'Caption update failed'), 'error');
+    }
   };
   const addReadyRef = useRef(addReady); addReadyRef.current = addReady;
   useEffect(() => {

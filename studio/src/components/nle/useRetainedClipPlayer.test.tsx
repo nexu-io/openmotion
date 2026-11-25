@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { PlayerProps } from "../../player/components/Player";
 import { trackStudioProjectSave } from "../../utils/studioSaveState";
+import { markStudioWriteToken } from "../../utils/studioFileVersion";
 import { notifyExternalFileReload } from "../../hooks/externalFileReloadBus";
 import { useRetainedClipPlayers } from "./useRetainedClipPlayer";
 
@@ -15,11 +16,11 @@ vi.mock("../../player/lib/previewLease", async importOriginal => ({
 
 const Frame = forwardRef<HTMLIFrameElement, PlayerProps>(({ parked, style, inert }, ref) =>
   <iframe style={style} inert={inert} data-clip-painted="true" data-parked={!!parked} ref={ref}/>);
-function Stage({ path, generation }: { path: string; generation: number }) {
+function Stage({ path, generation, project = "p" }: { path: string; generation: number; project?: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
-  const url = "/api/projects/p/preview/comp/" + path;
+  const url = path === "index.html" ? undefined : `/api/projects/${project}/preview/comp/${path}`;
   const player = <Frame key={path + generation} directUrl={url} ref={ref} onLoad={() => {}}/>;
-  return useRetainedClipPlayers("p", url, ref, [player], player);
+  return useRetainedClipPlayers(project, url, ref, [player], player);
 }
 
 it("keeps the previous document through a peer patch, retires it on catch-up, and bounds retained frames", async () => {
@@ -28,7 +29,7 @@ it("keeps the previous document through a peer patch, retires it on catch-up, an
   const root = createRoot(host);
   const visit = (path: string, generation = 0) => {
     act(() => root.render(<Stage path={path} generation={generation}/>));
-    expect(host.querySelectorAll("iframe").length).toBeLessThanOrEqual(2);
+    expect(host.querySelectorAll("iframe").length).toBeLessThanOrEqual(3);
     return host.querySelector('iframe[data-parked=false]')!;
   };
   try {
@@ -47,7 +48,51 @@ it("keeps the previous document through a peer patch, retires it on catch-up, an
     act(() => notifyExternalFileReload(".", undefined, { projectId: "p", paths: null, treeChanged: false }));
     expect(visit("a.html")).not.toBe(a);
     visit("c.html");
-    expect(visit("b.html")).not.toBe(b);
+    expect(visit("b.html")).toBe(b);
+  } finally { act(() => root.unmount()); host.remove(); }
+});
+
+it("evicts the least recently used preview, including the master, and releases all previews on a project switch", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const visit = (path: string, project = "p") => {
+    act(() => root.render(<Stage path={path} generation={0} project={project}/>));
+    expect(host.querySelectorAll("iframe").length).toBeLessThanOrEqual(4);
+    return host.querySelector<HTMLIFrameElement>("iframe[data-parked=false]")!;
+  };
+  try {
+    const master = visit("index.html");
+    const intro = visit("intro.html");
+    const choice = visit("choice.html");
+    const editor = visit("editor.html");
+    expect(visit("intro.html")).toBe(intro);
+    visit("outro.html");
+    expect(master.isConnected).toBe(false);
+    expect(choice.isConnected).toBe(true);
+    expect(editor.isConnected).toBe(true);
+    expect(visit("choice.html")).toBe(choice);
+    expect(visit("index.html")).not.toBe(master);
+    expect(editor.isConnected).toBe(false);
+    visit("intro.html", "another-project");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    expect(master.isConnected).toBe(false);
+  } finally { act(() => root.unmount()); host.remove(); }
+});
+
+it("does not resume a master from before a local write to a nested clip", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const visit = (path: string) => {
+    act(() => root.render(<Stage path={path} generation={0}/>));
+    return host.querySelector("iframe[data-parked=false]");
+  };
+  try {
+    const master = visit("index.html");
+    visit("intro.html");
+    markStudioWriteToken("nested-clip-commit");
+    expect(visit("index.html")).not.toBe(master);
   } finally { act(() => root.unmount()); host.remove(); }
 });
 

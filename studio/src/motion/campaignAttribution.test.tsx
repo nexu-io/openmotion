@@ -48,7 +48,7 @@ it('reports one banner impression per page load and joins each claim click to it
   render(<BlackFridayTopBanner trackingPage="explore" onClose={onClose} />);
   render(<BlackFridayTopBanner trackingPage="explore" onClose={onClose} />);
   expect(tracked().filter(row => row.event === 'surface_view')).toEqual([
-    { event: 'surface_view', properties: { page_name: 'explore', area: 'campaign_banner', element: 'banner', campaign_id: 'black_friday_2026' } },
+    { event: 'surface_view', properties: { page_name: 'explore', area: 'campaign_banner', element: 'banner', campaign_id: 'black_friday_2026', hook_id: 'bf_banner' } },
   ]);
 
   const cta = container.querySelector<HTMLAnchorElement>('a[href*="pricing"]')!;

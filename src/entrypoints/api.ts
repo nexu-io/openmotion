@@ -1,4 +1,7 @@
+import { projectSourceReadUrl } from '../../shared/project-source-url.ts';
+import { formatFileVersion } from '../studio/etag.ts';
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
+import { createCloudTracking } from '../cloud-tracking.ts';
 import {
   CatalogFilmstripAutoBakeDispatcher,
   InMemoryCatalogFilmstripBakeState,
@@ -17,6 +20,7 @@ import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { serve, type ServerType } from '@hono/node-server';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Redis } from 'ioredis';
 import {
@@ -32,7 +36,7 @@ import {
   injectRuntimeConfigIntoHtml,
 } from '../../packages/observability/config.ts';
 import { commitProjectEdit } from '../services/project-edit.ts';
-import { compositionCanvasSource, type CanvasFit, type CanvasRatio } from '../../shared/composition-canvas.ts';
+import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
 import {
   agentGuide,
   buildCloudIntegrationInfo,
@@ -50,6 +54,7 @@ import {
   sessionPath,
   templateLibraryPreview,
 } from '../../shared/workspace-url.ts';
+import { CLOUD_P1_FEATURES } from '../../shared/cloud-features.ts';
 import {
   AmrIdentityClient,
   InMemoryAuthCache,
@@ -80,7 +85,7 @@ import {
 import { PREVIEW_BRIDGE_ASSET_RE, PREVIEW_BRIDGE_PATH } from '../studio/engine/preview-bridge.ts';
 import { BROWSER_EXPORT_VENDOR_PATH } from '../studio/routes/preview.ts';
 import { isAssetLease, renewAssetLease, resolveAssetWorkspace } from '../auth/preview-asset-lease.ts';
-import { hasMinRole, hasScope, type AuthContext } from '../contracts/auth.ts';
+import { hasMinRole, hasScope, requireProgrammaticEdit, type AuthContext } from '../contracts/auth.ts';
 import { CloudError, featureDeferredP2, isCloudError } from '../contracts/errors.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import { createDbHandle, type Database, type DbHandle } from '../db/client.ts';
@@ -229,6 +234,7 @@ const STATIC_MIME_TYPES: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
+  '.cjs': 'application/octet-stream',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
@@ -335,9 +341,26 @@ function resolveSafeSubpath(rootDir: string, relativePath: string): string | nul
   return resolvedTarget;
 }
 
+function matchesIfNoneMatch(headerValue: string | null | undefined, etag: string): boolean {
+  if (!headerValue) return false;
+  const trimmed = headerValue.trim();
+  if (trimmed === '*') return true;
+  const normalizedTarget = etag.replace(/^W\//i, '');
+  return trimmed.split(',').some((candidate) => {
+    const token = candidate.trim();
+    return token === etag || token.replace(/^W\//i, '') === normalizedTarget;
+  });
+}
+
 async function readStaticResponse(
   filePath: string,
-  options: { cacheControl?: string; corsAll?: boolean; headOnly?: boolean } = {},
+  options: {
+    cacheControl?: string;
+    corsAll?: boolean;
+    headOnly?: boolean;
+    etag?: boolean;
+    ifNoneMatch?: string | null;
+  } = {},
 ): Promise<Response | null> {
   const mimeType = STATIC_MIME_TYPES[path.extname(filePath).toLowerCase()];
   if (!mimeType) return null;
@@ -350,6 +373,15 @@ async function readStaticResponse(
     });
     if (options.cacheControl) headers.set('Cache-Control', options.cacheControl);
     if (options.corsAll) headers.set('Access-Control-Allow-Origin', '*');
+    if (options.etag) {
+      const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
+      headers.set('ETag', etag);
+      if (matchesIfNoneMatch(options.ifNoneMatch, etag)) {
+        headers.delete('Content-Type');
+        headers.delete('Content-Length');
+        return new Response(null, { status: 304, headers });
+      }
+    }
     return new Response(options.headOnly ? null : new Uint8Array(bytes), {
       status: 200,
       headers,
@@ -369,7 +401,7 @@ export async function serveStaticAsset(
   pathname: string,
   runtimeRoot = DEFAULT_RUNTIME_ROOT,
   headOnly = false,
-  options: { allowSourcemaps?: boolean } = {},
+  options: { allowSourcemaps?: boolean; ifNoneMatch?: string | null } = {},
 ): Promise<Response | null> {
   if (options.allowSourcemaps === false && pathname.toLowerCase().endsWith('.map')) {
     return null;
@@ -380,9 +412,14 @@ export async function serveStaticAsset(
   if (designFile) {
     const target = resolveSafeSubpath(path.join(runtimeRoot, 'packages/design-system'), designFile);
     if (!target) return null;
+    const isFont = /\.(?:ttf|woff2?)$/i.test(designFile);
     return readStaticResponse(target, {
-      corsAll: /\.(?:ttf|woff2?)$/i.test(designFile),
-      cacheControl: 'public, max-age=300',
+      corsAll: isFont,
+      cacheControl: isFont
+        ? 'public, max-age=86400, stale-while-revalidate=604800'
+        : 'public, max-age=3600, stale-while-revalidate=86400',
+      etag: true,
+      ifNoneMatch: options.ifNoneMatch,
       headOnly,
     });
   }
@@ -390,7 +427,9 @@ export async function serveStaticAsset(
   // 2. Favicon
   if (pathname === '/favicon.svg') {
     return readStaticResponse(path.join(runtimeRoot, 'packages/design-system/brand/favicon.svg'), {
-      cacheControl: 'public, max-age=3600',
+      cacheControl: 'public, max-age=3600, stale-while-revalidate=86400',
+      etag: true,
+      ifNoneMatch: options.ifNoneMatch,
       headOnly,
     });
   }
@@ -1099,7 +1138,17 @@ function createMcpDomainPorts(deps: {
     handleMediaAction(auth: AuthContext, args: Record<string, unknown>): Promise<Record<string, unknown>>;
   };
 }): McpDomainPorts {
+  let editCli: Promise<{ url: string; sha256: string } | undefined> | undefined;
+  function localEditCli() {
+    if (!deps.files.textPatchWrites) return;
+    return editCli ??= readFile(path.join(deps.runtimeRoot, 'studio/build/edit-core-sha256'), 'utf8').then(sha256 => {
+      if (/^[a-f0-9]{64}$/.test(sha256)) return {
+        sha256, url: new URL('/editor-assets/openmotion-edit-' + sha256 + '.cjs', deps.config.APP_PUBLIC_ORIGIN).href,
+      };
+    }).catch(() => undefined);
+  }
   let cachedCaptionOps: Awaited<ReturnType<typeof loadCaptionSourceOperations>> | null = null;
+  let canvasOps: ReturnType<typeof import('../../shared/composition-canvas-source.ts').loadCanvasSourceOperations> | undefined;
   const getCaptionOps = async () => {
     if (!cachedCaptionOps) {
       cachedCaptionOps = await loadCaptionSourceOperations(deps.runtimeRoot);
@@ -1228,10 +1277,12 @@ function createMcpDomainPorts(deps: {
         const assetNames = await deps.assetNames.readAssetNames(auth, projectId, { paths: allFiles.map(f => f.path) });
         return {
           ...projectState,
+          localEditCli: await localEditCli(),
           files: allFiles.map((f) => ({
             path: f.path,
             size: f.sizeBytes,
             hash: f.sha256,
+            fileVersion: formatFileVersion(f.blobScope, f.sha256),
             mimeType: f.mimeType,
             isText: f.isText,
           })),
@@ -1296,14 +1347,20 @@ function createMcpDomainPorts(deps: {
       },
 
       async editProject(auth, args) {
+        if (args.canvas !== undefined || args.edit !== undefined) requireProgrammaticEdit(auth);
         const projectId = String(args.projectId ?? '');
         const requestId = String(args.requestId ?? '');
         const expectedRevision = String(args.expectedRevision ?? '');
         const expectedVersionId = String(args.expectedVersionId ?? '');
         const ops: ProjectFileOp[] = [];
 
-        if (args.edit !== undefined && ['files', 'canvas', 'assetNames', 'requirements', 'namingLanguage'].some(key => args[key] !== undefined)) {
-          throw new CloudError('INVALID_ARGUMENT', 'Submit an editing command separately from file and metadata changes.', { status: 400 });
+        const prepared = args.textEdits !== undefined;
+        if ((prepared || args.edit !== undefined) && ((prepared && args.edit !== undefined) ||
+            ['files', 'canvas', 'assetNames', 'requirements', 'namingLanguage'].some(key => args[key] !== undefined))) {
+          throw new CloudError('INVALID_ARGUMENT', 'Submit one editing command or one prepared edit separately from file and metadata changes.', { status: 400 });
+        }
+        if (prepared && !deps.files.textPatchWrites) {
+          throw new CloudError('INVALID_ARGUMENT', 'This deployment accepts semantic commands in edit.', { status: 400, applied: false });
         }
 
         if (Array.isArray(args.files)) {
@@ -1329,21 +1386,9 @@ function createMcpDomainPorts(deps: {
               applied: false,
             });
           }
-          const captionOps = await getCaptionOps();
-          const reframed = compositionCanvasSource(
-            existing.content,
-            {
-              parseHTML: captionOps.parseHTML,
-              rewriteStyles: (source, aliases) => {
-                let next = source;
-                for (const [from, to] of aliases) {
-                  next = next.replaceAll(`[${from}]`, `[${to}]`).replaceAll(`[${from}=`, `[${to}=`);
-                }
-                return next;
-              },
-            },
-            { ratio: canvas.ratio, fit: canvas.fit },
-          );
+          const { compositionCanvasSource } = await import('../../packages/edit-core/composition-canvas.ts');
+          const { loadCanvasSourceOperations } = await import('../../shared/composition-canvas-source.ts');
+          const reframed = compositionCanvasSource(existing.content, await (canvasOps ??= loadCanvasSourceOperations(deps.runtimeRoot)), canvas);
           ops.push({
             op: 'upsert_text',
             path: canvas.compositionPath,
@@ -1353,7 +1398,10 @@ function createMcpDomainPorts(deps: {
         }
 
         let committed = null;
-        if (args.edit !== undefined) {
+        if (prepared) {
+          committed = await deps.files.commitTextEdits(auth, projectId, args.textEdits,
+            { source: 'agent', requestId, observedProject: { expectedRevision, expectedVersionId } });
+        } else if (args.edit !== undefined) {
           committed = await commitProjectEdit(deps.files, auth, projectId, args.edit, requestId,
             { source: 'agent', expectedRevision, expectedVersionId });
         } else if (ops.length > 0 || args.requirements !== undefined || args.namingLanguage !== undefined) {
@@ -1419,7 +1467,7 @@ function createMcpDomainPorts(deps: {
 
         const latest = await deps.workspace.getProject(auth, projectId);
         // A retried command points to the committed version even after subsequent edits.
-        const project = args.edit && committed ? { ...latest, revision: committed.revision,
+        const project = (prepared || args.edit) && committed ? { ...latest, revision: committed.revision,
           currentVersionId: committed.versionId, currentVersionNumber: committed.versionNumber } : latest;
         return {
           projectId: project.id,
@@ -1451,6 +1499,7 @@ function createMcpDomainPorts(deps: {
             embedded: typeof args.embedded === 'boolean' ? args.embedded : undefined,
             presentation: typeof args.presentation === 'string' ? args.presentation : undefined,
             entry: typeof args.entry === 'string' ? args.entry : undefined,
+            modelProvidersEnabled: CLOUD_P1_FEATURES.modelProviders,
           });
         }
 
@@ -1669,6 +1718,7 @@ function createMcpDomainPorts(deps: {
           }
           const captionOps = await getCaptionOps();
           if (command === 'caption_add' || command === 'caption_update' || command === 'caption_toggle') {
+            requireProgrammaticEdit(auth);
             return commitCaptionCommand(deps.files, auth, captionOps, projectId, compositionPath, command, transcript);
           }
           const current = await deps.files.readTextFile(auth, projectId, compositionPath);
@@ -2329,7 +2379,9 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   // 2. Auth & OAuth 2.1 Routes (`/auth/*`, `/.well-known/*`, `/oauth/*`, `/motion-api/tokens*`)
   // -------------------------------------------------------------------------
 
-  app.route('/', createAuthRoutes(authDeps));
+  const cloudTracking = createCloudTracking(VERSION);
+
+  app.route('/', createAuthRoutes({ ...authDeps, cloudTracking }));
 
   // -------------------------------------------------------------------------
   // 3. Streamable HTTP MCP (`/mcp` — Strict Bearer-Only Auth + 10 MiB Limit)
@@ -2368,7 +2420,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       new URL(c.req.url).pathname,
       runtimeRoot,
       c.req.method === 'HEAD',
-      { allowSourcemaps },
+      { allowSourcemaps, ifNoneMatch: c.req.header('if-none-match') },
     );
     if (response) return response;
     return c.notFound();
@@ -2463,26 +2515,108 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     });
   });
 
-  app.get('/motion-api/tracking', authMiddleware, (c) => {
-    return c.json({ enabled: false, locked: true, reason: 'cloud' });
+  const localTrackingHits = new Map<string, { count: number; resetAt: number }>();
+  const TRACKING_RATE_LIMIT_PER_MIN = 60;
+  const TRACKING_GLOBAL_LIMIT_PER_MIN = 1200;
+  const consumeLocalWindow = (key: string, limit: number): boolean => {
+    const now = Date.now();
+    if (localTrackingHits.size > 4096) {
+      for (const [k, v] of localTrackingHits) {
+        if (now >= v.resetAt) localTrackingHits.delete(k);
+      }
+      if (localTrackingHits.size > 4096) localTrackingHits.clear();
+    }
+    const entry = localTrackingHits.get(key);
+    if (!entry || now >= entry.resetAt) {
+      localTrackingHits.set(key, { count: 1, resetAt: now + 60_000 });
+      return true;
+    }
+    if (entry.count >= limit) return false;
+    entry.count += 1;
+    return true;
+  };
+  const checkTrackingRateLimit = async (rawIp: string): Promise<boolean> => {
+    const ip = rawIp.trim() || 'unknown';
+    const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 24);
+    if (deps.rateLimiter) {
+      try {
+        const [perIp, globalBudget] = await Promise.all([
+          deps.rateLimiter.consume(`tracking:${ipHash}`, TRACKING_RATE_LIMIT_PER_MIN, 60_000),
+          deps.rateLimiter.consume('tracking:global', TRACKING_GLOBAL_LIMIT_PER_MIN, 60_000),
+        ]);
+        return perIp.allowed && globalBudget.allowed;
+      } catch {
+        // Fall through to process-local bounded counter if Redis is briefly unavailable.
+      }
+    }
+    return consumeLocalWindow(ipHash, TRACKING_RATE_LIMIT_PER_MIN) && consumeLocalWindow('__global__', TRACKING_GLOBAL_LIMIT_PER_MIN);
+  };
+
+  app.get('/motion-api/tracking', (c) => {
+    const enabled = cloudTracking.isEnabled();
+    return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
   });
-  app.post('/motion-api/tracking', authMiddleware, (c) => {
-    return c.json({ ok: true, accepted: false }, 202);
+  app.post('/motion-api/tracking', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
+    const contentType = (c.req.header('content-type') ?? '').toLowerCase();
+    if (!contentType.includes('application/json')) {
+      return c.json({ error: 'Content-Type must be application/json' }, 415);
+    }
+    const secFetchSite = (c.req.header('sec-fetch-site') ?? '').trim().toLowerCase();
+    if (secFetchSite !== 'same-origin') {
+      return c.json({ error: 'Same-origin browser fetch required' }, 403);
+    }
+    const originHeader = c.req.header('origin');
+    if (originHeader) {
+      const requestOrigin = new URL(c.req.url).origin;
+      const expectedOrigin = config.APP_PUBLIC_ORIGIN ? new URL(config.APP_PUBLIC_ORIGIN).origin : requestOrigin;
+      if (originHeader !== expectedOrigin && originHeader !== requestOrigin) {
+        return c.json({ error: 'Cross-origin tracking rejected' }, 403);
+      }
+    }
+    const resolveClientIp = (): string => {
+      if (config.TRUST_PROXY_HOPS > 0) {
+        const forwarded = c.req.header('x-forwarded-for');
+        if (forwarded) {
+          const hops = forwarded
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (hops.length > 0) {
+            return hops[Math.max(0, hops.length - config.TRUST_PROXY_HOPS)] ?? 'local';
+          }
+        }
+        const realIp = c.req.header('x-real-ip')?.trim();
+        if (realIp) return realIp;
+      }
+      return 'local';
+    };
+    if (!(await checkTrackingRateLimit(resolveClientIp()))) {
+      return c.json({ error: 'Too many tracking requests' }, 429);
+    }
+    if (!cloudTracking.isEnabled()) {
+      return c.json({ ok: true, accepted: false }, 202);
+    }
+    const body = await c.req.json().catch(() => null);
+    const acceptedCount = cloudTracking.acceptBrowserBatch(body);
+    return c.json({ ok: true, accepted: acceptedCount > 0, acceptedCount }, 202);
   });
-  const trackingPreferencesPayload = {
-    enabled: false,
-    preference: false,
-    locked: true,
-    reason: 'environment' as const,
+  const trackingPreferencesPayload = () => {
+    const enabled = cloudTracking.isEnabled();
+    return {
+      enabled,
+      preference: enabled,
+      locked: true,
+      reason: enabled ? ('deployment' as const) : ('environment' as const),
+    };
   };
   app.get('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+    return c.json(trackingPreferencesPayload());
   });
   app.put('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+    return c.json(trackingPreferencesPayload());
   });
   app.post('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+    return c.json(trackingPreferencesPayload());
   });
   app.post('/motion-api/diagnostics', authMiddleware, (c) => {
     return c.json({ ok: true, mode: 'cloud-container', version: VERSION });
@@ -2926,10 +3060,10 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const sessionId = requestUrl.searchParams.get('session');
       const projectHints = isEditorSpaPath(pathname, requestUrl.search) && isUuid(projectId)
         && (!sessionId || isUuid(sessionId)) && requestUrl.searchParams.get('templates') !== '1'
-        ? `<link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}?view=editor" fetchpriority="high"><link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}/files/index.html">`
+        ? `<link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}?view=editor" fetchpriority="high"><link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="${projectSourceReadUrl(projectId, 'index.html')}">`
         : '';
       const studioHtml = renderedHtml.replace('</head>',
-        `${preconnectHints}${projectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
+        `${preconnectHints}${projectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1" data-file-source="query">${previewOriginMeta}</head>`);
       const bytes = Buffer.from(studioHtml, 'utf8');
       const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled

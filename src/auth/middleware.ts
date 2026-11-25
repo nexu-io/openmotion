@@ -146,7 +146,12 @@ export function createAuthMiddleware(deps: AuthMiddlewareDeps): MiddlewareHandle
         const rawAuth = await resolveBearerAuth(deps, oauthCfg, bearer, requestedWorkspaceId, provisionDev);
         if (!rawAuth) {
           return c.json(
-            { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Invalid or expired bearer token' },
+            {
+              code: 'UNAUTHORIZED',
+              errorCode: 'auth_required',
+              sessionExpired: true,
+              error: 'Invalid or expired bearer token',
+            },
             401,
           );
         }
@@ -174,7 +179,12 @@ export function createAuthMiddleware(deps: AuthMiddlewareDeps): MiddlewareHandle
         });
         if (!resolved) {
           return c.json(
-            { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Session expired or revoked' },
+            {
+              code: 'UNAUTHORIZED',
+              errorCode: 'auth_required',
+              sessionExpired: true,
+              error: 'Session expired or revoked',
+            },
             401,
           );
         }
@@ -208,7 +218,12 @@ export function createAuthMiddleware(deps: AuthMiddlewareDeps): MiddlewareHandle
 
     // Branch D: Unauthenticated in OIDC mode.
     return c.json(
-      { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Authentication required' },
+      {
+        code: 'UNAUTHORIZED',
+        errorCode: 'auth_required',
+        sessionExpired: false,
+        error: 'Authentication required',
+      },
       401,
     );
   };

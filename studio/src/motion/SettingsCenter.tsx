@@ -14,12 +14,27 @@ import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { ModelSwitcher } from './ModelSwitcher';
 import { useProviderDirectory } from './useProviderDirectory';
 import { gatewayRequest } from './gatewayClient';
-import { SettingsError, SettingsLoading } from './settingsPrimitives';
+import { SettingsError, SettingsLoading, Toggle } from './settingsPrimitives';
 import { AgentSettings } from './AgentSettings';
-import { DiagnosticExport } from './DiagnosticExport';
+import { DiagnosticExport, useDiagnosticExportAvailable } from './DiagnosticExport';
 import { discord, feishu } from './CommunityLink';
 import { GITHUB_REPOSITORY, repositorySupportLinks } from './githubRepository';
 import { SettingsSurfaceBoundary } from './SettingsSurfaceBoundary';
+import { DesktopReleaseNotesDialog } from './DesktopUpdatePrompt';
+import {
+  getDesktopHostBridge,
+  isDesktopApp,
+  useDesktopPreferences,
+  useDesktopUpdateState,
+} from '../utils/platformHost';
+import { useToast } from '../hooks/useToast';
+import { StudioToastViewport } from '../components/StudioToastViewport';
+import type {
+  DesktopPreferenceDescriptor,
+  DesktopPreferenceKey,
+  DesktopPreferenceValues,
+  DesktopWritablePreferenceKey,
+} from '../../../shared/desktop-contract';
 
 import type { SettingsSection } from './workspacePageRouting';
 export type { SettingsSection } from './workspacePageRouting';
@@ -49,15 +64,23 @@ export function SettingsCenter({
 }) {
   const { t } = useI18n();
   const localAgentsEnabled = useCloudFeatureEnabled('localAgents');
-  const sections = visibleSettingsCenterSections(localAgentsEnabled);
+  const modelProvidersEnabled = useCloudFeatureEnabled('modelProviders');
+  const sections = visibleSettingsCenterSections(localAgentsEnabled, modelProvidersEnabled);
+  const effectiveSection: SettingsSection =
+    section === 'providers' && !modelProvidersEnabled
+      ? 'models'
+      : section === 'local' && !localAgentsEnabled
+        ? (modelProvidersEnabled ? 'providers' : 'models')
+        : section;
   const [search, setSearch] = useState('');
   const filtered = sections.filter(item => t(item.label).toLowerCase().includes(search.toLowerCase()));
   // One view per section shown; the section is remounted for each route.
-  useEffect(() => { tracking.reportSettingsPageView(section, hasProject); }, [section]);
+  useEffect(() => { tracking.reportSettingsPageView(effectiveSection, hasProject); }, [effectiveSection]);
   const onSection = (next: SettingsSection) => {
-    if (next !== section) tracking.reportSettingsClick('settings_nav', 'section_select', { settings_section: next });
+    if (next !== effectiveSection) tracking.reportSettingsClick('settings_nav', 'section_select', { settings_section: next });
     onSectionRaw(next);
   };
+  const openProviders = modelProvidersEnabled ? () => onSection('providers') : undefined;
   return (
     <div className="om-settings-center" onKeyDown={event => event.stopPropagation()}>
       <div className="om-settings-navigation-slot">
@@ -70,7 +93,7 @@ export function SettingsCenter({
               <div className="om-settings-mobile-navigation">
                 <Select
                   label={t('Settings')}
-                  value={section}
+                  value={effectiveSection}
                   onCommit={value => onSection(value as SettingsSection)}
                   options={sections.map(item => ({ value: item.id, label: t(item.label), icon: <RemixIcon name={item.icon} size={16} /> }))}
                 />
@@ -93,9 +116,9 @@ export function SettingsCenter({
                   <Button
                     variant="plain"
                     className="om-nav-item"
-                    aria-current={section === item.id ? 'page' : undefined}
+                    aria-current={effectiveSection === item.id ? 'page' : undefined}
                     onClick={event => {
-                      if (item.id === 'privacy' && section !== 'privacy') trackStudioClick('settings', 'privacy_settings', undefined, clickMethod(event));
+                      if (item.id === 'privacy' && effectiveSection !== 'privacy') trackStudioClick('settings', 'privacy_settings', undefined, clickMethod(event));
                       onSection(item.id);
                     }}
                   >
@@ -109,28 +132,28 @@ export function SettingsCenter({
           </aside>
         </div>
       </div>
-      <main key={section} className="om-settings-main" aria-label={t(settingsSectionLabel(section, localAgentsEnabled))}>
+      <main key={effectiveSection} className="om-settings-main" aria-label={t(settingsSectionLabel(effectiveSection, localAgentsEnabled, modelProvidersEnabled))}>
         <SettingsSurfaceBoundary>
-          {section === 'mcp' ? mcp : section === 'local' && localAgentsEnabled ? <AgentSettings /> : section === 'providers' || section === 'local' ? (
+          {effectiveSection === 'mcp' ? mcp : effectiveSection === 'local' ? <AgentSettings /> : effectiveSection === 'providers' ? (
             <ModelSettings
-              key={section}
+              key={effectiveSection}
               openAccount={() => onSection('account')}
               openSubscription={() => onSection('subscription')}
               providerId={providerId}
               onProviderChange={onProviderChange}
             />
-          ) : section === 'account' || section === 'subscription' ? (
-            <AccountSettings key={section} subscription={section === 'subscription'} openProviders={() => onSection('providers')} />
-          ) : section === 'models' ? (
-            <DefaultModels openProviders={() => onSection('providers')} openAccount={() => onSection('subscription')} />
-          ) : section === 'appearance' ? (
+          ) : effectiveSection === 'account' || effectiveSection === 'subscription' ? (
+            <AccountSettings key={effectiveSection} subscription={effectiveSection === 'subscription'} openProviders={openProviders} />
+          ) : effectiveSection === 'models' ? (
+            <DefaultModels openProviders={openProviders} openAccount={() => onSection('subscription')} />
+          ) : effectiveSection === 'appearance' ? (
             <AppearanceSettings />
-          ) : section === 'privacy' ? (
+          ) : effectiveSection === 'privacy' ? (
             <div className="om-settings-page"><h1 className="om-title">{t('Privacy & data')}</h1><PrivacySettings embedded onClose={() => {}} /></div>
-          ) : section === 'general' ? (
+          ) : effectiveSection === 'general' ? (
             <GeneralSettings openConnections={() => openConnections('settings_general')} />
           ) : (
-            <ResourceSettings about={section === 'about'} openConnections={() => openConnections('settings_resources')} />
+            <ResourceSettings about={effectiveSection === 'about'} openConnections={() => openConnections('settings_resources')} />
           )}
         </SettingsSurfaceBoundary>
       </main>
@@ -138,7 +161,7 @@ export function SettingsCenter({
   );
 }
 
-function DefaultModels({ openProviders, openAccount }: { openProviders: () => void; openAccount: () => void }) {
+function DefaultModels({ openProviders, openAccount }: { openProviders?: () => void; openAccount: () => void }) {
   const { t, locale } = useI18n();
   const directory = useProviderDirectory();
   const hasModels = (directory.data?.models.length ?? 0) > 0;
@@ -161,9 +184,11 @@ function DefaultModels({ openProviders, openAccount }: { openProviders: () => vo
                 <Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>
                   {t('Check account & plan')}
                 </Button>
-                <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>
-                  {t('Model gateway')}
-                </Button>
+                {openProviders && (
+                  <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>
+                    {t('Model gateway')}
+                  </Button>
+                )}
               </div>
             </section>
           )}
@@ -224,6 +249,7 @@ function GeneralSettings({ openConnections }: { openConnections: () => void }) {
           <Button variant="ghost" className="om-button h-auto" onClick={openConnections}>{t('Set up connection')}</Button>
         </div>
       </div>
+      <DesktopAppSettings />
       <section className="om-card om-card-stack">
         <h2 className="om-subtitle">{t('Keyboard shortcuts')}</h2>
         <div className="om-preference-row"><span>{t('Open settings')}</span><kbd>⌘ / Ctrl + ,</kbd></div>
@@ -234,12 +260,206 @@ function GeneralSettings({ openConnections }: { openConnections: () => void }) {
   );
 }
 
+function DesktopAppSettings() {
+  const { t } = useI18n();
+  const prefs = useDesktopPreferences();
+  const toast = useToast();
+
+  if (!prefs.supported || !prefs.snapshot) return null;
+
+  const { values, descriptors, pendingRestartKeys } = prefs.snapshot;
+  const descriptorMap = new Map<DesktopPreferenceKey, DesktopPreferenceDescriptor>(
+    descriptors.map(item => [item.key, item]),
+  );
+  const confirmQuitDesc = descriptorMap.get('confirmBeforeQuit');
+  const openAtLoginDesc = descriptorMap.get('openAtLogin');
+  const autoUpdatesDesc = descriptorMap.get('autoCheckUpdates');
+  const hwAccelDesc = descriptorMap.get('hardwareAcceleration');
+  const downloadDirDesc = descriptorMap.get('lastDownloadDir');
+  const needsRestart = pendingRestartKeys.length > 0;
+
+  async function updateBoolean<K extends Extract<DesktopWritablePreferenceKey, 'confirmBeforeQuit' | 'openAtLogin' | 'autoCheckUpdates' | 'hardwareAcceleration'>>(
+    key: K,
+    value: DesktopPreferenceValues[K],
+  ) {
+    const result = await prefs.setPreference(key, value);
+    if (!result.ok) {
+      toast.showToast(result.error.message || t('Could not save desktop setting.'), 'error');
+      return;
+    }
+    toast.showToast(
+      result.data.applied === 'restart-required'
+        ? t('Setting saved. Restart the desktop app to apply.')
+        : t('Desktop setting saved'),
+      'info',
+    );
+  }
+
+  async function chooseDownloadFolder() {
+    const result = await prefs.pickDownloadDir();
+    if (!result.ok) {
+      toast.showToast(result.error.message || t('Could not update download folder.'), 'error');
+      return;
+    }
+    if (!result.data.canceled) {
+      toast.showToast(t('Download folder updated'), 'info');
+    }
+  }
+
+  async function resetDownloadFolder() {
+    const result = await prefs.resetPreference('lastDownloadDir');
+    if (!result.ok) {
+      toast.showToast(result.error.message || t('Could not reset download folder.'), 'error');
+      return;
+    }
+    toast.showToast(t('Download folder reset to system default'), 'info');
+  }
+
+  async function restartDesktopApp() {
+    const result = await prefs.relaunchApp();
+    if (!result.ok) {
+      toast.showToast(result.error.message || t('Could not restart the desktop app.'), 'error');
+    }
+  }
+
+  return (
+    <section className="om-card om-card-stack" aria-labelledby="om-desktop-settings-heading" data-desktop-preferences="true">
+      <div className="om-settings-row">
+        <div>
+          <h2 id="om-desktop-settings-heading" className="om-subtitle">{t('Desktop app')}</h2>
+          <p className="om-muted">{t('These preferences apply only to this computer.')}</p>
+        </div>
+        {needsRestart && (
+          <Button
+            variant="primary"
+            className="om-button h-auto"
+            disabled={prefs.busyKey === '__relaunch__'}
+            onClick={() => void restartDesktopApp()}
+          >
+            {t('Restart to apply')}
+          </Button>
+        )}
+      </div>
+
+      {confirmQuitDesc && (
+        <div className="om-preference-row">
+          <div>
+            <h3 className="om-subtitle">{t('Confirm before quitting')}</h3>
+            <p className="om-muted">{t('Ask before closing the desktop app to prevent accidental exits.')}</p>
+          </div>
+          <Toggle
+            label={t('Confirm before quitting')}
+            checked={values.confirmBeforeQuit}
+            disabled={!confirmQuitDesc.supported || prefs.busyKey === 'confirmBeforeQuit'}
+            onChange={checked => void updateBoolean('confirmBeforeQuit', checked)}
+          />
+        </div>
+      )}
+
+      {openAtLoginDesc && (
+        <div className="om-preference-row">
+          <div>
+            <h3 className="om-subtitle">{t('Launch at login')}</h3>
+            <p className="om-muted">
+              {openAtLoginDesc.supported
+                ? t('Automatically open the desktop app when you sign in to this computer.')
+                : t(openAtLoginDesc.reason || 'Launch at login is unavailable in this build.')}
+            </p>
+          </div>
+          <Toggle
+            label={t('Launch at login')}
+            checked={values.openAtLogin}
+            disabled={!openAtLoginDesc.supported || prefs.busyKey === 'openAtLogin'}
+            onChange={checked => void updateBoolean('openAtLogin', checked)}
+          />
+        </div>
+      )}
+
+      {autoUpdatesDesc && (
+        <div className="om-preference-row">
+          <div>
+            <h3 className="om-subtitle">{t('Automatically check for updates')}</h3>
+            <p className="om-muted">{t('Check for new desktop releases shortly after startup.')}</p>
+          </div>
+          <Toggle
+            label={t('Automatically check for updates')}
+            checked={values.autoCheckUpdates}
+            disabled={!autoUpdatesDesc.supported || prefs.busyKey === 'autoCheckUpdates'}
+            onChange={checked => void updateBoolean('autoCheckUpdates', checked)}
+          />
+        </div>
+      )}
+
+      {hwAccelDesc && (
+        <div className="om-preference-row">
+          <div>
+            <h3 className="om-subtitle">{t('Hardware acceleration')}</h3>
+            <p className="om-muted">
+              {pendingRestartKeys.includes('hardwareAcceleration')
+                ? t('Restart the desktop app for the hardware acceleration change to take effect.')
+                : t('Use GPU acceleration for smoother previews. Turn off if you see rendering artifacts.')}
+            </p>
+          </div>
+          <Toggle
+            label={t('Hardware acceleration')}
+            checked={values.hardwareAcceleration}
+            disabled={!hwAccelDesc.supported || prefs.busyKey === 'hardwareAcceleration'}
+            onChange={checked => void updateBoolean('hardwareAcceleration', checked)}
+          />
+        </div>
+      )}
+
+      {downloadDirDesc && (
+        <div className="om-preference-row">
+          <div>
+            <h3 className="om-subtitle">{t('Download folder')}</h3>
+            <p className="om-muted">
+              {values.lastDownloadDir || t('System default (Downloads)')}
+            </p>
+          </div>
+          <div className="om-settings-actions">
+            <Button
+              variant="ghost"
+              className="om-button h-auto"
+              disabled={!downloadDirDesc.supported || prefs.busyKey === 'lastDownloadDir'}
+              onClick={() => void chooseDownloadFolder()}
+            >
+              {t('Choose folder')}
+            </Button>
+            {values.lastDownloadDir && (
+              <Button
+                variant="plain"
+                className="om-button h-auto"
+                disabled={prefs.busyKey === 'lastDownloadDir'}
+                onClick={() => void resetDownloadFolder()}
+              >
+                {t('Reset')}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <StudioToastViewport {...toast} />
+    </section>
+  );
+}
+
 function ResourceSettings({ about, openConnections }: { about: boolean; openConnections: () => void }) {
+  const showDiagnostics = useDiagnosticExportAvailable();
   const { t, locale } = useI18n();
+  const desktopApp = isDesktopApp();
+  const updater = useDesktopUpdateState();
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const communityLinks = locale === 'zh-CN' ? [feishu, discord] : [discord, feishu];
   const [version, setVersion] = useState<string>();
   useEffect(() => {
     let active = true;
+    if (desktopApp) {
+      void getDesktopHostBridge()?.info()
+        .then(info => { if (active && info?.shellVersion) setVersion(info.shellVersion); })
+        .catch(() => {});
+    }
     void fetch('/api/health')
       .then(async res => {
         if (!res.ok) throw new Error('unavailable');
@@ -249,12 +469,28 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
       .then(data => { if (active && data?.version) setVersion(current => current || data.version); })
       .catch(() => {});
     return () => { active = false; };
-  }, []);
+  }, [desktopApp]);
   const links = [
     { label: 'Documentation', href: `${GITHUB_REPOSITORY}/tree/main/docs`, icon: 'file-text-line' },
     ...repositorySupportLinks,
     { label: 'View source code', href: GITHUB_REPOSITORY, icon: 'code-s-slash-line' },
   ];
+  const updateStatusLabel =
+    updater.state?.status === 'available'
+      ? t('Update available: {version}', { version: updater.state.availableVersion || '' })
+      : updater.state?.status === 'downloading'
+        ? t('Downloading update… {progress}%', { progress: String(updater.state.progress ?? 0) })
+        : updater.state?.status === 'downloaded'
+          ? t('Update ready to install: {version}', { version: updater.state.availableVersion || '' })
+          : updater.state?.status === 'up-to-date'
+            ? t('You are on the latest version')
+            : updater.state?.status === 'checking'
+              ? t('Checking for updates…')
+              : updater.state?.status === 'unsupported'
+                ? t('Auto-update applies to packaged desktop releases.')
+                : updater.state?.status === 'error'
+                  ? updater.state.message || t('Update check failed')
+                  : t('Desktop updates keep OpenDesign current.');
   return (
     <div className="om-settings-page">
       <h1 className="om-title">{t(about ? 'About OpenMotion' : 'Help')}</h1>
@@ -263,6 +499,65 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
           <h2 className="om-product-brand" aria-label="OpenMotion" />
           <p className="om-muted">{t('An editable cloud workspace for AI video and motion.')}</p>
           <span className="om-badge">{version ? `${t('Version')} ${version}` : t('Version unavailable')}</span>
+        </section>
+      )}
+      {about && desktopApp && (
+        <section className="om-card om-card-stack">
+          <div className="om-settings-row">
+            <h2 className="om-subtitle">{t('Desktop updates')}</h2>
+            {updater.state?.mandatory && (
+              <span className="om-desktop-mandatory-badge">
+                <RemixIcon name="alert-line" size={14} aria-hidden="true" />
+                {t('Update required')}
+              </span>
+            )}
+          </div>
+          <p className="om-muted">{updateStatusLabel}</p>
+          {updater.state?.status === 'downloading' && (
+            <div
+              className="om-desktop-update-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.max(0, Math.min(100, Math.round(updater.state.progress ?? 0)))}
+            >
+              <div
+                className="om-desktop-update-progress-bar"
+                style={{ width: `${Math.max(0, Math.min(100, Math.round(updater.state.progress ?? 0)))}%` }}
+              />
+            </div>
+          )}
+          <div className="om-settings-actions">
+            {updater.state?.status === 'downloaded' ? (
+              <Button variant="primary" className="om-button h-auto" disabled={updater.busy} onClick={() => void updater.installUpdateNow()}>
+                {t('Restart and install update')}
+              </Button>
+            ) : updater.state?.status === 'available' ? (
+              <Button variant="primary" className="om-button h-auto" disabled={updater.busy} onClick={() => void updater.downloadUpdate()}>
+                {t('Download update')}
+              </Button>
+            ) : (
+              <Button variant="ghost" className="om-button h-auto" disabled={updater.busy} onClick={() => void updater.checkForUpdates()}>
+                {t('Check for updates')}
+              </Button>
+            )}
+            {(updater.state?.releaseNotes || updater.state?.releaseNotesUrl) && (
+              <Button variant="ghost" className="om-button h-auto" onClick={() => setReleaseNotesOpen(true)}>
+                <RemixIcon name="file-text-line" size={14} />
+                {t('View release notes')}
+              </Button>
+            )}
+          </div>
+          {updater.state && (
+            <DesktopReleaseNotesDialog
+              open={releaseNotesOpen}
+              onClose={() => setReleaseNotesOpen(false)}
+              state={updater.state}
+              busy={updater.busy}
+              onDownload={() => void updater.downloadUpdate()}
+              onInstall={() => void updater.installUpdateNow()}
+            />
+          )}
         </section>
       )}
       <div className="om-card om-resource-links">
@@ -302,7 +597,7 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
           ))}
         </section>
       )}
-      {!about && (
+      {!about && showDiagnostics && (
         <section className="om-card om-card-stack">
           <h2 className="om-subtitle">{t('Diagnostics & logs')}</h2>
           <DiagnosticExport />

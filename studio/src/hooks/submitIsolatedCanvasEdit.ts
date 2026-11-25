@@ -6,6 +6,7 @@ import { tryApplyPeerChanges } from "../player/peerTimingPreview";
 import { isPreviewChanging } from "../player/previewReloading";
 import { scheduleCommittedPreview } from "../player/committedPreview";
 import { confirmedSource, supportsOrderedTextEdits, type ConfirmedSource } from "../utils/confirmedTextSources";
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { submitStudioCommands } from "../utils/projectEditBatch";
 import type { StudioWriteHistory } from "../utils/studioFileHistory";
 
@@ -58,8 +59,9 @@ export async function submitIsolatedCanvasEdit(
 ) {
   const path = commands[0]?.compositionPath;
   const frame = frameRef.current;
-  const ordered = supportsOrderedTextEdits(project);
-  const bases = new Map(Object.keys(versions).map(file => [file, confirmedSource(project, file)]));
+  const ordered = getCachedCloudDisklessMode() || supportsOrderedTextEdits(project);
+  const paths = new Set(commands.map(command => command.compositionPath));
+  const bases = new Map([...paths].map(file => [file, confirmedSource(project, file)]));
   const group = frame && path && ordered ? beginPresentation(frame, path, bases.get(path)) : undefined;
   let last = true;
   const saved = submitStudioCommands(project, commands, versions, history);
@@ -71,12 +73,15 @@ export async function submitIsolatedCanvasEdit(
   });
   const presentChanged = group?.state.changed || result.changedPaths.length > 0;
   if (frame && frame === frameRef.current && !result.divergent.length && result.changedPaths.length) {
-    const changes = result.changedPaths.map(file => {
+    const changes = result.changedPaths.flatMap(file => {
       const current = confirmedSource(project, file);
-      const previous = path === file && group ? group.state.previous : bases.get(file);
-      return { path: file, previous, current: result.versions[file] === current?.version ? current : undefined };
+      // The queue accepted this write, but a later local or peer revision owns its presentation.
+      if (current && current.version !== result.versions[file]) return [];
+      // A first edit can resolve its displayed source while preparing the patch. Reuse those bytes to present its receipt.
+      const previous = (path === file && group ? group.state.previous : bases.get(file)) ?? result.observedSources?.get(file);
+      return [{ path: file, previous, current }];
     });
-    scheduleCommittedPreview(frame, project, changes, refresh, { gestureId });
+    if (changes.length) scheduleCommittedPreview(frame, project, changes, refresh, { gestureId });
   }
   return { ...result, deferPresentation: !last, presentChanged: last && presentChanged };
 }

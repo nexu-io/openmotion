@@ -230,6 +230,47 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
   expect(paid.querySelector('[data-guide="upgrade"]')).toBeNull();
+  expect(paid.querySelector('[data-desktop-billing-hint="true"]')).toBeNull();
+});
+
+it('shows a calm account-verification hint before external billing links in desktop app mode', async () => {
+  window.__OPENMOTION_HOST__ = {
+    info: async () => ({
+      hostKind: 'desktop',
+      shellVersion: '0.2.1',
+      contractVersion: '1.0',
+      platform: 'darwin',
+      arch: 'arm64',
+      releaseChannel: 'stable',
+      isPackaged: true,
+    }),
+    capabilities: async () => [],
+    invoke: async () => ({ ok: true, data: {} }),
+    subscribe: () => () => {},
+  };
+  try {
+    const freePage = await open(
+      { state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'free', balance: '0.00' },
+      'en',
+      'subscription',
+    );
+    const upgradeHint = freePage.querySelector('[data-desktop-billing-hint="true"]');
+    expect(upgradeHint).not.toBeNull();
+    expect(upgradeHint?.textContent).toContain('ada@example.test');
+    expect(upgradeHint?.textContent).toContain('Refresh');
+
+    const paidPage = await open(
+      { state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' },
+      'zh-CN',
+      'subscription',
+    );
+    const paidHint = paidPage.querySelector('[data-desktop-billing-hint="true"]');
+    expect(paidHint).not.toBeNull();
+    expect(paidHint?.textContent).toContain('ada@example.test');
+    expect(paidHint?.textContent).toContain('刷新');
+  } finally {
+    delete window.__OPENMOTION_HOST__;
+  }
 });
 
 it('shows the upgrade guide and honest billing notice when billing is unavailable and zero models are available', async () => {
@@ -255,4 +296,25 @@ it('shows the upgrade guide and honest billing notice when billing is unavailabl
   expect(new URL(manage.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
   expect(page.textContent).toContain('当前工作区暂无可用媒体模型，请前往 OpenDesign 查看或升级订阅方案。');
   expect(page.textContent).not.toContain('账户模型不受影响，可以照常使用');
+});
+
+it('hides the Model gateway button when openProviders is omitted', async () => {
+  hooks.summary = {
+    consoleUrl: 'https://open-design.ai/cloud',
+    authenticated: true,
+    authMode: 'oidc',
+    user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+  };
+  hooks.request.mockImplementation(async (path: string) => {
+    if (path.startsWith('account/summary')) return hooks.summary;
+    if (path === 'connections') return { connections: [] };
+    if (path === 'tokens') return { tokens: [] };
+    return hooks.summary;
+  });
+  const container = document.createElement('div');
+  document.body.append(container);
+  root = createRoot(container);
+  await act(async () => root!.render(<I18nProvider initialLocale="en"><AccountSettings /></I18nProvider>));
+  expect(container.textContent).toContain('Unified model gateway');
+  expect(findButton(container, 'Model gateway')).toBeUndefined();
 });

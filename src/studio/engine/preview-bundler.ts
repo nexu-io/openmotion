@@ -571,11 +571,24 @@ function hasOnlyDeclarativeMarkup(doc: Document, runtimeUrl: string, includeForm
     el.getAttributeNames().some(name => name.toLowerCase().startsWith('on')));
 }
 
+// Inspect the assembled tree, not the parked DOM: a repeated mount or a nested
+// dependency cannot participate in the sibling-paint fast path.
+function independentSceneFiles(doc: Document, mounted: ReadonlySet<string>): string[] | undefined {
+  const leaves = new Map<string, boolean>();
+  for (const host of doc.querySelectorAll('[data-composition-file]')) {
+    const path = host.getAttribute('data-composition-file')!;
+    leaves.set(path, !leaves.has(path) && mounted.has(path) && !host.parentElement?.closest('[data-composition-file]') &&
+      !host.querySelector('[data-composition-file],[data-composition-src]'));
+  }
+  const files = [...leaves].filter(([, leaf]) => leaf).map(([path]) => path);
+  return files.length > 1 ? files : undefined;
+}
+
 async function applyStudioPreviewAugmentations(
   html: string,
   project: VirtualProjectReader,
   activeCompositionPath: string,
-  options: { capture: boolean; gsapBaseUrl: string; sceneManifest?: boolean; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; declarativePlacement?: boolean; smallMountedSources?: string[]; htmlSources?: string[]; variables?: Record<string, unknown> | null },
+  options: { capture: boolean; gsapBaseUrl: string; sceneManifest?: boolean; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; declarativePlacement?: boolean; smallMountedSources?: string[]; independentSceneFiles?: () => string[] | undefined; htmlSources?: string[]; variables?: Record<string, unknown> | null },
 ): Promise<string> {
   let out = repairCodeExtrudeMaterial(html);
   let bridgeScript: string | undefined;
@@ -598,16 +611,19 @@ async function applyStudioPreviewAugmentations(
     .map(file => [file.path, file.blobScope === 'patch' ? formatFileVersion(file.blobScope, file.sha256) : file.sha256]));
   if (options.bridgeOrigin) {
     let liveEdits;
+    let independentSceneFiles;
     // Runtime overrides can own the same properties as an authored pixel box.
     const authoredLayout = !options.capture && !Object.keys(options.variables ?? {}).length &&
       !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH);
     if (authoredLayout && !options.canRebindTiming) {
       const reviewed = await verifiedPreviewLiveEdits(project);
       liveEdits = options.declarativePlacement ? { ...reviewed, position: true as const, cssLayoutOffset: true as const } : reviewed;
+      if (reviewed?.position || (options.htmlSources && options.declarativePlacement)) independentSceneFiles = options.independentSceneFiles?.();
     }
     const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions(), {
       studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,
       smallMountedSources: authoredLayout ? options.smallMountedSources : undefined,
+      independentSceneFiles,
     });
     const snapdomPreload = options.capture
       ? `<link rel="preload" as="script" href="${new URL('/api/vendor/snapdom.js', options.bridgeOrigin).href}">`
@@ -758,6 +774,16 @@ export async function bundlePreviewInMemory(
   const hostIdentityMap = assignBundledRuntimeCompositionIds(trackedHosts);
   const subCompHosts = trackedHosts.filter((host) => host.hasAttribute('data-composition-src'));
 
+  // Nested mounts already use paths relative to the preview entry. Use the same
+  // spelling at the top level so aliases such as "./scene.html" share an ancestry key.
+  for (const host of subCompHosts) {
+    const path = host.getAttribute('data-composition-src')!;
+    if (!isRelativeUrl(path)) continue;
+    const resolved = resolveVirtualPath(sourceDir, decodedUrlPath(path));
+    if (resolved) host.setAttribute('data-composition-src', encodeUrlPath(posix.relative('/' + sourceDir, '/' + resolved)));
+  }
+  const circularSources = new Set<string>();
+  const rootSource = entryHtml === rawEntry ? entryFile : 'index.html';
   let allCompositionsResolved = true;
   const smallMountedSources = new Set<string>();
   const subCompResult = inlineSubCompositions(document, subCompHosts, {
@@ -765,6 +791,10 @@ export async function bundlePreviewInMemory(
       if (!isRelativeUrl(srcPath)) return null;
       const resolved = resolveVirtualPath(sourceDir, decodedUrlPath(srcPath));
       if (!resolved) return null;
+      if (resolved === rootSource) {
+        circularSources.add(srcPath);
+        return null;
+      }
       htmlSources?.add(resolved);
       const html = project.readText(resolved);
       if (options.bridgeOrigin && !options.capture && html !== null) smallMountedSources.add(resolved);
@@ -792,8 +822,23 @@ export async function bundlePreviewInMemory(
     parseHostVariables: parseHostVariableValues,
     buildScopeSelector: (compId) => cssAttributeSelector('data-composition-id', compId),
     scriptErrorLabel: '[HyperFrames] composition script error:',
-    onMissingComposition: () => { allCompositionsResolved = false; htmlSources?.markUnknown(); },
+    onMissingComposition: (path, reason) => {
+      allCompositionsResolved = false;
+      htmlSources?.markUnknown();
+      if (reason === 'circular composition reference') circularSources.add(path);
+    },
   });
+
+  // The compiler leaves skipped hosts in place. Only disable a repeated mount in this
+  // preview copy; sibling instances and the editable project source stay intact.
+  if (circularSources.size) {
+    for (const host of document.querySelectorAll('[data-composition-src]')) {
+      const path = host.getAttribute('data-composition-src')!;
+      if (!circularSources.has(path)) continue;
+      const repeatsRoot = resolveVirtualPath(sourceDir, decodedUrlPath(path)) === rootSource;
+      if (repeatsRoot || host.parentElement?.closest(cssAttributeSelector('data-composition-file', path))) host.removeAttribute('data-composition-src');
+    }
+  }
 
   // Inline local classic <script src="..."> scripts from VirtualProjectReader.
   for (const el of [...document.querySelectorAll('script[src]')]) {
@@ -932,6 +977,7 @@ export async function bundlePreviewInMemory(
     canRebindTiming,
     declarativePlacement,
     smallMountedSources: [...smallMountedSources],
+    independentSceneFiles: allCompositionsResolved && smallMountedSources.size > 1 ? () => independentSceneFiles(document, smallMountedSources) : undefined,
     sceneManifest: true,
     htmlSources: htmlSources?.paths(),
   });

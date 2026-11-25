@@ -11,6 +11,7 @@ import { setCompositionSourceMap } from "../editor/domEditingDom";
 import { ensureMotionPathPluginLoaded } from "../../utils/gsapSoftReload";
 import { useAssetPreviewStore } from "../../utils/assetPreviewStore";
 import { createStableContext } from "../../utils/hmrStableContext";
+import { thumbnailScheduler } from "../../player/lib/thumbnailScheduler";
 import { previewReloadBegun } from "../../player/previewReloading";
 
 export function shouldDisableTimelineWhileCompositionLoading(compositionLoading: boolean): boolean {
@@ -110,6 +111,7 @@ export function NLEProvider({
   useLayoutEffect(() => {
     usePlayerStore.getState().beginTimelineSession(projectId);
     useAssetPreviewStore.getState().clearPreviewAsset();
+    return () => thumbnailScheduler.endBackgroundCaptures(projectId);
   }, [projectId]);
 
   // Authored composition size measured from the loaded preview — drives drop

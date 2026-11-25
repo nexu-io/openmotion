@@ -233,6 +233,107 @@ describe("ThumbnailScheduler", () => {
     });
   });
 
+  it("finishes a started capture across a clip switch without starting abandoned queued captures", async () => {
+    const scheduler = new ThumbnailScheduler(resolveTimelineViewportBudgets({ concurrentClientCompositionCaptures: 1 }));
+    const capture = deferred<ThumbnailLoadedResult>();
+    let signal!: AbortSignal;
+    const start = vi.fn((current: AbortSignal, keepRunning?: () => void) => {
+      signal = current;
+      keepRunning?.();
+      return capture.promise;
+    });
+    const first = request("intro:v1", start, "visible", { kind: "composition", concurrencyBucket: "client-capture" });
+    const queued = vi.fn(async () => result("unused"));
+    const other = { ...first, key: "choice:v1", load: queued };
+    const lease = scheduler.acquire(first, vi.fn());
+    scheduler.acquire(other, vi.fn()).release();
+    lease.release();
+    expect(signal.aborted).toBe(false);
+    const again = scheduler.acquire(first, vi.fn());
+    capture.resolve(result("intro filmstrip"));
+    await flush();
+    expect(scheduler.getSnapshot(first)).toMatchObject({ status: "ready", value: { url: "intro filmstrip" } });
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(queued).not.toHaveBeenCalled();
+    again.release();
+  });
+
+  it("cannot start background capture after project cleanup while an authorization is pending", async () => {
+    const scheduler = new ThumbnailScheduler();
+    const grant = deferred<void>();
+    const capture = deferred<ThumbnailLoadedResult>();
+    let signal!: AbortSignal;
+    const req = request("scene", async (current, finishInBackground) => {
+      signal = current;
+      await grant.promise;
+      finishInBackground?.();
+      return capture.promise;
+    }, "visible", { kind: "composition", concurrencyBucket: "client-capture" });
+    const lease = scheduler.acquire(req, vi.fn());
+    scheduler.endBackgroundCaptures(req.projectId);
+    grant.resolve();
+    await flush();
+    expect(signal.aborted).toBe(false);
+    lease.release();
+    expect(signal.aborted).toBe(true);
+    capture.resolve(result("late"));
+    await flush();
+    expect(scheduler.getSnapshot(req).status).toBe("idle");
+  });
+
+  it("keeps a capture owned by another subscriber when the project editor unmounts", async () => {
+    const scheduler = new ThumbnailScheduler();
+    const pending = deferred<ThumbnailLoadedResult>();
+    let signal!: AbortSignal;
+    const req = request("scene", (current, finishInBackground) => {
+      signal = current;
+      finishInBackground?.();
+      return pending.promise;
+    }, "visible", { kind: "composition", concurrencyBucket: "client-capture" });
+    const mountedTile = scheduler.acquire(req, vi.fn());
+    const outsideEditor = scheduler.acquire(req, vi.fn());
+    scheduler.endBackgroundCaptures(req.projectId);
+    mountedTile.release();
+    expect(signal.aborted).toBe(false);
+    const image = result("scene");
+    pending.resolve(image);
+    await flush();
+    expect(scheduler.getSnapshot(req)).toMatchObject({ status: "ready", value: image.value });
+    outsideEditor.release();
+  });
+
+  it.each(["project exit", "file revision", "hidden page"] as const)(
+    "cancels an unobserved capture on %s and disposes its late result",
+    async (event) => {
+      const scheduler = new ThumbnailScheduler();
+      const pending = deferred<ThumbnailLoadedResult>();
+      let signal!: AbortSignal;
+      const req = request("scene:v1", (current, finishInBackground) => {
+        signal = current;
+        finishInBackground?.();
+        return pending.promise;
+      }, "visible", { kind: "composition", concurrencyBucket: "client-capture" });
+      const cached = request("other", async () => result("already ready"));
+      const ready = scheduler.acquire(cached, vi.fn());
+      await flush();
+      ready.release();
+
+      scheduler.acquire(req, vi.fn()).release();
+      expect(signal.aborted).toBe(false);
+      if (event === "project exit") scheduler.endBackgroundCaptures(req.projectId);
+      if (event === "file revision") scheduler.invalidateMatching(req.projectId, candidate => candidate.key === req.key);
+      if (event === "hidden page") scheduler.setPageHidden(true);
+
+      expect(signal.aborted).toBe(true);
+      expect(scheduler.getSnapshot(req).status).toBe("idle");
+      const stale = result("stale");
+      pending.resolve(stale);
+      await flush();
+      expect(stale.dispose).toHaveBeenCalledOnce();
+      expect(scheduler.getSnapshot(cached).status).toBe("ready");
+    },
+  );
+
   it("aborts queued and active jobs after the final release", async () => {
     const scheduler = new ThumbnailScheduler(
       resolveTimelineViewportBudgets({ concurrentVideoDecodes: 1 }),

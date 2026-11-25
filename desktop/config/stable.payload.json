@@ -1,0 +1,149 @@
+{
+  "studioUrl": "https://motion.open-design.ai",
+  "allowedOrigins": [
+    "https://motion.open-design.ai"
+  ],
+  "windowPolicy": {
+    "allowedPopupOrigins": [
+      "https://motion.open-design.ai"
+    ],
+    "allowedAuthOrigins": [
+      "https://motion.open-design.ai"
+    ],
+    "allowBlankPopups": true
+  },
+  "minShellVersion": "0.2.0",
+  "featureFlags": {
+    "mcpConnect": true
+  },
+  "agents": {
+    "codex": {
+      "agentId": "codex",
+      "displayName": "Codex CLI",
+      "binaryName": "codex",
+      "versionTemplateId": "codex.version",
+      "mcpAddTemplateId": "codex.mcp.add_remote",
+      "mcpRemoveTemplateId": "codex.mcp.remove",
+      "configRuleId": "codex_mcp"
+    },
+    "claude": {
+      "agentId": "claude",
+      "displayName": "Claude Code",
+      "binaryName": "claude",
+      "versionTemplateId": "claude.version",
+      "mcpAddTemplateId": "claude.mcp.add_remote",
+      "mcpRemoveTemplateId": "claude.mcp.remove",
+      "configRuleId": "claude_mcp"
+    },
+    "cursor": {
+      "agentId": "cursor",
+      "displayName": "Cursor",
+      "binaryName": "cursor",
+      "detectHomeDir": ".cursor",
+      "configRuleId": "cursor_mcp"
+    },
+    "windsurf": {
+      "agentId": "windsurf",
+      "displayName": "Windsurf",
+      "binaryName": "windsurf",
+      "detectHomeDir": ".codeium/windsurf",
+      "configRuleId": "windsurf_mcp"
+    },
+    "opencode": {
+      "agentId": "opencode",
+      "displayName": "OpenCode",
+      "binaryName": "opencode",
+      "detectHomeDir": ".config/opencode",
+      "configRuleId": "opencode_mcp"
+    },
+    "antigravity": {
+      "agentId": "antigravity",
+      "displayName": "Antigravity",
+      "binaryName": "agy",
+      "detectHomeDir": ".gemini/antigravity",
+      "configRuleId": "antigravity_mcp"
+    }
+  },
+  "configRules": {
+    "codex_mcp": {
+      "ruleId": "codex_mcp",
+      "agentId": "codex",
+      "displayName": "Codex MCP Configuration",
+      "fileFormat": "toml",
+      "homeRelativePath": ".codex/config.toml",
+      "fieldType": "remote_mcp_entry",
+      "sectionPath": "mcp_servers"
+    },
+    "claude_mcp": {
+      "ruleId": "claude_mcp",
+      "agentId": "claude",
+      "displayName": "Claude Code MCP Configuration",
+      "fileFormat": "json",
+      "homeRelativePath": ".claude.json",
+      "fieldType": "remote_mcp_entry",
+      "sectionPath": "mcpServers"
+    },
+    "cursor_mcp": {
+      "ruleId": "cursor_mcp",
+      "agentId": "cursor",
+      "displayName": "Cursor MCP Configuration",
+      "fileFormat": "json",
+      "homeRelativePath": ".cursor/mcp.json",
+      "fieldType": "remote_mcp_entry",
+      "sectionPath": "mcpServers"
+    },
+    "windsurf_mcp": {
+      "ruleId": "windsurf_mcp",
+      "agentId": "windsurf",
+      "displayName": "Windsurf MCP Configuration",
+      "fileFormat": "json",
+      "homeRelativePath": ".codeium/windsurf/mcp_config.json",
+      "fieldType": "remote_mcp_entry",
+      "sectionPath": "mcpServers"
+    },
+    "opencode_mcp": {
+      "ruleId": "opencode_mcp",
+      "agentId": "opencode",
+      "displayName": "OpenCode MCP Configuration",
+      "fileFormat": "json",
+      "homeRelativePath": ".config/opencode/opencode.json",
+      "fieldType": "remote_mcp_entry",
+      "sectionPath": "mcp",
+      "entryFormat": "opencode_remote"
+    },
+    "antigravity_mcp": {
+      "ruleId": "antigravity_mcp",
+      "agentId": "antigravity",
+      "displayName": "Antigravity MCP Configuration",
+      "fileFormat": "json",
+      "homeRelativePath": ".gemini/antigravity/mcp_config.json",
+      "fieldType": "remote_mcp_entry",
+      "sectionPath": "mcpServers"
+    }
+  },
+  "features": {
+    "mcp_connect": {
+      "featureId": "mcp_connect",
+      "version": "1.0.0",
+      "title": "Connect Local Coding Agents (MCP)",
+      "summary": "Detect local coding Agents (Codex, Claude Code, Cursor, Windsurf, OpenCode, Antigravity) and register the remote OpenMotion MCP server.",
+      "minShellVersion": "0.1.0",
+      "commandTemplateIds": [
+        "codex.version",
+        "codex.mcp.add_remote",
+        "codex.mcp.remove",
+        "claude.version",
+        "claude.mcp.add_remote",
+        "claude.mcp.remove"
+      ],
+      "configRuleIds": [
+        "codex_mcp",
+        "claude_mcp",
+        "cursor_mcp",
+        "windsurf_mcp",
+        "opencode_mcp",
+        "antigravity_mcp"
+      ]
+    }
+  }
+}

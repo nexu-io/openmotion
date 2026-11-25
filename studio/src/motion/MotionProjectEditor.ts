@@ -9,15 +9,15 @@ const loadEditor = () => import('../App').then(({ StudioApp }) => {
 });
 let preloaded: Promise<Awaited<ReturnType<typeof loadEditor>> | undefined> | undefined;
 
-export function preloadMotionProjectEditor(): void {
-  preloaded ??= loadEditor().catch(() => {
+export function preloadMotionProjectEditor() {
+  return preloaded ??= loadEditor().catch(() => {
     // Let the actual mount retry a speculative chunk request that failed.
     preloaded = undefined;
     return undefined;
   });
 }
 
-const LazyEditor = lazy(async () => (await preloaded) ?? loadEditor());
+const LazyEditor = lazy(async () => (await preloadMotionProjectEditor()) ?? loadEditor());
 
 // A finished preload can mount immediately, without a new Suspense fallback.
 export const getMotionProjectEditor = () => loadedEditor ?? LazyEditor;

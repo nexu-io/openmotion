@@ -3,6 +3,7 @@ import { ensureLocaleLoaded, isLocale, isLocaleLoaded, translate, type Locale, t
 import { browserLocale, LOCALE_STORAGE_KEY, readLocale } from './localePreference';
 export { LOCALE_STORAGE_KEY, readLocale } from './localePreference';
 import { pageMetadata } from '../../../packages/design-system/metadata.js';
+import { syncDesktopLocale } from '../utils/platformHost';
 export { languages, isLocale, isLocaleLoaded, ensureLocaleLoaded, translate, sourceMessage } from './messages';
 export type { Locale, MessageValues, Translate } from './messages';
 function languageTools(locale: Locale) {
@@ -59,6 +60,7 @@ export function I18nProvider({ children, initialLocale }: { children: ReactNode;
 
   useEffect(() => {
     document.documentElement.lang = locale;
+    syncDesktopLocale(locale);
     const metadata = pageMetadata(locale);
     document.title = metadata.title;
     for (const attribute of ['name', 'property'] as const) {

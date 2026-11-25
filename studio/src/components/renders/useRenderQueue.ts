@@ -23,8 +23,6 @@ import {
   isIsolatedPreviewIframe,
   isPreviewExportBlockedByIsolation,
 } from "../../render/browserExportPreflight";
-import { runBrowserExport } from "../../render/browserExport";
-import { runIsolatedBrowserExport } from "../../render/isolatedBrowserExport";
 import { isolatedPreviewOrigin } from "../../player/lib/previewLease";
 import { getBrowserExportEnabled } from "./renderSettings";
 import { durationBucket, exportRejection, exportSettings, openTemplateFields, projectScaleFields, projectFields,
@@ -459,12 +457,12 @@ export function useRenderQueue(
             };
             const useIsolatedBridge = Boolean(previewOrigin && (!iframe || isIsolatedPreviewIframe(iframe)));
             const result = useIsolatedBridge
-              ? await runIsolatedBrowserExport({
+              ? await import("../../render/isolatedBrowserExport").then(({ runIsolatedBrowserExport }) => runIsolatedBrowserExport({
                   ...commonOptions,
                   previewOrigin: previewOrigin!,
                   activeCompPath: activeCompPathRef.current,
-                })
-              : await runBrowserExport(commonOptions);
+                }))
+              : await import("../../render/browserExport").then(({ runBrowserExport }) => runBrowserExport(commonOptions));
             blobUrlsRef.current.add(result.blobUrl);
             if (currentProject.current !== projectId) return;
             const fpsInfo = result.stats

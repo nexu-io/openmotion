@@ -1,8 +1,14 @@
-import { isolatedSourceVersion } from "../components/editor/isolatedSourceTarget";
+import type { TimelineAtomicMoveEdit } from "./timelineMoveAdapter";
+import { isolatedSourceVersion, mountedCanvasVersion } from "../components/editor/isolatedSourceTarget";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { acknowledgeFileEdit, isolatedEditVersion } from "../utils/isolatedEditVersions";
 import { buildProjectApiPath } from "../utils/projectRouting";
-import { useCallback } from "react";
+import { useCallback, type RefObject } from "react";
+import { saveOrderedTimeline } from "../utils/orderedTimelineEdits";
+import { confirmedSource } from "../utils/confirmedTextSources";
+import { scheduleCommittedPreview } from "../player/committedPreview";
+import { stageStructurePreview } from "../player/peerTimingPreview";
+import { projectLocalTimelineEdit } from "../player/lib/peerTimeline";
 import { assertSafeElementDeletion } from "../utils/deleteScriptDependencies";
 import { usePlayerStore } from "../player";
 import {
@@ -31,6 +37,8 @@ import { studioWriteHeaders } from "../utils/studioFileVersion";
 import { studioApiFetch } from "../utils/studioApiFetch";
 
 interface UseElementLifecycleOpsParams extends DomEditCommitBaseParams {
+  previewIframeRef?: RefObject<HTMLIFrameElement | null>;
+  currentSelection?: () => DomEditSelection | null;
   /** Route delete through SDK when session resolves the hf-id. */
   onTrySdkDelete?: (
     hfId: string,
@@ -51,6 +59,7 @@ interface UseElementLifecycleOpsParams extends DomEditCommitBaseParams {
 // laneChangeGestureSeq precedent in timelineClipDragCommit.ts: the key only has
 // to be unique per gesture and identical across the gesture's records.
 let zReorderGestureSeq = 0;
+const latestZOrder = new WeakMap<HTMLElement, string>();
 
 /**
  * Undo coalesce key for ONE z-reorder gesture — unique per call. The key
@@ -84,6 +93,8 @@ export function useElementLifecycleOps({
   projectIdRef,
   reloadPreview,
   clearDomSelection,
+  previewIframeRef,
+  currentSelection,
   onTrySdkDelete,
   onReorderShadow,
   forceReloadSdkSession,
@@ -127,10 +138,52 @@ export function useElementLifecycleOps({
         const hfIds = sameFile
           .map((member) => member.hfId)
           .filter((hfId): hfId is string => Boolean(hfId));
-        const shownVersions = new Set(sameFile.flatMap(member => member.isolatedTarget ? [isolatedSourceVersion(member.isolatedTarget)] : []));
+        const shownVersions = new Set(sameFile.flatMap(member => {
+          const version = member.isolatedTarget ? isolatedSourceVersion(member.isolatedTarget)
+            : getCachedCloudDisklessMode() && mountedCanvasVersion(member.element.ownerDocument, pid, targetPath);
+          return version ? [version] : [];
+        }));
         if (shownVersions.size > 1) throw new Error("Preview changed before the elements could be deleted");
         const [shownVersion] = shownVersions;
-        if (!getCachedCloudDisklessMode() && !shownVersion && onTrySdkDelete && hfIds.length === sameFile.length) {
+        if (getCachedCloudDisklessMode()) {
+          const changed = await saveOrderedTimeline(pid, [{
+            path: targetPath, shownVersion,
+            apply: async source => (await import("../../../packages/edit-core/canvas-commands")).applyCanvasCommand(source, {
+              kind: "deleteCanvasElements", targets: patchTargets,
+            }),
+          }], "Delete element", {
+            recordEdit: editHistory.recordEdit,
+            projectPending(files) {
+              const file = files[targetPath];
+              if (!file || projectIdRef.current !== pid) return;
+              const frame = previewIframeRef?.current ?? null;
+              const base = confirmedSource(pid, targetPath);
+              const undoRows = projectLocalTimelineEdit(pid, targetPath, file, frame);
+              const undoPreview = frame && base?.content === file.before
+                ? stageStructurePreview(frame, targetPath, base, file.after) : undefined;
+              const selected = currentSelection?.();
+              if (!currentSelection || sameFile.some(member => member.element === selected?.element)) {
+                clearDomSelection();
+                usePlayerStore.getState().setSelectedElementId(null);
+              }
+              return () => { undoPreview?.(); undoRows?.(); };
+            },
+            onSaved: async (_files, previous) => {
+              if (projectIdRef.current !== pid) return;
+              const frame = previewIframeRef?.current;
+              if (frame) scheduleCommittedPreview(frame, pid, [{ path: targetPath, previous, current: confirmedSource(pid, targetPath) }], reloadPreview);
+              else reloadPreview();
+              forceReloadSdkSession?.();
+            },
+          });
+          if (!changed.length) return domEditCommitDeclined("preview-stale");
+          if (projectIdRef.current === pid) {
+            sameFile.forEach(member => onElementDeleted?.(member));
+            showToast(`Deleted ${label}. Use Undo to restore ${sameFile.length === 1 ? "it" : "them"}.`, "info");
+          }
+          return { ok: true };
+        }
+        if (!shownVersion && onTrySdkDelete && hfIds.length === sameFile.length) {
           const originalContent = await readProjectFileContent(pid, targetPath);
           assertSafeElementDeletion(originalContent, patchTargets);
           // SDK members commit separately; validate each before the first write.
@@ -232,6 +285,8 @@ export function useElementLifecycleOps({
     [
       activeCompPath,
       clearDomSelection,
+      currentSelection,
+      previewIframeRef,
       editHistory.recordEdit,
       onTrySdkDelete,
       onElementDeleted,
@@ -260,6 +315,7 @@ export function useElementLifecycleOps({
       }>,
       gestureCoalesceKey?: string,
       actionKind?: string,
+      linkedLanes?: TimelineAtomicMoveEdit[],
     ) => {
       if (entries.length === 0) return Promise.resolve();
       // One async owner must bracket reveal tokens, optimistic DOM/store state,
@@ -286,6 +342,7 @@ export function useElementLifecycleOps({
             ownership: LayerRevealCommitOwnership;
           }> = [];
           for (const entry of entries) {
+            latestZOrder.set(entry.element, coalesceKey);
             const priorZIndex = entry.element.style.zIndex;
             const priorPosition = entry.element.style.position;
             const priorStoreEntry = entry.key
@@ -326,6 +383,7 @@ export function useElementLifecycleOps({
                 .updateElement(entry.key, { zIndex: entry.zIndex, hasExplicitZIndex: true });
             }
             rollbacks.push(() => {
+              if (latestZOrder.get(entry.element) !== coalesceKey) return;
               if (revealOwnership) {
                 rollbackLayerRevealCommit(entry.element, revealOwnership);
               } else {
@@ -374,6 +432,7 @@ export function useElementLifecycleOps({
             const result = await commitDomEditPatchBatches(batches, {
               label: "Reorder layers",
               coalesceKey,
+              ...(linkedLanes?.length && { linkedLanes }),
               // Unbounded window: every key this commit records under is unique per
               // gesture (zReorderCoalesceKey's gesture seq, or the lane drag's
               // clip-lane-move:<seq>), so the fold can only merge records of the SAME

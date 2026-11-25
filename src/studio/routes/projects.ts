@@ -4,7 +4,7 @@ import { decodedUrlPath } from '@hyperframes/parsers/asset-paths';
 import { and, desc, eq, gt, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { FONT_EXT } from '../../../shared/asset-names.ts';
-import { extractIndexHeadMarkup, NON_PREVIEW_FILES } from '../../../shared/preview-impact.ts';
+import { extractIndexHeadMarkup, isNonPreviewFile } from '../../../shared/preview-impact.ts';
 import { uploadTickets } from '../../db/schema/blobs-assets.ts';
 import { jobs } from '../../db/schema/jobs.ts';
 import type { AuthContext } from '../../contracts/auth.ts';
@@ -138,7 +138,7 @@ export function computeCompositionRevisions(
         : 'workspace';
     const version = formatFileVersion(scope, file.sha256);
     byPath.set(file.path, version);
-    if (file.path !== 'index.html' && !compSet.has(file.path) && !NON_PREVIEW_FILES.has(file.path)) {
+    if (file.path !== 'index.html' && !compSet.has(file.path) && !isNonPreviewFile(file.path)) {
       sharedHash.update(file.path);
       sharedHash.update(':');
       sharedHash.update(version);
@@ -276,6 +276,8 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
     const assetMetadata: Record<
       string,
       {
+        version?: string;
+        mimeType?: string;
         duration?: number;
         width?: number;
         height?: number;
@@ -289,11 +291,12 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
       }
     > = {};
     for (const file of fileList) {
-      const meta = file.metadata;
-      if (!meta) continue;
+      const binaryInput = deps.files.textPatchWrites && !file.isText;
+      if (!file.metadata && !binaryInput) continue;
+      const meta = file.metadata ?? {};
       const previewProxy = (meta as { previewProxy?: { status?: 'ready' | 'failed' } }).previewProxy;
       let optimizationStatus: 'optimizing' | 'ready' | undefined;
-      if (file.blobScope === 'workspace') {
+      if (file.metadata && file.blobScope === 'workspace') {
         const mime = (meta.mimeType ?? file.mimeType ?? '').toLowerCase();
         const proxyTarget = classifyPreviewProxyTarget({
           mimeType: mime,
@@ -315,6 +318,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
         }
       }
       const entry: (typeof assetMetadata)[string] = {
+        ...(binaryInput && { version: formatFileVersion(file.blobScope, file.sha256), mimeType: file.mimeType }),
         ...(typeof meta.durationSec === 'number' && Number.isFinite(meta.durationSec)
           ? { duration: meta.durationSec }
           : {}),

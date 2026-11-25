@@ -15,7 +15,7 @@ import { useSdkSession, type SdkSessionHandle } from "./useSdkSession";
 import { usePlayerStore } from "../player/store/playerStore";
 import { notifyExternalFileReload } from "./externalFileReloadBus";
 import { createRemoteFileReader } from "./remoteFileReads";
-import { confirmedSource, forgetSource, rememberSource } from "../utils/confirmedTextSources";
+import { confirmedSource, forgetSource, rememberSource, trackSourceReadStream } from "../utils/confirmedTextSources";
 import { knownCompositionSource } from "../player/lib/compositionPosterSource";
 
 vi.mock("../utils/studioTelemetry", () => ({ trackStudioEvent: vi.fn() }));
@@ -259,6 +259,44 @@ describe("useSdkSession unreachable project", () => {
     }
     return { captured, HandleProbe };
   }
+
+  it("revisits a verified clip locally until any file event or stream interruption", async () => {
+    class Stream extends EventTarget { static OPEN = 1; readyState = 1; }
+    vi.stubGlobal("EventSource", Stream);
+    const stream = new Stream();
+    const project = "sdk-revisit";
+    const stop = trackSourceReadStream(project, stream as unknown as EventSource);
+    stream.dispatchEvent(new Event("open"));
+    const headers = { "X-OpenMotion-Text-Edits": "1", "X-OpenMotion-Ordered-Edits": "1" };
+    let version = "v1";
+    const read = vi.fn(async () => Response.json({ content: version, version }, { headers }));
+    vi.stubGlobal("fetch", read);
+    usePlayerStore.setState({ timelineProjectId: project, previewBooted: true });
+    openComposition.mockImplementation(async () => fakeSession());
+    const root = createRoot(document.createElement("div"));
+    function Clip({ path }: { path: string }) { useSdkSession(project, path); return null; }
+    async function open(path: string) {
+      await act(async () => root.render(<Clip path={path} />));
+      await flushAsyncEffects();
+    }
+    try {
+      await open("a.html"); await open("b.html"); await open("a.html");
+      expect(read).toHaveBeenCalledTimes(2);
+      version = "v2";
+      stream.dispatchEvent(new Event("file-change"));
+      await open("b.html");
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(openComposition.mock.calls.at(-1)?.[0]).toBe("v2");
+      stream.dispatchEvent(new Event("error"));
+      await open("a.html");
+      stream.dispatchEvent(new Event("open"));
+      await open("b.html");
+      expect(read).toHaveBeenCalledTimes(5);
+    } finally {
+      stop?.();
+      await act(async () => root.unmount());
+    }
+  });
 
   it("reuses only the active file's acknowledged source and still checks independent updates", async () => {
     const projectId = "sdk-local-save";

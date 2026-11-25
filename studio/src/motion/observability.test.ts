@@ -259,11 +259,19 @@ describe('@openmotion/observability/browser', () => {
       sessionId: 'sess-1',
       page: 'editor',
       authMode: 'oidc',
+      hostKind: 'desktop',
+      shellVersion: '0.2.1',
+      hostPlatform: 'darwin',
+      releaseChannel: 'stable',
     });
     expect(sdk.setUser).toHaveBeenCalledWith({ id: 'user-123' });
     expect(sdk.setTag).toHaveBeenCalledWith('workspace_id', 'ws-456');
     expect(sdk.setTag).toHaveBeenCalledWith('project_id', 'proj-789');
     expect(sdk.setTag).toHaveBeenCalledWith('studio_page', 'editor');
+    expect(sdk.setTag).toHaveBeenCalledWith('host_kind', 'desktop');
+    expect(sdk.setTag).toHaveBeenCalledWith('shell_version', '0.2.1');
+    expect(sdk.setTag).toHaveBeenCalledWith('host_platform', 'darwin');
+    expect(sdk.setTag).toHaveBeenCalledWith('release_channel', 'stable');
 
     // Performance metrics
     recordPerformanceMetric('openmotion.preview.first_frame_ms', 412, {

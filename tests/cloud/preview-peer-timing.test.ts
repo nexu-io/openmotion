@@ -10,11 +10,11 @@ const etag = (n: number) => '"sha256:' + sha(n) + '"';
 const root = { compositionId: 'root', tag: 'main', attributes: [['data-duration', '15', '14']] };
 const clip = { id: 'clip', tag: 'audio', attributes: [['data-start', '2', '3'], ['data-media-start', null, '1']] };
 
-function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits, smallMountedSources?: string[]) {
+function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits, smallMountedSources?: string[], independentSceneFiles?: string[], observer?: unknown) {
   const document = parseHTMLContent('<html><body><main data-composition-id="root" data-hf-authored-duration="15"><audio id="clip" data-start="2"></audio><div id="title" style="left:10px">Hello</div></main></body></html>');
   const script = document.createElement('script');
   script.setAttribute('data-openmotion-preview', JSON.stringify({
-    projectId: 'p', compositionPath: 'index.html', sourceVersions: { 'index.html': sha(1), 'scenes/intro.html': sha(3) }, studioOrigin: 'https://studio.test', canRebindTiming, liveEdits, smallMountedSources,
+    projectId: 'p', compositionPath: 'index.html', sourceVersions: { 'index.html': sha(1), 'scenes/intro.html': sha(3), 'scenes/reel.html': sha(5) }, studioOrigin: 'https://studio.test', canRebindTiming, liveEdits, smallMountedSources, independentSceneFiles,
   }));
   Object.defineProperty(document, 'currentScript', { value: script });
   const replies: { result?: unknown; type?: string; timelineVersion?: string }[] = [];
@@ -26,7 +26,8 @@ function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits, smallMoun
     __hfForceTimelineRebind: () => { hooks.push('rebind'); },
     addEventListener: (event: string, handler: typeof handle) => { if (event === 'message') handle = handler; },
   };
-  runInNewContext(PREVIEW_BRIDGE_SCRIPT, { window, document, URL, HTMLElement: document.defaultView?.HTMLElement, CSS: { escape: (s: string) => s }, crypto: { randomUUID: () => 'document-1' },
+  runInNewContext(PREVIEW_BRIDGE_SCRIPT, { window, document, URL, innerWidth: 800, innerHeight: 450, HTMLElement: document.defaultView?.HTMLElement, MutationObserver: observer ?? document.defaultView?.MutationObserver, CSS: { escape: (s: string) => s }, crypto: { randomUUID: () => 'document-1' },
+    getComputedStyle: (el: HTMLElement) => ({ position: el.style.position || 'static' }),
     setInterval() {}, location: { href: 'https://preview.test/api/projects/p/preview?pt=grant' } });
   function send(overrides: Record<string, unknown> = {}, origin = 'https://studio.test', source = parent) {
     replies.length = 0;
@@ -37,6 +38,42 @@ function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits, smallMoun
   }
   return { send, document, hooks, window, replies };
 }
+
+it('verifies consecutive peer placements against a parked scene before its next mount', () => {
+  const file = 'scenes/reel.html';
+  const leaves = ['scenes/intro.html', file];
+  let notify!: (records: { addedNodes: Element[]; removedNodes: Element[] }[]) => void;
+  class Observer {
+    constructor(callback: typeof notify) { notify = callback; }
+    observe() {}
+    disconnect() {}
+  }
+  const { document, window, send, hooks } = preview(false, { position: true }, leaves, leaves, Observer);
+  const root = document.querySelector('main')!;
+  const placeholder = document.createElement('section');
+  placeholder.setAttribute('data-hf-scene', 'reel');
+  placeholder.setAttribute('data-composition-file', file);
+  placeholder.setAttribute('data-hf-parked-scene', '');
+  root.appendChild(placeholder);
+  const markup = () => {
+    const host = placeholder.cloneNode(false) as Element;
+    host.removeAttribute('data-hf-parked-scene');
+    host.innerHTML = '<canvas id="picture" style="left:10px"></canvas>';
+    return host;
+  };
+  Object.assign(window, { __hfParkedSceneMarkup: markup });
+  const move = (base: number, version: number, from: string, to: string) => send({ type: 'peer-presentation',
+    path: file, before: etag(base), after: etag(version), changes: [{ id: 'picture', tag: 'canvas', attributes: [], styles: [['left', from, to]] }] });
+  assert.equal(move(5, 6, '10px', '20px'), true);
+  assert.equal(move(6, 7, '10px', '30px'), false);
+  assert.equal(move(6, 7, '20px', '30px'), true);
+  assert.equal(placeholder.childElementCount, 0);
+  const mounted = markup();
+  placeholder.replaceWith(mounted);
+  notify([{ addedNodes: [mounted], removedNodes: [placeholder] }]);
+  assert.equal(mounted.querySelector('canvas')!.style.left, '30px');
+  assert.deepEqual(hooks, []);
+});
 
 it('applies a complete version once, preserves the media node and rebinds at the playhead', () => {
   const { send, document, hooks } = preview();
@@ -177,6 +214,60 @@ it('updates text and placement on the same live nodes without seeking or replaci
   assert.equal(send(message), false);
 });
 
+it('confirms nested geometry and a stamped BR caption atomically, then carries both across parking', () => {
+  const path = 'scenes/intro.html';
+  for (const local of [false, true]) {
+    let notify!: (records: { addedNodes: Element[]; removedNodes: Element[] }[]) => void;
+    class Observer { constructor(cb: typeof notify) { notify = cb; } observe() {} disconnect() {} }
+    const { send, document, hooks, window } = preview(false, { position: true }, [path], [path, 'scenes/reel.html'], Observer);
+    const host = document.createElement('section');
+    host.setAttribute('data-hf-scene', 'intro');
+    host.setAttribute('data-composition-file', path);
+    host.innerHTML = '<canvas id="art" width="1200"></canvas><p data-hf-id="caption-hf" id="caption">One<br data-hf-id="hf-1234">Two</p>';
+    document.body.append(host);
+    const template = host.cloneNode(true) as HTMLElement;
+    Object.assign(window, { __hfParkedSceneMarkup: () => template.cloneNode(true) });
+    const art = host.querySelector('canvas')!, caption = host.querySelector('p')!;
+    const from = { lines: ['One', 'Two'], breaks: ['hf-1234'] }, to = '<strong>literal</strong>';
+    const geometry = { tag: 'canvas', id: 'art', attributes: [], styles: [
+      ['position', '', 'relative'], ['left', '', '16px'], ['width', '', '1100px'], ['height', '', '600px'],
+    ] };
+    const text = { tag: 'p', hfId: 'caption-hf', id: 'caption', attributes: [], text: [from, to] };
+    const m = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes: [geometry, text], localSave: local };
+    for (const invalid of [ { ...m, before: etag(1) }, { ...m, changes: [geometry, { ...text, id: 'different' }] },
+      { ...m, changes: [geometry, { ...text, text: [{...from, breaks:['hf-9999']}, to] }] },
+      { ...m, changes: [geometry, { ...text, text: [from, { lines: ['', ''], breaks:['not-a-minted-id'] }] }] } ]) {
+      assert.equal(send(invalid), false);
+      assert.equal(art.style.width || '', '');
+    }
+    assert.equal(send({ ...m, projectId: 'other' }), undefined);
+    caption.querySelector('br')!.className = 'runtime-owned';
+    assert.equal(send(m), false);
+    caption.querySelector('br')!.removeAttribute('class');
+    if (local) { art.style.width = '1100px'; caption.textContent = to; }
+    const originalText = caption.firstChild;
+    assert.equal(send(m), true);
+    assert.equal(send(m), false);
+    assert.equal(art, host.querySelector('canvas'));
+    assert.equal(art.getAttribute('width'), '1200');
+    assert.equal(caption.textContent, to);
+    assert.equal(caption.childElementCount, 0);
+    if (local) assert.equal(caption.firstChild, originalText);
+    const parked = host.cloneNode(false) as HTMLElement;
+    parked.setAttribute('data-hf-parked-scene', '');
+    host.replaceWith(parked);
+    const multiline = { lines: ['Latest', 'caption'], breaks: [null] };
+    assert.equal(send({ ...m, before: etag(4), after: etag(5), localSave: false,
+      changes: [{ ...text, text: [to, multiline] }] }), true);
+    const restored = template.cloneNode(true) as HTMLElement;
+    parked.replaceWith(restored);
+    notify([{addedNodes:[restored], removedNodes:[parked]}]);
+    assert.equal(restored.querySelector('canvas')!.style.width, '1100px');
+    assert.equal(restored.querySelector('p')!.innerHTML, 'Latest<br>caption');
+    assert.deepEqual(hooks, []);
+  }
+});
+
 it('rebinds declarative track flags and gain without replacing media or accepting unrelated attributes', () => {
   const { document, send } = preview();
   const audio = document.getElementById('clip')!;
@@ -263,6 +354,57 @@ it('only moves the existing canvas box when the project certifies a placement ch
     assert.equal(canvas.style.left || '', certified ? '32px' : '');
     assert.equal(canvas.getAttribute('width'), '1920');
     assert.equal(document.getElementById('reel'), canvas);
+    assert.deepEqual(hooks, []);
+  }
+});
+
+it('resizes a mounted media box without replacing its drawing buffer, image or decoder', () => {
+  const path = 'scenes/intro.html';
+  for (const tag of ['canvas', 'img', 'video']) {
+    const { send, document, hooks } = preview(false, undefined, [path]);
+    const host = document.querySelector('main')!;
+    host.setAttribute('data-composition-file', path);
+    const node = document.createElement(tag);
+    node.id = 'picture';
+    node.setAttribute('width', '1200');
+    host.append(node);
+    const change = { id: 'picture', tag, attributes: [], styles: [['width', '', '1100px'], ['height', '', '600px']] };
+    const message = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes: [change] };
+    assert.equal(send({ ...message, before: etag(2) }), false);
+    assert.equal(send(message), true);
+    assert.equal(document.getElementById('picture'), node);
+    assert.equal(node.getAttribute('width'), '1200');
+    assert.equal(node.style.width, '1100px');
+    assert.deepEqual(hooks, []);
+  }
+});
+
+it('a picked inline editor keeps its own leaf while a certified sibling receives its position', async () => {
+  const editing = 'scenes/intro.html', peer = 'scenes/reel.html';
+  for (const certified of [false, true]) {
+    const paths = [editing, peer];
+    const { document, send, hooks, replies } = preview(false, { position: true }, paths, certified ? paths : undefined);
+    document.querySelector('main')!.setAttribute('data-composition-file', editing);
+    const title = document.getElementById('title')!;
+    Object.defineProperty(document, 'elementFromPoint', { value: () => title });
+    send({ type: 'inline-text', phase: 'pick', editId: 'caption', x: .5, y: .5 });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal((replies[0]?.result as { sourceFile?: string })?.sourceFile, editing, JSON.stringify(replies));
+    const host = document.createElement('section');
+    host.setAttribute('data-composition-file', peer);
+    const picture = document.createElement('img'); picture.id = 'picture';
+    host.append(picture); document.body.append(host);
+    const message = { type: 'peer-presentation', path: peer, before: etag(5), after: etag(6),
+      changes: [{ tag: 'img', id: 'picture', attributes: [], styles: [['left', '', '24px']] }] };
+    assert.equal(send(message), certified);
+    assert.equal(picture.style.left || '', certified ? '24px' : '');
+    const siblingTitle = document.createElement('p');
+    siblingTitle.id = 'peer-title'; siblingTitle.textContent = 'Before'; host.append(siblingTitle);
+    assert.equal(send({ ...message, before: etag(certified ? 6 : 5), after: etag(7),
+      changes: [{ tag: 'p', id: 'peer-title', attributes: [], text: ['Before', 'After'] }] }), certified);
+    assert.equal(siblingTitle.textContent, certified ? 'After' : 'Before');
+    assert.equal(send({ ...message, path: editing, before: etag(3), changes: [{ tag: 'div', id: 'title', attributes: [], styles: [['left', '10px', '18px']] }] }), false);
+    assert.equal(title.style.left, '10px');
     assert.deepEqual(hooks, []);
   }
 });

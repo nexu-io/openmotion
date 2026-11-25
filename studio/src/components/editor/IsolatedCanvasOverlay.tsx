@@ -1,3 +1,4 @@
+import { trackStudioPendingEdit, type StudioEditScope } from "../../utils/studioPendingEdits";
 import { IsolatedCanvasContextMenu, type CanvasMenuPick } from "./IsolatedCanvasContextMenu";
 import { useIsolatedInlineText } from "./useIsolatedInlineText";
 import { isIsolatedSourceTarget, isolatedPatchTarget, isolatedSourceVersion, type IsolatedSourceTarget } from "./isolatedSourceTarget";
@@ -7,13 +8,13 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import { useDomEditActionsContext, useDomEditSelectionContext } from "../../contexts/DomEditContext";
 import { useStudioShellContext } from "../../contexts/StudioContext";
 import { useI18n } from "../../i18n/I18n";
-import { createPreviewAdapter, type PreviewAdapter } from "../../player/lib/previewAdapter";
+import { createPreviewAdapter, onPreviewDocumentLeft, type PreviewAdapter } from "../../player/lib/previewAdapter";
 import { projectPreviewAdapter } from "../../player/lib/projectPreviewAdapter";
 import { onPreviewPromoted, SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwap";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { canvasBoxOperations, type CanvasBox, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
-import { beginStudioManualEditGesture, endStudioManualEditGesture } from "./manualEditsDom";
+import { beginStudioManualEditGesture, endStudioManualEditGesture, scopeStudioManualEditGesture } from "./manualEditsDom";
 import { supportsOrderedTextEdits, supportsProjectTextEdits } from "../../utils/confirmedTextSources";
 import { watchCanvasTarget } from "./remoteCanvasTargets";
 import { saveCanvasDrag } from "./saveCanvasDrag";
@@ -24,6 +25,7 @@ interface Drag {
   batchWrites: boolean;
   optimistic: boolean;
   hold?: string;
+  scope?: StudioEditScope;
   unwatch?: () => void;
   adapter: PreviewAdapter;
   startX: number;
@@ -87,24 +89,24 @@ export function IsolatedCanvasOverlay() {
   const box = draft && draft.frame === previewIframeRef.current ? draft.bounds : domEditSelection?.isolatedBounds;
   const { state: { compositionRect } } = usePreviewOverlayContext();
   useEffect(() => {
-    function resizeBounds(event: MessageEvent) {
+    function updateBounds(event: MessageEvent) {
       const active = drag.current;
-      if (!active?.corner || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
+      if ((!active?.corner && !active?.liveResizeBounds) || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
           event.data.gestureId !== active.gestureId || !active.adapter.accepts(event)) return;
       const bounds = relativeLayerBounds(event.data);
       if (bounds) setDraft({ frame: active.adapter.iframe, bounds });
     }
-    window.addEventListener("message", resizeBounds);
-    return () => window.removeEventListener("message", resizeBounds);
+    window.addEventListener("message", updateBounds);
+    return () => window.removeEventListener("message", updateBounds);
   }, []);
   useEffect(() => {
     if (!lastPick.current) setDraft(null);
   }, [domEditSelection]);
 
   const session = useRef(0);
-  const frameLoad = useRef(0);
+  const documentGeneration = useRef(0);
   const reportUnapplied = useCallback(() => showToast(t("This canvas edit was not saved. Try again when the preview is ready."), "error"), [showToast, t]);
-  const observedFrame = useRef<HTMLIFrameElement | null>(null);
+  const observedFrame = useRef<{ frame: HTMLIFrameElement; stop(): void } | null>(null);
   const cancel = useCallback(() => {
     const active = drag.current;
     active?.unwatch?.();
@@ -118,8 +120,8 @@ export function IsolatedCanvasOverlay() {
 
   const notifyUnapplied = useRef(reportUnapplied);
   notifyUnapplied.current = reportUnapplied;
-  const handleFrameLoad = useCallback(() => {
-    frameLoad.current++;
+  const handleDocumentLeft = useCallback(() => {
+    documentGeneration.current++;
     if (drag.current?.offset) notifyUnapplied.current();
     cancel();
   }, [cancel]);
@@ -127,8 +129,8 @@ export function IsolatedCanvasOverlay() {
   useEffect(() => {
     const releaseRetired = ({ retired }: { retired: HTMLIFrameElement | null }) => {
       if (!retired) return;
-      if (observedFrame.current === retired) {
-        retired.removeEventListener("load", handleFrameLoad);
+      if (observedFrame.current?.frame === retired) {
+        observedFrame.current.stop();
         observedFrame.current = null;
       }
       if (lastPick.current?.adapter.iframe === retired) {
@@ -140,11 +142,11 @@ export function IsolatedCanvasOverlay() {
     return () => {
       session.current++;
       stopPromoted();
-      observedFrame.current?.removeEventListener("load", handleFrameLoad);
+      observedFrame.current?.stop();
       observedFrame.current = null;
       cancel();
     };
-  }, [projectId, select, writeBlockedReason, cancel, handleFrameLoad]);
+  }, [projectId, select, writeBlockedReason, cancel, handleDocumentLeft]);
 
   function showBounds(active: Drag) {
     if (!active.bounds) return;
@@ -178,10 +180,9 @@ export function IsolatedCanvasOverlay() {
       adapter.send("layer-select", { x, y });
       return;
     }
-    if (observedFrame.current !== iframe) {
-      observedFrame.current?.removeEventListener("load", handleFrameLoad);
-      observedFrame.current = iframe;
-      iframe.addEventListener("load", handleFrameLoad);
+    if (observedFrame.current?.frame !== iframe) {
+      observedFrame.current?.stop();
+      observedFrame.current = { frame: iframe, stop: onPreviewDocumentLeft(iframe, handleDocumentLeft) };
     }
     const batchWrites = !!projectId && supportsOrderedTextEdits(projectId);
     const active: Drag = {
@@ -208,6 +209,8 @@ export function IsolatedCanvasOverlay() {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
         if (active.optimistic && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
+          active.scope = { frame: iframe, paths: [pick.target.sourceFile] };
+          if (active.hold) scopeStudioManualEditGesture(iframe, active.hold, active.scope.paths);
           active.unwatch = watchCanvasTarget(iframe, pick.target, () => {
             active.unwatch?.();
             if (previewIframeRef.current !== iframe) return;
@@ -267,11 +270,11 @@ export function IsolatedCanvasOverlay() {
     let committed = false;
     let changed = false;
     const gestureSession = session.current;
-    const issuedAtLoad = frameLoad.current;
+    const issuedInDocument = documentGeneration.current;
     const wholePath = event.altKey || !usePlayerStore.getState().autoKeyframeEnabled;
-    void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
+    const finished: Promise<void> = active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
       if (gestureSession !== session.current) return;
-      if (frameLoad.current !== issuedAtLoad || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
+      if (documentGeneration.current !== issuedInDocument || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
         reportUnapplied();
         return;
       }
@@ -281,7 +284,10 @@ export function IsolatedCanvasOverlay() {
         return;
       }
       const frame = active.adapter.iframe;
-      const finalBounds = active.corner && relativeLayerBounds(result);
+      active.scope = { frame, paths: [result.sourceFile] };
+      if (active.hold) scopeStudioManualEditGesture(frame, active.hold, active.scope.paths);
+      trackStudioPendingEdit(finished, active.scope);
+      const finalBounds = (active.corner || active.liveResizeBounds) && relativeLayerBounds(result);
       if (lastPick.current === active && finalBounds) setDraft({ frame, bounds: finalBounds });
       const write = async (version?: string) => {
         const patch = positionPatch(result);
@@ -289,7 +295,9 @@ export function IsolatedCanvasOverlay() {
         // write settles cannot invalidate its target and conditional source version.
         if (gestureSession !== session.current) return;
         if (version) patch.ifMatch = version;
-        return commitDomEditPatchBatches([patch], { label: active.corner ? "Resize layer" : "Move layer", coalesceKey: active.gestureId });
+        const save = commitDomEditPatchBatches([patch], { label: active.corner ? "Resize layer" : "Move layer", coalesceKey: active.gestureId });
+        trackStudioPendingEdit(save, active.scope);
+        return save;
       };
       const saved = active.batchWrites ? await write()
         : await saveCanvasDrag(frame, result.sourceFile, active.gestureId, result.predecessor, write, active.optimistic ? isolatedSourceVersion(result) : undefined);
@@ -313,6 +321,9 @@ export function IsolatedCanvasOverlay() {
         }
       }
     });
+    // The frame owns the final geometry until measurement and persistence settle.
+    // A new pointer can start immediately, including a click that changes selection.
+    trackStudioPendingEdit(finished, active.scope);
   }
 
   function lostCapture(event: PointerEvent<HTMLDivElement>) {

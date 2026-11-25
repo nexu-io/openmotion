@@ -4,9 +4,9 @@ A Studio gesture and a remote MCP call with the same intent and base files must 
 
 | Caller | Responsibility |
 | --- | --- |
-| Studio | Show gesture feedback immediately. When the API advertises text edits and Studio has the source for the command, run the shared transformation, then submit one batch of file changes asynchronously. Keep playback, selection, zoom and clipboard reads in the browser. |
+| Studio | Show each completed edit immediately from the latest local source, including earlier unconfirmed edits. Run edit-core in the browser. On a first use, read the specific missing inputs and submit the prepared file changes through the project queue. Playback and selection stay local. |
 | Remote Agent | Discover the composition path and stable element IDs from the project. Submit an intent or explicit file contents through MCP with the observed project version. Editing must work with all browsers closed. |
-| HTTP and MCP handlers | Accept computed file changes or semantic commands. The cloud executor loads the required sources for semantic commands and runs edit-core. Both paths use the same project transaction for changes, history and notification. |
+| HTTP and MCP handlers | Browser sessions submit prepared file changes. Authenticated programmatic clients can also submit a semantic command. The cloud executor reads the inputs only for those commands. Both entry points use the same file transaction, project history and change notifications. |
 | edit-core | Own the meaning of each editing action. Given the same source, targets and command, compute the same changes in Studio and headless execution. Reuse the Hyperframes SDK and existing source, GSAP, split and caption transformations internally. Storage, network requests, DOM measurements and project history belong to callers. |
 
 ## What drives the timeline
@@ -25,7 +25,7 @@ Canvas geometry can depend on the rendered viewport. Studio can measure it as in
 
 ## Saving and collaboration
 
-1. With `TEXT_PATCH_WRITES=true`, Studio submits an `Idempotency-Key`, the file version it edited, and the versions of other inputs the command depended on. Each replacement is a tuple of UTF-8 byte offset, deleted byte count and inserted text. All offsets refer to the original file. Large rewrites can supply full contents. The service checks every input in the commit transaction. Changes to unrelated files can succeed concurrently. A stale input rejects the whole batch with HTTP 409. The legacy command endpoint retains its prior behavior while patch writes are disabled.
+1. Each completed operation has a stable ID. Send the observed file version, or a reference to a preceding edit of that file in the same packet. Guard any other file used to compute the result. UTF-8 text patches use tuples of byte offset, deleted byte count and inserted text, all relative to the same base. When patch storage is disabled, send versioned full contents through the same batch endpoint. The server validates the inputs to each operation together and reports any successful prefix before a conflict.
 2. Keep dependent writes atomic. Commit the edits with one server-generated action label and one project history step, then publish the project change via SSE. A no-op adds no undo step. Uploading media and placing that media on a timeline are distinct actions.
 3. After an uncertain response, retry the same payload with its original request ID. A conflict requires reconciling local changes against the latest source. Surface a rejected edit in Studio so the visible state and saved state agree.
 4. Undo and redo follow one durable, chronological history per project, across all editors and Agents. If Studio moves a title and an Agent then changes a caption, the first undo restores the caption and the second restores the title. SDK session history and browser state cannot determine that order. PostgreSQL records the project versions and history. File storage holds the referenced contents.
@@ -34,11 +34,17 @@ Studio groups the automatic saves from one typing burst or compound gesture into
 
 ### Reading a saved file
 
+Hosted Studio reads current source through `GET /api/projects/:id/file-source?path=…`. A browser must revalidate its private copy so it can reuse the content when the file version matches. Shared caches must bypass this route, including for filenames ending in `.svg`, `.css` and `.js`.
+
 Studio compares the complete request payload with the patch payload. A patch that exceeds the diff computation budget can still be represented as one replacement. A direct caller submitting a patch over 64 KiB receives a request to send `content` if its replacement instructions are provably at least as large as the whole file on the wire. The API makes this check using byte offsets and lengths, including an allowance for JSON escaping.
 
 A small patch creates an immutable file revision in PostgreSQL. When a second Studio receives the project's SSE event, it can request changes since its confirmed file version. A reader without a matching base can request the complete contents. The API, preview and export workers reconstruct the requested version from a complete baseline plus the following patches. When an edit reaches 32 patches or 256 KiB of serialized patches since the last scheduled or completed baseline, its transaction marks that exact file version for the media worker. The next edit starts a new counting interval. A single large patch can cross the threshold in one edit. Studio and the semantic editor choose a patch for localized changes when it saves transfer bytes and use full contents for wholesale rewrites. Saving and reopening work while the worker is stopped or building a baseline. The worker reads the base and uploads the new object outside database transactions. Short transactions protect the pending object from garbage collection and publish the completed baseline. A downloadable file uses a materialized, content-addressed blob. A file version stays valid when a new baseline is produced.
 
 Remote agents can use `openmotion_get_project` with `file.path`. The default mode reads text. Use `download` for a signed URL or `sync` with a previously observed file version for incremental updates. Pin the returned version when continuing a paged read or renewing a URL.
+
+For a host with Node, the cloud inventory advertises a versioned edit-core CLI. The host runs the same commands on versioned project inputs, then submits the resulting changes through remote MCP with its own identity. See [local edit preparation](../mcp-phase1-tools.md#openmotion_edit_project).
+
+Composition insertion depends on the edited parent and the inserted child. Saving checks those file versions. During preview compilation a reference back to a composition already being expanded on that branch is skipped silently. A sibling branch can mount the same composition normally.
 
 ## Extending and verifying an edit
 
@@ -70,7 +76,11 @@ A Studio drop submits the host composition edit and its catalog component name i
 
 ### Ordered Studio writes
 
-A file read advertising `X-OpenMotion-Ordered-Edits: 1` enables ordered text edits. Studio queues completed edits for a project in invocation order. Pointer samples paint locally. Each completed gesture retains its operation ID and file preconditions. The browser sends after 100 ms of inactivity, at capacity, or one second after the first waiting edit when the transport is available. A following batch waits for its predecessor's result. A request may contain several independent undo steps.
+See the [Studio preview and edit reconciliation plan](preview-edit-reconciliation.md) for how local gestures, save receipts and Agent edits reach the mounted player.
+
+Hosted Studio queues completed edits for a project in the order the user made them. It reserves a place before reading a missing file or waiting for an earlier save. The browser fetches only the direct inputs it needs. Binary dependencies require their file version. Pointer samples paint locally. The first change to a file in a packet carries its known version, or `null` for a new file. A later change to that file in the same packet points to the previous operation that wrote it. The transport sends after 100 ms of inactivity, at capacity, or one second after the first waiting edit when available. A following packet uses the previous receipt. The user can keep editing throughout. Each completed action retains its own operation ID and undo semantics.
+
+An edit can also read a file written by an earlier step. For example, when a user edits an SVG and immediately places it on the timeline, the placement references the SVG write in the same packet or its confirmed version in the next. A subsequent replacement of the SVG by another client produces a conflict.
 
 `POST /api/projects/:id/text-edits/batch` takes an ordered `operations` array. Each file patch needs its observed version, or `{"after":"earlier-operation-id"}` for the same file inside the batch. A compound operation affecting multiple files still commits atomically. The response identifies the successful prefix and any first rejected operation. A transport retry keeps the same payload and operation IDs. A version mismatch requires fresh validation before preparing another patch. A safe canvas replay requires the same target and evidence that the intervening change preserves its measured layout. The server never applies stale byte offsets.
 

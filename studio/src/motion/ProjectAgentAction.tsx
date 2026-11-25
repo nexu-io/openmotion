@@ -9,25 +9,28 @@ import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useIntegrationInfo } from './useIntegrationInfo';
+import { useMotionHistoryOperation } from './MotionHistoryState';
 import { useWorkspaceChrome } from './WorkspaceChromeContext';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 
 export function ProjectAgentAction() {
   const { t } = useI18n();
-  const { projectId } = useStudioShellContext();
-  const { workspace, switchingDisabled, settingsOpen } = useWorkspaceChrome();
+  const { projectId, writeBlockedReason } = useStudioShellContext();
+  const { workspace, settingsOpen } = useWorkspaceChrome();
+  const history = useMotionHistoryOperation();
   const [open, setOpen] = useState(false);
   const [hasOpened, setHasOpened] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const available = Boolean(projectId && workspace.status?.projectId === projectId && !switchingDisabled && !settingsOpen);
+  const currentProject = workspace.status?.projectId === projectId ? projectId : '';
+  const canCopy = Boolean(currentProject && !workspace.busy && !history.busy && !writeBlockedReason);
   useEffect(() => setOpen(false), [projectId, settingsOpen]);
 
-  return <Popover.Root modal={false} open={open && available} onOpenChange={next => {
+  return <Popover.Root modal={false} open={open} onOpenChange={next => {
     if (next) setHasOpened(true);
     setOpen(next);
   }}>
     <Tooltip label={t('MCP')}>
-      <Popover.Trigger render={<Button ref={trigger} className="motion-project-agent-trigger" disabled={!available}
+      <Popover.Trigger render={<Button ref={trigger} className="motion-project-agent-trigger"
         aria-label={t('MCP')}>
         {t('MCP')}
       </Button>} />
@@ -41,16 +44,17 @@ export function ProjectAgentAction() {
             <Popover.Title className="text-step-14 font-semibold text-text-1">{t('MCP')}</Popover.Title>
             <Popover.Close render={<IconButton aria-label={t('Close')} icon={<RemixIcon name="close-line" size={16} />} />} />
           </div>
-          {hasOpened && available && <ProjectAgentContent key={projectId} projectId={projectId} onClose={() => setOpen(false)} onCopyFailure={() => setOpen(true)} />}
+          {hasOpened && <ProjectAgentContent key={`${currentProject}:${canCopy}`} projectId={currentProject} canCopy={canCopy} onClose={() => setOpen(false)} onCopyFailure={() => setOpen(true)} />}
         </Popover.Popup>
       </Popover.Positioner>
     </Popover.Portal>
   </Popover.Root>;
 }
 
-function ProjectAgentContent({ projectId, onClose, onCopyFailure }: { projectId: string; onClose: () => void; onCopyFailure: () => void }) {
+function ProjectAgentContent({ projectId, canCopy, onClose, onCopyFailure }: { projectId: string; canCopy: boolean; onClose: () => void; onCopyFailure: () => void }) {
   const { t, locale } = useI18n();
-  const { workspace, beforeViewChange, openConnections } = useWorkspaceChrome();
+  const { workspace, openConnections } = useWorkspaceChrome();
+  const { waitForPendingDomEditSaves } = useStudioShellContext();
   const { info, failed, retry } = useIntegrationInfo();
   const toast = useToast();
   const [copying, setCopying] = useState(false);
@@ -61,10 +65,10 @@ function ProjectAgentContent({ projectId, onClose, onCopyFailure }: { projectId:
   const title = project?.title || workspace.status?.projectTitle || t('Untitled');
 
   async function copy() {
-    if (!info || busy.current) return;
+    if (!canCopy || !info || busy.current) return;
     busy.current = true; setCopying(true); setManualCopy('');
     try {
-      await beforeViewChange();
+      await waitForPendingDomEditSaves();
       if (!alive.current) return;
       const prompt = projectAgentPrompt(info, { id: projectId, title }, locale);
       try {
@@ -86,10 +90,10 @@ function ProjectAgentContent({ projectId, onClose, onCopyFailure }: { projectId:
 
   return <>
     <div className="flex min-w-0 flex-col gap-2 px-4 pt-1 pb-4">
-      <div className="flex min-w-0 items-center gap-2 text-step-12">
+      {projectId && <div className="flex min-w-0 items-center gap-2 text-step-12">
         <span className="shrink-0 text-text-3">{t('Current project')}</span>
         <span className="min-w-0 truncate font-medium text-text-1" title={title}>{title}</span>
-      </div>
+      </div>}
       <div className="flex flex-col items-start gap-1">
         <p className="text-step-12 leading-relaxed text-text-2">{t('Copy the instruction to another conversation to continue editing this project.')}</p>
         <Button variant="ghost" size="sm" className="-ml-1 px-1 font-normal underline underline-offset-2" onClick={() => { onClose(); openConnections('project_agent'); }}>
@@ -101,7 +105,7 @@ function ProjectAgentContent({ projectId, onClose, onCopyFailure }: { projectId:
         readOnly value={manualCopy} onFocus={event => event.currentTarget.select()} />}
     </div>
     <div className="motion-project-handoff-actions flex items-center gap-2 border-t border-border px-4 py-3">
-      <Button variant="primary" size="sm" className="motion-project-handoff-button" disabled={!info} loading={copying} onClick={() => void copy()}>
+      <Button variant="primary" size="sm" className="motion-project-handoff-button" disabled={!canCopy || !info} loading={copying} onClick={() => void copy()}>
         {t(copying ? 'Saving…' : 'Copy instruction')}
       </Button>
     </div>

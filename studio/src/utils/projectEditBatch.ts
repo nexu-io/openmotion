@@ -1,6 +1,5 @@
-import { observedSourceVersion } from "./confirmedTextSources";
-import { runOrderedProjectBarrier } from "./orderedProjectEdits";
-import { isLocalProjectEdit, tryStudioCommandPatches } from "./studioTextEdits";
+import { observedSourceVersion, supportsOrderedTextEdits } from "./confirmedTextSources";
+import { tryStudioCommandPatches } from "./studioTextEdits";
 import type { CompositionEdit, ProjectEditCommand } from "../../../packages/edit-core/commands";
 import type { StudioWriteHistory } from "./studioFileHistory";
 import { acceptFileEditReceipt } from "./rebasedFileEdit";
@@ -30,11 +29,10 @@ export async function commitStudioEditBatch(projectId: string, edits: readonly B
 export async function submitStudioCommands(projectId: string, commands: CompositionEdit[],
   versions: Record<string, string>, history?: StudioWriteHistory, attempted?: (path: string) => string | undefined) {
   if (!commands.length) throw new Error("No editing commands supplied.");
-  if (commands.every(isLocalProjectEdit)) {
-    const patched = await tryStudioCommandPatches(projectId, commands, versions, history, attempted);
-    if (patched) return patched;
-  }
-  return runOrderedProjectBarrier(projectId, () => submitSemanticCommands(projectId, commands, versions, history, attempted));
+  const patched = await tryStudioCommandPatches(projectId, commands, versions, history, attempted);
+  if (patched) return patched;
+  if (supportsOrderedTextEdits(projectId)) throw new Error("Could not prepare the project edit in Studio.");
+  return submitSemanticCommands(projectId, commands, versions, history, attempted);
 }
 
 async function submitSemanticCommands(projectId: string, commands: CompositionEdit[], versions: Record<string,string>,
@@ -74,6 +72,6 @@ async function submitSemanticCommands(projectId: string, commands: CompositionEd
       const file = await acceptFileEditReceipt(projectId, path, before, attempted?.(path), version, result);
       if (file) divergent.push(file);
     }
-    return { changedPaths, versions: result.versions, divergent };
+    return { changedPaths, versions: result.versions, divergent, observedSources: undefined };
   }));
 }

@@ -1,3 +1,4 @@
+import { observeEditAssets } from '../utils/confirmedTextSources';
 import { readEditorOpeningTree } from "../utils/editorOpeningValidation";
 import { buildProjectApiPath } from "../utils/projectRouting";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
@@ -34,6 +35,8 @@ export interface PendingExternalImport {
 }
 
 export interface AssetMetadataSummary {
+  version?: string;
+  mimeType?: string;
   duration?: number;
   width?: number;
   height?: number;
@@ -169,6 +172,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         if (typeof data.revision === "string") {
           setCachedProjectRevision(projectId, data.revision, data.compositionRevisions);
         }
+        observeEditAssets(projectId, data.assetMetadata);
         const nextEntry: FetchedFileTree = {
           projectId,
           loaded: true,
@@ -245,6 +249,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     if (options && projectIdRef.current !== pid) throw new Error('Active project changed during asset refresh');
     if (data.files && !controller.signal.aborted && projectIdRef.current === pid && requestId >= appliedRequestRef.current) {
       appliedRequestRef.current = requestId;
+      observeEditAssets(pid, data.assetMetadata);
       if (typeof data.dir === "string" && data.dir.startsWith("/virtual/")) {
         setCachedCloudDisklessMode(true);
       }

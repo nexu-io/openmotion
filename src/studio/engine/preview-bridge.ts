@@ -14,6 +14,8 @@ import { PREVIEW_PEER_TIMING } from './preview-peer-timing.ts';
 import type { PreviewLiveEdits } from '../../../shared/preview-timing.ts';
 import { PREVIEW_THUMBNAIL_CAPTURE } from './preview-thumbnail-capture.ts';
 import { PREVIEW_BROWSER_EXPORT } from './preview-browser-export.ts';
+import { canvasFrameTransform } from '../../../packages/edit-core/composition-canvas.ts';
+import { paintCanvasFraming } from '../../../shared/preview-canvas-framing.ts';
 
 function scopedScript(configuration: string, body: string): string {
   return `(function(){
@@ -56,6 +58,8 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   var settings=JSON.parse(document.currentScript.getAttribute('data-openmotion-preview'));
   var projectId=settings.projectId, compositionPath=settings.compositionPath, sourceVersions=settings.sourceVersions;`, `
   ${PREVIEW_SOURCE_IDENTITY}
+  const paintCanvasFraming = ${paintCanvasFraming.toString()};
+  const canvasFrameTransform = ${canvasFrameTransform.toString()};
   var pickMode=false, picked=null;
   var isCaptureMode=new globalThis.URL(location.href).searchParams.get('capture')==='1';
   var durationBootAnnounced=false;
@@ -203,7 +207,7 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   function ready(){
     var paths=[compositionPath].concat(settings.smallMountedSources||[]);
     var mountedVersions=Object.fromEntries(paths.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}).filter(function(entry){return typeof entry[1]==='string';}));
-    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:Object.assign({presentation:true},settings.liveEdits),mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
+    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:Object.assign({presentation:true},settings.liveEdits),mountedVersions:mountedVersions,htmlSources:settings.htmlSources,independentSceneFiles:settings.independentSceneFiles,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
     var state=timeline(true);
     if(state.duration>0){
       durationBootAnnounced=true;
@@ -312,7 +316,13 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='canvas-framing'){
         var canvas=document.querySelector('[data-composition-id]');
-        respond(requestId,canvas?{sourceFile:compositionPath,fit:canvas.getAttribute('data-canvas-fit')==='cover'?'cover':'contain'}:null); return;
+        if(message.draft){
+          if(settings.studioOrigin!==event.origin || message.path!==compositionPath) return;
+          var size=paintCanvasFraming(document,message.draft,canvasFrameTransform);
+          if(size) post('canvas-framing',size);
+          return;
+        }
+        respond(requestId,canvas?{sourceFile:compositionPath,width:Number(canvas.getAttribute('data-width')),height:Number(canvas.getAttribute('data-height')),fit:canvas.getAttribute('data-canvas-fit')==='cover'?'cover':'contain'}:null); return;
       }
       if(message.type==='inspect-element'){ respond(requestId,inspectPreviewElement(message)); return; }
       if(message.type==='inspector-styles'){
@@ -329,12 +339,12 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='canvas-drag'){
         var result=sceneCanvasDrag(message);
-        if(message.phase==='move' && drag?.corner && drag.id===message.gestureId && !drag.boundsScheduled){
+        if(message.phase==='move' && (drag?.corner || drag?.axes?.projection) && drag.id===message.gestureId && !drag.boundsScheduled){
           const active=drag;
           active.boundsScheduled=true;
           requestAnimationFrame(function(){
             active.boundsScheduled=false;
-            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...resizeFrameBounds(active.element)});
+            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...canvasFrameBounds(active.element)});
           });
         }
         if(message.phase==='start'){
@@ -380,6 +390,11 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   },true);
   window.addEventListener('error',function(event){ post('runtime-error',{message:String(event.message||'Preview runtime error'),filename:event.filename||null,line:event.lineno||null}); });
   window.addEventListener('unhandledrejection',function(event){ post('runtime-error',{message:String(event.reason&&event.reason.message||event.reason||'Unhandled preview rejection')}); });
+  if(styleDocumentId){
+    post('preview-document',{id:styleDocumentId});
+    window.addEventListener('pagehide',function(){ post('preview-document',{id:styleDocumentId,leaving:true}); });
+    window.addEventListener('pageshow',function(event){ if(event.persisted) post('preview-document',{id:styleDocumentId}); });
+  }
   window.addEventListener('load',ready);
   document.addEventListener('DOMContentLoaded',announceDurationIfReady);
   if(isCaptureMode) loadSnapdom().catch(function(){});
@@ -421,11 +436,11 @@ function htmlAttribute(value: string): string {
 }
 
 export function bridgeDocumentTags(origin: string, projectId: string, compositionPath: string, sourceVersions: Record<string, string>, options: {
-  studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; liveEdits?: PreviewLiveEdits; smallMountedSources?: string[];
+  studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; liveEdits?: PreviewLiveEdits; smallMountedSources?: string[]; independentSceneFiles?: string[];
 } = {}) {
-  const { studioOrigin, canRebindTiming, htmlSources, liveEdits, smallMountedSources } = options;
+  const { studioOrigin, canRebindTiming, htmlSources, liveEdits, smallMountedSources, independentSceneFiles } = options;
   const src = new URL(PREVIEW_BRIDGE_ASSET, origin);
-  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, smallMountedSources, ...(canRebindTiming && { canRebindTiming }) }));
+  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, smallMountedSources, independentSceneFiles, ...(canRebindTiming && { canRebindTiming }) }));
   // A pod from before this route existed may still serve an asset request
   // during rollout. Reuse the player's bounded preview retry if loading fails.
   const retry = htmlAttribute(previewBuildBusyScript(projectId, 1));

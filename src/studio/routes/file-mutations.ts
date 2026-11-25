@@ -1,7 +1,6 @@
 import { applyCanvasCommand, patchCanvasElement } from '../../../packages/edit-core/canvas-commands.ts';
 import { groupCanvasElements } from '../../../packages/edit-core/canvas-source.ts';
 import type { CanvasBox, MeasuredCanvasPosition } from '../../../packages/edit-core/canvas-box.ts';
-import { readCompositionDependencies } from '../engine/composition-dependencies.ts';
 import { randomUUID } from 'node:crypto';
 import { stampHfIdsInPlace } from '@hyperframes/parsers/hf-ids';
 import { and, eq } from 'drizzle-orm';
@@ -14,6 +13,7 @@ import {
   studioWriteHistory,
   extractWildcardPath,
   getAuthContext,
+  getSemanticEditAuth,
   type DisklessStudioDeps,
   type StudioVariables,
 } from '../context.ts';
@@ -58,7 +58,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/patch-element/* — Patch a single DOM element in HTML.
   app.post('/api/projects/:id/file-mutations/patch-element/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/patch-element/');
     const body = (await c.req.json().catch(() => null)) as {
@@ -149,7 +149,7 @@ export function createStudioFileMutationsRoutes(
   // POST /api/projects/:id/file-mutations/patch-element-batches — Multi-file atomic DOM patch batch.
   // Exact shape expected by studio/src/components/inspector/useDomEditCommitsHelpers.ts.
   app.post('/api/projects/:id/file-mutations/patch-element-batches', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const body = (await c.req.json().catch(() => null)) as {
       batches?: Array<{
@@ -300,7 +300,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/patch-elements-batch/* — Multi-edit single-file patch.
   app.post('/api/projects/:id/file-mutations/patch-elements-batch/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/patch-elements-batch/');
     const body = (await c.req.json().catch(() => null)) as {
@@ -369,7 +369,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/remove-element/* — Remove a single element.
   app.post('/api/projects/:id/file-mutations/remove-element/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/remove-element/');
     const body = (await c.req.json().catch(() => null)) as { target?: SourceMutationTarget } | null;
@@ -411,7 +411,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/remove-elements/* — Remove multiple elements atomically.
   app.post('/api/projects/:id/file-mutations/remove-elements/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/remove-elements/');
     const body = (await c.req.json().catch(() => null)) as { targets?: SourceMutationTarget[] } | null;
@@ -458,7 +458,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/split-element/* — Split a single element at `splitTime`.
   app.post('/api/projects/:id/file-mutations/split-element/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/split-element/');
     const body = (await c.req.json().catch(() => null)) as {
@@ -528,7 +528,7 @@ export function createStudioFileMutationsRoutes(
   // POST /api/projects/:id/file-mutations/split-batch — Atomic multi-file razor split transaction.
   // Exact shape checked by studio/src/utils/razorSplitTransaction.ts.
   app.post('/api/projects/:id/file-mutations/split-batch', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const body = (await c.req.json().catch(() => null)) as {
       files?: Array<{ path: string; expectedVersion?: string; targets?: AtomicCutTarget[]; cuts?: AtomicCutTarget[] }>;
@@ -628,7 +628,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/wrap-elements/* — Group elements into a wrapper container.
   app.post('/api/projects/:id/file-mutations/wrap-elements/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/wrap-elements/');
     const body = (await c.req.json().catch(() => null)) as {
@@ -682,7 +682,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/unwrap-elements/* — Ungroup + bake group transforms + clean GSAP.
   app.post('/api/projects/:id/file-mutations/unwrap-elements/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/unwrap-elements/');
     const body = (await c.req.json().catch(() => null)) as {
@@ -756,7 +756,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/duplicate-element/* — Clone element & GSAP animations.
   app.post('/api/projects/:id/file-mutations/duplicate-element/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/duplicate-element/');
     const body = (await c.req.json().catch(() => null)) as {
@@ -815,7 +815,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/insert-composition/* — Insert a sub-composition host into parent HTML.
   app.post('/api/projects/:id/file-mutations/insert-composition/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/insert-composition/');
     const body = (await c.req.json().catch(() => null)) as {
@@ -841,12 +841,13 @@ export function createStudioFileMutationsRoutes(
     if (at !== undefined && (!at || !Number.isFinite(at.left) || !Number.isFinite(at.top))) {
       return c.json({ error: 'Invalid canvas position' }, 400);
     }
-    const graph = await readCompositionDependencies(filePath, childPath, path => deps.files.readTextFile(auth, projectId, path));
+    const child = childPath === filePath ? parentFile : await deps.files.readTextFile(auth, projectId, childPath);
+    if (!child) return c.json({ error: 'Child composition not found' }, 404);
     const inserted = insertCompositionInMemory({
       targetPath: filePath,
       canvasPosition: at,
       parentSource: parentFile.content,
-      childSource: graph.file.content,
+      childSource: child.content,
       sourcePath: childPath,
       start: typeof body.start === 'number' ? body.start : 0,
       desiredTrack: typeof body.track === 'number' ? body.track : 0,
@@ -860,7 +861,7 @@ export function createStudioFileMutationsRoutes(
     const committed = await deps.files.commitChanges(auth, {
       projectId,
       ops: [{ op: 'upsert_text', path: filePath, content: after }],
-      filePreconditions: [{ path: filePath, ifMatch: parentFile.version }, ...graph.preconditions],
+      filePreconditions: [{ path: filePath, ifMatch: parentFile.version }, ...(childPath === filePath ? [] : [{ path: childPath, ifMatch: child.version }])],
       source: 'studio',
       ...studioWriteHistory(c.req.raw.headers, `Inserted composition ${childPath}`),
       writeToken,
@@ -883,7 +884,7 @@ export function createStudioFileMutationsRoutes(
 
   // POST /api/projects/:id/file-mutations/relink-split-halves/* — Relink right-half split elements.
   app.post('/api/projects/:id/file-mutations/relink-split-halves/*', async (c) => {
-    const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
+    const auth = await getSemanticEditAuth(c, deps);
     const projectId = c.req.param('id');
     const filePath = readTargetPath(c.req.url, '/file-mutations/relink-split-halves/');
     const body = (await c.req.json().catch(() => null)) as { rightHalfIds?: string[] } | null;

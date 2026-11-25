@@ -13,7 +13,7 @@ import { DURATION_PRESETS, SFX_DURATION_PRESETS, SPEED_PRESETS, parseVoiceChoice
 import type { SoundLiveTabId } from './soundTabs';
 import { voicePreviewTrackId, type VoicePreviewController } from './voicePreviews';
 
-const PRIMARY_AUDIO_KEYS = new Set(['voice', 'speed', 'duration', 'duration_seconds', 'instrumental', 'vocal_gender', 'loop']);
+const PRIMARY_AUDIO_KEYS = new Set(['voice', 'speed', 'duration', 'duration_seconds', 'music_length_ms', 'instrumental', 'vocal_gender', 'loop']);
 
 function resolveParameterState(model: Model, draft: ParameterDraft) {
   let extra: Record<string, unknown> = {};
@@ -285,7 +285,8 @@ export function SoundParameters({
 
   const renderDurationField = (field: GenerationOption) => {
     const current = valueOf(field);
-    const currentNum = typeof current === 'number' ? current : undefined;
+    const unit = field.key === 'music_length_ms' ? 1000 : 1;
+    const currentNum = typeof current === 'number' ? current / unit : undefined;
     const presets = tabId === 'sfx' || field.key === 'duration_seconds' ? SFX_DURATION_PRESETS : DURATION_PRESETS;
     return (
       <div className="om-sound-param-field" key={field.key}>
@@ -315,7 +316,7 @@ export function SoundParameters({
                 className="om-sound-pill"
                 aria-pressed={currentNum === seconds}
                 disabled={disabled}
-                onClick={() => setField(field, seconds)}
+                onClick={() => setField(field, seconds * unit)}
               >
                 {seconds}s
               </Button>
@@ -326,13 +327,13 @@ export function SoundParameters({
               id={`${idPrefix}-${field.key}`}
               aria-label={t('Custom duration (seconds)')}
               type="number"
-              min={field.min ?? 1}
-              max={field.max}
-              step={field.step ?? 1}
+              min={(field.min ?? unit) / unit}
+              max={field.max === undefined ? undefined : field.max / unit}
+              step={(field.step ?? unit) / unit}
               disabled={disabled}
               placeholder="--"
               value={currentNum ?? ''}
-              onChange={event => setField(field, event.target.value === '' ? undefined : Number(event.target.value))}
+              onChange={event => setField(field, event.target.value === '' ? undefined : Number(event.target.value) * unit)}
             />
             <span className="om-eyebrow" aria-hidden="true">s</span>
           </label>
@@ -466,7 +467,7 @@ export function SoundParameters({
     <section className="om-sound-block om-sound-param-card" aria-label={t('Audio settings')}>
       {primaryFields.map(field => {
         if (field.key === 'voice') return renderVoiceField(field);
-        if (field.key === 'duration' || field.key === 'duration_seconds') return renderDurationField(field);
+        if (field.key === 'duration' || field.key === 'duration_seconds' || field.key === 'music_length_ms') return renderDurationField(field);
         if (field.key === 'speed') return renderSpeedField(field);
         if (field.kind === 'boolean') return renderBooleanField(field);
         if (field.kind === 'choice') return renderChoiceField(field);

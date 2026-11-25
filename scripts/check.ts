@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { releaseProfile } from '../shared/mcp-registry.ts';
 import { checkDesign } from './design-check.ts';
 import { checkI18n } from './check-i18n.ts';
+import { checkLayout } from './check-layout.ts';
 import { checkRouting } from './check-routing.ts';
 import { getWorkflow, markdownAnchors, workflowLinkAnchors, workflowRegistry, phase1WorkflowNames } from '../shared/workflow.ts';
 
@@ -102,6 +103,7 @@ export async function check() {
   await checkI18n();
   await checkRouting();
   await checkDesign();
-  console.log('Plugin manifest, marketplace, skill, i18n, routing and TypeScript syntax checks passed.');
+  await checkLayout();
+  console.log('Plugin manifest, marketplace, skill, i18n, routing, layout and TypeScript syntax checks passed.');
 }
 if (isMain(import.meta.url)) await check();

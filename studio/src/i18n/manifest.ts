@@ -45,6 +45,7 @@ export const I18N_EXTENSION_SOURCES: readonly I18nExtensionSource[] = [
   { kind: 'multi-locale-json', path: 'studio/src/i18n/template-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/template-search-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/settings-ui.json' },
+  { kind: 'multi-locale-json', path: 'studio/src/i18n/auth-recovery-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/mcp-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/assets-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/skills-ui.json' },
@@ -59,6 +60,7 @@ export const I18N_EXTENSION_SOURCES: readonly I18nExtensionSource[] = [
   { kind: 'multi-locale-json', path: 'studio/src/i18n/fullscreen-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/timeline-hover-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/editor-loading-ui.json' },
+  { kind: 'multi-locale-json', path: 'studio/src/i18n/mobile-editor-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/model-hub-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/design-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/design-editor-ui.json' },
@@ -66,6 +68,7 @@ export const I18N_EXTENSION_SOURCES: readonly I18nExtensionSource[] = [
   { kind: 'multi-locale-json', path: 'studio/src/i18n/audio-nav-menu-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/game-studio-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/campaign-ui.json' },
+  { kind: 'multi-locale-json', path: 'studio/src/i18n/entitlement-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/scenario-ui.json' },
   { kind: 'multi-locale-json', path: 'shared/scenario-media-titles.json' },
 ];

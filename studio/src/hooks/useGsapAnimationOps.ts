@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import {
   serializeStudioFileMutation,
   type StudioProjectFileWriter,
@@ -127,8 +128,10 @@ export function useGsapAnimationOps({
       let selector = address.selector;
 
       const label = `Add GSAP ${method} animation`;
-      const history = autoId ? cloudHistoryForWrite(writeProjectFile, { label }) : undefined;
-      if (autoId) {
+      // A new id must stay unique across compositions that are later inlined together.
+      const hostedId = autoId && getCachedCloudDisklessMode() ? `${autoId}-${crypto.randomUUID()}` : undefined;
+      const history = autoId && !hostedId ? cloudHistoryForWrite(writeProjectFile, { label }) : undefined;
+      if (autoId && !hostedId) {
         const pid = projectIdRef.current;
         if (!pid) return;
         const targetPath = selection.sourceFile || activeCompPath || "index.html";
@@ -193,7 +196,7 @@ export function useGsapAnimationOps({
           properties: toDefaults[method] ?? { opacity: 1 },
           fromProperties: method === "fromTo" ? { opacity: 0 } : undefined,
         },
-        { label, softReload: true, ...(history && { history }) },
+        { label, softReload: true, ...(history && { history }), ...(hostedId && { ensureTargetId: hostedId }) },
       );
     },
     [

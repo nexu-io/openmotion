@@ -56,12 +56,13 @@ data:
   OPENDESIGN_LINK_URL: "https://amr-link.open-design.ai"
   OPENDESIGN_CONSOLE_URL: "https://open-design.ai/cloud"
   OPENDESIGN_ASR_URL: ""
-  OPENDESIGN_BILLING_SYNC_ENABLED: "false"
+  OPENDESIGN_BILLING_SYNC_ENABLED: "true"
   ALLOW_DOH_FAKEIP_FALLBACK: "false"
 
   # Worker concurrency, history coalescing & CAS GC tuning (7-day Mark-and-Sweep grace)
   MEDIA_CONCURRENCY: "20"
   RENDER_CONCURRENCY: "1"
+  RENDER_CAPTURE_WORKERS: "auto"
   BLOB_GC_GRACE_SECONDS: "604800"
   HISTORY_COALESCE_WINDOW_MS: "4000"
 

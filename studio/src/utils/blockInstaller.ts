@@ -20,6 +20,7 @@ import { studioApiFetch } from "./studioApiFetch";
 import { DEFAULT_COMPOSITION_DURATION_SECONDS, MIN_TIMELINE_CLIP_DURATION_SECONDS } from "../../../packages/edit-core/time-bounds";
 import { cachedMotionComponent } from "../hooks/useBlockCatalog";
 import { placeCatalogComponent } from "./studioTextEdits";
+import { supportsOrderedTextEdits } from "./confirmedTextSources";
 import { roundToCenti } from "./rounding";
 
 function getMaxZIndexFromIframe(iframe: HTMLIFrameElement | null): number {
@@ -143,6 +144,7 @@ function resolveBlockPlacement({
 
 function buildSubCompositionHtml({
   id,
+  hfId,
   compositionFile,
   start,
   duration,
@@ -154,6 +156,7 @@ function buildSubCompositionHtml({
   zIndex,
 }: {
   id: string;
+  hfId: string;
   compositionFile: string;
   start: number;
   duration: number;
@@ -167,7 +170,7 @@ function buildSubCompositionHtml({
   return [
     `<div`,
     `  id="${id}"`,
-    `  data-hf-id="hf-${generateId()}"`,
+    `  data-hf-id="${hfId}"`,
     `  data-composition-id="${id}"`,
     `  data-composition-src="${compositionFile}"`,
     `  data-start="${formatTimelineAttributeNumber(start)}"`,
@@ -220,6 +223,7 @@ export async function addBlockToProject(
     let track = initialTrack;
     let zIndex = getMaxZIndexFromIframe(opts.previewIframe ?? null) + 1;
     let hostId = "";
+    const hfId = `hf-${generateId()}`;
     const insertHost = (originalContent: string) => {
       const { width, height } = resolveTimelineAssetCompositionSize(originalContent);
       hostId = buildUniqueCompositionId(block.name, collectHtmlIds(originalContent));
@@ -237,7 +241,7 @@ export async function addBlockToProject(
         track = resolved.track;
       }
       const subComposition = buildSubCompositionHtml({
-        id: hostId,
+        id: hostId, hfId,
         compositionFile: resolveTimelineAssetSrc(targetPath, compositionFile),
         start,
         duration,
@@ -255,8 +259,9 @@ export async function addBlockToProject(
     };
     const label = `Add ${isBlock ? "block" : "component"}: ${block.title}`;
     if (card) {
-      await serializeStudioFileMutation(writeProjectFile, targetPath, () =>
-        placeCatalogComponent(projectId, targetPath, blockName, label, insertHost));
+      const place = () => placeCatalogComponent(projectId, targetPath, blockName, label, insertHost);
+      if (supportsOrderedTextEdits(projectId)) await place();
+      else await serializeStudioFileMutation(writeProjectFile, targetPath, place);
     } else {
       await saveProjectFilesWithHistory({
         projectId, label, files: { [targetPath]: insertHost }, readFile: readProjectFile,

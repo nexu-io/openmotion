@@ -189,6 +189,12 @@ For sync, use the complete local bytes of the same path and version. When `file.
 
 ### openmotion_edit_project
 
+A project inventory can include `localEditCli.url` and its SHA-256 digest. The matching Node CLI is available when patch writes are enabled. Download it once per digest, verify the downloaded bytes, then run `node openmotion-edit.cjs` with JSON on stdin. A host with only remote MCP can continue to send `edit` directly.
+
+1. Supply `{"edit": ...}` to list the required paths. Use `openmotion_get_project` to read the listed text files at the inventory’s `currentVersionId`. Assemble all pages at one fileVersion. Audio and video inputs need only their inventory record.
+2. Supply the same edit plus a `files` array. A text input contains `path`, `fileVersion`, and complete `content`. A binary input contains `path`, `fileVersion`, `mimeType`, and `isText: false`. An optional beat grid absent from that inventory uses `{"path":"beats/music.mp3.json","fileVersion":null}`.
+3. Send the returned `textEdits` to `openmotion_edit_project` with `projectId`, the inventory’s `expectedRevision` (its `revision`), `expectedVersionId` (its `currentVersionId`), and one stable `requestId`. A `changed: false` result completes locally. Retry an interrupted submission with identical arguments. If an input changed, read it again and prepare a new edit with a new request ID.
+
 所有写入都需要 projectId、requestId、expectedRevision 和 expectedVersionId。批量保存文本时传 files=[{path,content}]，可附 requirements 和 summary。只保存宿主已生成的文本，不启动第二个创作 Agent。requirements 存在工程受版本管理的元数据中，与文件一起提交。
 
 返回 projectId、version、revision、changed、changedFiles、previewSync。无内容变化返回 changed=false，不造空版本。Studio 已打开时返回 file_watcher_notified，这不是已观测到每个画面刷新完成的证明。路径/类型/体积/并发失败时拒绝或回滚整批；恢复冲突保留现场并阻塞覆盖。

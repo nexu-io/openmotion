@@ -190,3 +190,33 @@ find studio/build -type f -name '*.map' -delete
    - Matching `.js.map` files contain `"debugId":"<uuid>"`.
 4. **End-to-end Sentry check (staging)**:
    - Open Studio, trigger a controlled uncaught error in browser DevTools (`setTimeout(() => { throw new Error('sentry-smoke-check'); }, 0)`), and verify the event arrives in Sentry with deobfuscated TypeScript stack frames and sanitized URLs.
+
+---
+
+## 7. Desktop Shell Reporting
+
+The Electron shell reports main-process errors, renderer process exits and native crashes on its own, because the Studio page and its Web reporting are unavailable exactly when the shell fails to load it. The reporter lives in [`desktop/src/sentry.ts`](../desktop/src/sentry.ts) and has no SDK dependency.
+
+- **Separate project**: use an **Electron** Sentry project distinct from the Web project. Events carry `release` (`openmotion-desktop@<version>`), `environment` (`production` for the `stable` channel, otherwise the channel name), `user.id` (the random per-install UUID while sharing is enabled), standard `contexts` (`os`, `runtime` Electron, `node`, `chrome`, `device`, `app`), bounded main-process `breadcrumbs` (max 50), and the `host_kind`, `release_channel`, `host_platform`, `host_arch` and `shell_version` tags.
+- **Native crashes (all processes)**: `crashReporter.start` passes Sentry-formatted minidump annotations via `globalExtra` (`sentry[release]`, `sentry[environment]`, `sentry[user][id]`, `sentry[tags][*]`, `sentry[contexts][*]`) so main, renderer, GPU and utility process minidumps all carry release, environment, user and runtime metadata.
+- **Shell performance transactions**: cold startup (`desktop.startup` with `electron.ready`, `window.create`, `studio.dom_ready`, `studio.did_finish_load`, `studio.load` spans and `app_cold_start` measurement) as well as `desktop.auth.handoff`, `desktop.updater.*` and `desktop.signed_config.refresh` are sent as Sentry `transaction` envelopes (subject to the same opt-out, rate limit and offline outbox).
+- **SourceMaps & Debug IDs**: `desktop/scripts/build.mjs` builds `dist/main.mjs` and `dist/preload.cjs` with `sourcemap: 'external'` and embeds deterministic TC39/Sentry Debug IDs into both the bundles and `.map` files. `electron-builder.yml` excludes `dist/**/*.map` from shipped archives, `sentry.ts` normalizes bundled stack frames to `app:///dist/...` with `debug_meta.images`, and `desktop-release.yml` uploads the maps via `sentry-cli sourcemaps upload` when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_DESKTOP_PROJECT` are configured.
+- **Build-time DSN**: [`desktop/scripts/build.mjs`](../desktop/scripts/build.mjs) validates `SENTRY_DESKTOP_DSN` and embeds it into `dist/main.mjs`. The preload bundle and renderer windows never receive it. Without the variable the shell builds with reporting off.
+- **Release gate**: `desktop-release.yml` passes the `SENTRY_DESKTOP_DSN` repository secret and sets `OPENMOTION_DESKTOP_REQUIRE_SENTRY_DSN=1`, so a release build fails instead of shipping without reporting when the secret is missing or malformed.
+- **Runtime override**: `SENTRY_DESKTOP_DSN` in the process environment takes precedence over the embedded value, for local development and ingest mocks.
+- **User control**: reporting follows the same **Share usage data** preference as desktop telemetry. The shell persists it and applies it before Studio loads, so a startup failure never reports for a user who turned sharing off; changing it mid-session also switches native crash dump upload. `DO_NOT_TRACK=1` and `OPENMOTION_TELEMETRY=0` disable reporting regardless of the preference.
+- **Network path**: once the app is ready, envelopes go through Chromium's network stack and follow the system proxy.
+- **Outbox**: an event that cannot be delivered (no network, `5xx`, `429`) is kept in `telemetry/sentry-outbox.json` under the data directory and sent on the next launch or once Studio loads. It holds at most 20 events for 7 days, is erased when the user turns sharing off, and drops what ingest rejects. A delayed event keeps the time the failure happened.
+- **Load failures**: every path to the retry page reports `Studio load failed: <code>` with a `connectivity` tag. The shell probes the release bucket to tell `offline` (the user's network; reported as a warning) from `studio_unreachable` (the service; reported as an error). Alert on the latter only.
+- **Reference on the retry page**: the retry page shows `Ref: XXXX-XXXX`; the same value is the `incident_id` tag on the event, so a user screenshot leads straight to the report.
+- **Release health**: each launch is one Sentry session, so the release page shows adoption and crash-free rates per version. How a launch ended is reported at the next launch: `exited` after a normal quit, `crashed` when a renderer crashed or a crash dump was left behind, `abnormal` when the process disappeared without either. Sessions are grouped into users by a random install id kept in `telemetry/install-id`; it is created only while sharing is on and deleted when it is turned off.
+- **Other signals**: `Previous session ended without a clean exit` (the last launch crashed or was killed), `Child process gone: <type>` (GPU or utility process) and `Host bridge call denied: <code>` (the loaded page holds the bridge but the guard refuses it, for example after a Studio origin change).
+
+Verify a local build against a real project:
+
+```bash
+SENTRY_DESKTOP_DSN=https://<public-key>@<sentry-host>/<project-id> npm --prefix desktop run build
+grep -c '<sentry-host>' desktop/dist/main.mjs      # 1: embedded in the main bundle
+grep -c '<sentry-host>' desktop/dist/preload.cjs   # 0: never in the preload bundle
+```
+

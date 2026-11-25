@@ -1,0 +1,826 @@
+name: Desktop Release Packages
+
+run-name: Desktop Release (${{ github.event_name == 'push' && 'test · auto' || format('{0} · {1}', inputs.channel, inputs.publish && 'publish' || 'dry-run') }})
+
+on:
+  push:
+    branches:
+      - desktop-test
+    paths:
+      - 'desktop/**'
+      - 'shared/desktop-*.ts'
+      - 'shared/platform-host.ts'
+      - 'shared/signed-config.ts'
+      - 'shared/engine-command-contract.ts'
+      - 'packages/design-system/brand/**'
+      - 'packages/local-atoms/**'
+      - 'packages/observability/**'
+      - 'packages/signed-config/**'
+      - '.github/workflows/desktop-release.yml'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Desktop release channel (test or stable; stable requires main branch)
+        required: true
+        type: choice
+        default: test
+        options:
+          - test
+          - stable
+      publish:
+        description: Upload packaged installers directly to releases.open-design.ai object storage
+        required: false
+        type: boolean
+        default: false
+      sign:
+        description: Sign macOS installers (always enabled when publish=true; disable for faster unsigned dry runs)
+        required: false
+        type: boolean
+        default: true
+      notarize:
+        description: Notarize signed macOS installers via Apple notarytool (always enabled on stable publish; disable on test for ~60s signed-only fast lane)
+        required: false
+        type: boolean
+        default: true
+      include_mac_x64:
+        description: Also build macOS Intel x64 on test channel (always enabled on stable; disabled by default on test for faster builds)
+        required: false
+        type: boolean
+        default: false
+
+      release_notes:
+        description: Optional custom release notes bullets (overrides automatic commit grouping)
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.event_name == 'push' && 'test-publish' || format('{0}-{1}', inputs.channel, inputs.publish && 'publish' || 'dry-run') }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Resolve Release Context & Matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      channel: ${{ steps.release.outputs.channel }}
+      publish: ${{ steps.release.outputs.publish }}
+      sign: ${{ steps.release.outputs.sign }}
+      notarize: ${{ steps.release.outputs.notarize }}
+      include_mac_x64: ${{ steps.release.outputs.include_mac_x64 }}
+      matrix: ${{ steps.release.outputs.matrix }}
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+      build_version: ${{ steps.version.outputs.build_version }}
+    steps:
+      - name: Enforce branch and channel release guard
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVENT_NAME="${{ github.event_name }}"
+          REF="${{ github.ref }}"
+
+          if [ "${EVENT_NAME}" = "push" ]; then
+            if [ "${REF}" != "refs/heads/desktop-test" ]; then
+              echo "::error::Automatic desktop push releases are restricted to refs/heads/desktop-test (got ${REF})."
+              exit 1
+            fi
+            CHANNEL="test"
+            PUBLISH="true"
+            SIGN="true"
+            NOTARIZE="true"
+            INCLUDE_MAC_X64="false"
+          else
+            CHANNEL="${{ inputs.channel }}"
+            PUBLISH="${{ inputs.publish }}"
+            SIGN="${{ inputs.sign }}"
+            NOTARIZE="${{ inputs.notarize }}"
+            INCLUDE_MAC_X64="${{ inputs.include_mac_x64 }}"
+            if [ "${CHANNEL}" = "stable" ] && [ "${REF}" != "refs/heads/main" ]; then
+              echo "::error::Desktop stable releases are restricted to refs/heads/main (got ${REF})."
+              exit 1
+            fi
+            if [ "${CHANNEL}" = "test" ] && [ "${REF}" != "refs/heads/main" ] && [ "${REF}" != "refs/heads/desktop-test" ]; then
+              echo "::error::Desktop test releases are restricted to refs/heads/main or refs/heads/desktop-test (got ${REF})."
+              exit 1
+            fi
+            if [ "${CHANNEL}" = "stable" ]; then
+              INCLUDE_MAC_X64="true"
+            fi
+            if [ "${PUBLISH}" = "true" ]; then
+              SIGN="true"
+              if [ "${CHANNEL}" = "stable" ]; then
+                NOTARIZE="true"
+              fi
+            fi
+            if [ "${SIGN}" != "true" ]; then
+              NOTARIZE="false"
+            fi
+          fi
+
+          MATRIX_JSON="$(node -e '
+            const includeMacX64 = process.argv[1] === "true";
+            const items = [
+              {
+                label: "macOS arm64",
+                os: "macos-26",
+                platform: "darwin",
+                arch: "arm64",
+                pack_script: "pack:mac:arm64",
+                electron_cache: "~/Library/Caches/electron",
+                builder_cache: "~/Library/Caches/electron-builder",
+              },
+            ];
+            if (includeMacX64) {
+              items.push({
+                label: "macOS x64",
+                os: "macos-26",
+                platform: "darwin",
+                arch: "x64",
+                pack_script: "pack:mac:x64",
+                electron_cache: "~/Library/Caches/electron",
+                builder_cache: "~/Library/Caches/electron-builder",
+              });
+            }
+            items.push({
+              label: "Windows x64",
+              os: "windows-latest",
+              platform: "win32",
+              arch: "x64",
+              pack_script: "pack:win:x64",
+              electron_cache: "~/AppData/Local/electron/Cache",
+              builder_cache: "~/AppData/Local/electron-builder/Cache",
+            });
+            console.log(JSON.stringify(items));
+          ' "${INCLUDE_MAC_X64}")"
+
+          {
+            echo "channel=${CHANNEL}"
+            echo "publish=${PUBLISH}"
+            echo "sign=${SIGN}"
+            echo "notarize=${NOTARIZE}"
+            echo "include_mac_x64=${INCLUDE_MAC_X64}"
+            echo "matrix=${MATRIX_JSON}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Resolved release context: event=${EVENT_NAME} ref=${REF} channel=${CHANNEL} publish=${PUBLISH} sign=${SIGN} notarize=${NOTARIZE} include_mac_x64=${INCLUDE_MAC_X64}"
+
+      - name: Sparse checkout desktop version metadata
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            desktop
+
+      - name: Resolve desktop release version
+        id: version
+        env:
+          OPENMOTION_RELEASE_CHANNEL: ${{ steps.release.outputs.channel }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          node desktop/scripts/resolve-release-version.mjs \
+            --channel "${OPENMOTION_RELEASE_CHANNEL}" \
+            --run-number "${GITHUB_RUN_NUMBER}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+  verify-desktop:
+    name: Verify Desktop Shell
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Install root build dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install desktop dependencies without Electron binary
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm --prefix desktop ci --prefer-offline --no-audit --no-fund
+
+      - name: Typecheck and test desktop shell
+        run: |
+          npm --prefix desktop run typecheck
+          npm --prefix desktop test
+          node --experimental-strip-types --test \
+            tests/desktop-contracts.test.ts \
+            tests/signed-config.test.ts \
+            tests/desktop-security-audit.test.ts \
+            tests/local-atoms.test.ts \
+            tests/connect-script.test.ts \
+            tests/connect-script-e2e.test.ts \
+            tests/desktop-showcase-e2e.test.ts
+
+  build-desktop:
+    name: Build Desktop (${{ matrix.label }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Enforce branch and channel release guard
+        shell: bash
+        env:
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+        run: |
+          set -euo pipefail
+          if [ "${CHANNEL}" = "stable" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::Desktop stable builds are restricted to refs/heads/main (got ${{ github.ref }})."
+            exit 1
+          fi
+          if [ "${{ github.ref }}" != "refs/heads/main" ] && [ "${{ github.ref }}" != "refs/heads/desktop-test" ]; then
+            echo "::error::Desktop release builds are restricted to refs/heads/main or refs/heads/desktop-test (got ${{ github.ref }})."
+            exit 1
+          fi
+
+      - name: Sparse checkout desktop build files
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            desktop
+            shared
+            scripts
+            packages/design-system/brand
+            packages/local-atoms
+            packages/observability
+            packages/signed-config
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Cache Electron and electron-builder binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ matrix.electron_cache }}
+            ${{ matrix.builder_cache }}
+          key: desktop-electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: |
+            desktop-electron-${{ runner.os }}-${{ matrix.arch }}-
+
+      - name: Install desktop dependencies without host Electron binary
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm --prefix desktop ci --prefer-offline --no-audit --no-fund
+
+      - name: Package macOS installer (${{ matrix.arch }})
+        if: matrix.platform == 'darwin'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.APPLE_SIGNING_CERTIFICATE_BASE64 || secrets.APPLE_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD || secrets.APPLE_CSC_KEY_PASSWORD }}
+          # Pass Apple notarization credentials under OM_APPLE_* so electron-builder's slower
+          # built-in `ditto` notarizer stays skipped while our fast `zip -1` afterSign hook runs.
+          OM_APPLE_ID: ${{ secrets.APPLE_ID }}
+          OM_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          OM_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          OM_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          OM_APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          OM_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI: ${{ vars.OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI || secrets.OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI }}
+          OPENMOTION_MURMUR_APPLE_TEAM_ID: ${{ vars.OPENMOTION_MURMUR_APPLE_TEAM_ID || secrets.APPLE_TEAM_ID }}
+          OPENMOTION_MURMUR_WIN_THUMBPRINTS: ${{ vars.OPENMOTION_MURMUR_WIN_THUMBPRINTS || secrets.OPENMOTION_MURMUR_WIN_THUMBPRINTS }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          OPENMOTION_DESKTOP_REQUIRE_SENTRY_DSN: '1'
+          RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
+          OPENMOTION_RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          RELEASE_PUBLISH: ${{ needs.prepare.outputs.publish }}
+          RELEASE_SIGN: ${{ needs.prepare.outputs.sign }}
+          RELEASE_NOTARIZE: ${{ needs.prepare.outputs.notarize }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          RELEASE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+        run: |
+          set -euo pipefail
+          EXTRA_BUILDER_ARGS=()
+          SHOULD_SIGN="${RELEASE_SIGN}"
+          SHOULD_NOTARIZE="${RELEASE_NOTARIZE}"
+          if [ "${RELEASE_PUBLISH}" = "true" ]; then
+            SHOULD_SIGN="true"
+            if [ "${OPENMOTION_RELEASE_CHANNEL}" = "stable" ]; then
+              SHOULD_NOTARIZE="true"
+            fi
+          fi
+
+          if [ "${SHOULD_SIGN}" != "true" ]; then
+            echo "Skipping macOS code signing and notarization (publish=false, sign=false)."
+            unset CSC_LINK CSC_KEY_PASSWORD OM_APPLE_ID OM_APPLE_APP_SPECIFIC_PASSWORD OM_APPLE_TEAM_ID OM_APPLE_API_KEY OM_APPLE_API_KEY_ID OM_APPLE_API_ISSUER
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            export OM_SKIP_NOTARIZE=1
+          elif [ -z "${CSC_LINK:-}" ]; then
+            if [ "${RELEASE_PUBLISH}" = "true" ]; then
+              echo "::error::APPLE_SIGNING_CERTIFICATE_BASE64 (or APPLE_CSC_LINK) secret is required when publish=true on macOS."
+              exit 1
+            fi
+            echo "Apple signing certificate secret not set; building unsigned verification package."
+            unset OM_APPLE_ID OM_APPLE_APP_SPECIFIC_PASSWORD OM_APPLE_TEAM_ID OM_APPLE_API_KEY OM_APPLE_API_KEY_ID OM_APPLE_API_ISSUER
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            export OM_SKIP_NOTARIZE=1
+          elif [ "${SHOULD_NOTARIZE}" != "true" ]; then
+            echo "Signing macOS app without notarization (notarize=false fast lane)."
+            export OM_SKIP_NOTARIZE=1
+          else
+            HAS_APPLE_ID_NOTARIZE="false"
+            HAS_API_KEY_NOTARIZE="false"
+            if [ -n "${OM_APPLE_ID:-}" ] && [ -n "${OM_APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${OM_APPLE_TEAM_ID:-}" ]; then
+              HAS_APPLE_ID_NOTARIZE="true"
+            fi
+            if [ -n "${OM_APPLE_API_KEY:-}" ] && [ -n "${OM_APPLE_API_KEY_ID:-}" ] && [ -n "${OM_APPLE_API_ISSUER:-}" ]; then
+              HAS_API_KEY_NOTARIZE="true"
+            fi
+            if [ "${HAS_APPLE_ID_NOTARIZE}" != "true" ] && [ "${HAS_API_KEY_NOTARIZE}" != "true" ]; then
+              if [ "${RELEASE_PUBLISH}" = "true" ]; then
+                echo "::error::Apple notarization credentials (APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID, or APPLE_API_KEY*) are required when publish=true and notarize=true on macOS."
+                exit 1
+              fi
+              echo "Apple notarization credentials not set; signing without notarization."
+              export OM_SKIP_NOTARIZE=1
+            else
+              EXTRA_BUILDER_ARGS+=(-c.afterSign=scripts/notarize.cjs)
+            fi
+          fi
+
+          PUBLIC_ORIGIN="${RELEASE_PUBLIC_ORIGIN%/}"
+          FEED_URL="${PUBLIC_ORIGIN}/open-motion/desktop/${OPENMOTION_RELEASE_CHANNEL}"
+
+          SIGNING_KEYCHAIN_PATH=""
+          SIGNING_CERT_P12=""
+          cleanup_signing_keychain() {
+            if [ -n "${SIGNING_CERT_P12}" ] && [ -f "${SIGNING_CERT_P12}" ]; then
+              rm -f "${SIGNING_CERT_P12}"
+            fi
+            if [ -n "${SIGNING_KEYCHAIN_PATH}" ] && [ -f "${SIGNING_KEYCHAIN_PATH}" ]; then
+              security delete-keychain "${SIGNING_KEYCHAIN_PATH}" >/dev/null 2>&1 || rm -f "${SIGNING_KEYCHAIN_PATH}"
+            fi
+          }
+          trap cleanup_signing_keychain EXIT
+
+          if [ "${SHOULD_SIGN}" = "true" ] && [ -n "${CSC_LINK:-}" ]; then
+            SIGNING_KEYCHAIN_PATH="${RUNNER_TEMP:-/tmp}/om-desktop-signing.keychain-db"
+            SIGNING_CERT_P12="${RUNNER_TEMP:-/tmp}/om-desktop-cert.p12"
+            KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+            printf '%s' "${CSC_LINK}" | tr -d ' \r\n' | base64 --decode > "${SIGNING_CERT_P12}"
+
+            security delete-keychain "${SIGNING_KEYCHAIN_PATH}" >/dev/null 2>&1 || true
+            security create-keychain -p "${KEYCHAIN_PASSWORD}" "${SIGNING_KEYCHAIN_PATH}"
+            security set-keychain-settings -lut 21600 "${SIGNING_KEYCHAIN_PATH}"
+            security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${SIGNING_KEYCHAIN_PATH}"
+
+            EXISTING_KEYCHAINS=()
+            while IFS= read -r kc; do
+              kc="${kc#"${kc%%[![:space:]]*}"}"
+              kc="${kc%\"}"
+              kc="${kc#\"}"
+              if [ -n "${kc}" ] && [ "${kc}" != "${SIGNING_KEYCHAIN_PATH}" ]; then
+                EXISTING_KEYCHAINS+=("${kc}")
+              fi
+            done < <(security list-keychains -d user)
+            BUNDLED_ROOT_KC="desktop/node_modules/app-builder-lib/certs/root_certs.keychain"
+            if [ -f "${BUNDLED_ROOT_KC}" ]; then
+              EXISTING_KEYCHAINS+=("$(pwd)/${BUNDLED_ROOT_KC}")
+            fi
+            security list-keychains -d user -s "${SIGNING_KEYCHAIN_PATH}" ${EXISTING_KEYCHAINS[@]+"${EXISTING_KEYCHAINS[@]}"}
+
+            security import "${SIGNING_CERT_P12}" \
+              -k "${SIGNING_KEYCHAIN_PATH}" \
+              -P "${CSC_KEY_PASSWORD:-}" \
+              -T /usr/bin/codesign \
+              -T /usr/bin/productbuild \
+              -T /usr/bin/security
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${SIGNING_KEYCHAIN_PATH}"
+            security find-identity -v -p codesigning "${SIGNING_KEYCHAIN_PATH}"
+
+            # Bypass electron-builder@26.0.12's macOS 26 keychain bug (passes .p12 password to set-key-partition-list).
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+
+          xcodebuild -version || true
+          npm --prefix desktop run "${{ matrix.pack_script }}" -- \
+            -c.extraMetadata.version="${RELEASE_VERSION}" \
+            -c.extraMetadata.openmotionChannel="${OPENMOTION_RELEASE_CHANNEL}" \
+            -c.buildNumber="${RELEASE_BUILD_NUMBER}" \
+            -c.buildVersion="${RELEASE_BUILD_VERSION}" \
+            -c.publish.provider=generic \
+            -c.publish.url="${FEED_URL}" \
+            -c.publish.channel="${OPENMOTION_RELEASE_CHANNEL}" \
+            ${EXTRA_BUILDER_ARGS[@]+"${EXTRA_BUILDER_ARGS[@]}"}
+
+          if [ ! -s desktop/build/Assets.car ]; then
+            echo "::error::Compiled Liquid Glass Assets.car is missing after macOS build; refusing to ship an icon-jailed macOS app."
+            exit 1
+          fi
+          ls -lh desktop/build/Assets.car
+
+          {
+            echo "### ${{ matrix.label }} · ${RELEASE_VERSION} (${OPENMOTION_RELEASE_CHANNEL})"
+            ls -lh desktop/release/*.dmg desktop/release/*.zip 2>/dev/null || true
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Package Windows installer (${{ matrix.arch }})
+        if: matrix.platform == 'win32'
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI: ${{ vars.OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI || secrets.OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI }}
+          OPENMOTION_MURMUR_APPLE_TEAM_ID: ${{ vars.OPENMOTION_MURMUR_APPLE_TEAM_ID || secrets.APPLE_TEAM_ID }}
+          OPENMOTION_MURMUR_WIN_THUMBPRINTS: ${{ vars.OPENMOTION_MURMUR_WIN_THUMBPRINTS || secrets.OPENMOTION_MURMUR_WIN_THUMBPRINTS }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          OPENMOTION_DESKTOP_REQUIRE_SENTRY_DSN: '1'
+          RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
+          OPENMOTION_RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          RELEASE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+        run: |
+          set -euo pipefail
+          EXTRA_WIN_ARGS=()
+          if [ -z "${WIN_CSC_LINK:-}" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          # On test channel, build NSIS installer only (auto-updater compatible) and skip portable to halve LZMA compression time.
+          if [ "${OPENMOTION_RELEASE_CHANNEL}" = "test" ]; then
+            EXTRA_WIN_ARGS+=(-c.win.target=nsis)
+          fi
+          PUBLIC_ORIGIN="${RELEASE_PUBLIC_ORIGIN%/}"
+          FEED_URL="${PUBLIC_ORIGIN}/open-motion/desktop/${OPENMOTION_RELEASE_CHANNEL}"
+          npm --prefix desktop run "${{ matrix.pack_script }}" -- \
+            -c.extraMetadata.version="${RELEASE_VERSION}" \
+            -c.extraMetadata.openmotionChannel="${OPENMOTION_RELEASE_CHANNEL}" \
+            -c.buildNumber="${RELEASE_BUILD_NUMBER}" \
+            -c.buildVersion="${RELEASE_BUILD_VERSION}" \
+            -c.publish.provider=generic \
+            -c.publish.url="${FEED_URL}" \
+            -c.publish.channel="${OPENMOTION_RELEASE_CHANNEL}" \
+            ${EXTRA_WIN_ARGS[@]+"${EXTRA_WIN_ARGS[@]}"}
+
+          {
+            echo "### ${{ matrix.label }} · ${RELEASE_VERSION} (${OPENMOTION_RELEASE_CHANNEL})"
+            ls -lh desktop/release/*.exe 2>/dev/null || true
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload desktop sourcemaps to Sentry
+        if: needs.prepare.outputs.publish == 'true' && matrix.platform == 'darwin' && matrix.arch == 'arm64'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_DESKTOP_PROJECT: ${{ vars.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_ORG:-}" ] || [ -z "${SENTRY_DESKTOP_PROJECT:-}" ]; then
+            echo "::notice::Skipping Sentry sourcemap upload (set SENTRY_AUTH_TOKEN secret plus SENTRY_ORG and SENTRY_DESKTOP_PROJECT vars to enable)."
+            exit 0
+          fi
+          npx --yes @sentry/cli@^2 sourcemaps upload \
+            --org "${SENTRY_ORG}" \
+            --project "${SENTRY_DESKTOP_PROJECT}" \
+            --release "openmotion-desktop@${RELEASE_VERSION}" \
+            --url-prefix "app:///dist" \
+            desktop/dist
+
+      - name: Upload installers concurrently to release bucket (releases.open-design.ai)
+        if: needs.prepare.outputs.publish == 'true' && (github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/desktop-test' && needs.prepare.outputs.channel == 'test'))
+        shell: bash
+        env:
+          RELEASE_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET || secrets.RELEASE_S3_BUCKET }}
+          RELEASE_S3_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL || secrets.RELEASE_S3_ENDPOINT }}
+          RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK || secrets.RELEASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK || secrets.RELEASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          TARGET_PLATFORM: ${{ matrix.platform }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_BUCKET:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::error::Release bucket credentials (CLOUDFLARE_R2_RELEASES_BUCKET/AK/SK or RELEASE_S3_*) are required when publish=true."
+            exit 1
+          fi
+
+          aws configure set default.s3.max_concurrent_requests 20
+          aws configure set default.s3.multipart_chunksize 16MB
+
+          PUBLIC_ORIGIN="${RELEASE_PUBLIC_ORIGIN%/}"
+          DEST_PREFIX="s3://${RELEASE_BUCKET}/open-motion/desktop/${CHANNEL}"
+          AWS_ARGS=(--region auto)
+          if [ -n "${RELEASE_S3_ENDPOINT:-}" ]; then
+            AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
+          fi
+
+          shopt -s nullglob
+          upload_pids=()
+          published_links=()
+          for file in desktop/release/*.dmg desktop/release/*.zip desktop/release/*.exe desktop/release/*.blockmap; do
+            name="$(basename "$file")"
+            echo "Uploading ${name} -> ${DEST_PREFIX}/${name}"
+            aws "${AWS_ARGS[@]}" s3 cp "$file" "${DEST_PREFIX}/${name}" \
+              --cache-control "public, max-age=31536000, immutable" \
+              --only-show-errors &
+            upload_pids+=($!)
+            case "$name" in
+              *.dmg|*.zip|*.exe)
+                published_links+=("- [${name}](${PUBLIC_ORIGIN}/open-motion/desktop/${CHANNEL}/${name})")
+                ;;
+            esac
+          done
+
+          if [ "${#upload_pids[@]}" -eq 0 ]; then
+            echo "::error::No desktop installer binaries found in desktop/release/"
+            exit 1
+          fi
+
+          if [ "${TARGET_PLATFORM}" = "darwin" ]; then
+            mac_manifest="desktop/release/${CHANNEL}-mac.yml"
+            if [ ! -f "$mac_manifest" ]; then
+              echo "::error::Expected macOS update manifest at ${mac_manifest}"
+              exit 1
+            fi
+            arch_manifest="${CHANNEL}-mac-${TARGET_ARCH}.yml"
+            echo "Uploading staging manifest ${arch_manifest} -> ${DEST_PREFIX}/${arch_manifest}"
+            aws "${AWS_ARGS[@]}" s3 cp "$mac_manifest" "${DEST_PREFIX}/${arch_manifest}" \
+              --cache-control "no-cache, max-age=0" \
+              --content-type "text/yaml" \
+              --only-show-errors &
+            upload_pids+=($!)
+          else
+            win_manifest="desktop/release/${CHANNEL}.yml"
+            if [ ! -f "$win_manifest" ]; then
+              echo "::error::Expected Windows update manifest at ${win_manifest}"
+              exit 1
+            fi
+            arch_manifest="${CHANNEL}-win-${TARGET_ARCH}.yml"
+            echo "Uploading staging manifest ${arch_manifest} -> ${DEST_PREFIX}/${arch_manifest}"
+            aws "${AWS_ARGS[@]}" s3 cp "$win_manifest" "${DEST_PREFIX}/${arch_manifest}" \
+              --cache-control "no-cache, max-age=0" \
+              --content-type "text/yaml" \
+              --only-show-errors &
+            upload_pids+=($!)
+          fi
+
+          failed=0
+          for pid in "${upload_pids[@]}"; do
+            if ! wait "$pid"; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::One or more R2 uploads failed."
+            exit 1
+          fi
+
+          {
+            echo "#### Uploaded artifacts"
+            if [ "${#published_links[@]}" -gt 0 ]; then
+              printf '%s\n' "${published_links[@]}"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  publish-manifests:
+    name: Publish Verified Update Manifests
+    needs: [prepare, verify-desktop, build-desktop]
+    if: needs.prepare.outputs.publish == 'true' && (github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/desktop-test' && needs.prepare.outputs.channel == 'test'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Feishu release notifier
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 30
+          sparse-checkout: |
+            desktop/scripts/notify-feishu-release.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Atomically publish verified macOS and Windows manifests
+        shell: bash
+        env:
+          RELEASE_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET || secrets.RELEASE_S3_BUCKET }}
+          RELEASE_S3_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL || secrets.RELEASE_S3_ENDPOINT }}
+          RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK || secrets.RELEASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK || secrets.RELEASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          INCLUDE_MAC_X64: ${{ needs.prepare.outputs.include_mac_x64 }}
+          INCLUDE_WIN_PORTABLE: ${{ needs.prepare.outputs.channel == 'stable' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_BUCKET:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::error::Release bucket credentials are required to publish update manifests."
+            exit 1
+          fi
+
+          PUBLIC_ORIGIN="${RELEASE_PUBLIC_ORIGIN%/}"
+          DEST_PREFIX="s3://${RELEASE_BUCKET}/open-motion/desktop/${CHANNEL}"
+          AWS_ARGS=(--region auto)
+          if [ -n "${RELEASE_S3_ENDPOINT:-}" ]; then
+            AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
+          fi
+
+          dl_pids=()
+          aws "${AWS_ARGS[@]}" s3 cp "${DEST_PREFIX}/${CHANNEL}-mac-arm64.yml" /tmp/mac-arm64.yml --only-show-errors &
+          dl_pids+=($!)
+          aws "${AWS_ARGS[@]}" s3 cp "${DEST_PREFIX}/${CHANNEL}-win-x64.yml" /tmp/win-x64.yml --only-show-errors &
+          dl_pids+=($!)
+          if [ "${INCLUDE_MAC_X64}" = "true" ]; then
+            aws "${AWS_ARGS[@]}" s3 cp "${DEST_PREFIX}/${CHANNEL}-mac-x64.yml" /tmp/mac-x64.yml --only-show-errors &
+            dl_pids+=($!)
+          fi
+          for pid in "${dl_pids[@]}"; do
+            wait "$pid"
+          done
+
+          node -e '
+            const fs = require("node:fs");
+            const expectedVersion = process.env.EXPECTED_VERSION || "";
+            const includeMacX64 = process.env.INCLUDE_MAC_X64 === "true";
+            const extractVersion = (yaml) => {
+              const m = /^version:\s*(.+)$/m.exec(yaml);
+              return m ? m[1].trim().replace(/^["'\'']|["'\'']$/g, "") : "";
+            };
+            const extractFilesBlock = (yaml) => {
+              const lines = yaml.split(/\r?\n/);
+              const start = lines.findIndex((l) => l.trim() === "files:");
+              if (start === -1) return [];
+              const out = [];
+              for (let i = start + 1; i < lines.length; i++) {
+                if (/^[a-zA-Z0-9_-]+:/.test(lines[i])) break;
+                if (lines[i].trim()) out.push(lines[i]);
+              }
+              return out;
+            };
+
+            const arm64 = fs.readFileSync("/tmp/mac-arm64.yml", "utf8");
+            const armVersion = extractVersion(arm64);
+            if (!armVersion || (expectedVersion && armVersion !== expectedVersion)) {
+              throw new Error(`macOS arm64 manifest version "${armVersion}" does not match expected "${expectedVersion}"`);
+            }
+
+            const win64 = fs.readFileSync("/tmp/win-x64.yml", "utf8");
+            const winVersion = extractVersion(win64);
+            if (!winVersion || (expectedVersion && winVersion !== expectedVersion)) {
+              throw new Error(`Windows x64 manifest version "${winVersion}" does not match expected "${expectedVersion}"`);
+            }
+
+            let macFinal = arm64.trimEnd() + "\n";
+            if (includeMacX64) {
+              const x64 = fs.readFileSync("/tmp/mac-x64.yml", "utf8");
+              const x64Version = extractVersion(x64);
+              if (!x64Version || armVersion !== x64Version) {
+                throw new Error(`macOS manifest version mismatch: arm64=${armVersion} x64=${x64Version}`);
+              }
+              const x64Files = extractFilesBlock(x64);
+              if (x64Files.length === 0) {
+                throw new Error("Invalid x64 manifest: missing files entries");
+              }
+              const armLines = arm64.split(/\r?\n/);
+              const filesIdx = armLines.findIndex((l) => l.trim() === "files:");
+              if (filesIdx === -1) throw new Error("Invalid arm64 manifest: missing files block");
+              let insertAt = filesIdx + 1;
+              while (insertAt < armLines.length && !/^[a-zA-Z0-9_-]+:/.test(armLines[insertAt])) {
+                insertAt++;
+              }
+              macFinal = [
+                ...armLines.slice(0, insertAt),
+                ...x64Files,
+                ...armLines.slice(insertAt),
+              ].join("\n").trimEnd() + "\n";
+            }
+            fs.writeFileSync("/tmp/mac-final.yml", macFinal, "utf8");
+          '
+
+          pub_pids=()
+          aws "${AWS_ARGS[@]}" s3 cp /tmp/mac-final.yml "${DEST_PREFIX}/${CHANNEL}-mac.yml" \
+            --cache-control "no-cache, max-age=0" \
+            --content-type "text/yaml" \
+            --only-show-errors &
+          pub_pids+=($!)
+          aws "${AWS_ARGS[@]}" s3 cp /tmp/win-x64.yml "${DEST_PREFIX}/${CHANNEL}.yml" \
+            --cache-control "no-cache, max-age=0" \
+            --content-type "text/yaml" \
+            --only-show-errors &
+          pub_pids+=($!)
+          for pid in "${pub_pids[@]}"; do
+            wait "$pid"
+          done
+
+          MAC_MANIFEST_URL="${PUBLIC_ORIGIN}/open-motion/desktop/${CHANNEL}/${CHANNEL}-mac.yml"
+          WIN_MANIFEST_URL="${PUBLIC_ORIGIN}/open-motion/desktop/${CHANNEL}/${CHANNEL}.yml"
+          echo "Published ${MAC_MANIFEST_URL} and ${WIN_MANIFEST_URL}"
+          {
+            echo "### Published Verified Release · ${EXPECTED_VERSION} (${CHANNEL})"
+            echo "- macOS feed: [${CHANNEL}-mac.yml](${MAC_MANIFEST_URL})"
+            echo "- Windows feed: [${CHANNEL}.yml](${WIN_MANIFEST_URL})"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Generate structured changelog and optionally notify Feishu group
+        continue-on-error: true
+        shell: bash
+        env:
+          RELEASE_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET || secrets.RELEASE_S3_BUCKET }}
+          RELEASE_S3_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL || secrets.RELEASE_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK || secrets.RELEASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK || secrets.RELEASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          FEISHU_NOTIFY_ENABLED: ${{ vars.FEISHU_DESKTOP_NOTIFY_ENABLED || 'false' }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_DESKTOP_NOTIFY_WEBHOOK }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_DESKTOP_NOTIFY_SECRET }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+          INCLUDE_MAC_X64: ${{ needs.prepare.outputs.include_mac_x64 }}
+          INCLUDE_WIN_PORTABLE: ${{ needs.prepare.outputs.channel == 'stable' && 'true' || 'false' }}
+          RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
+          MIRROR_PUBLIC_ORIGIN: ${{ vars.MIRROR_PUBLIC_ORIGIN || 'https://mirror.inner.nexu.space' }}
+          MIRROR_SOURCE_ID: ${{ vars.MIRROR_SOURCE_ID || 'od-next' }}
+          MIRROR_CONSOLE_URL: ${{ vars.MIRROR_CONSOLE_URL || 'https://ops.inner.nexu.space/mirror/search' }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          DEST_PREFIX="s3://${RELEASE_BUCKET}/open-motion/desktop/${CHANNEL}"
+          AWS_ARGS=(--region auto)
+          if [ -n "${RELEASE_S3_ENDPOINT:-}" ]; then
+            AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
+          fi
+
+          PREVIOUS_VERSION=""
+          PREVIOUS_SHA=""
+          if aws "${AWS_ARGS[@]}" s3 cp "${DEST_PREFIX}/latest-meta.json" /tmp/latest-meta.json --only-show-errors 2>/dev/null; then
+            PREVIOUS_VERSION="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/latest-meta.json", "utf8")); console.log(d.version || "");' 2>/dev/null || true)"
+            PREVIOUS_SHA="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/latest-meta.json", "utf8")); console.log(d.commitSha || "");' 2>/dev/null || true)"
+          fi
+
+          COMMIT_SUBJECT="$(git log -1 --pretty=%s 2>/dev/null || true)"
+          COMPARE_URL=""
+          if [ -n "${PREVIOUS_SHA}" ] && git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null && [ "${PREVIOUS_SHA}" != "${GITHUB_SHA}" ]; then
+            LOG_RANGE="${PREVIOUS_SHA}..HEAD"
+            COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREVIOUS_SHA:0:12}...${GITHUB_SHA:0:12}"
+          else
+            LOG_RANGE="-n 5"
+          fi
+
+          RELEASE_COMMITS_JSON="$(git log ${LOG_RANGE} --no-merges --pretty=format:'%s' -- desktop/ shared/desktop-*.ts shared/platform-host.ts shared/signed-config.ts packages/design-system/brand/ .github/workflows/desktop-release.yml 2>/dev/null | node -e 'const lines = require("node:fs").readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean); console.log(JSON.stringify(lines));')"
+          export COMMIT_SUBJECT PREVIOUS_VERSION COMPARE_URL RELEASE_COMMITS_JSON
+
+          node desktop/scripts/notify-feishu-release.mjs
+
+          node -e '
+            const fs = require("node:fs");
+            fs.writeFileSync("/tmp/next-latest-meta.json", JSON.stringify({
+              channel: process.env.CHANNEL,
+              version: process.env.EXPECTED_VERSION,
+              buildVersion: process.env.RELEASE_BUILD_VERSION,
+              commitSha: process.env.GITHUB_SHA,
+              branch: process.env.GITHUB_REF_NAME,
+              updatedAt: new Date().toISOString(),
+            }, null, 2) + "\n", "utf8");
+          '
+          aws "${AWS_ARGS[@]}" s3 cp /tmp/next-latest-meta.json "${DEST_PREFIX}/latest-meta.json" \
+            --cache-control "no-cache, max-age=0" \
+            --content-type "application/json" \
+            --only-show-errors

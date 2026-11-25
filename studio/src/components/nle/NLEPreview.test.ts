@@ -522,6 +522,30 @@ describe("NLEPreview", () => {
     }
   });
 
+  it("holds the last stage size through a blank load, then fits the incoming frame", () => {
+    measured.size = { width: 1080, height: 1920 };
+    const view = renderPreview();
+    const size = () => [view.stage.style.width, view.stage.style.height];
+    try {
+      const portrait = size();
+      measured.size = null;
+      view.render("/preview/comp/first.html");
+      expect(size()).toEqual(portrait);
+      measured.size = { width: 800, height: 800 };
+      act(() => livePlayerProps.onReadyToShowChange?.(true));
+      expect(size()).toEqual(["584px", "584px"]);
+
+      measured.size = null;
+      view.render("/preview/comp/without-dimensions.html");
+      expect(size()).toEqual(["584px", "584px"]);
+      act(() => livePlayerProps.onReadyToShowChange?.(true));
+      expect(size()).toEqual(["784px", "441px"]);
+    } finally {
+      measured.size = null;
+      view.cleanup();
+    }
+  });
+
   it("stacks a shadow reload behind the live frame at near-zero opacity without clipping OOPIF compositing", () => {
     const view = renderPreview([
       { gen: 0, role: "live" },

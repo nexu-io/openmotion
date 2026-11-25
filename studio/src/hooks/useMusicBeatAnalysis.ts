@@ -1,7 +1,11 @@
-import type { BeatGridCommand } from '../../../packages/edit-core/commands';
 import { writeBeatGrid } from '../../../packages/edit-core/beat-file';
-import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
-import { useEffect, useMemo, useRef } from "react";
+import { liveSourceReads, supportsOrderedTextEdits } from '../utils/confirmedTextSources';
+import { enqueueProjectEdit } from '../utils/orderedProjectEdits';
+import { StudioFileConflictError } from '../utils/studioSaveDiagnostics';
+import { readStudioAssetVersion } from '../utils/studioTextEdits';
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { RemoteFileRead } from "./remoteFileReads";
+import { addExternalFileReloadListener } from "./externalFileReloadBus";
 import { usePlayerStore } from "../player/store/playerStore";
 import { resolveBeatSourceTrack } from "../utils/timelineInspector";
 import { resolveProjectMediaUrl } from "../player/components/thumbnailUtils";
@@ -33,67 +37,53 @@ function cacheAnalysis(url: string, promise: ReturnType<typeof analyzeMusicFromU
   }
 }
 
-type ProjectIo = { readOptionalProjectFile: (p: string) => Promise<string> };
+type BeatBase = { content: string; version: string | null };
+type ProjectIo = {
+  readOptionalProjectFile: (path: string, observe?: (base: BeatBase) => void) => Promise<string>;
+  writeProjectFile: (path: string, content: string) => Promise<void>;
+};
+type BeatInput = { path: string; assetVersion: string; base: Promise<BeatBase>; conflict?: StudioFileConflictError };
+type GridRead = { content: string; base?: BeatBase };
 
-/**
- * Resolve the effective beat list for a track: a saved file with real beats
- * wins; otherwise the detected beats are used (and `hasFile` is false so the
- * caller seeds a new file). An empty saved file is ignored so detection retries.
- */
-async function resolveBeats(
-  beatPath: string | null,
-  detected: { times: number[]; strengths: number[] },
-  io: ProjectIo,
-): Promise<{ times: number[]; strengths: number[]; hasFile: boolean }> {
-  if (!beatPath) return { ...detected, hasFile: false };
-  try {
-    const content = await io.readOptionalProjectFile(beatPath);
-    const parsed = content ? parseBeats(content) : null;
-    if (parsed && parsed.times.length > 0) {
-      return { times: parsed.times, strengths: parsed.strengths, hasFile: true };
-    }
-  } catch {
-    /* fall back to detected beats */
+async function readBeatGrid(io: ProjectIo, path: string, shared?: ReturnType<RemoteFileRead>): Promise<GridRead> {
+  if (shared) {
+    const file = await shared;
+    if (file.missing) return { content: "", base: { content: "", version: null } };
+    const base = typeof file.content === "string" && file.version ? { content: file.content, version: file.version } : undefined;
+    return { content: file.content ?? "", base };
   }
-  return { ...detected, hasFile: false };
+  let base: BeatBase | undefined;
+  const content = await io.readOptionalProjectFile(path, observed => { base = observed; }).catch(() => "");
+  return { content, base };
 }
 
-/** True when the beats file for a track exists and holds at least one beat. */
-async function readHasSavedBeats(io: ProjectIo, beatPath: string): Promise<boolean> {
-  try {
-    const content = await io.readOptionalProjectFile(beatPath);
-    const parsed = content ? parseBeats(content) : null;
-    return !!(parsed && parsed.times.length > 0);
-  } catch {
-    return false;
-  }
+/** Each completed gesture owns a place in the project queue, including the first sidecar creation. */
+function saveBeatGrid(project: string, audio: string, input: BeatInput, content: string) {
+  const { path, assetVersion, base: previous } = input;
+  const save = enqueueProjectEdit(project, path, async drafts => {
+    const base = drafts.get(path) ?? await previous;
+    if (input.conflict) throw input.conflict;
+    return { label: 'Edit beat markers', edits: [{ path, before: base.content, after: content, version: base.version }],
+      dependencies: { [audio]: assetVersion }, beatAssets: [audio] };
+  });
+  // A following packet uses our last receipt, never a newly fetched peer grid as the base of an old edit.
+  input.base = save.then(saved => ({ content, version: saved.versions[path] ?? null }), error => {
+    if (error instanceof StudioFileConflictError) input.conflict = error;
+    return previous;
+  });
+  return save;
 }
 
-type MusicAnalysis = Awaited<ReturnType<typeof analyzeMusicFromUrl>>;
-
-/**
- * Analyze a track (memoized per URL) and fold in any saved beat edits. Null on
- * decode/analysis failure — the caller then clears state and drops the cache
- * entry (only when the effect is still live).
- */
-async function loadBeatAnalysis(
-  musicSrc: string,
-  beatPath: string,
-  io: ProjectIo,
-): Promise<{ analysis: MusicAnalysis; times: number[]; strengths: number[] } | null> {
-  let promise = analysisCache.get(musicSrc);
-  if (!promise) {
-    promise = analyzeMusicFromUrl(musicSrc, { pause: whenTimelineIdle });
-    cacheAnalysis(musicSrc, promise);
+async function detectBeats(url: string, key: string) {
+  let result = analysisCache.get(key);
+  if (!result) {
+    result = analyzeMusicFromUrl(url, { pause: whenTimelineIdle }).catch(error => {
+      if (analysisCache.get(key) === result) analysisCache.delete(key);
+      throw error;
+    });
+    cacheAnalysis(key, result);
   }
-  try {
-    const analysis = await promise;
-    const detected = { times: analysis.beatTimes, strengths: analysis.beatStrengths };
-    const { times, strengths } = await resolveBeats(beatPath, detected, io);
-    return { analysis, times, strengths };
-  } catch {
-    return null;
-  }
+  return result;
 }
 
 /** The current beat analysis, remapped onto the composition's edited beat grid. */
@@ -118,9 +108,7 @@ export function useMusicBeatAnalysis(): void {
   const writeProjectFile = fileManager?.writeProjectFile;
 
   // File IO via ref so the effects only re-run when the track changes.
-  const ioRef = useRef<
-    (ProjectIo & { writeProjectFile: (p: string, c: string, before?: string, command?: BeatGridCommand) => Promise<void> }) | null
-  >(null);
+  const ioRef = useRef<ProjectIo | null>(null);
   ioRef.current =
     readOptionalProjectFile && writeProjectFile
       ? { readOptionalProjectFile, writeProjectFile }
@@ -139,9 +127,18 @@ export function useMusicBeatAnalysis(): void {
     };
   }, [elements, projectId]);
 
+  const asset = audioRelPathForSrc(musicSrc ?? "");
+  const assetVersion = asset ? fileManager?.assetMetadata?.[asset]?.version : undefined;
+  const [reload, setReload] = useState(0);
+  const refreshTree = useRef(fileManager?.refreshFileTree);
+  refreshTree.current = fileManager?.refreshFileTree;
+  const observed = useRef<BeatInput | null>(null);
+  const lastGrid = useRef<{ path: string; assetVersion?: string; stream: NonNullable<ReturnType<typeof liveSourceReads>>; base: BeatBase } | null>(null);
+
   // ── Load: decode for strength data, then use the saved beat file if present,
   //    otherwise seed it from detection. Resets edits + history on track change. ──
   useEffect(() => {
+    observed.current = null;
     if (!musicSrc) {
       setBeatAnalysis(null);
       setBeatEdits(null);
@@ -154,53 +151,54 @@ export function useMusicBeatAnalysis(): void {
       resetBeatHistory();
       return;
     }
-    let cancelled = false;
     const beatPath = beatFilePathForSrc(musicSrc);
+    if (!beatPath) return;
     const io = ioRef.current;
+    let generation = 0;
+    let mediaVersion = assetVersion;
+    setBeatAnalysis(null);
 
-    // For explicitly tagged/named music tracks: only run expensive audio decode
-    // + beat analysis when the user has an explicit beats file saved. Without
-    // one, skip entirely — no surprise green lines on the timeline after
-    // dragging unrelated assets.
-    //
-    // For fallback tracks (audio dropped from Finder with no role/music-id):
-    // run detection even when there is no saved beat grid.
-    const analyze = async () => {
-      if (!beatPath) return;
-      if (!isFallbackTrack) {
-        const hasSavedBeats = await readHasSavedBeats(io, beatPath);
-        if (cancelled) return;
-        if (!hasSavedBeats) {
-          setBeatAnalysis(null);
-          return;
-        }
-      }
-      if (cancelled) return;
-
-      const result = await loadBeatAnalysis(musicSrc, beatPath, io);
-      if (cancelled) return;
-      if (!result) {
+    const loadGrid = async (read?: RemoteFileRead) => {
+      const turn = ++generation;
+      // The project stream changes identity on writes or reconnect. It also protects a
+      // confirmed missing grid from outliving a file created while its clip was hidden.
+      const stream = projectId ? liveSourceReads(projectId) : undefined;
+      const previous = lastGrid.current;
+      const cached = stream && previous?.stream === stream && previous.path === beatPath && previous.assetVersion === mediaVersion
+        ? previous.base : undefined;
+      const { content, base } = cached ? { content: cached.content, base: cached }
+        : await readBeatGrid(io, beatPath, projectId ? read?.(projectId, beatPath) : undefined);
+      if (turn !== generation) return;
+      if (stream && base) lastGrid.current = { stream, path: beatPath, assetVersion: mediaVersion, base };
+      const saved = content ? parseBeats(content) : null;
+      // Named music opts in through an authored grid. A fallback audio track can seed its first grid.
+      if (!isFallbackTrack && !saved?.times.length) {
+        observed.current = null;
         setBeatAnalysis(null);
-        analysisCache.delete(musicSrc);
+        setBeatEdits(null);
+        resetBeatHistory();
         return;
       }
+      const ordered = projectId && supportsOrderedTextEdits(projectId);
+      if (ordered && !base) return; // An unavailable sidecar must not be mistaken for an empty grid.
+      const version = mediaVersion ?? (ordered && asset ? await readStudioAssetVersion(projectId, asset) : undefined);
+      if (turn !== generation) return;
+      mediaVersion = version;
+      const analysis = await detectBeats(musicSrc, JSON.stringify([musicSrc, version]));
+      if (turn !== generation) return;
+      observed.current = version && base ? { path: beatPath, assetVersion: version, base: Promise.resolve(base) } : null;
       setBeatEdits(null);
       resetBeatHistory();
-      setBeatAnalysis({
-        ...result.analysis,
-        beatTimes: result.times,
-        beatStrengths: result.strengths,
-      });
+      setBeatAnalysis({ ...analysis, beatTimes: saved?.times.length ? saved.times : analysis.beatTimes,
+        beatStrengths: saved?.times.length ? saved.strengths : analysis.beatStrengths });
     };
-
-    // Automatic beat detection downloads the entire audio file. Leave the network
-    // to the first frame; a stalled preview must still allow the Beat tool to work.
+    // Reserve opening bandwidth for the first frame. A stalled preview must still allow beat editing.
     let stopWaiting: (() => void) | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const start = () => {
+    const start = (read?: RemoteFileRead) => {
       stopWaiting?.();
       clearTimeout(timeout);
-      void analyze();
+      void loadGrid(read).catch(() => {});
     };
     if (usePlayerStore.getState().previewBooted) start();
     else {
@@ -209,15 +207,23 @@ export function useMusicBeatAnalysis(): void {
       });
       timeout = setTimeout(start, 8_000);
     }
+    const unsubscribe = addExternalFileReloadListener((changed, read) => {
+      if (changed === asset || changed === ".") mediaVersion = undefined;
+      if (changed === beatPath || changed === asset || changed === ".") {
+        lastGrid.current = null;
+        start(read);
+      }
+    });
     return () => {
-      cancelled = true;
+      generation++;
       stopWaiting?.();
       clearTimeout(timeout);
+      unsubscribe();
+      observed.current = null;
     };
-  }, [projectId, musicSrc, isFallbackTrack, setBeatAnalysis, setBeatEdits, resetBeatHistory]);
+  }, [musicSrc, projectId, asset, assetVersion, isFallbackTrack, reload, setBeatAnalysis, setBeatEdits, resetBeatHistory]);
 
-  // ── Persist: register a debounced writer fired by every beat edit/undo/redo.
-  //    Flushes any pending write on cleanup so the last edit is never lost. ──
+  // Beat gestures paint in the player store. The ordered writer batches transport while retaining each gesture.
   useEffect(() => {
     const beatPath = beatFilePathForSrc(musicSrc);
     if (!musicSrc || !beatPath || !ioRef.current) {
@@ -227,17 +233,12 @@ export function useMusicBeatAnalysis(): void {
     const io = ioRef.current;
     const audio = audioRelPathForSrc(musicSrc) ?? "audio";
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let pending: BeatGridCommand | null = null;
+    let pendingContent: string | undefined;
 
-    const flush = () => {
-      if (pending === null) return;
-      const command = pending;
-      const content = writeBeatGrid(command.assetPath, command.beats);
-      pending = null;
-      const write = getCachedCloudDisklessMode()
-        ? io.writeProjectFile(beatPath, content, undefined, command)
-        : io.writeProjectFile(beatPath, content);
-      void write.catch(() => {});
+    const flushLegacyWrite = () => {
+      if (pendingContent === undefined) return;
+      void io.writeProjectFile(beatPath, pendingContent).catch(() => {});
+      pendingContent = undefined;
     };
 
     const persist = () => {
@@ -245,20 +246,30 @@ export function useMusicBeatAnalysis(): void {
       const a = s.beatAnalysis;
       if (!a) return;
       const merged = mergeUserBeats(a.beatTimes, a.beatStrengths, s.beatEdits, musicSrc);
-      pending = { kind: 'setBeatGrid', assetPath: audio,
-        beats: merged.times.map((time, index) => ({ time, strength: merged.strengths[index] ?? 0.5 })) };
+      const content = writeBeatGrid(audio, merged.times.map((time, i) => ({ time, strength: merged.strengths[i] ?? 0.5 })));
+      lastGrid.current = null;
+      if (projectId && supportsOrderedTextEdits(projectId)) {
+        const input = observed.current;
+        if (!input || input.path !== beatPath) return;
+        void saveBeatGrid(projectId, audio, input, content).catch(async error => {
+          if (!(error instanceof StudioFileConflictError) || observed.current !== input) return;
+          observed.current = null;
+          setBeatAnalysis(null);
+          if (error.filePath === audio) await refreshTree.current?.().catch(() => {});
+          setReload(value => value + 1);
+        });
+        return;
+      }
+      pendingContent = content;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        flush();
-      }, PERSIST_DEBOUNCE_MS);
+      timer = setTimeout(flushLegacyWrite, PERSIST_DEBOUNCE_MS);
     };
 
     setBeatPersist(persist);
     return () => {
       if (timer) clearTimeout(timer);
-      flush(); // write the last pending edit before tearing down
+      flushLegacyWrite();
       setBeatPersist(null);
     };
-  }, [musicSrc, setBeatPersist]);
+  }, [musicSrc, assetVersion, projectId, setBeatAnalysis, setBeatPersist]);
 }

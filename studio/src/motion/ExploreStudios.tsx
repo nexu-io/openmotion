@@ -5,7 +5,10 @@ import { TemplateIndustryMenu } from './TemplateIndustryMenu';
 import { SkillSubmissionLink } from './SkillSubmissionLink';
 import { templateContributionUrl } from './templateContribution';
 import { MotionIcon } from './icons';
-import { useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { scheduleIdlePreloads } from '../utils/idlePreload';
+import { preloadMotionProjectEditor } from './MotionProjectEditor';
+import { useStudioHost } from './StudioHost';
 import { exploreCommunities, findMediaStudio, findTechniqueStudio, type CreativeStudio, type ExploreCommunity, type MediaStudio } from '../../../shared/studio-catalog';
 import type { GalleryTemplate, TemplatePage } from '../../../shared/catalog';
 import type { ExploreFilters, TemplateCollection } from './workspacePageRouting';
@@ -553,6 +556,11 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
 export function ExploreStudios(props: ExploreProps) {
   const { t, locale } = useI18n();
   const { openLibrary, openSkills } = useWorkspaceChrome();
+  const preloadHost = useStudioHost()?.preloadEditorHost;
+  const onHome = props.active && !props.filters.community && !props.filters.medium;
+  useEffect(() => {
+    if (onHome && preloadHost) return scheduleIdlePreloads([preloadMotionProjectEditor, preloadHost]);
+  }, [onHome, preloadHost]);
   const root = useRef<HTMLElement>(null);
   const [firstPages] = useState(() => new Map<string, TemplatePage>());
   const community = exploreCommunities.find(item => item.id === props.filters.community);

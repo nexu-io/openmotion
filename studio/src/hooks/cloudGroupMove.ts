@@ -1,8 +1,10 @@
 import { useCallback, type RefObject } from "react";
 import { buildDomEditPatchTarget, type DomEditSelection } from "../components/editor/domEditing";
+import { isIsolatedSourceFile, isolatedSourceVersion } from "../components/editor/isolatedSourceTarget";
 import { stageElementOffset, type ElementOffsetStagerDeps } from "./elementOffsetStager";
 import type { CanvasCommand } from "../../../packages/edit-core/canvas-schema";
-import { commitStudioEditBatch } from "../utils/projectEditBatch";
+import { commitStudioEditBatch, submitStudioCommands } from "../utils/projectEditBatch";
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { readProjectFileContent } from "../utils/studioFileHistory";
 import {
   serializeStudioFileMutations,
@@ -11,15 +13,31 @@ import {
 
 export interface CanvasGroupWrite {
   path: string;
+  ifMatch?: string;
   command: CanvasCommand;
 }
 
-/** Hold every affected file queue until all members are saved in one project revision. */
+export function groupMemberVersion(selection: DomEditSelection) {
+  const target = selection.isolatedTarget;
+  return target && isIsolatedSourceFile(target) ? isolatedSourceVersion(target) : undefined;
+}
+
+/** All members move in one project edit, including selections spanning several files. */
 export function commitCloudGroupMove(
   projectId: string,
   writer: StudioProjectFileWriter,
   edits: CanvasGroupWrite[],
 ) {
+  if (supportsOrderedTextEdits(projectId)) {
+    const versions: Record<string, string> = Object.create(null);
+    for (const {path, ifMatch} of edits) {
+      if (!ifMatch) continue;
+      if (versions[path] && versions[path] !== ifMatch) throw new Error('Selected elements have different source versions');
+      versions[path] = ifMatch;
+    }
+    const commands = edits.map(({path, command}) => ({...command, compositionPath: path}));
+    return submitStudioCommands(projectId, commands, versions).then(result => result.changedPaths.length > 0);
+  }
   const paths = [...new Set(edits.map((edit) => edit.path))];
   return serializeStudioFileMutations(writer, paths, async () => {
     const sources = new Map(
@@ -57,6 +75,7 @@ export function stageCloudGroupOffset(
       commitPositionPatchToHtml: async (_, operations) => {
         batch.push({
           path,
+          ifMatch: groupMemberVersion(selection),
           command: plain
             ? { kind: "moveCanvasElement", target, ...next, time }
             : { kind: "editElements", patches: [{ target, operations }] },

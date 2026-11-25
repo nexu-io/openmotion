@@ -46,6 +46,7 @@ test('only an author-reviewed script set opts into position and media timing upd
   const html = await bundlePreviewInMemory(project, {bridgeOrigin:'https://preview.test', studioOrigin:'https://studio.test',skipDeterministicFonts:true});
   const settings = JSON.parse(parseHTMLContent(html!).querySelector('script[data-openmotion-preview]')!.getAttribute('data-openmotion-preview')!);
   assert.deepEqual(settings.liveEdits, capabilities);
+  assert.ok(['compositions/editor.html', 'compositions/reel.html'].every(path => settings.independentSceneFiles?.includes(path)));
   const index = project.readText('index.html')!;
   const moved = index.replace('src="assets/soundtrack.m4a" data-start="0"', 'src="assets/soundtrack.m4a" data-start="2"');
   assert.notEqual(moved, index);
@@ -63,6 +64,28 @@ test('only an author-reviewed script set opts into position and media timing upd
     {'compositions/new.html': '<img src="title.png" onload="changeTimeline()">'},
   ];
   for (const change of changes) assert.equal(await verifiedPreviewLiveEdits(fixture(change)), undefined);
+});
+
+test('preview silently stops recursive mounts while rendering each independent instance', async () => {
+  const host = (path: string) => `<div data-composition-src="${path}" data-start="0" data-duration="2"></div>`;
+  const root = (id: string, inner: string) => `<div data-composition-id="${id}" data-width="800" data-height="450" data-duration="2">${inner}</div>`;
+  const scene = (id: string, inner: string) => `<template id="${id}-template">${root(id, inner)}</template>`;
+  const textContents = {
+    'index.html': '<html><head></head><body>' + root('main', '<b class="root-marker">Root</b>' + host('./index.html') + host('./a.html') + host('b.html')) + '</body></html>',
+    'a.html': scene('a', '<span class="scene-a">Scene A</span>' + host('intro.html')),
+    'b.html': scene('b', host('intro.html')),
+    'intro.html': scene('intro', '<span class="greeting">Hello</span>' + host('intro.html') + host('a.html') + host('index.html')),
+  };
+  const project = new InMemoryVirtualProject({ projectId:'cycle', projectName:'Cycle', revision:'1', textContents,
+    files:Object.entries(textContents).map(([path, content]) => ({path, blobScope:'workspace',
+      sha256:createHash('sha256').update(content).digest('hex'), isText:true, mimeType:'text/html', sizeBytes:content.length, updatedAt:new Date(0)})) });
+  const html = await bundlePreviewInMemory(project, {skipDeterministicFonts:true});
+  const doc = parseHTMLContent(html!);
+  assert.equal(doc.querySelectorAll('.root-marker').length, 1);
+  assert.equal(doc.querySelectorAll('.greeting').length, 2);
+  assert.equal(doc.querySelectorAll('.scene-a').length, 2);
+  assert.equal(doc.querySelectorAll('[data-composition-src]').length, 0);
+  assert.equal(project.readText('intro.html'), textContents['intro.html']);
 });
 
 test('a separately opened Welcome clip certifies only its reviewed startup scripts and styles', async () => {

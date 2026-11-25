@@ -510,4 +510,76 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
     assert.equal(seen[0].headers['x-vela-workspace-id'], 'amr-ws-9');
     assert.equal(seen[0].headers.authorization, undefined);
   });
+
+  it('maps AMR null membershipTier to free plan, recognizes team_* tiers, and surfaces 403 errorStatus', async () => {
+    const gatewayFree = new OpenDesignModelGateway({
+      apiUrl: 'https://amr-api.example.test',
+      linkUrl: 'https://amr-link.example.test',
+      internalToken: 'ephemeral-internal-token',
+      billingSyncEnabled: true,
+      fetcher: async () =>
+        new Response(
+          JSON.stringify({
+            membershipTier: null,
+            subscriptionStatus: null,
+            subscriptionEntitlementStatus: null,
+            totalAvailableCreditsUsd: '0.00',
+            balanceUsd: '0.00',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    });
+    const freeSummary = await gatewayFree.getBillingSummary({
+      workspaceId: 'local-ws-free',
+      externalWorkspaceId: 'amr-ws-free',
+      appUserId: 'app-user-free',
+    });
+    assert.equal(freeSummary.plan, 'free');
+    assert.equal(freeSummary.mediaEntitlement, 'not-included');
+    assert.equal(freeSummary.balanceUsd, '0.00');
+    assert.equal(freeSummary.unavailable, undefined);
+
+    const gatewayTeam = new OpenDesignModelGateway({
+      apiUrl: 'https://amr-api.example.test',
+      linkUrl: 'https://amr-link.example.test',
+      internalToken: 'ephemeral-internal-token',
+      billingSyncEnabled: true,
+      fetcher: async () =>
+        new Response(
+          JSON.stringify({
+            membershipTier: 'team_pro',
+            subscriptionEntitlementStatus: 'active',
+            totalAvailableCreditsUsd: '42.50',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    });
+    const teamSummary = await gatewayTeam.getBillingSummary({
+      workspaceId: 'local-ws-team',
+      externalWorkspaceId: 'amr-ws-team',
+      appUserId: 'app-user-team',
+    });
+    assert.equal(teamSummary.plan, 'team_pro');
+    assert.equal(teamSummary.mediaEntitlement, 'included');
+    assert.equal(teamSummary.balanceUsd, '42.50');
+
+    const gatewayDenied = new OpenDesignModelGateway({
+      apiUrl: 'https://amr-api.example.test',
+      linkUrl: 'https://amr-link.example.test',
+      internalToken: 'ephemeral-internal-token',
+      billingSyncEnabled: true,
+      fetcher: async () =>
+        new Response(JSON.stringify({ error: 'workspace_billing_scope_forbidden' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    });
+    const deniedSummary = await gatewayDenied.getBillingSummary({
+      workspaceId: 'local-ws-denied',
+      externalWorkspaceId: 'amr-ws-denied',
+      appUserId: 'app-user-denied',
+    });
+    assert.equal(deniedSummary.unavailable, true);
+    assert.equal(deniedSummary.errorStatus, 403);
+  });
 });

@@ -349,6 +349,12 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
   }
   // Speech models without checked voices keep a free voice ID: the API publishes no voice list.
   if (cloudSpeech(model)) { const voices = checkedVoices(model); fields = [voices ? { key: 'voice', label: 'Speech voice', kind: 'choice', choices: voices, default: voices[0].value, allowCustom: true } : text('voice', 'Voice ID', true)]; }
+  if (model.provider === 'opendesign' && model.modelId === 'elevenlabs-v3' && fields && cloudSpeech(model)) {
+    fields.push(number('speed', 'Speech speed', undefined, 0.7, 1.2, 0.1));
+  }
+  if (model.provider === 'opendesign' && model.modelId === 'elevenlabs-music-v2' && model.mode === 'text-to-audio') {
+    fields = [number('music_length_ms', 'Duration (seconds)', undefined, 3000, 600000, 1000)];
+  }
   // The connector's `audio music --duration` takes whole seconds; music models publish no duration range.
   if (model.provider === 'account' && model.modality === 'audio' && model.mode === 'text-to-audio') fields = [number('duration', 'Duration (seconds)', undefined, 1)];
   return fields ? { delivery: 'provider', fields } : undefined;

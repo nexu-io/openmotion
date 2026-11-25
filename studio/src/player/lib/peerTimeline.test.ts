@@ -40,6 +40,23 @@ it("installs confirmed rows before preview startup without enabling transport", 
     elements: [{ domId: "a", start: 0, duration: 10 }] });
 });
 
+it("releases the source document after reading media and nested composition timing", () => {
+  const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
+  try {
+    const scenePath = "compositions/intro.html";
+    const timeline = parseAuthoredTimeline(page(audio("voice", 2, 8, 1, 0),
+      '<div data-composition-id="child" data-composition-src="child.html" data-start="4" data-duration="3"></div>'
+    ), scenePath, "p");
+    expect(timeline?.duration).toBe(20);
+    expect(timeline?.elements).toEqual(expect.arrayContaining([
+      expect.objectContaining({ domId: "voice", src: `${location.origin}/api/projects/p/preview/compositions/voice.mp3`, start: 2, duration: 8, playbackStart: 1 }),
+      expect.objectContaining({ kind: "composition", compositionSrc: "child.html", start: 4, duration: 3 }),
+    ]));
+    expect(parseAuthoredTimeline(audio("outside", 0, 2, 0, 0), scenePath, "p")).toBeNull();
+    for (const result of parse.mock.results) expect(result.value.documentElement).toBeNull();
+  } finally { parse.mockRestore(); }
+});
+
 it("does not publish late opening rows into a different file or project", () => {
   usePlayerStore.setState({ elements: [], timelineReady: false });
   rememberSource("p", path, { content: original, version: "v1" });

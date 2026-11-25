@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
-import { setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { CLOUD_P1_FEATURES, setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { providerSettingsPreview } from '../../../shared/workspace-url';
 import { MotionApp } from './MotionApp';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
@@ -192,20 +193,89 @@ describe('Cloud Phase 1 feature gates', () => {
     const searchTrigger = container.querySelector<HTMLButtonElement>('button[aria-label="Search workspace"]')!;
     await act(async () => searchTrigger.click());
     const searchPanel = document.querySelector('.om-workspace-search')!;
-    expect(searchPanel.textContent).toContain('Motion Studio');
+    expect(searchPanel.querySelector('input[type="search"]')).not.toBeNull();
+    await act(() => vi.dynamicImportSettled());
+    const studios = searchPanel.querySelector('[aria-label="Studios"]')!;
+    expect(studios.querySelector('button[aria-label="Motion Studio"]')).not.toBeNull();
     expect(searchPanel.textContent).not.toContain('Design Studio');
     expect(searchPanel.textContent).not.toContain('Game Studio');
   });
 
-  it('redirects /settings/local to /settings/providers, hides Local Agents, and renames Default models', async () => {
-    await mountApp('/settings/local');
+  it.each([
+    '/settings/local',
+    '/settings/providers',
+    '/settings/providers?provider=opendesign',
+  ])('redirects %s to /settings/models via replace, hides Model providers and Local Agents, and hides Settings gateway links', async blockedSettingsPath => {
+    const historyLengthBefore = history.length;
+    await mountApp(blockedSettingsPath);
 
-    expect(location.pathname).toBe('/settings/providers');
+    expect(location.pathname).toBe('/settings/models');
+    expect(location.search).toBe('');
+    expect(history.length).toBe(historyLengthBefore);
     const nav = container.querySelector('.om-settings-sections')!;
     expect(nav.textContent).not.toContain('Local Agents');
+    expect(nav.textContent).not.toContain('Model providers');
     expect(nav.textContent).not.toContain('Default Agent & models');
     expect(nav.textContent).toContain('Default models');
+    expect(nav.querySelector('[aria-current="page"]')?.textContent).toContain('Default models');
+    expect(container.querySelector('[aria-label="Model gateway"]')).toBeNull();
+    expect(container.querySelector('.om-settings-main h1')?.textContent).toBe('Default models');
     expect(calledUrls().some(u => u.includes('/agents'))).toBe(false);
+
+    // Empty-models guide in Default models keeps account/plan guidance but hides the Model gateway jump button.
+    const emptyGuide = container.querySelector('[data-empty-models="true"]');
+    expect(emptyGuide).not.toBeNull();
+    const emptyGuideButtons = [...emptyGuide!.querySelectorAll('button')].map(btn => btn.textContent?.trim());
+    expect(emptyGuideButtons).toContain('Check account & plan');
+    expect(emptyGuideButtons).not.toContain('Model gateway');
+
+    // ModelSwitcher popover inside Default models also omits the Model gateway footer button.
+    const chooseBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Select model"]')!;
+    await act(async () => chooseBtn.click());
+    const popoverButtons = [...document.querySelectorAll('.om-model-picker button')].map(btn => btn.textContent?.trim());
+    expect(popoverButtons).not.toContain('Model gateway');
+
+    // Account and Subscription settings pages hide the Model gateway jump button too.
+    const accountNavBtn = [...nav.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.trim() === 'Account')!;
+    await act(async () => accountNavBtn.click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(location.pathname).toBe('/settings/account');
+    const accountButtons = [...container.querySelectorAll('.om-settings-main button')].map(btn => btn.textContent?.trim());
+    expect(accountButtons).not.toContain('Model gateway');
+  });
+
+  it('aligns MCP providerSettingsPreview handoff with the gated Default models surface in Cloud P1', async () => {
+    const gated = providerSettingsPreview(location.origin, {
+      entry: 'agent_media_upgrade_free',
+      modelProvidersEnabled: CLOUD_P1_FEATURES.modelProviders,
+    });
+    const gatedUrl = new URL(gated.previewUrl);
+    expect(gatedUrl.pathname).toBe('/settings/models');
+    expect(gatedUrl.searchParams.get('entry_from')).toBe('agent_media_upgrade_free');
+    expect(gatedUrl.searchParams.get('embed')).toBe('1');
+    expect(gatedUrl.searchParams.get('provider')).toBeNull();
+    expect(gated.previewHandoff.instructions).toContain('Verify that Default models is visible');
+    expect(gated.previewHandoff.instructions).toContain('Settings > Account');
+    expect(gated.previewHandoff.instructions).toContain('Settings > Subscription & usage > Manage subscription');
+    expect(gated.previewHandoff.instructions).not.toContain('Model providers is visible');
+
+    const historyLengthBefore = history.length;
+    await mountApp(gatedUrl.pathname + gatedUrl.search);
+    expect(location.pathname).toBe('/settings/models');
+    expect(location.search).toContain('entry_from=agent_media_upgrade_free');
+    expect(history.length).toBe(historyLengthBefore);
+    expect(container.querySelector('.om-settings-main h1')?.textContent).toBe('Default models');
+    expect(container.querySelector('[data-empty-models="true"]')?.textContent).toContain('Check account & plan');
+
+    // Ungated handoff preserves the original /settings/providers contract when modelProviders is enabled.
+    const ungated = providerSettingsPreview(location.origin, {
+      entry: 'agent_media_upgrade_free',
+      modelProvidersEnabled: true,
+    });
+    const ungatedUrl = new URL(ungated.previewUrl);
+    expect(ungatedUrl.pathname).toBe('/settings/providers');
+    expect(ungatedUrl.searchParams.get('provider')).toBe('account');
+    expect(ungated.previewHandoff.instructions).toContain('Verify that Model providers is visible');
   });
 
   it.each([

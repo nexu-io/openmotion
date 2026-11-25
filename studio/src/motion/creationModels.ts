@@ -3,7 +3,7 @@ import { imageFeatures } from '../../../shared/image-features';
 import { videoFeatures } from '../../../shared/video-features';
 import { isFeatureScene, sceneFeature, sceneVideoFeature, supportsScene, type StudioScene } from './creativeStudios';
 import type { loadGateway } from './gatewayClient';
-import { isOpenDesignProvider, menuRank, providerRank, providerReady, withOpenDesignModels } from './imageMenuModels';
+import { isOpenDesignProvider, menuRank, providerRank, providerReady } from './imageMenuModels';
 
 const studioSortRank = (model: Model) => {
   const rank = menuRank(model);
@@ -29,7 +29,8 @@ export function creationModels(
   const featureScene = isFeatureScene(scene);
   const restrictToOpenDesign = openDesignOnly || featureScene;
   // Non-feature Studio scenes follow the navigation menu model set; feature scenes accept any capability-matched OpenDesign model.
-  const listed = (gateway ? (scene ? withOpenDesignModels(gateway.models, providers) : gateway.models).filter(model => model.modality === modality
+  // Never synthesize placeholder models when the live catalog is empty so creation pickers stay truthful to the gateway.
+  const listed = (gateway ? gateway.models.filter(model => model.modality === modality
     && (!scene || featureScene || menuRank(model) >= 0 || model.id === modelId)
     && (!scene || supportsScene(model, scene))
     && (!restrictToOpenDesign || isOpenDesignProvider(model.provider))) : [])

@@ -16,6 +16,9 @@ import {
   readAuthPendingDraft,
   saveAuthPendingDraft,
 } from './authRecoveryStore';
+import { clearPrivateSwrCache, readSwrCache, writeSwrCache } from './swrCache';
+
+const WORKSPACE_CATALOG_CACHE_KEY = 'workspace-catalog';
 
 export type SavedProject = { id: string; title: string; titleKey?: 'OpenMotion Sample Video' | null; templateId?: string; createdAt?: number; openedAt?: number; trashedAt?: number };
 type Job = { id: string; state: 'pending' | 'running' | 'completed' | 'failed'; error?: string };
@@ -34,6 +37,7 @@ export async function motionApi<T>(path: string, init?: RequestInit, projectId?:
     // Non-JSON error body.
   }
   if (!response.ok) {
+    if (response.status === 401) clearPrivateSwrCache();
     const message = typeof data.error === 'string' ? data.error : 'Workspace connection failed';
     const error = new Error(message) as Error & { status?: number; code?: string; errorCode?: string };
     error.status = response.status;
@@ -69,16 +73,25 @@ export function useWorkspace(
 ) {
   const externalHistoryGuard = Boolean(options?.externalHistoryGuard);
   const { t } = useI18n();
-  const [projects, setProjects] = useState<SavedProject[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const initialCachedCatalog = useRef<ProjectCatalog | null | undefined>(undefined);
+  if (initialCachedCatalog.current === undefined) {
+    const cached = readSwrCache<ProjectCatalog>('private', WORKSPACE_CATALOG_CACHE_KEY);
+    initialCachedCatalog.current = cached && Array.isArray(cached.projects) ? cached : null;
+  }
+  const [projects, setProjects] = useState<SavedProject[]>(() => initialCachedCatalog.current?.projects ?? []);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => initialCachedCatalog.current?.activeId ?? null);
   const displayedProjects = useMemo(() => projects.map(project => project.id === 'project' && project.titleKey === 'OpenMotion Sample Video'
     ? { ...project, title: t(project.titleKey) } : project), [projects, t]);
-  const [sessions, setSessions] = useState<CreativeSession[]>([]);
+  const [sessions, setSessions] = useState<CreativeSession[]>(() =>
+    [...(initialCachedCatalog.current?.sessions ?? [])].sort((a, b) => (b.openedAt ?? b.createdAt ?? 0) - (a.openedAt ?? a.createdAt ?? 0)),
+  );
   const visibleSessions = useMemo(() => {
     const trashed = new Set(projects.filter(project => project.trashedAt).map(project => project.id));
     return sessions.flatMap(session => availableSession(session, trashed) ?? []);
   }, [projects, sessions]);
   const [status, setStatus] = useState<WorkspaceStatus | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [catalogLoaded, setCatalogLoaded] = useState(() => Boolean(initialCachedCatalog.current));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [navigationError, setNavigationError] = useState<{ message: string } | null>(null);
@@ -114,6 +127,12 @@ export function useWorkspace(
     setProjects(previous => JSON.stringify(previous) === JSON.stringify(ordered) ? previous : ordered);
     const nextSessions = [...(catalog.sessions ?? [])].sort((a, b) => (b.openedAt ?? b.createdAt ?? 0) - (a.openedAt ?? a.createdAt ?? 0));
     setSessions(previous => JSON.stringify(previous) === JSON.stringify(nextSessions) ? previous : nextSessions);
+    writeSwrCache('private', WORKSPACE_CATALOG_CACHE_KEY, {
+      activeId: catalog.activeId,
+      projects: ordered,
+      sessions: nextSessions,
+      activeSessionId: catalog.activeSessionId,
+    });
   }, []);
   useEffect(() => {
     if (navigate === navigateWorkspace || externalHistoryGuard) return;
@@ -164,8 +183,24 @@ export function useWorkspace(
     const controller = new AbortController();
     const openedAt = Date.now();
     const refreshCatalog = watchWorkspaceRead(controller.signal, async () => {
-      const catalog = await motionApi<ProjectCatalog>('/projects', { signal: controller.signal, priority: editingProject ? 'low' : 'auto' });
+      let catalog: ProjectCatalog;
+      try {
+        catalog = await motionApi<ProjectCatalog>('/projects', { signal: controller.signal, priority: editingProject ? 'low' : 'auto' });
+      } catch (err) {
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 401) {
+          if (!controller.signal.aborted) {
+            setAuthRequired(true);
+            setCatalogLoaded(false);
+            setCatalogRead({ attempt: connectionCheck, error: '' });
+          }
+          return Infinity;
+        }
+        throw err;
+      }
       if (controller.signal.aborted) return Infinity;
+      setAuthRequired(false);
+      setCatalogLoaded(true);
       updateCatalog(catalog);
       const awaitingArtifact = sessionWithoutProject
         && !isStandaloneSpaPath(location.pathname, location.search, location.hash)
@@ -194,11 +229,26 @@ export function useWorkspace(
   useEffect(() => {
     const controller = new AbortController();
     const refreshStatus = watchWorkspaceRead(controller.signal, async () => {
-      const data = await request<WorkspaceStatus>(workspaceStatusPath, { signal: controller.signal });
+      let data: WorkspaceStatus;
+      try {
+        data = await request<WorkspaceStatus>(workspaceStatusPath, { signal: controller.signal });
+      } catch (err) {
+        const statusCode = (err as { status?: number } | null)?.status;
+        if (statusCode === 401) {
+          if (!controller.signal.aborted) {
+            setAuthRequired(true);
+            setStatus(null);
+            setStatusRead({ attempt: connectionCheck, error: '' });
+          }
+          return Infinity;
+        }
+        throw err;
+      }
       if (controller.signal.aborted) return Infinity;
       if (projectId && data.projectId !== projectId && !acting.current) {
         throw new Error('项目状态与当前页面不匹配，请重新打开对应项目。');
       }
+      setAuthRequired(false);
       setStatus(data);
       const exporting = data.exportJob?.state === 'pending' || data.exportJob?.state === 'running';
       // Save notifications and render events handle changes in the active editor.
@@ -222,10 +272,25 @@ export function useWorkspace(
         refreshWorkspaceCatalog.current?.(0);
       } else if (event === 'render-updated') refreshStatus(activeWorkspaceInterval);
     });
-    return () => { controller.abort(); unsubscribeSaves(); unsubscribeActivity(); };
+    const handleAccountChanged = () => {
+      setProjects([]);
+      setActiveProjectId(null);
+      setSessions([]);
+      setAuthRequired(false);
+      setCatalogLoaded(false);
+      refreshStatus(0);
+      refreshWorkspaceCatalog.current?.(0);
+    };
+    window.addEventListener('motion:account-changed', handleAccountChanged);
+    return () => {
+      controller.abort();
+      unsubscribeSaves();
+      unsubscribeActivity();
+      window.removeEventListener('motion:account-changed', handleAccountChanged);
+    };
   }, [projectId, request, connectionCheck, sessionWithoutProject]);
 
-  const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string }, route: { session?: boolean; revealArtifact?: boolean; existing?: OpenTarget } = {}) => {
+  const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string; requestId?: string }, route: { session?: boolean; revealArtifact?: boolean; existing?: OpenTarget } = {}) => {
     if (acting.current) return false;
     acting.current = true; setBusy(true); setError('');
     try {
@@ -277,9 +342,14 @@ export function useWorkspace(
   }, [waitForSaves, projectId, request, navigate]);
   const open = useCallback((kind: 'templates' | 'projects', id: string) => transition(`/${kind}/${encodeURIComponent(id)}/open`, undefined, { existing: kind === 'projects' ? { projectId: id } : undefined }), [transition]);
   const followActiveProject = useCallback((id: string) => navigate(projectHref(id), true), [navigate]);
-  const create = useCallback((instruction?: string) => transition('/projects', instruction?.trim() ? { instruction: instruction.trim() } : undefined), [transition]);
+  const create = useCallback((instruction?: string, requestId?: string) => {
+    const payload: { instruction?: string; requestId?: string } = {};
+    if (instruction?.trim()) payload.instruction = instruction.trim();
+    if (requestId) payload.requestId = requestId;
+    return transition('/projects', Object.keys(payload).length > 0 ? payload : undefined);
+  }, [transition]);
   const home = useCallback(() => transition(), [transition]);
-  const startSession = useCallback(async (instruction?: string, templateId?: string, mode: CreationMode = 'motion') => {
+  const startSession = useCallback(async (instruction?: string, templateId?: string, mode: CreationMode = 'motion', requestId?: string) => {
     if (acting.current) return false;
     acting.current = true; setBusy(true); setError('');
     let createdId: string | undefined;
@@ -287,10 +357,13 @@ export function useWorkspace(
     const key = JSON.stringify(options);
     const preserved = readAuthPendingDraft();
     const preservedId =
-      preserved && preserved.templateId === templateId && preserved.instruction === (instruction?.trim() || undefined)
+      requestId ??
+      (preserved && preserved.templateId === templateId && preserved.instruction === (instruction?.trim() || undefined)
         ? preserved.idempotencyKey
-        : undefined;
-    if (pendingSession.current?.key !== key) pendingSession.current = { key, id: preservedId ?? crypto.randomUUID() };
+        : undefined);
+    if (pendingSession.current?.key !== key || (requestId && pendingSession.current.id !== requestId)) {
+      pendingSession.current = { key, id: preservedId ?? crypto.randomUUID() };
+    }
     try {
       await waitForSaves();
       const created = await motionApi<{ sessionId: string; session: CreativeSession }>('/sessions', { method: 'POST', ...jsonBody({ ...options, id: pendingSession.current.id }) });
@@ -300,7 +373,15 @@ export function useWorkspace(
       const existing = created.session?.artifacts.find(item => item.id === created.session.activeArtifactId) ?? created.session?.artifacts[0];
       if (existing) { navigate(sessionHref(createdId, existing.projectId, true)); return true; }
       const current = await request<WorkspaceStatus>(workspaceStatusPath);
-      const next = await request<WorkspaceStatus>(`/sessions/${createdId}/artifacts`, { method: 'POST', ...jsonBody({ expectedRevision: current.revision, expectedProjectId: current.projectId }) });
+      const next = await request<WorkspaceStatus>(`/sessions/${createdId}/artifacts`, {
+        method: 'POST',
+        ...jsonBody({
+          expectedRevision: current.revision,
+          expectedProjectId: current.projectId,
+          requestId: pendingSession.current.id,
+          ...(templateId ? { templateId, projectType: 'template' } : {}),
+        }),
+      });
       navigate(sessionHref(createdId, next.projectId, true)); return true;
     } catch (err) {
       const apiErr = err as Error & { status?: number; errorCode?: string; code?: string };
@@ -322,7 +403,12 @@ export function useWorkspace(
     finally { acting.current = false; setBusy(false); }
   }, [waitForSaves, request, navigate]);
   const openSession = useCallback((id: string, artifactProjectId?: string) => transition(`/sessions/${encodeURIComponent(id)}/open`, artifactProjectId ? { projectId: artifactProjectId } : undefined, { session: true, revealArtifact: Boolean(artifactProjectId), existing: { sessionId: id, projectId: artifactProjectId } }), [transition]);
-  const createArtifact = useCallback((id: string, templateId?: string) => transition(`/sessions/${encodeURIComponent(id)}/artifacts`, templateId ? { templateId } : undefined, { session: true }), [transition]);
+  const createArtifact = useCallback((id: string, templateId?: string, requestId?: string) => {
+    const payload: { templateId?: string; requestId?: string } = {};
+    if (templateId) payload.templateId = templateId;
+    if (requestId) payload.requestId = requestId;
+    return transition(`/sessions/${encodeURIComponent(id)}/artifacts`, Object.keys(payload).length > 0 ? payload : undefined, { session: true });
+  }, [transition]);
   const renameItem = useCallback(async (id: string, title: string, kind: 'projects' | 'sessions') => {
     if (acting.current) return false;
     acting.current = true; setBusy(true); setError('');
@@ -338,5 +424,5 @@ export function useWorkspace(
   const activeProjects = useMemo(() => displayedProjects.filter(project => !project.trashedAt), [displayedProjects]);
   const trashedProjects = useMemo(() => displayedProjects.filter(project => Boolean(project.trashedAt)), [displayedProjects]);
   const currentSession = useMemo(() => visibleSessions.find(item => item.id === sessionId), [visibleSessions, sessionId]);
-  return { projects: activeProjects, activeProjectId, trashedProjects, sessions: visibleSessions, session: currentSession, status, busy, actingRef: acting, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError };
+  return { projects: activeProjects, activeProjectId, trashedProjects, sessions: visibleSessions, session: currentSession, status, authRequired, catalogLoaded, busy, actingRef: acting, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError };
 }

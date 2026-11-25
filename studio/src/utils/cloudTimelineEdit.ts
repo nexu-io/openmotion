@@ -80,7 +80,7 @@ export function timelineTimingEdits(
   }));
 }
 
-async function prepareTimelineFile(before: string, edit: TimelineFileEdit, onSkipped?: (selectors: string[]) => void) {
+export async function prepareTimelineFile(before: string, edit: TimelineFileEdit, onSkipped?: (selectors: string[]) => void) {
   const { applyTimelineCommand } = await import('../../../packages/edit-core/timeline-commands');
   const { findTargetElement, parseSourceDocument } = await import('@hyperframes/studio-server/source-mutation');
   let doc: Document | undefined;

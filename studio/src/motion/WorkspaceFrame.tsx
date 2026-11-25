@@ -1,4 +1,5 @@
 import type { WorkspaceRoute } from './workspaceRouting';
+import isMobile from 'ismobilejs';
 import { IconButton } from 'open-design-ui/icon-button';
 import { Button } from 'open-design-ui/button';
 import type { SkillCategory } from './skillCategories';
@@ -25,15 +26,37 @@ import { StudioConnectionToast } from '../components/StudioConnectionToast';
 import { ErrorNotice } from '../components/ui/ErrorNotice';
 import { isConnectionFailure } from '../components/ui/errorNoticeMessage';
 import { preservePresentation, workspacePresentation } from '../../../shared/workspace-url';
+import type { DesktopMenuAction } from '../../../shared/platform-host';
+import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
+import {
+  exportDesktopDiagnosticBundle,
+  getDesktopHostBridge,
+  isDesktopApp,
+  openExternalUrl,
+  startDesktopBrowserLogin,
+  subscribeDesktopMenuActions,
+} from '../utils/platformHost';
+import { discord, feishu } from './CommunityLink';
+import { GITHUB_REPOSITORY } from './githubRepository';
 import { setObservabilityContext } from '@openmotion/observability/browser';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
+import { DesktopUpdatePrompt } from './DesktopUpdatePrompt';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
+import { MobileEditorDesktopGuide } from './MobileEditorDesktopGuide';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AuthRecoveryNotice } from './authRecovery';
+import {
+  clearAuthPendingDraft,
+  currentReturnToPath,
+  readAuthPendingDraft,
+  saveAuthPendingDraft,
+  type AuthPendingDraft,
+} from './authRecoveryStore';
+import { buildLoginUrl } from './AccountSettings';
 import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type SettingsSection, type WorkspacePage } from './workspacePageRouting';
 import type { SoundTabId } from './soundTabs';
 import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, navigateWorkspaceHistory, readLocationWorkspaceSource, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
@@ -45,12 +68,13 @@ import type { ScenarioId } from '../../../shared/scenarios';
 import { isWorkspacePageOpen, resolveNavTrackingPage, resolveRouteArrival } from '../router/routeRegistry';
 import { RouteViewport } from '../router/RouteViewport';
 import { OverlayLayer } from '../router/OverlayLayer';
+import { EntitlementModalHost } from './EntitlementModalHost';
 import { StudioRouterProvider } from '../router/createAppRouter';
 import { useWorkspaceBlocker } from '../router/useWorkspaceBlocker';
 import { isNotFoundSpaPath } from '../../../shared/spa-routes';
 import { isCloudFeatureEnabled, useCloudFeatureEnabled } from '../utils/cloudFeatures';
 
-import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
+import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard, type GuestSignInIntent } from './WorkspaceChromeContext';
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 
 type WorkspaceFrameProps = {
@@ -72,6 +96,7 @@ export function WorkspaceFrame(props: WorkspaceFrameProps) {
 function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blocked = false, message = '', saveState = '', onLibraryClose, onNavigate }: WorkspaceFrameProps) {
   const { t, locale } = useI18n();
   const localAgentsEnabled = useCloudFeatureEnabled('localAgents');
+  const modelProvidersEnabled = useCloudFeatureEnabled('modelProviders');
   const gameStudioEnabled = useCloudFeatureEnabled('gameStudio');
   const workflowsEnabled = useCloudFeatureEnabled('workflows');
   const designStudioEnabled = useCloudFeatureEnabled('designStudio');
@@ -149,8 +174,12 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       }
       return;
     }
-    if (page.settings === 'local' && !localAgentsEnabled) {
-      navigatePage({ settings: 'providers', mcpInSettings: false, assets: false, skills: false, templates: false }, true);
+    if (
+      (page.settings === 'providers' && !modelProvidersEnabled)
+      || (page.settings === 'local' && !localAgentsEnabled)
+    ) {
+      const fallbackSection: SettingsSection = modelProvidersEnabled ? 'providers' : 'models';
+      navigatePage({ settings: fallbackSection, provider: null, mcpInSettings: false, assets: false, skills: false, templates: false }, true);
       return;
     }
     if (
@@ -161,7 +190,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     ) {
       navigatePage({ explore: true, templates: false, ...lastExplore.current }, true);
     }
-  }, [routerLocation.pathname, routerLocation.search, routerLocation.hash, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
+  }, [routerLocation.pathname, routerLocation.search, routerLocation.hash, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, modelProvidersEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
   const presentation = workspacePresentation(location.search);
   const guard = useRef<EditorGuard | null>(null);
   const [editorState, setEditorState] = useState<Pick<EditorGuard, 'blocked' | 'saveState' | 'message'> | null>(null);
@@ -227,6 +256,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     collectionSkillTrigger.current = null;
   }, [page.templateCollection, page.skill]);
   const [narrow, setNarrow] = useState(() => window.innerWidth < 768);
+  const [mobileViewport, setMobileViewport] = useState(() => window.innerWidth < 640);
+  const [phone] = useState(() => isMobile(window.navigator).phone);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   // Shown inside the campaign window on non-Explore tabs unless dismissed today; re-checked each minute for the end and the next day.
   const [bfBannerShown, setBfBannerShown] = useMinuteCondition(shouldShowBlackFridayBanner);
@@ -267,6 +298,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     });
   }, [projectId, sessionId, settings, assetsOpen, skillsOpen, templatesPage, page.notFound, page.motion, page.explore, page.modelOverview, page.modelHub, page.designScene, page.studio]);
   const editorActive = editorRoute && !connectionsOpen;
+  const mobileEditorGate = phone && mobileViewport && editorRoute && !hostChrome;
+  const desktopEditorVisible = editorRoute && !mobileEditorGate;
   const motionTemplatesOpen = page.motion && !templatesPage && !settings;
   const previousOperationError = useRef('');
   useEffect(() => {
@@ -280,7 +313,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   useEffect(() => setSidebarOpen(editorRoute && !narrow), [editorRoute, narrow]);
   const navigationCollapsed = !editorActive;
   const toggleSidebar = useCallback(() => setSidebarOpen(open => !open), []);
-  const openEditor = () => { navigatePage({ motion: false, templates: false }); if (narrow) setSidebarOpen(false); };
+  const openEditor = useCallback(() => { navigatePage({ motion: false, templates: false }); if (narrow) setSidebarOpen(false); }, [navigatePage, narrow]);
   const openAssets = useCallback(() => { navigatePage({ assets: true, assetId: null, assetVersion: null, templates: false }); }, [navigatePage]);
   const openSkills = useCallback((skillCategory: SkillCategory | null = null, trigger?: HTMLElement) => {
     skillsTrigger.current = trigger ?? null;
@@ -288,7 +321,15 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [navigatePage]);
   const openSettings = useCallback((section: SettingsSection, entry?: McpEntry) => {
     if (entry) connectionEntry.current = entry;
-    navigatePage({ settings: section, mcpInSettings: section === 'mcp', assets: false, skills: false, templates: false },
+    const localEnabled = isCloudFeatureEnabled('localAgents');
+    const providersEnabled = isCloudFeatureEnabled('modelProviders');
+    const resolvedSection: SettingsSection =
+      section === 'providers' && !providersEnabled
+        ? 'models'
+        : section === 'local' && !localEnabled
+          ? (providersEnabled ? 'providers' : 'models')
+          : section;
+    navigatePage({ settings: resolvedSection, mcpInSettings: resolvedSection === 'mcp', assets: false, skills: false, templates: false },
       false, entry ? 'from-page' : undefined);
   }, [navigatePage]);
   const applicationRef = useRef<HTMLDivElement>(null);
@@ -301,19 +342,50 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     if (!settingsSource || !restoreWorkspaceSource(settingsSource)) openHome();
   };
   useEffect(() => {
-    const open = () => openSettings(isCloudFeatureEnabled('localAgents') ? 'local' : 'providers');
+    const open = () => openSettings(
+      isCloudFeatureEnabled('localAgents')
+        ? 'local'
+        : isCloudFeatureEnabled('modelProviders')
+          ? 'providers'
+          : 'models',
+    );
     window.addEventListener('motion:agents-open', open);
     return () => window.removeEventListener('motion:agents-open', open);
   }, [openSettings]);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 767px)');
+    const mobileQuery = window.matchMedia('(max-width: 639px)');
     const update = () => {
       // Close the desktop list in the same render that enables the modal drawer.
       if (query.matches) setSidebarOpen(false);
       setNarrow(query.matches);
+      setMobileViewport(mobileQuery.matches);
     };
-    query.addEventListener('change', update); return () => query.removeEventListener('change', update);
+    query.addEventListener('change', update);
+    mobileQuery.addEventListener('change', update);
+    return () => {
+      query.removeEventListener('change', update);
+      mobileQuery.removeEventListener('change', update);
+    };
   }, []);
+  useEffect(() => {
+    const appEl = applicationRef.current;
+    if (!appEl) return;
+    const syncWorkspaceTop = () => {
+      const workspaceEl = appEl.querySelector<HTMLElement>(':scope > .motion-workspace');
+      if (!workspaceEl) return;
+      const top = Math.max(0, Math.round(workspaceEl.getBoundingClientRect().top));
+      document.documentElement.style.setProperty('--om-workspace-top', `${top}px`);
+    };
+    syncWorkspaceTop();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(syncWorkspaceTop);
+    observer.observe(appEl);
+    for (const child of appEl.children) {
+      if (child instanceof HTMLElement) observer.observe(child);
+    }
+    return () => observer.disconnect();
+  }, [bfBannerVisible, hostChrome]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === ',') { event.preventDefault(); openSettings('general'); }
@@ -321,11 +393,90 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [editorActive, openSettings, toggleSidebar]);
+  const guestMode = Boolean(workspace.authRequired);
+  const startGuestSignIn = useCallback((intent: GuestSignInIntent) => {
+    const returnTo = currentReturnToPath();
+    saveAuthPendingDraft({
+      action: intent.action,
+      templateId: intent.templateId,
+      instruction: intent.instruction,
+      idempotencyKey: intent.idempotencyKey,
+      returnTo,
+      autoResume: true,
+    });
+    const loginUrl = buildLoginUrl(returnTo);
+    if (isDesktopApp()) {
+      void startDesktopBrowserLogin({ loginUrl, returnTo });
+    } else {
+      window.location.assign(loginUrl);
+    }
+  }, []);
+  const resumePendingDraft = useCallback(async (draft: AuthPendingDraft): Promise<boolean> => {
+    if (draft.action === 'use_template' && draft.templateId) {
+      return sessionId
+        ? workspace.createArtifact(sessionId, draft.templateId, draft.idempotencyKey)
+        : workspace.startSession(draft.instruction, draft.templateId, 'motion', draft.idempotencyKey);
+    }
+    if (draft.action === 'create_project') {
+      return workspace.create(draft.instruction, draft.idempotencyKey);
+    }
+    if (draft.action === 'open_editor') {
+      const target = workspace.projects[0];
+      if (target) {
+        if (target.id === projectId) {
+          openEditor();
+          return true;
+        }
+        return workspace.open('projects', target.id);
+      }
+      return workspace.create(undefined, draft.idempotencyKey);
+    }
+    if (draft.templateId) {
+      return sessionId
+        ? workspace.createArtifact(sessionId, draft.templateId, draft.idempotencyKey)
+        : workspace.startSession(draft.instruction, draft.templateId, 'motion', draft.idempotencyKey);
+    }
+    if (draft.instruction) {
+      return workspace.startSession(draft.instruction, undefined, 'motion', draft.idempotencyKey);
+    }
+    return true;
+  }, [sessionId, workspace.createArtifact, workspace.startSession, workspace.create, workspace.open, workspace.projects, projectId, openEditor]);
+  const autoResumedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!workspace.status || guestMode || workspace.busy) return;
+    const pending = readAuthPendingDraft();
+    if (!pending?.autoResume) return;
+    if (pending.action === 'open_editor' && !workspace.catalogLoaded) return;
+    if (autoResumedKeyRef.current === pending.idempotencyKey) return;
+    autoResumedKeyRef.current = pending.idempotencyKey;
+    void resumePendingDraft(pending).then(ok => {
+      const latest = readAuthPendingDraft();
+      if (!latest || latest.idempotencyKey !== pending.idempotencyKey) return;
+      if (ok) {
+        clearAuthPendingDraft();
+      } else {
+        saveAuthPendingDraft({
+          action: latest.action,
+          returnTo: latest.returnTo,
+          idempotencyKey: latest.idempotencyKey,
+          templateId: latest.templateId,
+          instruction: latest.instruction,
+          projectId: latest.projectId,
+          homeDraftSnapshot: latest.homeDraftSnapshot,
+          autoResume: false,
+        });
+      }
+    });
+  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
-  const switchingDisabled = libraryBusy || !workspace.status;
-  const motionEditorDisabled = switchingDisabled || workspace.projects.length === 0;
+  const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
+  const motionEditorDisabled = libraryBusy || (!guestMode && (!workspace.status || workspace.projects.length === 0));
   const openMotionEditor = async (selection: 'first' | 'last') => {
     if (motionEditorDisabled) return;
+    if (guestMode) {
+      startGuestSignIn({ action: 'open_editor' });
+      return;
+    }
     const current = projectId ?? workspace.activeProjectId;
     const previous = selection === 'last' ? workspace.projects.find(project => project.id === current) : undefined;
     const target = previous ?? workspace.projects[0];
@@ -363,23 +514,27 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     openLibrary(trigger);
     if (narrow) setSidebarOpen(false);
   };
-  const value: WorkspaceChrome = { workspace, switchingDisabled, saveState: editorState?.saveState || saveState, registerEditor, beforeViewChange,
+  const value: WorkspaceChrome = { workspace, switchingDisabled, guestMode, startGuestSignIn, saveState: editorState?.saveState || saveState, registerEditor, beforeViewChange,
     openLibrary,
     openConnections: entry => {
       connectionEntry.current = entry;
       navigatePage({ settings: 'mcp', templates: false }, false, 'from-page');
     },
     openModelSettings: () => openSettings('providers'),
-    openProviderSettings: provider => navigatePage({ settings: 'providers', provider, assets: false, skills: false, templates: false }),
+    openProviderSettings: provider => navigatePage(
+      isCloudFeatureEnabled('modelProviders')
+        ? { settings: 'providers', provider, assets: false, skills: false, templates: false }
+        : { settings: 'models', provider: null, assets: false, skills: false, templates: false },
+    ),
     openAccountSettings: () => openSettings('account'),
     openSubscriptionSettings: () => openSettings('subscription'),
     openHome, openAssets, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,
-    projectNavigation: !hostChrome && editorActive ? <span className="motion-project-navigation-trigger" hidden={sidebarOpen && !narrow}>
+    projectNavigation: !hostChrome && editorActive && !mobileEditorGate ? <span className="motion-project-navigation-trigger" hidden={sidebarOpen && !narrow}>
       <WorkspaceProjectsButton applicationRef={applicationRef} expanded={sidebarOpen} previewEnabled={!narrow && !sidebarOpen} onToggle={toggleSidebar}>
         {close => <WorkspaceSidebar archives={archives} currentId={projectId} close={close} expand={() => { close(); toggleSidebar(); }} onNavigate={close} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} openTemplates={openMotionTemplates} />}
       </WorkspaceProjectsButton>
     </span> : null,
-    settingsOpen: Boolean(settings) || pageOpen };
+    settingsOpen: Boolean(settings) || pageOpen || mobileEditorGate };
   const openSkill = (skill: string) => {
     const specialty = creativeStudios.find((entry): entry is TechniqueStudio => entry.surface === 'techniques' && entry.techniques.some(id => id === skill));
     navigatePage({ ...(specialty ? { specialty } : { skills: true }), skill, templates: false, ...lastExplore.current });
@@ -466,10 +621,49 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     if (target === 'explore') { openHome(); return; }
     openMcp(client, example);
   };
+  const desktopMenuHandlerRef = useRef<(action: DesktopMenuAction) => void>(() => {});
+  desktopMenuHandlerRef.current = action => {
+    if (action === 'open-settings') openSettings('general');
+    else if (action === 'open-about') openSettings('about');
+    else if (action === 'open-help') openSettings('help');
+    else if (action === 'open-agent-runtimes') openSettings('local');
+    else if (action === 'open-mcp-connect') openMcp();
+    else if (action === 'new-project') navigatePage({ explore: true, templates: false });
+    else if (action === 'check-updates') {
+      void getDesktopHostBridge()?.invoke(HOST_CAPABILITIES.UPDATER, 'checkForUpdates');
+      openSettings('about');
+    } else if (action === 'export-logs') {
+      void exportDesktopDiagnosticBundle().then(result => {
+        if (result.ok) {
+          navigationToast.showToast(t('Diagnostic logs exported'), 'info', 'feedback');
+        } else if (!result.canceled) {
+          navigationToast.showToast(
+            result.error || t('Could not export diagnostics. Use the command line if Studio cannot connect.'),
+            'error',
+            'feedback',
+          );
+        }
+      });
+    } else if (action === 'report-issue') {
+      void openExternalUrl(`${GITHUB_REPOSITORY}/issues`);
+    } else if (action === 'join-community-feishu') {
+      void openExternalUrl(feishu.href);
+    } else if (action === 'join-community-discord') {
+      void openExternalUrl(discord.href);
+    } else if (action === 'reload-app') {
+      window.location.reload();
+    }
+  };
+  useEffect(() => subscribeDesktopMenuActions(action => desktopMenuHandlerRef.current(action)), []);
   const visibleSettings = templatesPage || standaloneMcp ? null : settings;
   const showStudioBackToExplore = page.studio?.scene.modality === 'image' && fromExplore && !sourcePage.community && !sourcePage.medium;
   const openTemplateFromOverlay = (id: string) => {
-    if (!switchingDisabled) void (sessionId ? workspace.createArtifact(sessionId, id) : workspace.startSession(undefined, id));
+    if (switchingDisabled) return;
+    if (guestMode) {
+      startGuestSignIn({ action: 'use_template', templateId: id });
+      return;
+    }
+    void (sessionId ? workspace.createArtifact(sessionId, id) : workspace.startSession(undefined, id));
   };
   const overlaySharedProps = {
     page,
@@ -481,7 +675,10 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     detailOnly,
     libraryBusy,
     switchingDisabled,
-    workspaceError: workspace.error,
+    guestMode,
+    onGuestTemplateSignIn: (templateId: string, requestId: string) =>
+      startGuestSignIn({ action: 'use_template', templateId, idempotencyKey: requestId }),
+    workspaceError: guestMode && workspace.errorSource === 'connection' ? '' : workspace.error,
     cardPreview,
     libraryTrigger,
     collectionSkillTrigger,
@@ -497,8 +694,9 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   return <WorkspaceChromeContext.Provider value={value}>
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
+    <DesktopUpdatePrompt />
     {archives.manager}
-    <Dialog.Root open={sidebarOpen && narrow && editorActive} onOpenChange={setSidebarOpen}>
+    <Dialog.Root open={sidebarOpen && narrow && editorActive && !mobileEditorGate} onOpenChange={setSidebarOpen}>
     <div ref={applicationRef} className="om-application" data-embedded={presentation.embedded} data-host-chrome={hostChrome} data-has-bf-banner={bfBannerVisible || undefined} data-navigation-collapsed={navigationCollapsed}>
       {bfBannerVisible && <BlackFridayTopBanner trackingPage={navTrackingPage} onClose={closeBfBanner} onExpire={expireBfBanner} />}
       <ApplicationHeader atExploreHome={page.explore && !page.community && !page.medium && !connectionsOpen}
@@ -511,18 +709,9 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         onOpenScenarioHub={workflowsEnabled ? () => openScenarioHub() : undefined}
         onNavigate={openStudio} onNavigateSound={openAudioNav} />
       <AuthRecoveryNotice
+        signedIn={!guestMode && Boolean(workspace.status)}
         onRetry={workspace.retryConnection}
-        onResumePendingDraft={async (draft) => {
-          if (draft.templateId) {
-            return sessionId
-              ? workspace.createArtifact(sessionId, draft.templateId)
-              : workspace.startSession(draft.instruction, draft.templateId);
-          }
-          if (draft.instruction) {
-            return workspace.startSession(draft.instruction);
-          }
-          return true;
-        }}
+        onResumePendingDraft={resumePendingDraft}
       />
       <div className="motion-workspace">
       {isRoutePending && <div className="motion-route-progress" role="progressbar" aria-hidden="true" />}
@@ -535,11 +724,20 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       {!narrow && editorRoute && <div id="om-project-navigation" className="om-project-navigation om-collapsible" data-collapsed={!sidebarOpen || navigationCollapsed} aria-hidden={!sidebarOpen || navigationCollapsed} inert={!sidebarOpen || navigationCollapsed}>
         <WorkspaceSidebar archives={archives} currentId={projectId} close={() => setSidebarOpen(false)} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} openTemplates={openMotionTemplates} />
       </div>}
-      <div className="motion-workspace-content" hidden={!editorRoute} aria-hidden={!editorRoute} inert={!editorRoute}>
+      <div className="motion-workspace-content" hidden={!desktopEditorVisible} aria-hidden={!desktopEditorVisible} inert={!desktopEditorVisible}>
         {visibleNotice && <ErrorNotice key={noticeKey} message={notice}
           onDismiss={() => { setDismissedNotice(noticeKey); if (workspaceNotice) workspace.clearError(); }} />}
         {children}
       </div>
+      {mobileEditorGate && (
+        <div className="om-explore-host">
+          <MobileEditorDesktopGuide
+            href={location.href}
+            onExplore={openHome}
+            onCopyFeedback={(feedbackMessage, tone) => navigationToast.showToast(feedbackMessage, tone, 'feedback')}
+          />
+        </div>
+      )}
       <RouteViewport
         page={page}
         projectId={projectId}
@@ -587,6 +785,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     </div>
     </Dialog.Root>
     <OverlayLayer {...overlaySharedProps} placement="portal" />
+    <EntitlementModalHost />
   </WorkspaceChromeContext.Provider>;
 }
 
@@ -596,10 +795,10 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
   openTemplates: (trigger?: HTMLElement) => void;
 }) {
   const { t } = useI18n();
-  const { workspace, switchingDisabled } = useWorkspaceChrome();
+  const { workspace, switchingDisabled, guestMode, startGuestSignIn } = useWorkspaceChrome();
   const projects = workspace.projects;
   const filtered = projects.filter(project => project.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  const loadingProjects = !workspace.status && !workspace.error && projects.length === 0;
+  const loadingProjects = !guestMode && !workspace.status && !workspace.error && projects.length === 0;
   return <aside className="motion-sidebar" aria-label={t('Workspace navigation')}>
     <div className="motion-sidebar-brand">
       <strong className="om-subtitle">{t('Workspace')}</strong>
@@ -615,7 +814,11 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
         <Tooltip label={t('New project')}>
           <IconButton variant="ghost" type="button" className="motion-icon-button" aria-label={t('New project')} disabled={switchingDisabled} onClick={event => {
             void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
-            void workspace.create();
+            if (guestMode && startGuestSignIn) {
+              startGuestSignIn({ action: 'create_project' });
+            } else {
+              void workspace.create();
+            }
             onNavigate?.();
           }} icon={<MotionIcon name="plus-thin" size={20} />} />
         </Tooltip>
@@ -626,6 +829,10 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
       {loadingProjects && ['75%', '55%', '65%'].map(width => <div key={width} className="motion-session pointer-events-none" data-testid="project-list-skeleton" aria-hidden="true">
         <Skeleton style={{ width, height: 'var(--motion-space-16)' }} />
       </div>)}
+      {guestMode && !filtered.length && <div className="motion-session-empty" data-testid="project-list-guest">
+        <p>{t('Sign in with OpenDesign to view your projects.')}</p>
+        {startGuestSignIn && <Button variant="ghost" type="button" className="om-button h-auto" data-primary onClick={() => { startGuestSignIn({ action: 'open_editor' }); onNavigate?.(); }}>{t('Sign in with OpenDesign')}</Button>}
+      </div>}
       {workspace.status && !filtered.length && <p className="motion-session-empty">{t(query ? 'No matching projects' : 'Create a project with your Agent to start editing.')}</p>}
       {filtered.map(project => <DisclosureRow key={project.id} className="om-project-sidebar-row" active={currentId === project.id}
         action={<ProjectArchiveMenu projectId={project.id} title={project.title} archives={archives} />}>

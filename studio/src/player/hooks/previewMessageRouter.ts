@@ -90,7 +90,7 @@ function acceptedPreviewMessage(
     if (!adapter?.accepts(e)) return null;
     if (iframe && data.type === "timeline-state" && Array.isArray(data.clips) &&
         !acceptsTimingManifest(iframe, data.timelinePath, data.timelineVersion)) return null;
-    if (data.type === "layer-tree" || data.type === "response" || data.type === "canvas-drag") return null;
+    if (data.type === "layer-tree" || data.type === "response" || data.type === "canvas-drag" || data.type === "preview-document") return null;
     return projectTimelineUrls(normalizeBridgeMessage(data), adapter);
   }
   if (data?.source !== "hf-preview") return null;

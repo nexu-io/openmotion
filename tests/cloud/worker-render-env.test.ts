@@ -30,8 +30,12 @@ import {
   buildRenderExportArgs,
   buildThumbnailSnapshotArgs,
   hydrateSnapshotFilesToDir,
+  parseCgroupCpuLimit,
+  parseCgroupMemoryLimitMb,
+  parseRenderProgressLine,
   processExportRenderJob,
   processRenderThumbnailJob,
+  resolveRenderCaptureTuning,
   selectReferencedMediaCandidates,
   startRenderHealthHeartbeat,
   sweepStaleRenderTempDirs,
@@ -561,7 +565,7 @@ describe('worker-render: CLI Argument Builders (hyperframes@0.9.7 snapshot & ren
     ]);
   });
 
-  it('forwards allowlisted payload.settings onto hyperframes render CLI args cleanly', () => {
+  it('forwards allowlisted payload.settings and capture tuning flags onto hyperframes render CLI args without --json', () => {
     const mp4Args = buildRenderExportArgs({
       compositionPath: 'compositions/hero.html',
       outputFilePath: '/tmp/out/final.mp4',
@@ -574,6 +578,9 @@ describe('worker-render: CLI Argument Builders (hyperframes@0.9.7 snapshot & ren
         variables: { title: 'Hello' },
         ignoredUnsafeFlag: '--evil',
       },
+      workers: 2,
+      disableLowMemoryMode: true,
+      disableBrowserGpu: true,
     });
     assert.deepEqual(mp4Args, [
       'render',
@@ -594,8 +601,12 @@ describe('worker-render: CLI Argument Builders (hyperframes@0.9.7 snapshot & ren
       '18',
       '--variables',
       '{"title":"Hello"}',
-      '--json',
+      '--workers',
+      '2',
+      '--no-low-memory-mode',
+      '--no-browser-gpu',
     ]);
+    assert.equal(mp4Args.includes('--json'), false);
 
     const gifArgs = buildRenderExportArgs({
       compositionPath: 'index.html',
@@ -616,8 +627,127 @@ describe('worker-render: CLI Argument Builders (hyperframes@0.9.7 snapshot & ren
       '8M',
       '--gif-loop',
       '0',
-      '--json',
     ]);
+    assert.equal(gifArgs.includes('--json'), false);
+  });
+
+  it('parses hyperframes @hf-progress lines, ANSI progress bars, and legacy JSON progress lines cleanly', () => {
+    assert.deepEqual(
+      parseRenderProgressLine('@hf-progress {"code":"start_browsers","done":1,"total":3,"pct":1}'),
+      { progress: 1, stage: 'Starting browsers (1/3 ready)' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('@hf-progress {"code":"extract_video","done":20,"total":100,"pct":12}'),
+      { progress: 12, stage: 'Extracting video frames' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('@hf-progress {"code":"capture","done":126,"total":300,"pct":42}'),
+      { progress: 42, stage: 'Capturing frame 126/300' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('@hf-progress {"code":"encode","done":210,"total":300,"pct":78}'),
+      { progress: 78, stage: 'Encoding frame 210/300' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('@hf-progress {"code":"assemble","done":5,"total":10,"pct":95}'),
+      { progress: 95, stage: 'Assembling final video' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('\x1b[36m█████░░░░░░░░░░░░░░░░░░░░\x1b[0m  \x1b[1m20%\x1b[0m  \x1b[2mCompiling composition\x1b[0m'),
+      { progress: 20, stage: 'Compiling composition' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('  ████████████░░░░░░░░░░░░░  50%  Capturing frame 150/300 (2 workers)'),
+      { progress: 50, stage: 'Capturing frame 150/300 (2 workers)' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('{"progress":0.5,"stage":"capturing"}'),
+      { progress: 50, stage: 'capturing' },
+    );
+    assert.deepEqual(
+      parseRenderProgressLine('{"percent":65}'),
+      { progress: 65, stage: undefined },
+    );
+    assert.equal(parseRenderProgressLine('Render complete in 12.3s'), null);
+    assert.equal(parseRenderProgressLine('@hf-progress not-json'), null);
+  });
+
+  it('sizes parallel capture workers safely from cgroup CPU/memory budgets and respects explicit overrides', () => {
+    assert.equal(parseCgroupCpuLimit('400000 100000\n', null, null), 4);
+    assert.equal(parseCgroupCpuLimit('50000 100000\n', null, null), 0.5);
+    assert.equal(parseCgroupCpuLimit('max 100000\n', null, null), null);
+    assert.equal(parseCgroupCpuLimit(null, '200000\n', '100000\n'), 2);
+    assert.equal(parseCgroupMemoryLimitMb('4294967296\n', null), 4096);
+    assert.equal(parseCgroupMemoryLimitMb('max\n', null), null);
+    assert.equal(parseCgroupMemoryLimitMb(null, '9223372036854771712\n'), null);
+
+    // Sub-1-core cgroup quota keeps accurate cpuLimit while clamping workers to 1.
+    const fractionalCpu = resolveRenderCaptureTuning({ cpuLimit: 0.5, memoryLimitMb: 4096, sourceEnv: {} });
+    assert.equal(fractionalCpu.cpuLimit, 0.5);
+    assert.equal(fractionalCpu.workers, 1);
+    assert.equal(fractionalCpu.disableLowMemoryMode, false);
+
+    // Default 2 GiB local Compose container stays at 1 worker with low-memory mode intact.
+    assert.deepEqual(
+      resolveRenderCaptureTuning({ cpuLimit: 4, memoryLimitMb: 2048, sourceEnv: {} }),
+      {
+        workers: 1,
+        disableLowMemoryMode: false,
+        disableBrowserGpu: true,
+        cpuLimit: 4,
+        memoryLimitMb: 2048,
+        source: 'auto',
+      },
+    );
+
+    // 4 CPU / 4 GiB pod runs 2 parallel capture workers and disables low-memory 1-worker pin.
+    assert.deepEqual(
+      resolveRenderCaptureTuning({ cpuLimit: 4, memoryLimitMb: 4096, sourceEnv: {} }),
+      {
+        workers: 2,
+        disableLowMemoryMode: true,
+        disableBrowserGpu: true,
+        cpuLimit: 4,
+        memoryLimitMb: 4096,
+        source: 'auto',
+      },
+    );
+
+    // 4 CPU / 8 GiB K8s manifest runs 3 parallel capture workers.
+    assert.deepEqual(
+      resolveRenderCaptureTuning({ cpuLimit: 4, memoryLimitMb: 8192, sourceEnv: {} }),
+      {
+        workers: 3,
+        disableLowMemoryMode: true,
+        disableBrowserGpu: true,
+        cpuLimit: 4,
+        memoryLimitMb: 8192,
+        source: 'auto',
+      },
+    );
+
+    // Concurrent render jobs divide effective memory/CPU budget per job.
+    assert.equal(
+      resolveRenderCaptureTuning({ cpuLimit: 4, memoryLimitMb: 4096, concurrency: 2, sourceEnv: {} }).workers,
+      1,
+    );
+
+    // Explicit env/config override wins over auto sizing.
+    assert.deepEqual(
+      resolveRenderCaptureTuning({
+        cpuLimit: 2,
+        memoryLimitMb: 2048,
+        sourceEnv: { RENDER_CAPTURE_WORKERS: '3', PRODUCER_BROWSER_GPU_MODE: 'hardware' },
+      }),
+      {
+        workers: 3,
+        disableLowMemoryMode: true,
+        disableBrowserGpu: false,
+        cpuLimit: 2,
+        memoryLimitMb: 2048,
+        source: 'env',
+      },
+    );
   });
 });
 
@@ -651,20 +781,29 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
           logger: SILENT_LOGGER,
           workerId: 'render-test-1',
           tmpBaseDir: tmpBase,
+          captureWorkers: 2,
           sourceEnv: {
             PATH: '/usr/bin:/bin',
             DATABASE_URL: 'postgres://secret@db/om',
             OPENDESIGN_S2S_API_KEY: 'synthetic-key',
           },
           runRenderCommand: async (_rt, _dir, args, opts) => {
-            // Confirm render command received strictly stripped env.
+            // Confirm render command received strictly stripped env and non-quiet multi-worker CLI args.
             assert.equal(opts.env.DATABASE_URL, undefined);
             assert.equal(opts.env.OPENDESIGN_S2S_API_KEY, undefined);
             assert.equal(opts.env.HYPERFRAMES_GSAP_WRITER, 'acorn');
+            assert.equal(args.includes('--json'), false);
+            assert.equal(args[args.indexOf('--workers') + 1], '2');
+            assert.equal(args.includes('--no-low-memory-mode'), true);
+            assert.equal(args.includes('--no-browser-gpu'), true);
             const outIdx = args.indexOf('--output');
             await writeFile(args[outIdx + 1], fakeMp4);
-            opts.onStdoutLine?.('{"progress":0.5,"stage":"capturing"}');
-            return { code: 0, stdout: '{"ok":true}\n', stderr: '' };
+            // Emit back-to-back bar + @hf-progress lines in the same phase (deduplicated/throttled),
+            // followed immediately by a phase transition that MUST bypass the 500ms intra-phase throttle.
+            opts.onStdoutLine?.('  ████████████░░░░░░░░░░░░░  50%  Capturing frame 150/300 (2 workers)');
+            opts.onStdoutLine?.('@hf-progress {"code":"capture","done":150,"total":300,"pct":50}');
+            opts.onStdoutLine?.('@hf-progress {"code":"assemble","done":5,"total":10,"pct":95}');
+            return { code: 0, stdout: 'Render complete\n', stderr: '' };
           },
           extractExpectationFn: async () => ({
             width: 1920,
@@ -698,8 +837,32 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
       assert.equal(okRes.state, 'completed');
       assert.ok(storage.objects.has(exportKey(WID_A, JID_OK, 'final-cut.mp4')));
       assert.ok(storage.objects.has(exportKey(WID_A, JID_OK, 'render.log')));
+      assert.ok(statusUpdates.some((u) => u.stage === 'Capturing frame 150/300 (2 workers)' && u.progress === 50));
       assert.ok(statusUpdates.some((u) => u.state === 'completed'));
-      assert.ok(eventBus.published.some((e) => e.channel === jobChannel(JID_OK)));
+      const renderProgressEvents = eventBus.published
+        .filter((e) => e.channel === jobChannel(JID_OK))
+        .map((e) => e.payload as { state?: string; stage?: string; progress?: number });
+      const captureIdx = renderProgressEvents.findIndex(
+        (e) => e.stage === 'Capturing frame 150/300 (2 workers)' && e.progress === 50,
+      );
+      const assembleIdx = renderProgressEvents.findIndex(
+        (e) => e.stage === 'Assembling final video' && e.progress === 82,
+      );
+      const verifyingIdx = renderProgressEvents.findIndex((e) => e.stage === 'verifying' && e.progress === 88);
+      assert.ok(captureIdx >= 0, 'job channel must receive capture progress');
+      assert.ok(
+        assembleIdx > captureIdx,
+        'phase transition to Assembling final video must not be dropped by intra-phase 500ms throttle',
+      );
+      assert.ok(
+        verifyingIdx > assembleIdx,
+        'in-flight render progress publish must settle strictly before verifying checkpoint',
+      );
+      assert.equal(
+        renderProgressEvents.filter((e) => e.stage === 'Capturing frame 150/300').length,
+        0,
+        'back-to-back @hf-progress line in same phase should be throttled after bar line',
+      );
       // /tmp/om-render-<jobId> MUST be completely removed!
       await assert.rejects(() => access(path.join(tmpBase, `om-render-${JID_OK}`)));
 

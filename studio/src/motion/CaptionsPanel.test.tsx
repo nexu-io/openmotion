@@ -10,27 +10,42 @@ import { DEFAULT_CAPTION_SETTINGS } from '../../../shared/caption-style';
 import { useCaptionWorkspace } from './captionWorkspace';
 import { useDockLayoutStore } from '../components/dock/dockLayoutStore';
 import { usePlayerStore } from '../player/store/playerStore';
-const state = vi.hoisted(() => ({ composition: 'index.html', fail: false, failWrite: false, tracks: [] as any[], documents: [] as any[], elements: [] as any[], wait: vi.fn(), refresh: vi.fn(), toast: vi.fn(), calls: [] as any[] }));
+import { notifyExternalFileReload } from '../hooks/externalFileReloadBus';
+import type { RemoteFileRead } from '../hooks/remoteFileReads';
+const state = vi.hoisted(() => ({ composition: 'index.html', fail: false, failWrite: false, tracks: [] as any[], documents: [] as any[], elements: [] as any[], wait: vi.fn(), receipt: vi.fn(), refresh: vi.fn(), toast: vi.fn(), calls: [] as any[] }));
 vi.mock('../contexts/StudioContext', () => ({ useStudioPlaybackContext: () => ({ timelineElements: state.elements }), useStudioShellContext: () => ({ projectId: 'project', activeCompPath: state.composition, showToast: state.toast, waitForPendingDomEditSaves: state.wait, writeBlockedReason: null, renderQueue: { isRendering: false } }) }));
 vi.mock('../contexts/FileManagerContext', () => ({ useFileManagerContext: () => ({ refreshFileTree: state.refresh }) }));
 vi.mock('./transcriptClient', () => ({ transcriptRequest: vi.fn(async input => {
   state.calls.push(input);
-  if (input.command === 'caption_tracks') { if (state.fail) throw new Error('Disconnected'); return { tracks: state.tracks }; }
   if (input.command === 'sources') return { sources: [] };
   if (input.command === 'models') return { models: [] };
   if (input.command === 'list') return { documents: state.documents, jobs: [] };
   if (input.command === 'get') return { document: { revision: 1 } };
-  if (input.command === 'caption_toggle') {
-    if (state.failWrite) throw new Error('Version changed');
-    if (!state.tracks.length && input.visible) state.tracks = [{ id: 'empty', kind: 'caption', track: 0, label: 'Captions', cueCount: 0, settings: { ...DEFAULT_CAPTION_SETTINGS }, locked: false }];
-    state.tracks = state.tracks.map(t => t.kind === 'caption' ? { ...t, settings: { ...t.settings, visible: input.visible } } : t);
-  }
-  if (input.command === 'caption_update') {
-    if (state.failWrite) throw new Error('Version changed');
-    state.tracks = input.remove ? state.tracks.filter(t => t.id !== input.transcriptId) : state.tracks.map(t => t.id === input.transcriptId ? { ...t, settings: { ...t.settings, ...input.captionSettings } } : t);
-  }
   return {};
 }) }));
+vi.mock('./studioCaptionEdits', () => ({
+  readStudioCaptionTracks: async (projectId: string, compositionPath: string, read?: RemoteFileRead) => {
+    state.calls.push({ command: 'caption_tracks', projectId, compositionPath });
+    if (state.fail) throw new Error('Disconnected');
+    if (read) await read(projectId, compositionPath);
+    return state.tracks;
+  },
+  editStudioCaptions: async (shell: { projectId: string; activeCompPath: string }, input: any, onProjected?: (id: string) => void) => {
+    state.calls.push({ ...input, projectId: shell.projectId, compositionPath: shell.activeCompPath });
+    if (input.command === 'caption_toggle') {
+      if (state.failWrite) throw new Error('Version changed');
+      if (!state.tracks.length && input.visible) state.tracks = [{ id: 'empty', kind: 'caption', track: 0, label: 'Captions', cueCount: 0, settings: { ...DEFAULT_CAPTION_SETTINGS }, locked: false }];
+      state.tracks = state.tracks.map(t => t.kind === 'caption' ? { ...t, settings: { ...t.settings, visible: input.visible } } : t);
+    }
+    if (input.command === 'caption_update') {
+      if (state.failWrite) throw new Error('Version changed');
+      state.tracks = input.remove ? state.tracks.filter(t => t.id !== input.transcriptId) : state.tracks.map(t => t.id === input.transcriptId ? { ...t, settings: { ...t.settings, ...input.captionSettings } } : t);
+    }
+    useCaptionWorkspace.getState().changed();
+    onProjected?.(input.transcriptId || 'manual-track');
+    await state.receipt();
+  },
+}));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: vi.fn(async () => ({ revision: 'snapshot', currentVersionId: 'version' })) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root;
@@ -44,7 +59,7 @@ beforeEach(() => {
   state.composition = 'index.html'; state.fail = false; state.failWrite = false; state.calls = []; state.elements = [];
   state.tracks = [{ id: 'doc', kind: 'caption', track: 4, label: 'Speech', cueCount: 2, settings: { ...DEFAULT_CAPTION_SETTINGS }, locked: false }];
   state.documents = [{ id: 'doc', source: { path: 'speech.wav', duration: 3 }, segmentCount: 2 }];
-  state.wait.mockReset().mockResolvedValue(undefined); state.refresh.mockReset().mockResolvedValue(undefined); state.toast.mockReset();
+  state.receipt.mockReset().mockResolvedValue(undefined); state.wait.mockReset().mockResolvedValue(undefined); state.refresh.mockReset().mockResolvedValue(undefined); state.toast.mockReset();
   useCaptionWorkspace.setState({ selections: {}, requests: {}, epoch: 0 }); useDockLayoutStore.setState({ visiblePanels: new Set(['captions', 'timeline']) }); usePlayerStore.setState({ selectedElementId: null });
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
@@ -53,7 +68,7 @@ it('clicking a style immediately patches only appearance and preserves hidden st
   state.tracks[0].settings.visible = false;
   await render(); await act(async () => button('Paper card').click());
   const input = state.calls.find(c => c.command === 'caption_update');
-  expect(input).toMatchObject({ projectId: 'project', compositionPath: 'index.html', transcriptId: 'doc', expectedRevision: 'snapshot', expectedVersionId: 'version', captionSettings: { preset: 'card' } });
+  expect(input).toMatchObject({ projectId: 'project', compositionPath: 'index.html', transcriptId: 'doc', captionSettings: { preset: 'card' } });
   expect(input.captionSettings).toEqual({ preset: 'card' }); expect(input.segments).toBeUndefined(); expect(input.timelineStart).toBeUndefined(); expect(state.refresh).not.toHaveBeenCalled();
   expect(button('Paper card').getAttribute('aria-pressed')).toBe('true'); expect(document.querySelector('[aria-label="Show captions in video"]')?.getAttribute('aria-checked')).toBe('false');
   expect(button('Apply caption style')).toBeUndefined();
@@ -71,11 +86,13 @@ it('read recovery retains the track bar; locked tracks cannot be changed, hidden
   state.fail = false; state.tracks[0].locked = true; await act(async () => button('Retry').click());
   expect(button('Paper card').disabled).toBe(true); expect(button('Hide').disabled).toBe(true); expect(button('Remove caption track').disabled).toBe(true);
 });
-it('switching compositions while waiting for pending saves prevents an appearance write', async () => {
-  let finish!: () => void; state.wait.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+it('an accepted style edit stays with its original composition while its receipt is pending', async () => {
+  let finish!: () => void; state.receipt.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
   await render(); await act(async () => button('Paper card').click());
   state.composition = 'other.html'; await render(); await act(async () => finish());
-  expect(state.calls.some(c => c.command === 'caption_update')).toBe(false);
+  expect(state.calls.filter(c => c.command === 'caption_update')).toMatchObject([{ compositionPath: 'index.html' }]);
+  expect(state.wait).not.toHaveBeenCalled();
+  expect(state.toast).not.toHaveBeenCalledWith('Captions updated', 'info');
 });
 it('new styles remain a draft until adding captions with explicit placement', async () => {
   state.tracks = []; await render(); await act(async () => button('Style').click()); await act(async () => button('Paper card').click()); await act(async () => button('Word highlight').click());
@@ -192,6 +209,19 @@ it('a panel request for another composition does not override this composition',
   expect(document.querySelector('[role=tab][aria-selected=true]')?.textContent).toBe('Style');
 });
 
+it('refreshes a visible track from its file-change event without consulting unrelated compositions', async () => {
+  await render();
+  const read = vi.fn(async () => ({ content: 'peer source', version: 'peer', missing: false }));
+  state.calls = [];
+  await act(async () => notifyExternalFileReload('other.html', read));
+  expect(read).not.toHaveBeenCalled();
+  state.tracks = [{ ...state.tracks[0], settings: { ...state.tracks[0].settings, preset: 'card', visible: false } }];
+  await act(async () => notifyExternalFileReload('index.html', read));
+  expect(read).toHaveBeenCalledWith('project', 'index.html');
+  expect(button('Paper card').getAttribute('aria-pressed')).toBe('true');
+  expect(document.querySelector('[aria-label="Show captions in video"]')?.getAttribute('aria-checked')).toBe('false');
+});
+
 it('does no recurring caption discovery and refreshes visible consumers after edits', async () => {
  vi.useFakeTimers();
  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
@@ -229,7 +259,7 @@ it('the CC switch enables an empty track once and retains Off after reload', asy
   await render(<TimelineCaptionsMenu />); expect(button('Caption visibility').textContent).toBe('Off');
   await act(async () => button('Caption visibility').click());
   await act(async () => button('On').click());
-  expect(state.calls.find(c => c.command === 'caption_toggle')).toMatchObject({ visible: true, expectedRevision: 'snapshot', expectedVersionId: 'version', compositionPath: 'index.html' });
+  expect(state.calls.find(c => c.command === 'caption_toggle')).toMatchObject({ visible: true, compositionPath: 'index.html' });
   expect(button('Caption visibility').textContent).toBe('On'); expect(state.tracks).toHaveLength(1);
   await act(async () => button('Off').click());
   expect(button('Caption visibility').textContent).toBe('Off'); expect(state.tracks).toHaveLength(1);

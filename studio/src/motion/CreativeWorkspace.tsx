@@ -12,13 +12,17 @@ import { AssetsPage } from './AssetsPage';
 import type { CinemaTemplate } from './cinemaTemplates';
 import type { AssetDraft } from './AssetComposer';
 import { useMediaCatalog } from './useMediaCatalog';
+import { guestMediaCatalog } from './guestMediaCatalog';
+import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import { mediaEditorDestination, mediaLabels, sceneFeature, scenesForStudio, studioIconTone, studioDestination, studioDraftKey, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { DesignSceneTabs, type DesignTabId } from '../design/scenes/DesignSceneTabs';
 import { SoundSceneTabs } from './SoundSceneTabs';
 import { findSoundTab, isSfxModel, type SoundTabId } from './soundTabs';
+import { readPersistedStudioDrafts, savePersistedStudioDraft } from './authRecoveryStore';
 
 export type StudioCreation = {
+  guestPreview?: boolean;
   destination: StudioDestination;
   catalog: ReturnType<typeof useMediaCatalog>;
   initialDraft?: AssetDraft;
@@ -44,7 +48,9 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   const { t, locale } = useI18n();
   const landingTabsRef = useRef<HTMLElement>(null);
   const comingSoon = studioComingSoon(destination?.studio);
-  const catalog = useMediaCatalog(active && Boolean(destination) && !comingSoon);
+  const guestPreview = Boolean(useOptionalWorkspaceChrome()?.guestMode);
+  const liveCatalog = useMediaCatalog(active && Boolean(destination) && !comingSoon && !guestPreview);
+  const catalog = guestPreview ? { ...liveCatalog, failed: false, catalog: guestMediaCatalog } : liveCatalog;
   const landingSceneId = destination?.landing ? destination.scene.id : null;
   useEffect(() => {
     if (!landingSceneId) return;
@@ -59,7 +65,10 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     ? (destination.landing ? (scene.id === 'speech' ? 'speech' : 'music') : (soundTab ?? (scene.id === 'speech' ? 'speech' : 'music')))
     : undefined;
   const draftKey = activeSoundTab ? `sound/${activeSoundTab}` : studioDraftKey(destination, skill) + (cinemaTemplate ? '/' + cinemaTemplate.id : '');
-  const initialDraft: AssetDraft | undefined = drafts.current.get(draftKey) ?? (cinemaTemplate && {
+  const persistedDraft = !drafts.current.has(draftKey)
+    ? readPersistedStudioDrafts<AssetDraft>()[draftKey]
+    : undefined;
+  const initialDraft: AssetDraft | undefined = drafts.current.get(draftKey) ?? persistedDraft ?? (cinemaTemplate && {
     modality: 'video',
     prompt: (locale === 'zh-CN' ? cinemaTemplate.zh : cinemaTemplate.en).prompt,
     preferredModel: cinemaTemplate.model.id,
@@ -148,7 +157,7 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
       {onOpenBrandKit && <div className="om-control-row om-studio-library-link"><WorkspaceResourceActions onBrandKit={onOpenBrandKit} /></div>}
     </header>
     </>}
-    <AssetsPage key={isSoundStudio ? `sound/${visit}${destination.home ? ':home' : ''}` : draftKey + visit} active={active} hasProject={hasProject} studio={{ destination, catalog, draftKey, soundTab: activeSoundTab, selectSoundTab, useAsFirstFrame, reuseInScene, initialDraft,
-      remember: draft => drafts.current.set(draftKey, draft), chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
+    <AssetsPage key={isSoundStudio ? `sound/${visit}${destination.home ? ':home' : ''}` : draftKey + visit} active={active} hasProject={hasProject} studio={{ destination, catalog, guestPreview, draftKey, soundTab: activeSoundTab, selectSoundTab, useAsFirstFrame, reuseInScene, initialDraft,
+      remember: draft => { drafts.current.set(draftKey, draft); savePersistedStudioDraft(draftKey, draft); }, chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
   </div>;
 }

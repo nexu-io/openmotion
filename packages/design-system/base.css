@@ -1,3 +1,10 @@
+:root {
+  --om-desktop-inset-left: 0px;
+  --om-desktop-inset-right: 0px;
+  --om-desktop-safe-top: 0px;
+  --om-desktop-titlebar-height: 46px;
+  --om-viewport-height: calc(100dvh - var(--om-desktop-safe-top, 0px));
+}
 :where([data-motion-ui]), :where([data-motion-ui]) * { box-sizing: border-box; }
 :where([data-motion-ui]) {
   background: var(--motion-bg);

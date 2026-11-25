@@ -562,7 +562,7 @@ class MockStorage implements StoragePort {
   async ensureBucketAndCors(): Promise<void> {}
 }
 
-function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; fontCatalog?: Parameters<typeof createDisklessStudioApp>[0]['fontCatalog'] }) {
+function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; programmatic?: boolean; fontCatalog?: Parameters<typeof createDisklessStudioApp>[0]['fontCatalog'] }) {
   const pgClient = new StudioTestPgClient();
   const db = drizzle({ client: pgClient as never, schema }) as unknown as Database;
   const storage = new MockStorage();
@@ -621,7 +621,8 @@ function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; fon
     role: 'owner',
     scopes: ['workspace:admin'],
     authMode: 'dev',
-    authMethod: 'session_cookie',
+    authMethod: options?.programmatic ? 'pat' : 'session_cookie',
+    entry: options?.programmatic ? 'api' : 'web',
     displayName: 'Studio Tester',
   };
 
@@ -1266,8 +1267,60 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(loads.mock.callCount(), 2);
   });
 
-  it('splits a legacy anonymous clip using its preview-stamped hf-id', async () => {
+  it('accepts ordered web edits even without patch storage and keeps semantic execution behind programmatic entry points', async t => {
     const env = createStudioTestEnv();
+    const {projectId} = await env.workspace.createProject(env.auth);
+    const base = '/api/projects/' + projectId;
+    const file = 'scene.html';
+    const original = '<p>before</p>';
+    await env.files.commitChanges(env.auth, {projectId, ops: [{op:'upsert_text', path:file, content:original}]});
+    const reads = t.mock.method(env.files, 'readTextBlob');
+    const metadata = await env.studioApp.request(base + '/files/' + file + '?view=metadata');
+    assert.equal(metadata.status, 200);
+    assert.equal(metadata.headers.get('X-OpenMotion-Ordered-Edits'), '1');
+    const {version} = await metadata.json();
+    assert.equal(metadata.headers.get('etag'), version);
+    assert.equal(reads.mock.callCount(), 0);
+    const post = (path: string, body: unknown) => env.studioApp.request(base + '/' + path, {
+      method: 'POST', headers:{'Content-Type':'application/json', 'X-OpenMotion-Entry':'api', 'If-Match':version},
+      body:JSON.stringify(body),
+    });
+    for (const [path, body] of [
+      ['edits/' + file, {kind:'moveClip', hfId:'a', start:2}],
+      ['file-mutations/patch-element/' + file, {}],
+      ['file-mutations/remove-elements/' + file, {}],
+      ['gsap-mutations-batch/' + file, {mutations:[]}],
+    ] as const) {
+      const rejected = await post(path, body);
+      assert.equal(rejected.status, 400);
+      assert.match(await rejected.text(), /prepared file changes/);
+    }
+    assert.equal(reads.mock.callCount(), 0);
+    const render = await env.studioApp.request(base + '/gsap-animations/' + file);
+    assert.equal(render.status, 200);
+    const operations = [
+      {id:'first', files:[{path:file, baseVersion:version, content:'<p>first</p>'}]},
+      {id:'next', files:[{path:file, baseVersion:{after:'first'}, content:'<p>next</p>'}]},
+    ];
+    const disabled = await post('text-edits/batch', {operations:[operations[0],
+      {id:'patch',files:[{path:file,baseVersion:{after:'first'},patch:[[0,1,'P']]}]}]});
+    assert.equal(disabled.status, 503);
+    assert.equal((await env.files.readTextFile(env.auth, projectId, file))?.version, version);
+    const saved = await post('text-edits/batch', {operations});
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const receipt = await saved.json();
+    assert.deepEqual(receipt.committed.map((r: {id:string}) => r.id), ['first','next']);
+    assert.deepEqual(await (await post('text-edits/batch',{operations})).json(), receipt);
+    assert.match((await env.files.readTextFile(env.auth, projectId, file))!.content, /next/);
+    const conflict = await (await post('text-edits/batch', {operations:[
+      {id:'stale', files:[{path:file, baseVersion:version, content:original}]},
+    ]})).json();
+    assert.equal(conflict.failed.status, 409);
+    assert.deepEqual(conflict.committed, []);
+  });
+
+  it('splits a legacy anonymous clip using its preview-stamped hf-id', async () => {
+    const env = createStudioTestEnv({ programmatic: true });
     const { projectId } = await env.workspace.createProject(env.auth);
     const html = '<html><body><img data-start="0" data-duration="4"></body></html>';
     const hfId = ensureHfIds(html).match(/<img[^>]*data-hf-id="([^"]+)"/)?.[1];
@@ -1284,8 +1337,8 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(result.files[0]!.splitCount, 1);
   });
 
-  it('inserts at the canvas drop point with durable history bytes and rejects cyclic or stale edits', async () => {
-    const env = createStudioTestEnv();
+  it('inserts at the canvas drop point with durable history and rejects stale edits without walking nested files', async (t) => {
+    const env = createStudioTestEnv({ programmatic: true });
     const { projectId } = await env.workspace.createProject(env.auth);
     const scene = (id: string, children = '') => `<template><main data-composition-id="${id}" data-duration="4" data-width="200" data-height="100">${children}</main></template>`;
     const parent = 'comps/a/parent.html', child = 'comps/b/child.html', indirect = 'nested/loop.html';
@@ -1299,11 +1352,6 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
       { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourcePath: source, expectedVersion: version, start: 2, track: 0, canvasPosition: { left: 160, top: 85 } }) });
     const before = files[parent], initialVersion = fileContentVersion(before);
-    for (const cyclic of [parent, indirect]) {
-      const refused = await insert(parent, cyclic, initialVersion);
-      assert.equal(refused.status, 400);
-      assert.match(await refused.text(), /cycle/);
-    }
     const saved = await insert(parent, child, initialVersion);
     assert.equal(saved.status, 200);
     const result = await saved.json();
@@ -1315,12 +1363,17 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.match(result.after, /data-composition-src="\.\.\/b\/child\.html"/);
     assert.match(result.after, /data-duration="6"/);
     assert.equal((await insert(parent, child, initialVersion)).status, 409);
-    // The newly mounted child cannot concurrently acquire its own ancestor.
-    assert.equal((await insert(child, parent, fileContentVersion(files[child]))).status, 400);
+    // A repeating branch is skipped by the preview compiler. Saving needs only the two direct inputs.
+    const reads = t.mock.method(env.files, 'readTextFile');
+    assert.equal((await insert(child, parent, fileContentVersion(files[child]))).status, 200);
+    assert.deepEqual(reads.mock.calls.map(call => call.arguments[2]), [child, parent]);
+    reads.mock.resetCalls();
+    assert.equal((await insert(indirect, indirect, fileContentVersion(files[indirect]))).status, 200);
+    assert.deepEqual(reads.mock.calls.map(call => call.arguments[2]), [indirect]);
   });
 
   it('applies Studio split targets atomically at the requested file version and returns stored history bytes', async () => {
-    const env = createStudioTestEnv();
+    const env = createStudioTestEnv({ programmatic: true });
     const { projectId } = await env.workspace.createProject(env.auth);
     const html = '<html><body><img id="clip" data-start="0" data-duration="4" data-track-index="1"></body></html>';
     const file = (path: string) => env.files.readTextFile(env.auth, projectId, path);
@@ -1348,6 +1401,43 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
       assert.equal(output.after, saved?.content);
       assert.equal(output.version, saved?.version);
     }
+  });
+
+  it('reads the latest SVG through a stable source URL before and after an ordered save', async () => {
+    const env = createStudioTestEnv();
+    const { projectId } = await env.workspace.createProject(env.auth);
+    const base = '/api/projects/' + projectId;
+    const path = 'images/shape #1.svg';
+    const url = base + '/file-source?path=' + encodeURIComponent(path);
+    const legacyUrl = base + '/files/' + encodeURIComponent(path);
+    const original = '<svg><title>Before</title></svg>';
+    const next = '<svg><title>After</title></svg>';
+    const read = async (path: string, init?: RequestInit) => {
+      const response = await env.studioApp.request(path, init);
+      assert.equal(response.headers.get('cache-control'), 'private, no-cache');
+      assert.equal(response.headers.get('cdn-cache-control'), 'no-store');
+      return response;
+    };
+    const missing = await read(url + '&optional=1');
+    assert.equal((await missing.json()).missing, true);
+    await env.files.commitChanges(env.auth, { projectId, ops: [{ op: 'upsert_text', path, content: original }] });
+    const before = await (await read(url)).json();
+    assert.equal(before.content, original);
+    assert.equal((await (await read(legacyUrl)).json()).version, before.version);
+    const committed = await env.studioApp.request(base + '/text-edits/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operations: [{ id: 'svg-change', files: [{ path, baseVersion: before.version, content: next }] }] }),
+    });
+    assert.equal(committed.status, 200);
+    const version = (await committed.json()).committed[0].versions[path];
+    const after = await read(url, { headers: { 'If-None-Match': before.version } });
+    assert.equal(after.status, 200);
+    assert.equal((await after.json()).content, next);
+    assert.equal(after.headers.get('etag'), version);
+    assert.equal((await (await read(url + '&view=metadata')).json()).version, version);
+    assert.equal((await read(url, { headers: { 'If-None-Match': version } })).status, 304);
+    assert.equal((await (await read(legacyUrl)).json()).content, next);
+    assert.equal((await read(base + '/file-source')).status, 400);
   });
 
   it('enforces exact strong ETag "sha256:...", If-Match, 428, 409, ?optional=1, and DELETED_VERSION', async () => {
@@ -1502,7 +1592,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
   });
 
   it('persists a GSAP mutation into the scene template that Studio reopens', async () => {
-    const env = createStudioTestEnv();
+    const env = createStudioTestEnv({ programmatic: true });
     const scene = 'compositions/title.html';
     const html = '<template><div data-composition-id="title"><h1 id="heading">Title</h1></div><script>const tl=gsap.timeline();tl.to("#heading",{x:10,duration:1},0);</script></template>';
     const project = await env.workspace.createProject(env.auth, {
@@ -1523,7 +1613,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
   });
 
   it('persists an isolated welcome headline drag without rewriting the runtime letter animation', async () => {
-    const env = createStudioTestEnv();
+    const env = createStudioTestEnv({ programmatic: true });
     const scene = 'compositions/intro.html';
     const source = await readFile(new URL('../../template-library/openmotion-welcome/compositions/intro.html', import.meta.url), 'utf8');
     const {projectId} = await env.workspace.createProject(env.auth, {
@@ -1547,7 +1637,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
   });
 
   it('saves a canvas drag against the displayed source and rolls back unmatched batches', async () => {
-    const env = createStudioTestEnv();
+    const env = createStudioTestEnv({ programmatic: true });
     const { projectId } = await env.workspace.createProject(env.auth, {
       title: 'Canvas drag',
       initialFiles: [{ path: 'index.html', content: '<html><body><div id="title">Title</div></body></html>' }],
@@ -1592,7 +1682,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
   });
 
   it('executes DOM file-mutations and GSAP AST mutations + rollback purely in memory via PG', async () => {
-    const env = createStudioTestEnv();
+    const env = createStudioTestEnv({ programmatic: true });
     const initialHtml = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>

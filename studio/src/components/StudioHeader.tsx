@@ -8,6 +8,7 @@ import { usePanelLayoutContext } from "../contexts/PanelLayoutContext";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { Button, buttonBase, buttonSizes, buttonVariants } from "open-design-ui/button";
 import { cn, Tooltip } from "./ui";
+import { warmStudioPanel } from "./studioPanelImports";
 import { ExportDialog } from "./renders/ExportDialog";
 import { Dock } from "./dock/Dock";
 import { InspectorIcon } from "./icons/InspectorIcon";
@@ -178,6 +179,8 @@ export const StudioHeader = memo(function StudioHeader({
             data-testid="header-export"
             className={host?.mvpEditor ? "motion-header-export" : undefined}
             ref={exportTriggerRef}
+            onPointerEnter={() => void warmStudioPanel("renders")}
+            onFocus={() => void warmStudioPanel("renders")}
             aria-haspopup={host?.mvpEditor ? "dialog" : undefined}
             disabled={fileTreeError || (!host?.mvpEditor && isRendering)}
             onClick={(event) => {

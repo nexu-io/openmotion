@@ -28,3 +28,18 @@ it('keeps the model picker open after a failed selection and only retries on ano
     expect(document.querySelector('.om-model-choice-list')).toBeNull();
   } finally { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
 });
+
+it('hides the Model gateway footer button when openSettings is omitted', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+    providers: [{ id: 'opendesign', label: 'OpenDesign', protocol: 'account', available: true }],
+    models: [{ id: 'opendesign:image', modelId: 'image', label: 'Image Pro', kind: 'image', enabled: true, provider: 'opendesign' }],
+    defaults: {},
+  })));
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><ModelSwitcher capability="image" /></I18nProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Select model"]')!.click());
+    expect(document.querySelector('.om-selection-footer')).toBeNull();
+    expect(document.body.textContent).not.toContain('Model gateway');
+  } finally { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
+});

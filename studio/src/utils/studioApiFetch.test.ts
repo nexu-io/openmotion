@@ -27,6 +27,25 @@ describe("studioApiFetch", () => {
       credentials: "omit",
     });
   });
+  it("bypasses stale asset-shaped URLs only for hosted project source reads", async () => {
+    const legacy = "/api/projects/demo/files/images%2Fshape%20%23%2B1.svg";
+    const current = "/api/projects/demo/file-source?path=images%2Fshape%20%23%2B1.svg";
+    vi.stubGlobal("document", { head: { querySelector: (selector: string) => selector.includes("data-file-source") } });
+    const fetchMock = vi.fn(async (url: string) => new Response(url === legacy ? "before" : "after"));
+    vi.stubGlobal("fetch", fetchMock);
+    const { studioApiFetch } = await loadWithEnv({});
+    const headers = { "If-None-Match": '"v1"', "X-OpenMotion-Base-Version": '"v1"' };
+    expect(await (await studioApiFetch(legacy, { headers })).text()).toBe("after");
+    expect(fetchMock).toHaveBeenCalledWith(current, expect.objectContaining({ headers }));
+    await studioApiFetch(legacy + "?optional=1");
+    await studioApiFetch(legacy + "?view=metadata", { method: "HEAD" });
+    await studioApiFetch(legacy, { method: "PUT", body: "updated" });
+    await studioApiFetch("/api/projects/demo/preview/images/shape.svg");
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      current, current + "&optional=1", current + "&view=metadata", legacy, "/api/projects/demo/preview/images/shape.svg",
+    ]);
+  });
+
   it('binds unscoped native requests and event URLs to the page project', async () => {
     vi.stubGlobal('location', new URL('http://localhost:5190/?project=project-a#project/project-a'));
     const fetchMock = vi.fn(async () => new Response('ok')); vi.stubGlobal('fetch', fetchMock);

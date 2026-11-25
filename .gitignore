@@ -18,6 +18,13 @@ node_modules/
 .motion-data-dev/
 .artifacts/
 studio/build/
+desktop/release/
+desktop/build/AppIcon.icon/
+desktop/build/Assets.car
+desktop/build/icon.icns
+desktop/build/icon.ico
+desktop/build/icon.png
+desktop/build/icon.svg
 
 # Duplicate download archives are not contribution source.
 library/templates/catalog/**/*.zip

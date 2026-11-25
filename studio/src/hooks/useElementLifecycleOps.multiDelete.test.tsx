@@ -92,6 +92,42 @@ describe("useElementLifecycleOps — deleting a canvas multi-selection", () => {
     expect(outcome).toEqual({ ok: true });
   });
 
+  it("projects a hosted multi-delete while saving and keeps the user's next selection on receipt", async () => {
+    const { setCachedCloudDisklessMode } = await import("../utils/cloudRuntime");
+    const { rememberSource, confirmedSource } = await import("../utils/confirmedTextSources");
+    const project = "hosted-delete-selection", path = "index.html";
+    rememberSource(project, path, {content: '<main data-composition-id="demo"><div id="a"></div><div id="b"></div><div id="c"></div></main>', version:"v0"});
+    setCachedCloudDisklessMode(true);
+    const first = selectionFor("a"), second = selectionFor("b"), remaining = selectionFor("c");
+    let selected = first;
+    const clear = vi.fn();
+    const pending = Promise.withResolvers<void>();
+    const post = vi.fn(async (url: string, init: RequestInit) => {
+      expect(String(url)).toMatch(/\/text-edits\/batch$/);
+      const [step] = JSON.parse(String(init.body)).operations;
+      expect(step.files).toHaveLength(1);
+      await pending.promise;
+      return Response.json({committed:[{id:step.id,changedPaths:[path],versions:{[path]:"deleted"}}]});
+    });
+    vi.stubGlobal("fetch", post);
+    const ops = mountDeleteOps({projectIdRef:{current:project}, currentSelection: () => selected, clearDomSelection:clear});
+    try {
+      const save = ops.handleDomEditElementsDelete([first, second]);
+      await vi.waitFor(() => expect(clear).toHaveBeenCalledOnce());
+      selected = remaining;
+      pending.resolve();
+      await expect(save).resolves.toEqual({ok:true});
+      expect(clear).toHaveBeenCalledOnce();
+      const source = confirmedSource(project, path)!.content;
+      expect(source).not.toMatch(/id="[ab]"/);
+      expect(source).toContain('id="c"');
+      expect(post).toHaveBeenCalledOnce();
+    } finally {
+      pending.resolve();
+      setCachedCloudDisklessMode(null);
+    }
+  });
+
   it("reports a successful SDK delete as landed", async () => {
     const ops = mountDeleteOps({
       projectIdRef: { current: "p1" },

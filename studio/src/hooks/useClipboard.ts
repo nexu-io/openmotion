@@ -315,7 +315,7 @@ export function useClipboard({
           recordEdit,
           projectPending: (onSaved || supportsOrderedTextEdits(pid)) ? projection.projectPending : undefined,
           onSaved,
-        }, contentDependencies(command).length === 0);
+        }, contentDependencies(command));
 
         // CapCut: the pasted clip(s) become the selection; the playhead does not
         // move. reloadPreview is a bare refresh-key bump with no selection
@@ -377,7 +377,7 @@ export function useClipboard({
           recordEdit,
           projectPending: (onSaved || supportsOrderedTextEdits(pid)) ? projection.projectPending : undefined,
           onSaved,
-        }, contentDependencies(command).length === 0);
+        }, contentDependencies(command));
 
         // The duplicate becomes the selection, mirroring CapCut's own paste
         // convention — there is no CapCut Duplicate to match directly (Cmd+D is

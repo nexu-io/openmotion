@@ -1,10 +1,8 @@
 import lunar from './scene-art/apollo-11.jpg';
 import interior from './scene-art/speaker-room.webp';
-import { sceneExamples } from './sceneShowcase';
+import { drinkSplash, productPushIn } from './cinemaVideoExamples';
 
 const seedance = { name: 'Seedance 2.5', id: 'doubao-seedance-2-5-260628' };
-const productPushIn = sceneExamples['image-to-video'][0];
-const drinkSplash = sceneExamples['text-to-video'][0];
 
 export type CinemaTemplate = {
   id: string;

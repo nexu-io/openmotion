@@ -102,6 +102,7 @@ export function buildKeepSoundCutoutEdit(input: {
 }): KeepSoundCutoutEdit {
   const { video, target } = input;
   const linkId = mintLinkId(video.ownerDocument);
+  const audioHfId = `hf-${generateId()}`;
   let audioInserted = false;
 
   const movedSound: Array<[string, string]> = [];
@@ -137,7 +138,7 @@ export function buildKeepSoundCutoutEdit(input: {
     }
     const attrs: Array<[string, string]> = [
       ["id", audioId],
-      ["data-hf-id", `hf-${generateId()}`],
+      ["data-hf-id", audioHfId],
       ["class", "clip"],
       ["src", originalSrc],
       ...timing,

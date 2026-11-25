@@ -52,9 +52,9 @@ export function IsolatedCanvasContextMenu({ pick, close }: { pick: CanvasMenuPic
     actions[action] = () => {
       const coalesceKey = "canvas-z:" + crypto.randomUUID();
       void runZLaneGesture({
-        commitZ: () => stillCurrent() ? commitDomEditPatchBatches(plan.batches, { label: "Reorder layers", coalesceKey }) :
+        commitZ: linkedLanes => stillCurrent() ? commitDomEditPatchBatches(plan.batches, { label: "Reorder layers", coalesceKey, ...(linkedLanes && { linkedLanes }) }) :
           Promise.resolve({ durable: false, changed: false, allMatched: false }),
-        mirror: () => mirror({ selectionKey: plan.selectionKey, desiredOrderKeys: plan.desiredOrderKeys, coalesceKey }),
+        mirror: commitTogether => mirror({ selectionKey: plan.selectionKey, desiredOrderKeys: plan.desiredOrderKeys, coalesceKey }, commitTogether),
       }).catch(() => showToast("Could not reorder layers", "error"));
     };
   }

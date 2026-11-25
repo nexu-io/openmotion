@@ -13,6 +13,8 @@ export interface OrderedTextEditOperation {
   id: string;
   files: OrderedTextEditFile[];
   dependencies?: Record<string, OrderedTextEditBase>;
+  beatAssets?: string[];
+  installComponent?: string;
   label?: string;
   undoGroup?: string;
 }

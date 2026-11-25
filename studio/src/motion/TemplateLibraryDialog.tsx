@@ -2,7 +2,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { CategoryStrip } from './CategoryStrip';
 import { TemplateIndustryMenu } from './TemplateIndustryMenu';
 import { collectionFacet, formatCategories, type TemplateCollection } from './templateCollections';
-import { loadCoveredTemplates } from './useCoveredTemplates';
+import { loadCoveredTemplates, readCachedCoveredTemplates } from './useCoveredTemplates';
 import { Button } from 'open-design-ui/button';
 import { blackFridayReference, blackFridayTemplates } from '../../../shared/black-friday-collection';
 import { BlackFridayCollection, type BlackFridayFilter } from './BlackFridayCollection';
@@ -37,7 +37,7 @@ import { facetValues as values, templateFacets as facets, templateAspect, templa
 import { TemplateGalleryCard as TemplateCard, TopBrandsLabel, TemplatePoster, TemplateIdentity as Identity } from './TemplateGalleryCard';
 import { useTemplatePlayback } from './useTemplatePlayback';
 import { useTemplateImpressions } from './useTemplateImpressions';
-import { matchesTemplateSearch, normalizedTemplateQuery } from './templateSearch';
+import { matchesTemplateSearch, normalizedTemplateQuery, prepareTemplateSearchIndex, scoreTemplateSearchMap } from './templateSearch';
 import { TemplateReferenceDialog, TemplateSearchRecovery } from './TemplateSearchRecovery';
 import { useTemplateSearchContext } from './useTemplateSearchContext';
 import * as tracking from './templateLibraryTracking';
@@ -45,6 +45,8 @@ import type { DetailView, FilterAction, FilterGroup, Placement, Sort } from './t
 import { TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress } from './TemplateHandoffInfo';
 import { TemplateDetailReview, TemplateProductionNotes, TemplateGuideReview, TemplateReviewSpecs } from './TemplateDetailReview';
 import { templateHandoffEnabled, templateHandoffPrompt, preparedTemplateProjects, pendingTemplateProjects, rememberTemplateRequest, forgetTemplateRequest, TemplatePreparationBlockedError, findPreparedTemplate, type PreparedTemplateProject } from './templateHandoff';
+import { useAccountSummary } from './AccountSettings';
+import { openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 
 type Filters = Partial<Record<Facet, string[]>>;
 type CampaignSearch = { query: string; filter: BlackFridayFilter };
@@ -82,7 +84,7 @@ function DetailMedia({ template }: { template: GalleryTemplate }) {
 }
 
 
-type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
+type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; guestMode?: boolean; onGuestTemplateSignIn?: (templateId: string, requestId: string) => void; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
 
 /** Full-window discovery using the existing catalog and guarded editable-project actions. */
 function DetailScroll({ enabled, container, children }: { enabled: boolean; container: RefObject<HTMLDivElement | null>; children: ReactNode }) {
@@ -91,6 +93,8 @@ function DetailScroll({ enabled, container, children }: { enabled: boolean; cont
 
 export function TemplateLibraryDialog(props: Props) {
   const { t, locale } = useI18n();
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
   const { detailOnly = false, initialTemplate } = props;
   const [storiesPreview] = useState(() => new URLSearchParams(location.search).get('brandStoriesPreview') === '1');
   const [discoverySeed] = useState(() => Math.floor(Math.random() * 4294967296));
@@ -209,7 +213,14 @@ export function TemplateLibraryDialog(props: Props) {
       : { ...progress, state: 'open_failed', error: t('The project is retained. Retry opening it without creating another copy.') });
   }
   async function prepareProject(template: GalleryTemplate) {
-    if (!isEditableTemplate(template) || !props.onPrepareTemplate || props.openingDisabled || props.busy) return;
+    if (!isEditableTemplate(template) || props.openingDisabled || props.busy) return;
+    if (props.guestMode && props.onGuestTemplateSignIn) {
+      const requestId = progressRef.current[template.id]?.requestId ?? crypto.randomUUID();
+      tracking.reportUseClicked(template, 'open_edit', detailView.current, undefined, requestId);
+      props.onGuestTemplateSignIn(template.id, requestId);
+      return;
+    }
+    if (!props.onPrepareTemplate) return;
     const previous = progressRef.current[template.id];
     if (previous?.state === 'creating' || previous?.state === 'opening' || previous?.state === 'unknown') return;
     const requestId = previous?.requestId ?? crypto.randomUUID();
@@ -301,23 +312,36 @@ export function TemplateLibraryDialog(props: Props) {
   }, [props.open, props.returnFocus, props.inWorkspace, detailOnly]);
   useEffect(() => {
     if (!props.open) return;
-    setCatalog([]); setBrandStory(null); setFacetsSelected({}); setBrandFilter(false); setCompareWithout(''); setLibraryQuery(''); setCampaignSearch(emptyCampaignSearch); setSettledKeyword(''); setRecoveryExpanded(false); setPreview(null);
+    const cached = readCachedCoveredTemplates(locale, true);
+    setBrandStory(null); setFacetsSelected({}); setBrandFilter(false); setCompareWithout(''); setLibraryQuery(''); setCampaignSearch(emptyCampaignSearch); setSettledKeyword(''); setRecoveryExpanded(false); setPreview(null);
     if (dialog.current) detail.current?.close();
-    shown.current = false; searchId.current = undefined; reportedQuery.current = ''; pendingResult.current = undefined; shownCards.current.clear(); seriesLists.current.clear(); shownSeries.current.clear();
+    searchId.current = undefined; reportedQuery.current = ''; pendingResult.current = undefined; shownCards.current.clear(); seriesLists.current.clear(); shownSeries.current.clear();
+    if (cached && cached.items.length > 0) {
+      setCatalog(cached.items);
+      setCatalogVersion(cached.catalogVersion ?? '');
+      setWarning(cached.warning ?? '');
+      setError('');
+      setLoading(false);
+      shown.current = true;
+    } else {
+      setCatalog([]);
+      shown.current = false;
+    }
     const controller = new AbortController();
-    let version: string | undefined, pending = false;
-    async function load() {
-      pending = true; setLoading(true); setError('');
+    let version: string | undefined = cached?.catalogVersion, pending = false;
+    async function load(background = false) {
+      pending = true;
+      if (!background) { setLoading(true); setError(''); }
       try {
         const result = await loadCoveredTemplates(locale, controller.signal);
         if (!controller.signal.aborted) {
           version = result.catalogVersion;
-          setWarning(result.warning ?? ''); setCatalog(result.items); setCatalogVersion(version ?? ''); shown.current = true;
+          setWarning(result.warning ?? ''); setCatalog(result.items); setCatalogVersion(version ?? ''); setError(''); shown.current = true;
         }
-      } catch (err) { if (!controller.signal.aborted) setError((err as Error).message); }
+      } catch (err) { if (!controller.signal.aborted && !background) setError((err as Error).message); }
       finally { pending = false; if (!controller.signal.aborted) setLoading(false); }
     }
-    void load();
+    void load(Boolean(cached && cached.items.length > 0));
     const timer = setInterval(async () => {
       if (pending || document.hidden) return;
       pending = true;
@@ -325,7 +349,7 @@ export function TemplateLibraryDialog(props: Props) {
         const page = await motionApi<TemplatePage>(`/template-catalog?limit=1&locale=${encodeURIComponent(locale)}`, { signal: controller.signal });
         if (controller.signal.aborted) return;
         setWarning(page.warning ?? '');
-        if (page.catalogVersion !== version) await load();
+        if (page.catalogVersion !== version) await load(shown.current);
       } catch {} finally { pending = false; }
     }, 5000);
     return () => { controller.abort(); clearInterval(timer); };
@@ -336,13 +360,16 @@ export function TemplateLibraryDialog(props: Props) {
   const industries = available.find(facet => facet.key === 'industries')?.values ?? [];
   const sortOptions = [['recommended', 'Recommended order'], ['name', 'Name A–Z'], ['reverse', 'Name Z–A'], ['duration', 'Duration']] as const;
   const hasFilters = Boolean(format || libraryQuery || editableOnly || brandsOnly || compareWithout || Object.values(selected).some(items => items?.length));
-  const searchable = useMemo(() => catalog.filter(item => (props.creators || ((!format || matchesTemplateCategory(item, format)) && (!brandsOnly || Boolean(item.brand?.trim())) && (!compareWithout || item.brand !== compareWithout))) && matchesTemplateSearch(item, libraryQuery, t)), [catalog, libraryQuery, format, brandsOnly, compareWithout, props.creators, t]);
+  const searchingLibrary = Boolean(libraryQuery.trim());
+  const searchIndex = useMemo(() => searchingLibrary ? prepareTemplateSearchIndex(catalog, t) : [], [catalog, t, searchingLibrary]);
+  const scores = useMemo(() => searchingLibrary ? scoreTemplateSearchMap(searchIndex, libraryQuery) : null, [searchIndex, libraryQuery, searchingLibrary]);
+  const searchable = useMemo(() => catalog.filter(item => (props.creators || ((!format || matchesTemplateCategory(item, format)) && (!brandsOnly || Boolean(item.brand?.trim())) && (!compareWithout || item.brand !== compareWithout))) && (!scores || scores.has(item.id))), [catalog, scores, format, brandsOnly, compareWithout, props.creators]);
   const draftCount = useMemo(() => filtersOpen ? searchable.filter(item => matchesFilters(item, draftFilters, draftEditable)).length : 0, [filtersOpen, searchable, draftFilters, draftEditable]);
   const hasDraftFilters = draftEditable || Object.values(draftFilters).some(items => items?.length);
   const visible = useMemo(() => {
     if (props.creators) return props.creator ? searchable.filter(item => templateCredit(item)?.id === props.creator) : [];
-    return searchable.filter(item => matchesFilters(item, selected, editableOnly)).sort((a, b) => sort === 'recommended' ? (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) : sort === 'duration' ? (a.duration ?? Infinity) - (b.duration ?? Infinity) : a.title.localeCompare(b.title, locale) * (sort === 'reverse' ? -1 : 1));
-  }, [searchable, selected, sort, locale, editableOnly, props.creators, props.creator]);
+    return searchable.filter(item => matchesFilters(item, selected, editableOnly)).sort((a, b) => sort === 'recommended' ? ((scores?.get(b.id) ?? 0) - (scores?.get(a.id) ?? 0) || (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity)) : sort === 'duration' ? (a.duration ?? Infinity) - (b.duration ?? Infinity) : a.title.localeCompare(b.title, locale) * (sort === 'reverse' ? -1 : 1));
+  }, [searchable, scores, selected, sort, locale, editableOnly, props.creators, props.creator]);
   useEffect(() => { if (dialog.current) dialog.current.scrollTop = 0; }, [libraryQuery, selected, sort, editableOnly, brandsOnly, compareWithout, blackFriday]);
   const filterCount = Number(Boolean(format)) + Object.values(selected).flat().length + Number(editableOnly) + Number(brandsOnly) + Number(Boolean(compareWithout));
   const hasAppliedFilters = filterCount > 0;
@@ -386,7 +413,7 @@ export function TemplateLibraryDialog(props: Props) {
   const showEmptyRecovery = !loading && !error && !visible.length;
   const suggestedRemoval = useMemo(() => {
     if (!showEmptyRecovery || !stableSearch || !hasAppliedFilters || !catalog.length) return;
-    const matches = catalog.filter(item => (!format || matchesTemplateCategory(item, format)) && (!compareWithout || item.brand !== compareWithout) && matchesTemplateSearch(item, libraryQuery, t));
+    const matches = catalog.filter(item => (!format || matchesTemplateCategory(item, format)) && (!compareWithout || item.brand !== compareWithout) && (!scores || scores.has(item.id)));
     const count = (filters: Filters, editable: boolean, brands: boolean) => matches.filter(item =>
       (!brands || Boolean(item.brand?.trim())) && matchesFilters(item, filters, editable)).length;
     const options = facets.flatMap(([key]) => (selected[key] ?? []).map(value => ({
@@ -398,7 +425,7 @@ export function TemplateLibraryDialog(props: Props) {
       ...(brandsOnly ? [{ key: 'top' as const, value: '', label: t('TOP 100 brands'), count: count(selected, editableOnly, false) }] : []),
     ];
     return [...options, ...special].filter(option => option.count > 0).sort((a, b) => b.count - a.count)[0];
-  }, [showEmptyRecovery, stableSearch, hasAppliedFilters, format, catalog, libraryQuery, t, selected, editableOnly, brandsOnly, compareWithout]);
+  }, [showEmptyRecovery, stableSearch, hasAppliedFilters, format, catalog, scores, t, selected, editableOnly, brandsOnly, compareWithout]);
   // A filter, category or sort result is reported after the changed list has rendered, with the count the user now sees.
   useEffect(() => {
     const action = pendingResult.current; pendingResult.current = undefined;
@@ -841,7 +868,7 @@ export function TemplateLibraryDialog(props: Props) {
               </Popover>}
             </header>{(manualCopy ? <textarea className={styles.manualCopy} readOnly rows={8} value={manualCopy} aria-label={t('Content to copy')} onFocus={event => event.currentTarget.select()} /> : prompt ? <p className={promptExpanded ? styles.fullInstruction : styles.shortInstruction}>{prompt}</p> : promptError ? <div className={styles.promptFailure} role="status">{t('Could not load the instruction.')}<Button variant="plain" onClick={() => retryPrompt(value => value + 1)}>{t('Retry')}</Button></div> : <div className={styles.promptSkeleton} role="status" aria-label={t('Loading instruction…')}>{[100, 94, 100, 86, 62].map((width, index) => <Skeleton key={index} style={{ width: `${width}%`, height: 10 }} />)}</div>)}<Button variant="plain" disabled={!prompt} className={`om-text-link ${styles.expandInstruction}`} data-quiet aria-expanded={promptExpanded} onClick={() => { tracking.reportInstructionExpanded(preview, !promptExpanded, detailView.current); setPromptExpanded(!promptExpanded); }}>{t(promptExpanded ? 'Show less' : 'Show instruction')}<MotionIcon name="chevron-down" size={14} /></Button></section>
             {!handoffPreview && <div className={styles.actions}>
-              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
+              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
               <div className={styles.recreateActions}>
                 <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t('Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
                 <Tooltip withinDialog wrap label={t('Recreate and submit')}><IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} onClick={() => void copy(true)} aria-label={t('Recreate and submit')} icon={<MotionIcon name="git-branch" size={17} />} /></Tooltip>
@@ -867,7 +894,7 @@ export function TemplateLibraryDialog(props: Props) {
           </div>
           {handoffPreview && <div ref={reviewFooter} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
               <div className={styles.handoffActions}>
-                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => void prepareProject(preview)}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
+                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
                 <div className={styles.recreateActions}>
                   <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t('Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>

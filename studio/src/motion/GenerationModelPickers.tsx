@@ -11,6 +11,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 import { ModelAvatar, ProviderAvatar } from './settingsPrimitives';
 import { imageModelBadge, isOpenDesignProvider, modelFamilyKey, modelFamilyLabel, providerDisplayName, providerRank, providerReady } from './imageMenuModels';
+import { isUnifiedCloudGateway } from './ProviderSetupNotice';
 
 /** Library creation outside a Studio: one model list across ready providers. */
 export function GenerationModelPickers({ models, preferred, modelHeading, disabled, onChoose }: {
@@ -58,9 +59,10 @@ export function CreationModelPicker({ models, providers, selected, providerHeadi
     <SearchInput {...(boxed ? { appearance: 'embedded' as const } : {})} type="search" value={query}
       onChange={event => setQuery(event.target.value)} placeholder={placeholder} aria-label={label} />
   </label>;
+  const unifiedCloudOnly = isUnifiedCloudGateway(providers);
   const footer = onManageProviders && <footer className="om-picker-footer">
     <Button variant="plain" className="om-nav-item" onClick={() => { close(); onManageProviders(); }}>
-      <RemixIcon name="settings-3-line" size={15} /><span>{t('Manage providers & API keys')}</span>
+      <RemixIcon name="settings-3-line" size={15} /><span>{t(unifiedCloudOnly ? 'Model gateway' : 'Manage providers & API keys')}</span>
     </Button>
   </footer>;
   const trigger = (label: string, content: ReactNode) => {
@@ -88,19 +90,25 @@ export function CreationModelPicker({ models, providers, selected, providerHeadi
     <div className="om-picker-list" role="listbox" aria-label={t('Provider')}>
       {visibleProviders.length === 0 && <p className="om-muted om-picker-empty">{t('No matching providers')}</p>}
       {visibleProviders.map(id => {
+        const providerState = providers.find(item => item.id === id);
         const ready = providerReady(providers, id), chosen = id === currentProvider;
+        const unavailableReason = id === 'account'
+          ? 'Sign-in required'
+          : providerState?.credentialSource === 'environment'
+            ? 'Unavailable'
+            : 'API key required';
         return <div key={id} className="om-picker-provider-row" data-ready={ready || undefined}>
           <Button variant="plain" role="option" aria-selected={chosen} disabled={!ready} className="om-nav-item om-picker-option"
             onClick={() => { close(); chooseProvider(id); }}>
             <ProviderAvatar name={providerName(id)} provider={{ id, custom: models.some(model => model.provider === id && model.source === 'custom') }} />
             <span className="om-picker-option-copy">
               <strong>{providerName(id)}</strong>
-              {!ready && <small>{t(id === 'account' ? 'Sign-in required' : 'API key required')}</small>}
+              {!ready && <small>{t(unavailableReason)}</small>}
             </span>
             {chosen && <RemixIcon name="check-line" size={15} />}
           </Button>
           {!ready && onConfigureProvider && <Button variant="plain" className="om-picker-setup" onClick={() => { close(); onConfigureProvider(id); }}>
-            {t(id === 'account' ? 'Sign in' : 'Setup')}
+            {t(id === 'account' ? 'Sign in' : providerState?.credentialSource === 'environment' ? 'Model gateway' : 'Setup')}
           </Button>}
         </div>;
       })}

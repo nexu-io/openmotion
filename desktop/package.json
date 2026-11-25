@@ -1,0 +1,35 @@
+{
+  "name": "@openmotion/desktop",
+  "productName": "OpenDesign",
+  "private": true,
+  "version": "0.2.1",
+  "description": "OpenDesign cloud-first Electron desktop shell for macOS and Windows.",
+  "type": "module",
+  "main": "dist/main.mjs",
+  "author": "OpenMotion Contributors",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "icons": "node scripts/build-icons.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "dev": "electron .",
+    "pack:dir": "npm run build && electron-builder --dir --publish never",
+    "pack:mac:arm64": "npm run build && electron-builder --mac --arm64 --publish never",
+    "pack:mac:x64": "npm run build && electron-builder --mac --x64 --publish never",
+    "pack:mac:local": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64 --publish never",
+    "pack:win:x64": "npm run build && electron-builder --win --x64 --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.6.2"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.0.12",
+    "esbuild": "0.28.2",
+    "zod": "4.6.7"
+  }
+}

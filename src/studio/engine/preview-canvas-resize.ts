@@ -1,13 +1,13 @@
 /** Measure how the live layout maps CSS dimensions to the axis-aligned selection box. */
 export const PREVIEW_CANVAS_RESIZE = `
-  function resizeFrameBounds(element) {
+  function canvasFrameBounds(element) {
     const { x, y, width, height } = element.getBoundingClientRect();
     return { geometry: { x, y, width, height }, viewport: { width: innerWidth, height: innerHeight } };
   }
 
   // An ordinary 2D transform, including a tilted plane without perspective, is affine.
   // Only a projection whose depth varies across the element needs live corrections.
-  function hasResizePerspective(element) {
+  function hasPerspectiveProjection(element) {
     let tilted = false;
     for (let node = element; node; node = node.parentElement) {
       const style = getComputedStyle(node);
@@ -37,7 +37,7 @@ export const PREVIEW_CANVAS_RESIZE = `
       };
     };
     const w = probe('width'), h = probe('height');
-    const perspective = hasResizePerspective(element);
+    const perspective = hasPerspectiveProjection(element);
     // A bottom-right resize often needs no position write at all, even when an
     // animation owns both positioning properties. Verify the opposite corner stays put.
     if (!axes) {

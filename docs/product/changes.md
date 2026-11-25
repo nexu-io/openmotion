@@ -1,5 +1,9 @@
 # 公开变更记录
 
+## 2026-11-25 · Keep hosted project file reads current
+
+- A second Studio can read the latest saved source through a private, revalidated API response even when the filename has a cacheable asset extension.
+
 ## 2026-11-20: Show verified media capabilities and streamline model editing in Provider Settings
 
 - Replace non-executable LLM capability toggles (`Reasoning`, `Tools`), input-modality toggles (`Vision`, `Audio`, `Video`) and token-limit inputs in Studio's `ModelEditor` with executable settings: directly visible `Model type` (for compatible/custom and newly added models), `Transcription response` (for `transcription` models), structured default parameter controls derived from `shared/generation-options.ts` schemas, and collapsed raw JSON defaults under More settings. Backend `connections.json` metadata override validation stays backward-compatible.

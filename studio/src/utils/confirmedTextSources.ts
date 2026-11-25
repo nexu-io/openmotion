@@ -1,11 +1,12 @@
 import { ORDERED_TEXT_EDITS_HEADER } from '../../../shared/ordered-text-edits';
+import { getCachedCloudDisklessMode } from './cloudRuntime';
 import { studioFileContentVersion } from "./studioFileVersion";
 
 // Sources belong to the exact revision observed on a capability-advertising cloud read.
 // Keep recent active compositions only. An eviction always has an authoritative read fallback.
 export interface ConfirmedSource { content: string; version: string }
 const sources = new Map<string, ConfirmedSource>();
-const capableProjects = new Map<string, boolean>();
+const capableProjects = new Map<string, { patches: boolean; ordered: boolean }>();
 let codeUnits = 0;
 const key = (projectId: string, path: string) => JSON.stringify([projectId, path]);
 
@@ -25,16 +26,56 @@ export function pendingSourceRead(projectId: string, path: string) {
   return pendingReads.get(key(projectId, path));
 }
 
+type AssetSummary = {version?: string; mimeType?: string};
+const assetListings = new Map<string, Readonly<Record<string, AssetSummary>>>();
+
+/** Reuse the file tree response. Binary inputs need their identity, never their bytes. */
+export function observeEditAssets(project: string, assets?: Readonly<Record<string, AssetSummary>>) {
+  assetListings.delete(project);
+  if (assets) assetListings.set(project, assets);
+  if (assetListings.size > 16) assetListings.delete(assetListings.keys().next().value!);
+}
+export function observedEditAsset(project: string, path: string) {
+  return assetListings.get(project)?.[path];
+}
+
 export function confirmedSource(projectId: string, path: string) {
   return sources.get(key(projectId, path));
 }
 
+// Only HTTP reads completed during one uninterrupted period without file events are
+// reusable when revisiting a clip. The weak set owns no source bytes.
+const observedStreams = new Map<string, { stream: EventSource; reads: WeakSet<ConfirmedSource> }>();
+export function trackSourceReadStream(projectId: string | null, stream: EventSource) {
+  if (!projectId) return;
+  const renew = () => observedStreams.set(projectId, { stream, reads: new WeakSet() });
+  const close = () => {
+    if (observedStreams.get(projectId)?.stream === stream) observedStreams.delete(projectId);
+  };
+  const invalidate = () => {
+    if (observedStreams.get(projectId)?.stream === stream) renew();
+  };
+  stream.addEventListener("open", renew);
+  stream.addEventListener("file-change", invalidate);
+  stream.addEventListener("error", close);
+  return () => {
+    close();
+    stream.removeEventListener("open", renew);
+    stream.removeEventListener("file-change", invalidate);
+    stream.removeEventListener("error", close);
+  };
+}
+export function liveSourceReads(projectId: string) {
+  const owner = observedStreams.get(projectId);
+  return owner && owner.stream.readyState === EventSource.OPEN ? owner.reads : undefined;
+}
+
 export function supportsProjectTextEdits(projectId: string) {
-  return capableProjects.has(projectId);
+  return capableProjects.get(projectId)?.patches === true;
 }
 
 export function supportsOrderedTextEdits(projectId: string) {
-  return capableProjects.get(projectId) === true;
+  return getCachedCloudDisklessMode() || capableProjects.get(projectId)?.ordered === true;
 }
 
 export async function observedSourceVersion(projectId: string, path: string, content: string) {
@@ -44,6 +85,7 @@ export async function observedSourceVersion(projectId: string, path: string, con
 }
 
 export function forgetSource(projectId: string, path: string) {
+  if (assetListings.get(projectId)?.[path]) assetListings.delete(projectId);
   forget(key(projectId, path));
 }
 
@@ -73,11 +115,12 @@ export function rememberSource(projectId: string, path: string, source: Confirme
 export function observeSourceRead(projectId: string, path: string, response: Response, data: { content?: string; version?: string | null }) {
   const version = data.version ?? response.headers?.get('etag');
   const capable = response.headers?.get('X-OpenMotion-Text-Edits') === '1';
+  const ordered = response.headers?.get(ORDERED_TEXT_EDITS_HEADER) === '1';
   capableProjects.delete(projectId);
-  if (capable) {
-    capableProjects.set(projectId, response.headers?.get(ORDERED_TEXT_EDITS_HEADER) === '1');
+  if (capable || ordered) {
+    capableProjects.set(projectId, { patches: capable, ordered });
     if (capableProjects.size > 128) capableProjects.delete(capableProjects.keys().next().value!);
   }
-  if (capable && typeof data.content === 'string' && version) rememberSource(projectId, path, {content: data.content, version});
+  if ((capable || ordered) && typeof data.content === 'string' && version) rememberSource(projectId, path, {content: data.content, version});
   else forgetSource(projectId, path);
 }

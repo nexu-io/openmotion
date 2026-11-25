@@ -11,8 +11,10 @@ import type { AssetDraft } from './AssetComposer';
 import { assetRequest } from './assetClient';
 import { supportsScene } from './creativeStudios';
 import type { StudioCreation } from './CreativeWorkspace';
-import { CreationModelPicker } from './GenerationModelPickers';
+import { openEntitlementModal } from './entitlementModalBus';
+import { GenerationModelPickers, CreationModelPicker } from './GenerationModelPickers';
 import { emptyParameters, requestParameters, type ParameterDraft } from './GenerationParameters';
+import { CloudEmptyModelsNotice, isCloudEmptyCatalog, isUnifiedCloudGateway } from './ProviderSetupNotice';
 import * as tracking from './pageTracking';
 import { SoundAdvancedParameters, SoundParameters } from './SoundParameters';
 import {
@@ -108,8 +110,11 @@ export function SoundComposer({
     return () => { mounted.current = false; };
   }, []);
 
+  const cloudEmptyCatalog = isCloudEmptyCatalog(gateway, compatible.length);
+  const unifiedCloudOnly = isUnifiedCloudGateway(gateway?.status.providers);
+  const openSubscription = () => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
   const unconfiguredPreferred = Boolean(gateway && preferred && !selected && preferredProvider && !preferredProvider.available);
-  const accountNotIncluded = selected?.provider === 'account' && selectedProvider?.mediaEntitlement === 'not-included';
+  const accountNotIncluded = (selected?.provider === 'account' || selected?.provider === 'opendesign') && selectedProvider?.mediaEntitlement === 'not-included';
   const previewModel = selected ?? preferred;
   const parameters = previewModel ? parameterDrafts[previewModel.id] ?? emptyParameters : emptyParameters;
   const currentSpeed = typeof parameters.values.speed === 'number'
@@ -118,11 +123,12 @@ export function SoundComposer({
       ? previewModel.defaults.speed
       : 1;
   const estimatedSeconds = tabId === 'speech' ? estimateSpeechSeconds(draft.prompt, currentSpeed) : 0;
-  const canSubmit = Boolean(selected && draft.prompt.trim() && !busy);
+  const canSubmit = !busy && Boolean(studio.guestPreview || (selected && draft.prompt.trim()));
   const cjkLocale = locale === 'zh-CN' || locale === 'ja';
   const tags = tabId === 'sfx' ? SOUND_SFX_TAGS : SOUND_MUSIC_TAGS;
 
   const submit = async () => {
+    if (studio.guestPreview) return openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' });
     if (!selected || !draft.prompt.trim() || busy) return;
     setBusy(true);
     const studioContext = { studio: studio.destination.studio.id, scene: tabId, model: selected.id };
@@ -315,7 +321,9 @@ export function SoundComposer({
 
         <section className="om-sound-block om-sound-model-block">
           <div className="om-creation-model">
-            {gateway && !failed && compatible.length > 0 ? (
+            {studio.guestPreview ? (
+              <GenerationModelPickers models={compatible} preferred={preferred} modelHeading={fallbackModelHeading} disabled={!compatible.length} onChoose={studio.chooseModel} />
+            ) : gateway && !failed && compatible.length > 0 ? (
               <CreationModelPicker
                 models={compatible}
                 providers={gateway.status.providers}
@@ -339,6 +347,24 @@ export function SoundComposer({
                   </Button>
                 ) : !gateway ? (
                   <Skeleton className="om-asset-model-skeleton" />
+                ) : cloudEmptyCatalog ? (
+                  <CloudEmptyModelsNotice
+                    consoleUrl={gateway.status.consoleUrl}
+                    onOpenSubscription={openSubscription}
+                  />
+                ) : unifiedCloudOnly ? (
+                  <div className="om-creation-setup" role="status">
+                    <RemixIcon name="information-line" size={18} />
+                    <p className="om-muted">{t('No models available')}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="om-button h-auto"
+                      onClick={openModelSettings}
+                    >
+                      {t('Model gateway')}
+                    </Button>
+                  </div>
                 ) : (
                   <div className="om-creation-setup">
                     <RemixIcon name="plug-line" size={18} />
@@ -382,7 +408,7 @@ export function SoundComposer({
             </div>
           )}
 
-          {gateway && !available.length && compatible.length > 0 && !unconfiguredPreferred && (
+          {!studio.guestPreview && gateway && !available.length && compatible.length > 0 && !unconfiguredPreferred && (
             <Button type="button" variant="ghost" className="om-button h-auto" onClick={openModelSettings}>
               {t('Configure a provider or sign in to use media models.')}
             </Button>
@@ -403,7 +429,7 @@ export function SoundComposer({
             </div>
           )}
 
-          {gateway && modelId && !selected && !unconfiguredPreferred && (
+          {!studio.guestPreview && gateway && modelId && !selected && !unconfiguredPreferred && !cloudEmptyCatalog && (
             <p className="om-muted" role="status">
               <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>
               {t('This task’s model is unavailable. Choose a model to continue.')}
@@ -436,7 +462,7 @@ export function SoundComposer({
             size={17}
             className={busy ? 'om-busy-icon' : undefined}
           />
-          <span>{t(SUBMIT_LABEL[tabId])}</span>
+          <span>{t(studio.guestPreview ? 'Sign in with OpenDesign' : SUBMIT_LABEL[tabId])}</span>
           {!busy && <kbd className="om-sound-kbd" aria-hidden="true">⌘↵</kbd>}
         </Button>
       </div>

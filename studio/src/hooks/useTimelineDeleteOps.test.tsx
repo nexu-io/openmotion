@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { orderedEditFixture } from "../../tests/orderedEditFixture";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
@@ -101,19 +102,17 @@ describe("useTimelineDeleteOps: ripple undo label", () => {
     const source = '<div data-composition-id="root" data-duration="6">' + elements.map(clip =>
       `<${clip.tag} id="${clip.id}" data-start="${clip.start}" data-duration="${clip.duration}" data-track="${clip.authoredTrack}"></${clip.tag}>`,
     ).join("") + "</div>";
-    stubRemoveElementsFetch(source, source);
+    const server = orderedEditFixture("test-project", {"index.html": source});
     const write = vi.fn(async (_path: string, _after: string, _before?: string, _command?: unknown) => {});
     const { getHook } = mountDeleteHarness({ elements, handleTimelineGroupMove: vi.fn(), writeProjectFile: write });
     usePlayerStore.getState().setElements(elements);
     setCachedCloudDisklessMode(true);
     try {
       await act(() => getHook().handleTimelineElementDelete(a));
-      expect(write).toHaveBeenCalledTimes(1);
-      const [, after,, command] = write.mock.calls[0]!;
-      expect(command).toMatchObject({ kind: "deleteClips", rippleTrack: authored });
-      if (shared) expect(command).toHaveProperty("rippleMembers", [expect.any(String), expect.any(String)]);
-      else expect(command).not.toHaveProperty("rippleMembers");
-      const doc = new DOMParser().parseFromString(after, "text/html");
+      expect(write).not.toHaveBeenCalled();
+      expect(server.packets).toHaveLength(1);
+      expect(server.packets[0]).toHaveLength(1);
+      const doc = new DOMParser().parseFromString(server.files['index.html']!, "text/html");
       expect(doc.getElementById("left")).toBeNull();
       expect(doc.getElementById("right")?.getAttribute("data-start")).toBe("1");
       expect(doc.getElementById("sound")?.getAttribute("data-start")).toBe("4");

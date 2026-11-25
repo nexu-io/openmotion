@@ -75,6 +75,22 @@ async function fill(element: HTMLInputElement | HTMLTextAreaElement, value: stri
 const searchInput = () => host.querySelector<HTMLInputElement>('input[type=search]')!;
 const confirmSearch = () => act(async () => searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
 const clearKeyword = () => act(async () => button(`Remove filter ${searchInput().value}`).click());
+it('finds multilingual and misspelled queries in later catalog pages', async () => {
+  const later = { ...items[0], id: 'later', title: 'Talking Head Animation' };
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const url = new URL(input, location.origin);
+    if (!url.pathname.endsWith('/template-catalog')) return Response.json({});
+    return Response.json(url.searchParams.get('offset') === '0'
+      ? { items: [items[1]], next: 1, total: 2, catalogVersion: 'paged' }
+      : { items: [later], next: null, total: 2, catalogVersion: 'paged' });
+  }));
+  await mount();
+  for (const query of ['口播', 'animaton']) {
+    await search(query);
+    expect(cards()).toEqual(['later']);
+  }
+});
+
 it('shows all Black Friday templates in one masonry gallery and previews them in order', async () => {
   const onClose = vi.fn();
   await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog collection="black-friday" open busy={false} error="" onClose={onClose} onOpen={vi.fn()} /></I18nProvider>));

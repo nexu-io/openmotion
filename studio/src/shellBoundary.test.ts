@@ -141,6 +141,14 @@ describe("Studio entry shell dependency boundary", () => {
 
     const forbiddenEditorModules = [
       "motion/MotionStudioHost.tsx",
+      "motion/WorkspaceSearchResults.tsx",
+      "motion/ImageMegaMenu.tsx",
+      "motion/VideoMegaMenu.tsx",
+      "motion/AudioNavMenu.tsx",
+      "motion/ScenarioMegaMenu.tsx",
+      "motion/skillCatalog.ts",
+      "motion/model-hubs/gemini-4/videos.json",
+      "../../shared/black-friday-references.json",
       "player/store/playerStore.ts",
       "player/lib/thumbnailPageLifecycle.ts",
       "webmcp/polyfill.ts",

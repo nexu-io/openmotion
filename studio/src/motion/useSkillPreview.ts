@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { skillPreviewSnapshot } from './skillCatalog';
+import { skillPreviewSnapshot } from './skillCoverMedia';
 
 const MAX_CACHED_PREVIEWS = 12;
 

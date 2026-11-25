@@ -9,6 +9,7 @@ import { refusedPreviewMessage } from "@hyperframes/core/studio-preview-mark";
 import { usePlayerStore } from "../store/playerStore";
 import { rememberBridgeTimelineState } from "../lib/playbackAdapter";
 import { PREVIEW_BRIDGE_SOURCE, PREVIEW_BRIDGE_VERSION } from "../lib/previewAdapter";
+import { trackStudioPendingEdit } from "../../utils/studioPendingEdits";
 import { isPreviewChanging } from "../previewReloading";
 import { studioWriteHeaders } from "../../utils/studioFileVersion";
 import { NLEProvider, useNLEContext, type NLEContextValue } from "../../components/nle/NLEContext";
@@ -943,6 +944,31 @@ function stubVisibility(initial: DocumentVisibilityState) {
 }
 
 describe("a shadow reload loading while a write lands", () => {
+  it("keeps the actual edited frame when a shadow was requested during an outstanding edit", async () => {
+    const { getApi, root } = renderTimelinePlayerHarness();
+    const live = makeLiveIframe();
+    const done = Promise.withResolvers<void>();
+    act(() => {
+      getApi().iframeRef.current = live;
+      getApi().onIframeLoad();
+      studioWriteHeaders(); // the writer claims its revision before the server accepts it
+      trackStudioPendingEdit(done.promise);
+      getApi().refreshPlayer();
+    });
+    const first = getApi().previewSlots.find(slot => slot.role === "shadow")!;
+    act(() => {
+      getApi().setShadowIframeNode(makeLiveIframe());
+      getApi().onShadowIframeLoad(first.gen);
+      getApi().onShadowReadyChange(first.gen, true);
+    });
+    const whileWaiting = getApi().iframeRef.current;
+    await act(async () => { done.resolve(); await done.promise; });
+    expect(whileWaiting).toBe(live);
+    expect(getApi().iframeRef.current).toBe(live);
+    expect(getApi().previewSlots.find(slot => slot.role === "shadow")?.gen).toBeGreaterThan(first.gen);
+    unmount(root);
+  });
+
   it("loads the file again instead of promoting the one it asked for", () => {
     const { getApi, root } = renderTimelinePlayerHarness();
     const liveIframe = makeLiveIframe();

@@ -1,0 +1,254 @@
+name: Desktop Signed Config Publish
+
+run-name: Desktop Signed Config (${{ github.event_name == 'push' && 'test · auto' || format('{0} · {1}', inputs.channel, inputs.publish && 'publish' || 'dry-run') }})
+
+on:
+  push:
+    branches:
+      - desktop-test
+    paths:
+      - 'desktop/config/test.payload.json'
+      - '.github/workflows/desktop-signed-config.yml'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Target signed config channel (test or stable; stable requires main branch)
+        required: true
+        type: choice
+        default: test
+        options:
+          - test
+          - stable
+      publish:
+        description: Upload signed config JSON to releases.open-design.ai object storage
+        required: false
+        type: boolean
+        default: false
+      sequence:
+        description: Optional explicit monotonic sequence integer (defaults to current live sequence + 1)
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-signed-config-${{ github.event_name == 'push' && 'test-publish' || format('{0}-{1}', inputs.channel, inputs.publish && 'publish' || 'dry-run') }}
+  cancel-in-progress: false
+
+jobs:
+  sign-and-publish:
+    name: Sign & Publish Desktop Config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Enforce branch and channel guard
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVENT_NAME="${{ github.event_name }}"
+          REF="${{ github.ref }}"
+
+          if [ "${EVENT_NAME}" = "push" ]; then
+            if [ "${REF}" != "refs/heads/desktop-test" ]; then
+              echo "::error::Automatic signed config publish is restricted to refs/heads/desktop-test (got ${REF})."
+              exit 1
+            fi
+            CHANNEL="test"
+            PUBLISH="true"
+            SEQUENCE_OVERRIDE=""
+          else
+            CHANNEL="${{ inputs.channel }}"
+            PUBLISH="${{ inputs.publish }}"
+            SEQUENCE_OVERRIDE="${{ inputs.sequence }}"
+            if [ "${CHANNEL}" = "stable" ] && [ "${REF}" != "refs/heads/main" ]; then
+              echo "::error::Stable signed config publish is restricted to refs/heads/main (got ${REF})."
+              exit 1
+            fi
+            if [ "${CHANNEL}" = "test" ] && [ "${REF}" != "refs/heads/main" ] && [ "${REF}" != "refs/heads/desktop-test" ]; then
+              echo "::error::Test signed config publish is restricted to refs/heads/main or refs/heads/desktop-test (got ${REF})."
+              exit 1
+            fi
+          fi
+
+          {
+            echo "channel=${CHANNEL}"
+            echo "publish=${PUBLISH}"
+            echo "sequence_override=${SEQUENCE_OVERRIDE}"
+            echo "payload_path=desktop/config/${CHANNEL}.payload.json"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Validate payload schema and shell security bounds
+        env:
+          CHANNEL: ${{ steps.guard.outputs.channel }}
+          PAYLOAD_PATH: ${{ steps.guard.outputs.payload_path }}
+        run: |
+          node --experimental-strip-types -e '
+            import { readFileSync } from "node:fs";
+            import { validateSignedConfigPayloadBounds } from "./shared/signed-config.ts";
+            const channel = process.env.CHANNEL;
+            const payload = JSON.parse(readFileSync(process.env.PAYLOAD_PATH, "utf8"));
+            const issues = validateSignedConfigPayloadBounds(payload, { channel });
+            if (issues.length > 0) {
+              console.error("Payload bounds check failed:", issues);
+              process.exit(1);
+            }
+            console.log(`Validated ${process.env.PAYLOAD_PATH} for channel "${channel}" (0 issues).`);
+          '
+
+      - name: Resolve next monotonic sequence number
+        id: seq
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.guard.outputs.channel }}
+          SEQUENCE_OVERRIDE: ${{ steps.guard.outputs.sequence_override }}
+          RELEASE_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET || secrets.RELEASE_S3_BUCKET }}
+          RELEASE_S3_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL || secrets.RELEASE_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK || secrets.RELEASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK || secrets.RELEASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          CURRENT_SEQ=0
+          if [ -n "${RELEASE_BUCKET:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            AWS_ARGS=(--region auto)
+            if [ -n "${RELEASE_S3_ENDPOINT:-}" ]; then
+              AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
+            fi
+            if aws "${AWS_ARGS[@]}" s3 cp "s3://${RELEASE_BUCKET}/open-motion/desktop/config/${CHANNEL}.json" /tmp/live-config.json >/dev/null 2>&1; then
+              CURRENT_SEQ="$(node -e '
+                const fs = require("node:fs");
+                try {
+                  const parsed = JSON.parse(fs.readFileSync("/tmp/live-config.json", "utf8"));
+                  const seq = Number(parsed?.sequence ?? 0);
+                  console.log(Number.isSafeInteger(seq) && seq >= 0 ? seq : 0);
+                } catch {
+                  console.log(0);
+                }
+              ')"
+            fi
+          fi
+
+          if [ -n "${SEQUENCE_OVERRIDE}" ]; then
+            NEXT_SEQ="${SEQUENCE_OVERRIDE}"
+            if ! [[ "${NEXT_SEQ}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::sequence input must be a positive integer (got ${NEXT_SEQ})."
+              exit 1
+            fi
+            if [ "${NEXT_SEQ}" -le "${CURRENT_SEQ}" ]; then
+              echo "::error::Requested sequence (${NEXT_SEQ}) must exceed live sequence (${CURRENT_SEQ})."
+              exit 1
+            fi
+          else
+            NEXT_SEQ=$((CURRENT_SEQ + 1))
+          fi
+
+          {
+            echo "current=${CURRENT_SEQ}"
+            echo "next=${NEXT_SEQ}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Resolved signed config sequence: live=${CURRENT_SEQ} -> next=${NEXT_SEQ}"
+
+      - name: Sign and self-verify desktop config envelope
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.guard.outputs.channel }}
+          PUBLISH: ${{ steps.guard.outputs.publish }}
+          PAYLOAD_PATH: ${{ steps.guard.outputs.payload_path }}
+          NEXT_SEQ: ${{ steps.seq.outputs.next }}
+          CURRENT_SEQ: ${{ steps.seq.outputs.current }}
+          OPENMOTION_DAILY_PRIVATE_KEY_PEM: ${{ secrets.OPENMOTION_DESKTOP_DAILY_PRIVATE_KEY_PEM }}
+          OPENMOTION_DAILY_CERT_JSON: ${{ secrets.OPENMOTION_DESKTOP_DAILY_CERT_JSON }}
+          OPENMOTION_REVOCATIONS_JSON: ${{ secrets.OPENMOTION_DESKTOP_REVOCATIONS_JSON }}
+          OPENMOTION_ROOT_PUBLIC_KEY_SPKI: ${{ vars.OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI || secrets.OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENMOTION_DAILY_PRIVATE_KEY_PEM:-}" ] || [ -z "${OPENMOTION_DAILY_CERT_JSON:-}" ] || [ -z "${OPENMOTION_ROOT_PUBLIC_KEY_SPKI:-}" ]; then
+            if [ "${PUBLISH}" = "true" ]; then
+              echo "::error::OPENMOTION_DESKTOP_DAILY_PRIVATE_KEY_PEM, OPENMOTION_DESKTOP_DAILY_CERT_JSON, and OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI are required when publish=true."
+              exit 1
+            fi
+            echo "Signing secrets not configured; payload bounds validation passed (dry-run)."
+            exit 0
+          fi
+
+          umask 077
+          printf '%s' "${OPENMOTION_DAILY_CERT_JSON}" > /tmp/daily-cert.json
+          EXTRA_SIGN_ARGS=()
+          if [ -n "${OPENMOTION_REVOCATIONS_JSON:-}" ]; then
+            printf '%s' "${OPENMOTION_REVOCATIONS_JSON}" > /tmp/revocations.json
+            EXTRA_SIGN_ARGS+=(--revocations /tmp/revocations.json)
+          fi
+
+          node --experimental-strip-types scripts/sign-desktop-config.mjs sign-config \
+            --cert /tmp/daily-cert.json \
+            --payload "${PAYLOAD_PATH}" \
+            --sequence "${NEXT_SEQ}" \
+            --channel "${CHANNEL}" \
+            --out "/tmp/${CHANNEL}.json" \
+            "${EXTRA_SIGN_ARGS[@]+"${EXTRA_SIGN_ARGS[@]}"}"
+
+          node --experimental-strip-types scripts/sign-desktop-config.mjs verify-config \
+            --config "/tmp/${CHANNEL}.json" \
+            --channel "${CHANNEL}" \
+            --min-sequence "${CURRENT_SEQ}"
+
+          rm -f /tmp/daily-cert.json /tmp/revocations.json
+
+      - name: Upload signed config to release bucket (releases.open-design.ai)
+        if: steps.guard.outputs.publish == 'true'
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.guard.outputs.channel }}
+          NEXT_SEQ: ${{ steps.seq.outputs.next }}
+          RELEASE_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET || secrets.RELEASE_S3_BUCKET }}
+          RELEASE_S3_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL || secrets.RELEASE_S3_ENDPOINT }}
+          RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK || secrets.RELEASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK || secrets.RELEASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          set -euo pipefail
+          if [ ! -f "/tmp/${CHANNEL}.json" ]; then
+            echo "::error::Expected signed config file at /tmp/${CHANNEL}.json"
+            exit 1
+          fi
+          if [ -z "${RELEASE_BUCKET:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::error::Release bucket credentials are required when publish=true."
+            exit 1
+          fi
+
+          DEST="s3://${RELEASE_BUCKET}/open-motion/desktop/config/${CHANNEL}.json"
+          AWS_ARGS=(--region auto)
+          if [ -n "${RELEASE_S3_ENDPOINT:-}" ]; then
+            AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
+          fi
+
+          aws "${AWS_ARGS[@]}" s3 cp "/tmp/${CHANNEL}.json" "${DEST}" \
+            --cache-control "no-cache, max-age=0" \
+            --content-type "application/json"
+
+          PUBLIC_URL="${RELEASE_PUBLIC_ORIGIN%/}/open-motion/desktop/config/${CHANNEL}.json"
+          echo "Published signed config (${CHANNEL}, sequence=${NEXT_SEQ}): [${CHANNEL}.json](${PUBLIC_URL})" >> "${GITHUB_STEP_SUMMARY}"

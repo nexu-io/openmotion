@@ -1,5 +1,8 @@
 import type { TrackPlacement } from "../../../packages/edit-core/asset-track-layout";
 import { applyContentCommand, type ContentCommand } from "../../../packages/edit-core/content-commands";
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
+import { saveOrderedTimeline } from "../utils/orderedTimelineEdits";
+import { projectPendingStructure } from "../player/lib/peerTimeline";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { TimelineMediaActionError } from "../utils/timelineMediaActionError";
 // Asset-drop handlers for the timeline: drop an existing project asset at a
@@ -149,18 +152,19 @@ export function useTimelineAssetDropOps({
       }
 
       const pendingId = existingPendingId ?? beginPendingAssetDrop(assetPath, placement, durationOverride, true);
-      const stillActive = () => isPendingAssetDropActive(pendingId);
+      const ordered = supportsOrderedTextEdits(pid);
+      const scope = dropScopeRef.current;
+      const stillActive = () => ordered ? dropScopeRef.current === scope : isPendingAssetDropActive(pendingId);
       try {
         const normalizedStart = Number(formatTimelineAttributeNumber(placement.start));
         const duration =
           Number.isFinite(durationOverride) && durationOverride != null && durationOverride > 0
             ? durationOverride
-            : await resolveDroppedAssetDuration(pid, assetPath, kind);
-        const normalizedDuration = Number(formatTimelineAttributeNumber(duration));
+            : resolveDroppedAssetDuration(pid, assetPath, kind);
         // A video with an audio stream lands audible; the mixer only hears a
         // <video> marked data-has-audio, and a muted drop was losing the sound.
-        const hasAudio = await resolveDroppedAssetHasAudio(pid, assetPath, kind);
-        if (!stillActive()) return undefined;
+        const media = Promise.all([duration, resolveDroppedAssetHasAudio(pid, assetPath, kind)]);
+        const hfId = 'hf-' + generateId();
         let command: ContentCommand | undefined;
 
         const tag = kind === "image" ? "img" : kind === "text" ? "p" : kind;
@@ -170,8 +174,10 @@ export function useTimelineAssetDropOps({
         let track = 0;
         let start = normalizedStart;
         let landing = placement;
-        const insertAsset = (originalContent: string) => {
+        let normalizedDuration = 0;
+        const insertAsset = (originalContent: string, [seconds, hasAudio]: [number, boolean]) => {
           if (!stillActive()) throw new Error("The timeline drop is no longer active.");
+          normalizedDuration = Number(formatTimelineAttributeNumber(seconds));
           const fileElements = elementsRef.current
             .filter((te) => (te.sourceFile || activeCompPath || "index.html") === targetPath)
             .map((te) => ({ ...te, sourceFile: targetPath }));
@@ -208,7 +214,7 @@ export function useTimelineAssetDropOps({
             waitingForPlacement: false,
           });
           const place: ContentCommand = {
-            kind: 'placeAsset', compositionPath: targetPath, assetPath, hfId: 'hf-' + generateId(),
+            kind: 'placeAsset', compositionPath: targetPath, assetPath, hfId,
             ...(trackLayout.length && {trackLayout}),
             start, duration: normalizedDuration, track, zIndex: newElementZIndex, hasAudio, canvasPosition: placement.canvasPosition,
           };
@@ -217,31 +223,45 @@ export function useTimelineAssetDropOps({
         };
 
         const onSaved = isolatedStructureRefresh(previewIframeRef?.current, targetPath, pid, reloadPreview);
-        await saveProjectFilesWithHistory({
-          projectId: pid,
-          label: "Add timeline asset",
-          files: { [targetPath]: insertAsset },
-          readFile: (path) => readFileContent(pid, path),
-          writeFile: writeProjectFile,
-          commandForWrite: () => command,
-          onSaved,
-          recordEdit,
+        const placed = () => ({
+          id: newId, key: deriveTimelineStoreKeyForDomId(newId, targetPath), domId: newId, sourceFile: targetPath,
+          tag, start, duration: normalizedDuration, track: landing.insertRow != null || landing.newTrack ? track : landing.track,
+          authoredTrack: track, zIndex: newElementZIndex,
         });
+        let projected = false;
+        if (ordered) {
+          // Enter the FIFO before media inspection completes. Later gestures may already
+          // be painting and must retain their order when this asset's duration arrives.
+          await saveOrderedTimeline(pid, [{path: targetPath, apply: async source => insertAsset(source, await media)}],
+            "Add timeline asset", {assetPaths: [assetPath], recordEdit, onSaved, projectPending: files => {
+              if (!stillActive()) return;
+              const element = placed();
+              const rollback = projectPendingStructure(pid, targetPath, previewIframeRef?.current ?? null, files, [element.key]);
+              if (rollback) {
+                projected = true;
+                finishPendingAssetDrop(pendingId, element);
+              }
+              return rollback;
+            }});
+        } else {
+          const info = await media;
+          if (!stillActive()) return;
+          await saveProjectFilesWithHistory({
+            projectId: pid, label: "Add timeline asset", files: { [targetPath]: source => insertAsset(source, info) },
+            readFile: path => readFileContent(pid, path), writeFile: writeProjectFile,
+            commandForWrite: () => command, onSaved, recordEdit,
+          });
+        }
 
-        const key = deriveTimelineStoreKeyForDomId(newId, targetPath);
+        const element = placed();
         const openedTrack = landing.insertRow != null || Boolean(landing.newTrack);
         if (openedTrack) gesture.onNewTrack = true;
-        const lane = openedTrack ? track : landing.track;
-        const element = {
-          id: newId, key, domId: newId, sourceFile: targetPath,
-          tag, start, duration: normalizedDuration, track: lane, authoredTrack: track, zIndex: newElementZIndex,
-        };
         if (!onSaved) gesture.needsRefresh = true;
         finishPendingAssetDrop(pendingId, element);
         if (!stillActive()) return element;
         if (!gesture.deferRefresh) {
-          selectAndRevealTimelineElement(key);
-          forceReloadSdkSession?.();
+          if (!projected) selectAndRevealTimelineElement(element.key);
+          if (!ordered) forceReloadSdkSession?.();
           if (gesture.needsRefresh) reloadPreview(targetPath);
         }
         return element;
@@ -379,7 +399,8 @@ export function useTimelineAssetDropOps({
       const pid = projectIdRef.current;
       if (!pid) throw new Error("No active project");
       const pendingId = beginPendingAssetDrop(sourcePath, placement);
-      const isActive = () => isPendingAssetDropActive(pendingId);
+      const scope = dropScopeRef.current;
+      const isActive = () => dropScopeRef.current === scope;
       try {
         const element = await commitTimelineCompositionInsertion({
           projectId: pid,
@@ -392,11 +413,13 @@ export function useTimelineAssetDropOps({
           recordEdit,
           observeVersion: observeProjectFileVersion,
           selectHost: selectAndRevealTimelineElement,
+          frame: previewIframeRef?.current,
+          onProjected: host => finishPendingAssetDrop(pendingId, host),
           resync: forceReloadSdkSession,
           refresh: () => reloadPreview(targetPath),
           isActive,
         });
-        if (element && isActive()) finishPendingAssetDrop(pendingId, element);
+        if (element && isPendingAssetDropActive(pendingId)) finishPendingAssetDrop(pendingId, element);
       } catch (error) {
         if (!isActive()) return;
         finishPendingAssetDrop(pendingId);
@@ -409,6 +432,7 @@ export function useTimelineAssetDropOps({
       forceReloadSdkSession,
       isRecordingRef,
       observeProjectFileVersion,
+      previewIframeRef,
       projectIdRef,
       recordEdit,
       reloadPreview,

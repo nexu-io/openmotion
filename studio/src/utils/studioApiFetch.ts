@@ -1,4 +1,5 @@
 import { STUDIO_API_SAME_ORIGIN_CREDENTIALS } from "../components/editor/manualEditingAvailability";
+import { projectSourceReadUrl } from '../../../shared/project-source-url';
 import { editorProjectIdFromPath } from '../../../shared/spa-routes';
 import { parseProjectIdFromHash } from './projectRouting';
 import { diagnosticFetch } from '../motion/diagnosticRequests';
@@ -14,8 +15,23 @@ function studioApiCredentials(): RequestCredentials {
   return cloudShell ? "same-origin" : "omit";
 }
 
+/** New cloud hosts advertise an extensionless route for current file responses.
+ * A per-file GET always means "latest", even when the path happens to end in .svg. */
+function hostedFileReadUrl(input: string, method = "GET"): string {
+  if (!/^(GET|HEAD)$/i.test(method)) return input;
+  const match = /^\/api\/projects\/([^/?#]+)\/files\/([^?#]+)(?:\?([^#]*))?$/.exec(input);
+  if (!match || !globalThis.document?.head?.querySelector?.('meta[name="openmotion-runtime"][data-file-source="query"]')) return input;
+  try {
+    const read = projectSourceReadUrl(decodeURIComponent(match[1]), decodeURIComponent(match[2]));
+    return match[3] ? read + "&" + match[3] : read;
+  } catch {
+    return input; // Let the API return its normal error for malformed paths.
+  }
+}
+
 export function studioApiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return diagnosticFetch(typeof input === 'string' ? studioProjectUrl(input) : input, { ...init, credentials: studioApiCredentials() });
+  const target = typeof input === "string" ? hostedFileReadUrl(studioProjectUrl(input), init?.method) : input;
+  return diagnosticFetch(target, { ...init, credentials: studioApiCredentials() });
 }
 
 export function studioProjectUrl(input: string, projectId?: string | null): string {

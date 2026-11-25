@@ -5,6 +5,8 @@ import { isUuid } from '../../../shared/project-validation.ts';
 import { commitProjectEdit } from '../../services/project-edit.ts';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
+import { routePath } from 'hono/route';
+import { PROJECT_SOURCE_ROUTE } from '../../../shared/project-source-url.ts';
 import { bodyLimit } from 'hono/body-limit';
 import { CloudError, isCloudError } from '../../contracts/errors.ts';
 import { AUDIO_EXT, IMAGE_EXT, VIDEO_EXT } from '../../../shared/asset-names.ts';
@@ -115,16 +117,19 @@ async function buildConflictPayload(
 export function createStudioFilesRoutes(deps: DisklessStudioDeps): Hono<{ Variables: StudioVariables }> {
   const app = new Hono<{ Variables: StudioVariables }>();
 
-  // GET /api/projects/:id/files/* — Read one authorized file at its current version.
-  app.get('/api/projects/:id/files/*', async (c) => {
+  // A filename ending in .svg/.css/.js must not make the current project version an edge-cached asset.
+  app.on('GET', [PROJECT_SOURCE_ROUTE, '/api/projects/:id/files/*'], async (c) => {
+    c.header('Cache-Control', 'private, no-cache');
+    c.header('CDN-Cache-Control', 'no-store');
     const auth = await getAuthContext(c, deps, { scope: 'projects:read' });
     const projectId = c.req.param('id');
-    const rawPath = extractWildcardPath(c.req.url, '/files/');
+    const rawPath = routePath(c) === PROJECT_SOURCE_ROUTE ? c.req.query('path') ?? '' : extractWildcardPath(c.req.url, '/files/');
     const safePath = normalizeSafeProjectPath(rawPath);
     if (deps.files.textPatchWrites) {
       c.header('X-OpenMotion-Text-Edits', '1');
-      c.header(ORDERED_TEXT_EDITS_HEADER, '1');
     }
+    c.header(ORDERED_TEXT_EDITS_HEADER, '1');
+    c.header('Vary', deps.files.textPatchWrites ? `Cookie, Authorization, ${TEXT_PATCH_BASE_HEADER}` : 'Cookie, Authorization');
     const optional = c.req.query('optional') === '1' || c.req.query('optional') === 'true';
 
     const file = await deps.files.getFile(auth, projectId, safePath);
@@ -142,6 +147,10 @@ export function createStudioFilesRoutes(deps: DisklessStudioDeps): Hono<{ Variab
     }
 
     const version = formatFileVersion(file.blobScope, file.sha256);
+    if (c.req.query('view') === 'metadata') {
+      c.header('ETag', version);
+      return c.json({ path: safePath, version, mimeType: file.mimeType, isText: file.isText });
+    }
     if (!file.isText) {
       return c.json(
         {
@@ -155,8 +164,6 @@ export function createStudioFilesRoutes(deps: DisklessStudioDeps): Hono<{ Variab
     }
 
     // Always reauthorize and revalidate private sources. Identical content needs no second body.
-    c.header('Cache-Control', 'private, no-cache');
-    c.header('Vary', deps.files.textPatchWrites ? `Cookie, Authorization, ${TEXT_PATCH_BASE_HEADER}` : 'Cookie, Authorization');
     const ifNoneMatch = c.req.header('if-none-match');
     if (ifNoneMatch && ifNoneMatch.trim() === version) {
       c.header('ETag', version);
@@ -260,13 +267,12 @@ export function createStudioFilesRoutes(deps: DisklessStudioDeps): Hono<{ Variab
 
   app.post('/api/projects/:id/text-edits/batch', bodyLimit({maxSize: 32 * 1024 * 1024}), async c => {
     const auth = await getAuthContext(c, deps, {scope: 'projects:write', minRole: 'editor'});
-    if (!deps.files.textPatchWrites) return c.json({error: 'Text patch writes are disabled'}, 503);
     const projectId = c.req.param('id');
     const body = await c.req.json().catch(() => null);
     const outcome = await deps.files.withOrderedEditEvents(auth, projectId, events =>
       commitOrderedTextEdits(body, (edit, id) => deps.files.commitTextEdits(auth, projectId, edit, {
         requestId: id, source: 'studio', writeToken: id, events,
-      })));
+      }), deps.files.textPatchWrites));
     return c.json(outcome);
   });
 

@@ -522,7 +522,8 @@ it('serves a direct parent delta, a skipped-version full file, and readable snap
       db, files, storage, workspace, history, assetNames, resolveAuth: () => auth,
     });
     const app = routes(files);
-    const url = `/api/projects/${projectId}/files/${path}`;
+    const url = `/api/projects/${projectId}/file-source?path=${encodeURIComponent(path)}`;
+    const legacyUrl = `/api/projects/${projectId}/files/${path}`;
     const baseline = (await files.readTextFile(auth, projectId, path))!.version;
     const save = async (baseVersion: string, size: string) => (await files.commitTextEdits(auth, projectId, {
       files: [{ path, baseVersion, patch: [[6, 2, size]] }],
@@ -535,6 +536,7 @@ it('serves a direct parent delta, a skipped-version full file, and readable snap
     storage.reads = 0;
     const direct = await app.request(url, { headers: { [TEXT_PATCH_BASE_HEADER]: one } });
     assert.equal(direct.headers.get('X-OpenMotion-Representation'), 'text-patch');
+    assert.equal(direct.headers.get('CDN-Cache-Control'), 'no-store');
     assert.equal(applyTextPatch('title 52px', (await direct.json()).patch), 'title 64px');
     assert.equal(storage.reads, 0);
     const missed = await app.request(url, { headers: { [TEXT_PATCH_BASE_HEADER]: baseline } });
@@ -542,7 +544,7 @@ it('serves a direct parent delta, a skipped-version full file, and readable snap
     assert.equal((await missed.json()).content, 'title 64px');
 
     const disabled = new ProjectFilesService({ db, storage });
-    const full = await routes(disabled).request(url, { headers: { [TEXT_PATCH_BASE_HEADER]: one } });
+    const full = await routes(disabled).request(legacyUrl, { headers: { [TEXT_PATCH_BASE_HEADER]: one } });
     assert.equal(full.headers.get('X-OpenMotion-Text-Edits'), null);
     assert.equal((await full.json()).content, 'title 64px');
     const sync = await readMcpProjectFile({ db, files: disabled, storage, expiresInSec: 60 }, auth, projectId,

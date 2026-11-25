@@ -4,6 +4,7 @@ import { providerRegistry, registeredProvider } from '../../../shared/provider-r
 import { openDesignImageReferenceCap, openDesignModelLabel, openDesignModels } from '../../../shared/opendesign-models';
 import { videoModelBadge } from '../../../shared/video-features';
 import { supportsScene, studioScenes } from './creativeStudios';
+import { isCloudWebMode } from './entitlementModalBus';
 
 export const imageScene = studioScenes.find(scene => scene.id === 'text-to-image')!;
 export const editImageScene = studioScenes.find(scene => scene.id === 'image-edit')!;
@@ -49,10 +50,12 @@ export function providerDisplayName(providerId: string, providers: ProviderState
   return providers.find(provider => provider.id === providerId)?.label ?? registeredProvider(providerId)?.label ?? providerId;
 }
 
-/** OpenDesign Cloud (API key) first, then the OpenDesign account, then the settings order of built-in providers.
+/** OpenDesign account first on Web Cloud, OpenDesign Cloud (API key) first in local/BYOK mode.
  * CreationModelPicker lifts a ready OpenDesign route ahead of an unready one while keeping OpenDesign first. */
-const openDesignOrder = ['opendesign', 'account'];
+const desktopOpenDesignOrder = ['opendesign', 'account'];
+const cloudOpenDesignOrder = ['account', 'opendesign'];
 export function providerRank(providerId: string) {
+  const openDesignOrder = isCloudWebMode() ? cloudOpenDesignOrder : desktopOpenDesignOrder;
   const openDesign = openDesignOrder.indexOf(providerId);
   if (openDesign >= 0) return openDesign;
   const index = providerRegistry.findIndex(provider => provider.id === providerId);

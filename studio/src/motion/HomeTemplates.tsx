@@ -16,7 +16,7 @@ const categories = [
 
 export function HomeTemplates({ onSelect }: { onSelect?: (template: GalleryTemplate) => void }) {
   const { t, locale } = useI18n();
-  const { workspace, switchingDisabled } = useWorkspaceChrome();
+  const { workspace, switchingDisabled, guestMode, startGuestSignIn } = useWorkspaceChrome();
   const [category, setCategory] = useState<string>('builtin');
   const [query, setQuery] = useState('');
   const [offset, setOffset] = useState(0);
@@ -89,7 +89,16 @@ export function HomeTemplates({ onSelect }: { onSelect?: (template: GalleryTempl
   }
   function action(template: GalleryTemplate) {
     if (onSelect) { if (!switchingDisabled) { setPreview(null); onSelect(template); } return; }
-    if (isEditableTemplate(template)) { if (!switchingDisabled) { setPreview(null); void workspace.open('templates', template.id); } }
+    if (isEditableTemplate(template)) {
+      if (!switchingDisabled) {
+        setPreview(null);
+        if (guestMode && startGuestSignIn) {
+          startGuestSignIn({ action: 'use_template', templateId: template.id });
+        } else {
+          void workspace.open('templates', template.id);
+        }
+      }
+    }
     else void copy(template);
   }
   return <section className="motion-home-templates" aria-labelledby="home-template-title">

@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { MotionEditorFrame, MotionStudioHost } from './MotionStudioHost';
+import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
 import { translate } from '../i18n/I18n';
 import englishReadme from '../../../README.md?raw';
@@ -34,7 +35,7 @@ beforeAll(() => preloadAllWorkspacePages());
 const state = vi.hoisted(() => ({
   connectionError: '',
   workspaceBusy: false,
-  renderQueue: { isRendering: false, ffmpegMissing: false },
+  renderQueue: { isRendering: false, ffmpegMissing: false, jobs: [] as unknown[] },
   writeBlockedReason: null as string | null,
   open: vi.fn(), export: vi.fn(), setTab: vi.fn(), setCollapsed: vi.fn(),
   undo: vi.fn(), redo: vi.fn(), create: vi.fn(), home: vi.fn(), rename: vi.fn(),
@@ -80,13 +81,25 @@ beforeEach(() => {
   state.connectionError = '';
   state.workspaceBusy = false;
   state.renderQueue.isRendering = false;
+  state.renderQueue.jobs = [];
   state.writeBlockedReason = null;
   state.status = { projectId: 'demo', historyRestoreError: null };
+  setCachedCloudDisklessMode(null);
+  document.head.querySelectorAll('meta[name="openmotion-runtime"]').forEach(el => el.remove());
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); layoutStyle?.remove(); layoutStyle = undefined; Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth }); history.replaceState(null, '', '/'); });
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  layoutStyle?.remove();
+  layoutStyle = undefined;
+  setCachedCloudDisklessMode(null);
+  document.head.querySelectorAll('meta[name="openmotion-runtime"]').forEach(el => el.remove());
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+  history.replaceState(null, '', '/');
+});
 function HistoryOperationState({ busy }: { busy: boolean }) {
   const { setBusy } = useMotionHistoryOperation();
   React.useEffect(() => setBusy(busy), [busy, setBusy]);
@@ -96,6 +109,12 @@ function render(historyBusy = false, children?: React.ReactNode) {
   act(() => root.render(<MotionStudioHost><HistoryOperationState busy={historyBusy} /><MotionEditorFrame><StudioHeader captureFrameHref="/frame.png" captureFrameFilename="frame.png"
     handleCaptureFrameClick={vi.fn()} refreshCaptureFrameTime={vi.fn()} inspectorButtonActive={false}
     inspectorPanelActive={false} onExport={state.export} />{children}</MotionEditorFrame></MotionStudioHost>));
+}
+async function expectExportPanelReady() {
+  const dialog = document.querySelector('[data-testid="export-dialog"]');
+  expect(dialog).not.toBeNull();
+  await act(() => vi.dynamicImportSettled());
+  expect(dialog?.textContent).toContain('Export settings and jobs');
 }
 function openSidebar() {
   act(() => container.querySelector<HTMLButtonElement>('.motion-project-navigation-trigger button')!.click());
@@ -157,7 +176,7 @@ it('keeps project switching, templates, history actions and native export in the
   expect(state.setTab).not.toHaveBeenCalled();
   expect(state.setCollapsed).not.toHaveBeenCalled();
   expect(state.export).not.toHaveBeenCalled();
-  expect(document.querySelector('[data-testid="export-dialog"]')?.textContent).toContain('Export settings and jobs');
+  await expectExportPanelReady();
   act(() => document.querySelector<HTMLButtonElement>('[data-testid="export-dialog"] [aria-label="关闭"]')!.click());
   act(() => project.click());
   expect(state.open).toHaveBeenCalledWith('projects', 'second');
@@ -179,17 +198,55 @@ it('keeps the project title visible without a generic status while the workspace
   expect(container.querySelector('.motion-save-state')).toBeNull();
 });
 
-it('prevents project replacement during a native render', () => {
+it('prevents project replacement during a native render', async () => {
   state.renderQueue.isRendering = true;
   render();
   openSidebar();
   expect(document.querySelector<HTMLButtonElement>('.motion-session')!.disabled).toBe(true);
   expect(document.querySelector<HTMLButtonElement>('[aria-label="新建项目"]')!.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!.disabled).toBe(false);
   expect(container.querySelector<HTMLButtonElement>('[data-testid="header-export"]')!.disabled).toBe(false);
   act(() => container.querySelector<HTMLButtonElement>('[data-testid="header-export"]')!.click());
-  expect(document.querySelector('[data-testid="export-dialog"]')?.textContent).toContain('Export settings and jobs');
+  await expectExportPanelReady();
   expect(state.export).not.toHaveBeenCalled();
   expect(container.textContent).toContain('正在渲染…');
+});
+
+it('keeps project switching and MCP accessible during cloud server-side exports', () => {
+  const meta = document.createElement('meta');
+  meta.name = 'openmotion-runtime';
+  meta.content = 'cloud-diskless';
+  document.head.append(meta);
+  setCachedCloudDisklessMode(null);
+  state.renderQueue.isRendering = true;
+  state.renderQueue.jobs = [
+    { id: 'finished-browser-export', status: 'complete', browserLocal: true },
+    { id: 'cloud-export-1', status: 'rendering' },
+  ];
+  render();
+  openSidebar();
+  const mcpButton = container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!;
+  expect(mcpButton.disabled).toBe(false);
+  expect(document.querySelector<HTMLButtonElement>('.motion-session')!.disabled).toBe(false);
+  expect(document.querySelector<HTMLButtonElement>('[aria-label="新建项目"]')!.disabled).toBe(false);
+  expect(container.textContent).toContain('正在渲染…');
+  act(() => mcpButton.click());
+  expect(mcpButton.getAttribute('aria-expanded')).toBe('true');
+});
+
+it('keeps project switching blocked during browser-local exports in cloud mode', () => {
+  const meta = document.createElement('meta');
+  meta.name = 'openmotion-runtime';
+  meta.content = 'cloud-diskless';
+  document.head.append(meta);
+  setCachedCloudDisklessMode(null);
+  state.renderQueue.isRendering = true;
+  state.renderQueue.jobs = [{ id: 'browser-export-1', status: 'rendering', browserLocal: true }];
+  render();
+  openSidebar();
+  expect(document.querySelector<HTMLButtonElement>('.motion-session')!.disabled).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('[aria-label="新建项目"]')!.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!.disabled).toBe(false);
 });
 
 it('prevents switching projects or issuing competing header undo while a version operation is running', () => {

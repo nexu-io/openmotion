@@ -1,8 +1,8 @@
 /* Application geometry; all presentation primitives come from the design system. */
-.om-application { --om-project-navigation-width: 200px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 46px minmax(0, 1fr); height: 100%; width: 100%; min-height: 0; overflow: hidden; }
-.om-application[data-has-bf-banner="true"] { grid-template-rows: auto 46px minmax(0, 1fr); }
-.om-app-header { position: relative; z-index: 30; container-type: inline-size; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
-.om-application > .motion-workspace { grid-column: 1; width: auto; height: auto; margin: 0 var(--motion-space-4) var(--motion-space-4); }
+.om-application { --om-project-navigation-width: 200px; display: flex; flex-direction: column; height: 100%; width: 100%; min-height: 0; overflow: hidden; }
+.om-app-header { position: relative; z-index: 30; flex: 0 0 var(--om-desktop-titlebar-height, 46px); height: var(--om-desktop-titlebar-height, 46px); container-type: inline-size; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
+.om-application > :not(.om-app-header):not(.motion-workspace) { flex: 0 0 auto; }
+.om-application > .motion-workspace { flex: 1 1 0; min-height: 0; width: auto; height: auto; margin: 0 var(--motion-space-4) var(--motion-space-4); }
 .om-app-brand { display: flex; align-items: center; gap: var(--motion-space-8); flex: 0 0 auto; }
 .om-app-brand .motion-brand-lockup { height: var(--motion-space-16); }
 @container (width > 700px) {
@@ -181,7 +181,7 @@
 .om-provider-back { display: none !important; }
 .om-provider-list-state { display: none; }
 .om-settings-backdrop { position: fixed; inset: 0; z-index: 150; }
-.om-settings-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 151; width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; }
+.om-settings-dialog { position: fixed; top: calc(50% + var(--om-desktop-safe-top, 0px) / 2); left: 50%; transform: translate(-50%, -50%); z-index: 151; width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - var(--om-desktop-safe-top, 0px) - 32px); overflow: auto; }
 .om-settings-dialog > header { margin-bottom: var(--motion-space-24); }
 .om-provider-avatar-preview { display: flex; justify-content: center; }
 .om-provider-avatar-preview .om-avatar { width: 64px; height: 64px; font-size: var(--motion-text-title); border-radius: var(--motion-radius-full); }
@@ -300,7 +300,7 @@
 .om-project-sidebar-row .motion-session, .om-project-manager-row > .om-nav-row-link, .om-project-trashed-label { flex: 1; min-width: 0; }
 .om-project-manager-row { gap: var(--motion-space-4); padding-inline-start: var(--motion-space-4); }
 .om-project-trashed-label { padding-inline: var(--motion-space-10); font-size: var(--motion-text-md); }
-.om-settings-dialog.om-project-manager-dialog { display: flex; flex-direction: column; width: min(620px, calc(100vw - var(--motion-space-24))); max-height: min(72dvh, 560px); padding: var(--motion-space-16); overflow: clip; }
+.om-settings-dialog.om-project-manager-dialog { display: flex; flex-direction: column; width: min(620px, calc(100vw - var(--motion-space-24))); max-height: min(72dvh, 560px, calc(100dvh - var(--om-desktop-safe-top, 0px) - var(--motion-space-24))); padding: var(--motion-space-16); overflow: clip; }
 .om-settings-dialog.om-project-manager-dialog > header { flex: none; margin-bottom: var(--motion-space-12); }
 .om-project-manager, .om-project-manager-panel { min-height: 0; display: flex; flex-direction: column; gap: var(--motion-space-8); }
 .om-project-manager-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--motion-space-8); }
@@ -312,14 +312,14 @@
 .om-project-edit-form > p, .om-project-import-help > p { margin: 0; }
 .om-project-import-help { width: min(340px, calc(100vw - var(--motion-space-24))); max-height: var(--available-height); overflow: auto; padding: var(--motion-space-12); }
 @media (max-height: 430px) {
-  .om-settings-dialog.om-project-manager-dialog { max-height: calc(100dvh - var(--motion-space-24)); }
+  .om-settings-dialog.om-project-manager-dialog { max-height: calc(100dvh - var(--om-desktop-safe-top, 0px) - var(--motion-space-24)); }
 }
 
 /* Opt-in host-owned navigation when an embedding host provides navigation. */
-.om-application[data-host-chrome="true"] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.om-application[data-host-chrome="true"] { display: flex; flex-direction: column; }
 [data-motion-studio] .om-application[data-host-chrome="true"] { background: var(--motion-panel); }
 .om-application[data-host-chrome="true"] > :is(.om-app-header, .om-app-rail), .om-application[data-host-chrome="true"] > .motion-workspace > .om-project-navigation { display: none; }
-.om-application[data-host-chrome="true"] > .motion-workspace { grid-column: 1; grid-row: 1; margin: 0; }
+.om-application[data-host-chrome="true"] > .motion-workspace { flex: 1 1 0; min-height: 0; margin: 0; }
 [data-motion-studio] .om-application[data-host-chrome="true"] > .motion-workspace { border-radius: 0; box-shadow: none; border: 0; }
 
 /* Measure the actual space between the brand and tools, including in library dialogs. */
@@ -766,11 +766,54 @@
 /* Desktop platform shell chrome adjustments */
 [data-desktop="true"] .om-app-header {
   -webkit-app-region: drag;
+  user-select: none;
+  -webkit-user-select: none;
   padding-inline-start: calc(var(--motion-space-8) + var(--om-desktop-inset-left, 0px));
   padding-inline-end: calc(var(--motion-space-8) + var(--om-desktop-inset-right, 0px));
 }
 [data-desktop="true"] .om-app-header :is(button, a, input, select, [role="button"], [role="menuitem"], .om-nav-item, .om-app-header-actions, .om-desktop-window-controls) {
   -webkit-app-region: no-drag;
+}
+[data-desktop="true"] .om-app-header :is(a, button, img, svg) {
+  -webkit-user-drag: none;
+}
+[data-desktop="true"] .om-app-header :is(input, textarea, [contenteditable="true"]) {
+  user-select: text;
+  -webkit-user-select: text;
+}
+[data-desktop="true"][data-desktop-fullscreen="false"] .om-application > .om-app-header {
+  order: 0;
+}
+[data-desktop="true"][data-desktop-fullscreen="false"] .om-application > :not(.om-app-header):not(.motion-workspace) {
+  order: 1;
+}
+[data-desktop="true"][data-desktop-fullscreen="false"] .om-application > .motion-workspace {
+  order: 2;
+}
+@media (max-width: 860px) {
+  [data-desktop="true"] .om-app-header {
+    gap: var(--motion-space-8);
+  }
+  [data-desktop="true"] .om-app-header .om-creative-strip {
+    justify-content: flex-start;
+  }
+  [data-desktop="true"] .om-app-header-links {
+    display: none;
+  }
+  [data-desktop="true"] .om-app-header-actions {
+    gap: var(--motion-space-4);
+    margin-left: auto;
+  }
+}
+@media (max-width: 620px) {
+  [data-desktop="true"] .om-app-header {
+    gap: var(--motion-space-4);
+    padding-inline-start: calc(var(--motion-space-4) + var(--om-desktop-inset-left, 0px));
+    padding-inline-end: calc(var(--motion-space-4) + var(--om-desktop-inset-right, 0px));
+  }
+  [data-desktop="true"] .om-app-header-actions {
+    gap: var(--motion-space-2);
+  }
 }
 .om-desktop-window-controls {
   display: inline-flex;
@@ -894,4 +937,175 @@
   [data-motion-studio] .om-account-summary p[role="status"]::before {
     animation: none;
   }
+}
+
+/* Desktop updater prompt: non-intrusive floating banner, release notes modal, and mandatory update gate */
+.om-desktop-update-banner {
+  position: fixed;
+  right: var(--motion-space-16);
+  bottom: var(--motion-space-16);
+  z-index: 120;
+  width: min(380px, calc(100vw - 32px));
+  display: grid;
+  gap: var(--motion-space-12);
+  padding: var(--motion-space-14) var(--motion-space-16);
+  border-radius: var(--motion-radius-lg);
+  border: 1px solid var(--motion-border);
+  background: var(--motion-raised);
+  color: var(--motion-strong);
+  box-shadow: var(--motion-shadow-lg);
+}
+.om-desktop-update-banner-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--motion-space-10);
+  min-width: 0;
+}
+.om-desktop-update-banner-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-accent-soft);
+  color: var(--motion-accent);
+}
+.om-desktop-update-banner-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--motion-space-2);
+}
+.om-desktop-update-banner-title {
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+  overflow-wrap: anywhere;
+}
+.om-desktop-update-banner-desc {
+  font-size: var(--motion-text-xs);
+  color: var(--motion-muted);
+  line-height: 1.45;
+}
+.om-desktop-update-banner-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--motion-space-8);
+}
+.om-desktop-update-progress {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-panel);
+  border: 1px solid var(--motion-border-subtle);
+  overflow: hidden;
+}
+.om-desktop-update-progress-bar {
+  height: 100%;
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-accent);
+  transition: width var(--motion-duration-fast) var(--motion-ease-out);
+}
+.om-desktop-update-dialog {
+  display: grid;
+  gap: var(--motion-space-16);
+}
+.om-desktop-update-dialog > header {
+  margin-bottom: 0;
+}
+.om-desktop-update-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-8);
+  color: var(--motion-muted);
+}
+.om-desktop-update-notes {
+  display: grid;
+  gap: var(--motion-space-10);
+  max-height: min(360px, 46dvh);
+  overflow-y: auto;
+  padding: var(--motion-space-12) var(--motion-space-14);
+  border-radius: var(--motion-radius-md);
+  border: 1px solid var(--motion-border-subtle);
+  background: var(--motion-panel);
+  font-size: var(--motion-text-sm);
+  line-height: 1.55;
+  color: var(--motion-strong);
+}
+.om-desktop-update-notes-heading {
+  margin: var(--motion-space-4) 0 0;
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+}
+.om-desktop-update-notes-heading:first-child {
+  margin-top: 0;
+}
+.om-desktop-update-notes-list {
+  margin: 0;
+  padding-left: var(--motion-space-20);
+  display: grid;
+  gap: var(--motion-space-4);
+}
+.om-desktop-update-notes-paragraph {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.om-desktop-mandatory-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+}
+.om-desktop-mandatory-dialog {
+  z-index: 261;
+  display: grid;
+  gap: var(--motion-space-16);
+}
+.om-desktop-mandatory-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--motion-space-6);
+  padding: var(--motion-space-4) var(--motion-space-10);
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-warning-soft);
+  color: var(--motion-warning);
+  font-size: var(--motion-text-xs);
+  font-weight: var(--motion-weight-semibold);
+}
+.om-desktop-mandatory-reason {
+  padding: var(--motion-space-10) var(--motion-space-12);
+  border-radius: var(--motion-radius-md);
+  border: 1px solid var(--motion-border-subtle);
+  background: var(--motion-panel);
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.om-desktop-mandatory-status {
+  display: grid;
+  gap: var(--motion-space-8);
+}
+.om-desktop-update-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-accent);
+  border: 1.5px solid var(--motion-raised);
+  pointer-events: none;
+}
+.om-desktop-update-menu-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-accent);
 }

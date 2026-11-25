@@ -27,6 +27,15 @@ const optionalUrl = z.preprocess((value) => {
   return value;
 }, z.string().url().optional());
 
+const renderCaptureWorkersEnv = z.preprocess((value) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === '' || trimmed === 'auto') return 'auto';
+    if (/^\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+  }
+  return value;
+}, z.union([z.literal('auto'), z.number().int().min(1).max(8)]));
+
 const rawConfigSchema = z.object({
   // Core service
   APP_PUBLIC_ORIGIN: z.string().url().default('http://127.0.0.1:4173'),
@@ -100,12 +109,13 @@ const rawConfigSchema = z.object({
   OPENDESIGN_S2S_API_KEY: optionalNonEmptyString,
   AMR_IDENTITY_CACHE_TTL_SEC: z.coerce.number().int().min(1).max(60).default(60),
   OPENDESIGN_ASR_URL: optionalUrl,
-  OPENDESIGN_BILLING_SYNC_ENABLED: booleanEnv.default(false),
+  OPENDESIGN_BILLING_SYNC_ENABLED: booleanEnv.default(true),
   ALLOW_DOH_FAKEIP_FALLBACK: booleanEnv.default(false),
 
   // Worker tuning, history coalescing & GC
   MEDIA_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(20),
   RENDER_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
+  RENDER_CAPTURE_WORKERS: renderCaptureWorkersEnv.default('auto'),
   BLOB_GC_GRACE_SECONDS: z.coerce.number().int().min(0).default(604_800),
   HISTORY_COALESCE_WINDOW_MS: z.coerce.number().int().min(0).default(4000),
 

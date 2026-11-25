@@ -1,0 +1,82 @@
+/* Borderless tonal fills per shared design-system contract (no outer borders or nested strokes). */
+.om-entitlement-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--motion-radius-xl, 12px);
+  background: var(--motion-inset, color-mix(in srgb, var(--motion-text) 6%, transparent));
+}
+
+.om-entitlement-gate[data-tone="warning"] {
+  background: color-mix(in srgb, var(--motion-warning) 12%, var(--motion-inset));
+}
+
+.om-entitlement-gate-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.om-entitlement-gate-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--motion-text);
+}
+
+.om-entitlement-gate-copy p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.om-entitlement-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.om-entitlement-gate-actions .om-button {
+  border: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.om-assets-guest-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  max-width: 420px;
+  margin: 72px auto;
+  padding: 32px 24px;
+  border: 0;
+  border-radius: var(--motion-radius-xl, 12px);
+  background: var(--motion-inset, color-mix(in srgb, var(--motion-text) 5%, transparent));
+}
+
+.om-assets-guest-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--motion-text);
+  background: color-mix(in srgb, var(--motion-text) 8%, transparent);
+}
+
+.om-assets-guest-empty h2 {
+  margin: 0;
+}
+
+.om-assets-guest-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}

@@ -58,6 +58,7 @@ interface NLEPreviewProps extends Pick<
   suppressLoadingOverlay?: boolean;
   loadingUi?: "studio" | "host";
   onStageRef?: (ref: React.RefObject<HTMLDivElement | null>) => void;
+  onLivePainted?: () => void;
   /** Reports the authored composition size measured from the loaded preview. */
   onCompositionSizeChange?: (size: PreviewCompositionSize | null) => void;
   /** Draws the picture edge to edge in this box, without Studio's inset band. */
@@ -97,6 +98,7 @@ export const NLEPreview = memo(function NLEPreview({
   suppressLoadingOverlay,
   loadingUi,
   onStageRef,
+  onLivePainted,
   onCompositionSizeChange,
   fillBox,
   compositionSizeHint,
@@ -154,7 +156,7 @@ export const NLEPreview = memo(function NLEPreview({
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
@@ -184,8 +186,11 @@ export const NLEPreview = memo(function NLEPreview({
   const onCompositionSizeChangeRef = useRef(onCompositionSizeChange);
   onCompositionSizeChangeRef.current = onCompositionSizeChange;
 
-  const updateCompositionSizeFromPreview = useCallback(() => {
+  const updateCompositionSizeFromPreview = useCallback((settled = false) => {
     const next = readPreviewCompositionSize(previewIframeRef.current);
+    // The incoming iframe can load about:blank before its authored document.
+    // Keep the current stage until we measure the new size or the frame is ready.
+    if (!next && !settled) return;
     // Pure updater; the effect below notifies the parent (Strict Mode may run updaters twice).
     setCompositionSize((prev) =>
       prev?.width === next?.width && prev?.height === next?.height ? prev : next,
@@ -490,9 +495,15 @@ export const NLEPreview = memo(function NLEPreview({
           applyInitialZoom();
         }}
         onCompositionLoadingChange={onCompositionLoadingChange}
-        onReadyToShowChange={poster.onLiveReadyToShowChange}
+        onReadyToShowChange={(ready) => {
+          if (ready) updateCompositionSizeFromPreview(true);
+          poster.onLiveReadyToShowChange(ready);
+        }}
         onPreviewError={poster.onPreviewError}
-        onPainted={(details) => reportPreviewFirstFrame(slot, details)}
+        onPainted={(details) => {
+          reportPreviewFirstFrame(slot, details);
+          onLivePainted?.();
+        }}
         portrait={portrait}
         suppressLoadingOverlay={suppressLoadingOverlay || poster.posterVisible}
         loadingUi={loadingUi}
