@@ -452,8 +452,151 @@ test('OpenMotion server PATCH /api/web-publish/game/:id maps visibility validati
     const body = (await res.json()) as { error?: { code?: string; message?: string } | string };
     const message = typeof body.error === 'string' ? body.error : body.error?.message ?? '';
     assert.match(message, /public|unlisted/i);
+
+    // Non-game targets (e.g. design) are strictly rejected from the game visibility endpoint.
+    const designPatch = await fetch(`${origin}/motion-api/web-publish/design/demo-design`, {
+      method: 'PATCH',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visibility: 'unlisted' }),
+    });
+    assert.equal(designPatch.status, 400);
+    const designPatchBody = (await designPatch.json()) as { error?: { code?: string; message?: string } | string };
+    const designPatchMsg = typeof designPatchBody.error === 'string'
+      ? designPatchBody.error
+      : designPatchBody.error?.message ?? '';
+    assert.match(designPatchMsg, /only supported for game/i);
   } finally {
     await running.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('non-game Cloud Deploy (design/motion/html) never enters the game community pipeline', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-design-isolated-'));
+  try {
+    const designDir = path.join(root, 'design-src');
+    await mkdir(designDir, { recursive: true });
+    await writeFile(path.join(designDir, 'index.html'), '<!doctype html><h1>Design Poster</h1>');
+
+    const designTarget = {
+      kind: 'design' as const,
+      id: 'poster-v1',
+      title: 'Poster V1',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-1',
+      sourcePath: designDir,
+    };
+
+    const freeMock = createCommunityMockAccount('free');
+    const service = new WebPublishService(path.join(root, 'design-data'), freeMock.client);
+
+    // 1. Status must NOT touch game-share-entitlement or game-listing APIs.
+    const beforeStatus = await service.status(designTarget);
+    assert.equal(beforeStatus.canUsePrivateShare, undefined);
+    assert.equal(freeMock.controlCalls.length, 0);
+
+    // 2. Publish (even if visibility="unlisted" is mistakenly passed) skips game entitlement & listing sync
+    //    and returns the original /artifact/:projectId/:slug link without ?kind=game or /games/:slug.
+    const published = await service.publish(designTarget, { visibility: 'unlisted' });
+    assert.equal(freeMock.controlCalls.length, 0);
+    assert.equal(freeMock.listings.size, 0);
+    assert.equal(published.publication.communityUrl, undefined);
+    assert.equal(published.publication.visibility, undefined);
+    assert.equal(published.publication.feedStatus, undefined);
+    assert.match(published.url ?? '', /^https:\/\/open-design\.app\/artifact\/[^/]+\/[^/?]+$/);
+    assert.ok(!(published.url ?? '').includes('kind=game'));
+
+    // 3. Unpublish + fast-path resume keeps the exact same original /artifact link with zero game API calls.
+    await service.unpublish(designTarget);
+    const resumed = await service.publish(designTarget, { mode: 'resume' });
+    assert.equal(freeMock.controlCalls.length, 0);
+    assert.equal(resumed.url, published.url);
+    assert.equal(resumed.publication.communityUrl, undefined);
+
+    // 4. setVisibility strictly rejects non-game deployments.
+    await assert.rejects(
+      () => service.setVisibility(designTarget, { visibility: 'unlisted' }),
+      /only supported for game/i,
+    );
+    assert.equal(freeMock.controlCalls.length, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('WebPublishService hydrates missing billing plan via refresh=true and tolerates 404 game-listing endpoints', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-pro-hydrate-'));
+  try {
+    const gameDir = path.join(root, 'pro-game');
+    await mkdir(gameDir, { recursive: true });
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Pro Game</h1>');
+
+    const baseMock = createCommunityMockAccount('pro');
+    const summaryCalls: Array<boolean | undefined> = [];
+    const client: WebPublishAccountClient = {
+      isSignedIn: baseMock.client.isSignedIn,
+      listWorkspaces: baseMock.client.listWorkspaces,
+      runWithEnv: baseMock.client.runWithEnv,
+      async summary(refresh?: boolean) {
+        summaryCalls.push(refresh);
+        if (!refresh) {
+          return {
+            state: 'signed-in',
+            user: { id: 'user_pro', email: 'pro@example.com', name: 'PRO' },
+            billingUnavailable: false,
+            consoleUrl: 'https://open-design.app',
+          };
+        }
+        return {
+          state: 'signed-in',
+          user: { id: 'user_pro', email: 'pro@example.com', name: 'PRO' },
+          plan: 'pro',
+          balance: '125.00',
+          billingUnavailable: false,
+          consoleUrl: 'https://open-design.app',
+        };
+      },
+      async controlApiJson(apiPath: string, options?: { method?: string }) {
+        const method = options?.method ?? 'GET';
+        if (apiPath === '/api/v1/collab/game-share-entitlement' && method === 'GET') {
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (404: NOT_FOUND)`);
+        }
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing$/.test(apiPath) && method === 'PUT') {
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (404: NOT_FOUND)`);
+        }
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/visibility$/.test(apiPath) && method === 'PATCH') {
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (404: NOT_FOUND)`);
+        }
+        throw new Error(`Unexpected controlApiJson call: ${method} ${apiPath}`);
+      },
+    };
+
+    const service = new WebPublishService(path.join(root, 'pub-data'), client);
+    const target = {
+      kind: 'game' as const,
+      id: 'pro-game',
+      title: 'Pro Game',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-pro-1',
+      sourcePath: gameDir,
+    };
+
+    // 1. status() refreshes billing when initial summary omits plan, unlocking Pro private share despite 404 entitlement endpoint.
+    const status = await service.status(target);
+    assert.deepEqual(summaryCalls, [undefined, true]);
+    assert.equal(status.accountPlan, 'pro');
+    assert.equal(status.canUsePrivateShare, true);
+
+    // 2. publish() succeeds with fallback artifact share URL when legacy cloud API returns 404 on PUT game-listing.
+    const published = await service.publish(target, { visibility: 'unlisted' });
+    assert.equal(published.publication.status, 'published');
+    assert.equal(published.publication.visibility, 'unlisted');
+    assert.match(published.url ?? '', /^https:\/\/open-design\.app\/artifact\/[^/]+\/[^?]+\?kind=game$/);
+
+    // 3. setVisibility() switches cleanly when legacy cloud API returns 404 on PATCH visibility.
+    const toggled = await service.setVisibility(target, { visibility: 'public' });
+    assert.equal(toggled.publication.visibility, 'public');
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

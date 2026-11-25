@@ -802,10 +802,11 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
             const embedUrl = typeof body?.embedUrl === 'string' ? body.embedUrl : undefined;
             const title = typeof body?.name === 'string' ? body.name : typeof body?.title === 'string' ? body.title : undefined;
             const visibility =
-              body?.visibility === 'public' || body?.visibility === 'unlisted'
+              targetKind === 'game' && (body?.visibility === 'public' || body?.visibility === 'unlisted')
                 ? (body.visibility as WebPublishVisibility)
                 : undefined;
-            const allowRemix = typeof body?.allowRemix === 'boolean' ? body.allowRemix : undefined;
+            const allowRemix =
+              targetKind === 'game' && typeof body?.allowRemix === 'boolean' ? body.allowRemix : undefined;
             const target = await resolveWebPublishTarget(
               rootStore,
               { targetKind, targetId, sourcePath, filePath, title, embedUrl },
@@ -826,6 +827,14 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
             return json(res, 200, result);
           }
           if (req.method === 'PATCH') {
+            if (targetKind !== 'game') {
+              return json(res, 400, {
+                error: {
+                  code: 'INVALID_ARGUMENT',
+                  message: 'Visibility controls are only supported for game deployments',
+                },
+              });
+            }
             const body = await input(req, 16 * 1024).catch(() => ({}));
             const visibility =
               body?.visibility === 'public' || body?.visibility === 'unlisted'
@@ -840,10 +849,11 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
             const sourcePath = typeof body?.sourcePath === 'string' ? body.sourcePath : undefined;
             const embedUrl = typeof body?.embedUrl === 'string' ? body.embedUrl : undefined;
             const allowRemix = typeof body?.allowRemix === 'boolean' ? body.allowRemix : undefined;
-            const target =
-              targetKind === 'html' && !sourcePath
-                ? { kind: 'html' as const, id: targetId, entryPath: filePath || 'index.html' }
-                : await resolveWebPublishTarget(rootStore, { targetKind, targetId, sourcePath, filePath, embedUrl, readOnly: true }, originUrl);
+            const target = await resolveWebPublishTarget(
+              rootStore,
+              { targetKind, targetId, sourcePath, filePath, embedUrl, readOnly: true },
+              originUrl,
+            );
             return json(res, 200, await publishService.setVisibility(target, { filePath, visibility, allowRemix }));
           }
           if (req.method === 'DELETE') {

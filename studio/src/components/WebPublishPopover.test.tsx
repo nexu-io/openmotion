@@ -564,3 +564,67 @@ it('shows Public/Unlisted visibility control for games, locks Unlisted behind Go
   expect(paidRadios[0].getAttribute('aria-checked')).toBe('true');
   expect(paidPopover.textContent).toContain('In review');
 });
+
+it('unlocks Unlisted for Pro users even if status omits accountPlan and defaults canUsePrivateShare to false', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (url.endsWith('/motion-api/settings/account')) {
+      return jsonResponse({
+        state: 'signed-in',
+        user: { id: 'u_pro', email: 'pro@example.com' },
+        plan: 'pro',
+        billingUnavailable: false,
+        consoleUrl: 'https://open-design.app',
+      });
+    }
+    if (url.includes('/motion-api/web-publish/game/g_pro_fallback') && method === 'GET') {
+      return jsonResponse({
+        targetKind: 'game',
+        targetId: 'g_pro_fallback',
+        projectId: 'g_pro_fallback',
+        title: 'Pro Community Game',
+        accountSignedIn: true,
+        accountState: 'signed-in',
+        canUsePrivateShare: false,
+        freshness: 'unknown',
+        fileCount: 2,
+        totalBytes: 1024,
+        bundledAssetCount: 1,
+        entryPath: 'index.html',
+        publications: [],
+        deployments: [],
+        active: null,
+      });
+    }
+    throw new Error(`Unexpected fetch: ${method} ${url}`);
+  }));
+
+  await act(async () => {
+    root!.render(
+      <I18nProvider initialLocale="en">
+        <WebPublishPopover targetKind="game" targetId="g_pro_fallback" title="Pro Community Game" />
+      </I18nProvider>,
+    );
+  });
+  await flushUi();
+
+  const trigger = container!.querySelector('button.om-web-publish-trigger') as HTMLButtonElement;
+  await act(async () => {
+    trigger.click();
+  });
+  await flushUi();
+
+  const popover = document.body.querySelector('.om-web-publish-popover') as HTMLElement;
+  const radios = Array.from(popover.querySelectorAll('[role="radio"]')) as HTMLButtonElement[];
+  expect(radios).toHaveLength(2);
+  expect(radios[0].getAttribute('aria-checked')).toBe('true');
+
+  await act(async () => {
+    radios[1].click();
+  });
+  await flushUi();
+
+  expect(radios[1].getAttribute('aria-checked')).toBe('true');
+  expect(popover.querySelector('[data-private-upgrade-hint]')).toBeNull();
+});

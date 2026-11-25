@@ -8,6 +8,7 @@ import { withProcessLock } from '../shared/process-lock.ts';
 import type { AccountSummary } from '../shared/provider-directory.ts';
 import {
   isPaidWebPublishPlan,
+  normalizeWebPublishPlanId,
   type WebPublicationRecord,
   type WebPublishAccountState,
   type WebPublishFeedStatus,
@@ -90,6 +91,19 @@ type PublishOptions = {
   visibility?: WebPublishVisibility;
   allowRemix?: boolean;
 };
+
+function isUnsupportedGameListingEndpointError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/PRIVATE_SHARE_REQUIRES_PAID_PLAN|OPENDESIGN_SIGN_IN_REQUIRED/.test(msg)) {
+    return false;
+  }
+  const status = (error as { status?: unknown }).status;
+  if (typeof status === 'number' && (status === 404 || status === 405 || status === 501)) {
+    return true;
+  }
+  return /\bfailed \((?:404|405|501):/.test(msg) || /"status"\s*:\s*(?:404|405|501)\b/.test(msg);
+}
 
 type GameListingControlResponse = {
   visibility?: WebPublishVisibility;
@@ -590,7 +604,16 @@ export class WebPublishService {
     options: { filePath?: string; refresh?: boolean } = {},
   ): Promise<WebPublishStatusResponse> {
     const accountSignedIn = await this.account.isSignedIn();
-    const accountSummary = this.account.summary ? await this.account.summary().catch(() => null) : null;
+    let accountSummary = this.account.summary ? await this.account.summary().catch(() => null) : null;
+    if (
+      target.kind === 'game'
+      && accountSignedIn
+      && this.account.summary
+      && !normalizeWebPublishPlanId(accountSummary?.plan as string | { id?: string | null } | null | undefined)
+      && accountSummary?.billingUnavailable !== true
+    ) {
+      accountSummary = (await this.account.summary(true).catch(() => null)) ?? accountSummary;
+    }
     const accountState: WebPublishAccountState =
       accountSummary?.state ?? (accountSignedIn ? 'signed-in' : 'signed-out');
     const accountEmail = accountSummary?.user?.email;
@@ -601,7 +624,10 @@ export class WebPublishService {
       : normalizeEntryPath(target.entryPath, 'index.html');
     const defaultCloudProjectId = cloudProjectIdFor(target.kind, target.id);
 
-    const accountPlan = accountSummary?.plan;
+    const accountPlan = normalizeWebPublishPlanId(
+      accountSummary?.plan as string | { id?: string | null } | null | undefined,
+    );
+    let entitlementResolved = Boolean(accountPlan);
     let canUsePrivateShare = isPaidWebPublishPlan(accountPlan);
     let resolvedPlan = accountPlan;
 
@@ -619,10 +645,12 @@ export class WebPublishService {
         if (remoteListing) {
           hydratedFromListing = true;
           if (typeof remoteListing.canUsePrivateShare === 'boolean') {
+            entitlementResolved = true;
             canUsePrivateShare = remoteListing.canUsePrivateShare;
           }
           if (typeof remoteListing.planTier === 'string' && remoteListing.planTier.trim()) {
             resolvedPlan = remoteListing.planTier.trim();
+            entitlementResolved = true;
           }
           const changed =
             (remoteListing.visibility && remoteListing.visibility !== currentPub.visibility)
@@ -657,6 +685,7 @@ export class WebPublishService {
           )
           .catch(() => null);
         if (entitlement && typeof entitlement.canUsePrivateShare === 'boolean') {
+          entitlementResolved = true;
           canUsePrivateShare = entitlement.canUsePrivateShare;
           if (typeof entitlement.planTier === 'string' && entitlement.planTier.trim()) {
             resolvedPlan = entitlement.planTier.trim();
@@ -684,6 +713,7 @@ export class WebPublishService {
                   .catch(() => null)
               : null;
           if (remoteListing && typeof remoteListing.canUsePrivateShare === 'boolean') {
+            entitlementResolved = true;
             canUsePrivateShare = remoteListing.canUsePrivateShare;
             if (remoteListing.planTier) resolvedPlan = remoteListing.planTier;
           }
@@ -753,7 +783,7 @@ export class WebPublishService {
       accountState,
       ...(accountEmail ? { accountEmail } : {}),
       ...(resolvedPlan ? { accountPlan: resolvedPlan } : {}),
-      ...(target.kind === 'game' ? { canUsePrivateShare } : {}),
+      ...(target.kind === 'game' && entitlementResolved ? { canUsePrivateShare } : {}),
       freshness,
       fileCount: bundle?.fileCount ?? active?.fileCount ?? 0,
       totalBytes: bundle?.totalBytes ?? active?.totalBytes ?? 0,
@@ -822,6 +852,9 @@ export class WebPublishService {
     target: Pick<WebPublishTarget, 'kind' | 'id' | 'entryPath'>,
     options: { filePath?: string; visibility: WebPublishVisibility; allowRemix?: boolean },
   ): Promise<{ publication: WebPublicationRecord; deployment: WebPublicationRecord }> {
+    if (target.kind !== 'game') {
+      throw new Error('INVALID_ARGUMENT: Visibility controls are only supported for game deployments');
+    }
     const filePath = normalizeEntryPath(options.filePath, target.entryPath || 'index.html');
     return withProcessLock(this.operationLock(target, filePath), async () => {
       const state = await this.readState(target.kind, target.id);
@@ -833,19 +866,48 @@ export class WebPublishService {
         throw new Error('DEPLOY_FAILED: OpenDesign account API client is unavailable');
       }
       const remoteProjectId = current.cloudProjectId || cloudProjectIdFor(target.kind, target.id);
-      const res = await this.account.controlApiJson<GameListingControlResponse>(
-        `/api/v1/collab/shares/${encodeURIComponent(current.slug)}/visibility`,
-        {
-          method: 'PATCH',
-          workspaceId: current.workspaceId,
-          body: {
-            projectId: remoteProjectId,
-            visibility: options.visibility,
-            ...(options.allowRemix !== undefined ? { allowRemix: options.allowRemix } : {}),
+      let res: GameListingControlResponse;
+      try {
+        res = await this.account.controlApiJson<GameListingControlResponse>(
+          `/api/v1/collab/shares/${encodeURIComponent(current.slug)}/visibility`,
+          {
+            method: 'PATCH',
+            workspaceId: current.workspaceId,
+            body: {
+              projectId: remoteProjectId,
+              visibility: options.visibility,
+              ...(options.allowRemix !== undefined ? { allowRemix: options.allowRemix } : {}),
+            },
+            timeoutMs: 20_000,
           },
-          timeoutMs: 20_000,
-        },
-      );
+        );
+      } catch (error) {
+        if (!isUnsupportedGameListingEndpointError(error)) {
+          throw error;
+        }
+        let allowFallback = options.visibility === 'public';
+        if (!allowFallback && this.account.summary) {
+          let summary = await this.account.summary().catch(() => null);
+          if (
+            !normalizeWebPublishPlanId(summary?.plan as string | { id?: string | null } | null | undefined)
+            && summary?.billingUnavailable !== true
+          ) {
+            summary = (await this.account.summary(true).catch(() => null)) ?? summary;
+          }
+          allowFallback = isPaidWebPublishPlan(
+            summary?.plan as string | { id?: string | null } | null | undefined,
+          );
+        }
+        if (!allowFallback) {
+          throw new Error(
+            'PRIVATE_SHARE_REQUIRES_PAID_PLAN: Unlisted/private game sharing requires a paid OpenDesign plan (Go or above).',
+          );
+        }
+        res = {
+          visibility: options.visibility,
+          ...(options.allowRemix !== undefined ? { allowRemix: options.allowRemix } : {}),
+        };
+      }
       const next: WebPublicationRecord = {
         ...current,
         visibility: res.visibility ?? options.visibility,
@@ -957,13 +1019,16 @@ export class WebPublishService {
               allowRemix: options.allowRemix ?? existingPublication.allowRemix,
             }).catch(() => null)
           : null;
-      const resumedCommunityUrl = resumedListing?.communityUrl ?? existingPublication.communityUrl ?? null;
+      const resumedCommunityUrl =
+        target.kind === 'game'
+          ? (resumedListing?.communityUrl ?? existingPublication.communityUrl ?? null)
+          : null;
       const resumedPublication: WebPublicationRecord = {
         ...existingPublication,
         cloudProjectId: existingProjectId,
         status: 'published',
         url: resumedCommunityUrl ?? resumedUrl,
-        ...(resumedUrl ? { artifactUrl: resumedUrl } : {}),
+        ...(target.kind === 'game' && resumedUrl ? { artifactUrl: resumedUrl } : {}),
         ...(resumedCommunityUrl ? { communityUrl: resumedCommunityUrl } : {}),
         ...(target.kind === 'game'
           ? {
@@ -1175,17 +1240,26 @@ export class WebPublishService {
         await this.stopPublication(existingPublication, existingProjectId);
       }
 
-      const listingSync = await this.syncGameListing({
-        target,
-        cloudProjectId,
-        workspaceId: workspace.workspaceId,
-        slug: reservation.slug,
-        displayName,
-        visibility: requestedVisibility,
-        allowRemix: options.allowRemix,
-      });
+      const listingSync =
+        target.kind === 'game'
+          ? await this.syncGameListing({
+              target,
+              cloudProjectId,
+              workspaceId: workspace.workspaceId,
+              slug: reservation.slug,
+              displayName,
+              visibility: requestedVisibility,
+              allowRemix: options.allowRemix,
+            }).catch((error) => {
+              if (isUnsupportedGameListingEndpointError(error)) {
+                return null;
+              }
+              throw error;
+            })
+          : null;
 
-      const resolvedCommunityUrl = listingSync?.communityUrl ?? null;
+      const resolvedCommunityUrl =
+        target.kind === 'game' ? (listingSync?.communityUrl ?? null) : null;
 
       const record: WebPublicationRecord = {
         schemaVersion: 1,
@@ -1207,7 +1281,7 @@ export class WebPublishService {
         versionId,
         status: 'published',
         url: resolvedCommunityUrl ?? shareUrl,
-        ...(shareUrl ? { artifactUrl: shareUrl } : {}),
+        ...(target.kind === 'game' && shareUrl ? { artifactUrl: shareUrl } : {}),
         ...(resolvedCommunityUrl ? { communityUrl: resolvedCommunityUrl } : {}),
         ...(target.kind === 'game'
           ? {

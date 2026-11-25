@@ -30,11 +30,25 @@ export type WebPublishGameMeta = {
   remixOfSlug?: string | null;
 };
 
-/** Any paid OpenDesign plan (starting at `go`, up through `max` and `team_*`) unlocks unlisted/private game shares. */
-export function isPaidWebPublishPlan(plan?: string | null): boolean {
-  if (typeof plan !== 'string') return false;
-  const normalized = plan.trim().toLowerCase();
-  return normalized.length > 0 && normalized !== 'free';
+/** Extract a normalized lowercase plan slug from either a plan string or legacy `{ id }` object. */
+export function normalizeWebPublishPlanId(
+  plan?: string | { id?: string | null } | null,
+): string | undefined {
+  if (typeof plan === 'string') {
+    const trimmed = plan.trim();
+    return trimmed ? trimmed.toLowerCase() : undefined;
+  }
+  if (plan && typeof plan === 'object' && typeof plan.id === 'string') {
+    const trimmed = plan.id.trim();
+    return trimmed ? trimmed.toLowerCase() : undefined;
+  }
+  return undefined;
+}
+
+/** Any paid OpenDesign plan (starting at `go`, up through `plus`, `pro`, `max`, and `team_*`) unlocks unlisted/private game shares. */
+export function isPaidWebPublishPlan(plan?: string | { id?: string | null } | null): boolean {
+  const normalized = normalizeWebPublishPlanId(plan);
+  return Boolean(normalized && normalized !== 'free');
 }
 
 export type WebPublishTarget = {

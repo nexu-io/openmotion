@@ -333,8 +333,15 @@ export function WebPublishPopover({
   const isPublished = linkStatus === 'published';
   const isStopped = linkStatus === 'stopped';
   const linkAccessOn = isPublished || (linkStatus === 'none' && prepublishEnabled);
+  const collabPlan =
+    collab?.snapshot?.quota?.planId ??
+    collab?.snapshot?.activeWorkspace?.planId ??
+    null;
+  const effectivePlan = status?.accountPlan ?? collabPlan ?? account?.plan ?? null;
   const canUsePrivateShare =
-    status?.canUsePrivateShare ?? isPaidWebPublishPlan(status?.accountPlan ?? account?.plan);
+    typeof status?.canUsePrivateShare === 'boolean'
+      ? status.canUsePrivateShare || (!status.accountPlan && isPaidWebPublishPlan(effectivePlan))
+      : isPaidWebPublishPlan(effectivePlan);
 
   const handleSelectVisibility = async (next: WebPublishVisibility) => {
     if (mutating) return;
@@ -793,6 +800,9 @@ export function WebPublishPopover({
       )}
 
       {signedIn && (() => {
+        const consoleBase = (account?.consoleUrl || 'https://open-design.ai').replace(/\/$/, '');
+        const teamUrl = `${consoleBase}/team`;
+        const resetUrl = `${consoleBase}/reset`;
         const snap = collab?.snapshot;
         const activeWs = snap?.activeWorkspace;
         const projectWsId = snap?.projectMeta[targetId]?.workspaceId;
@@ -803,7 +813,30 @@ export function WebPublishPopover({
           activeWs?.workspaceType === 'team'
             ? activeWs
             : snap?.workspaces.find(w => w.workspaceType === 'team' && w.memberStatus === 'active' && w.lifecycleState === 'active') ?? null;
-        if (!collab || (!projectTeamWs && !activeTeamWs)) return null;
+        if (!collab || (!projectTeamWs && !activeTeamWs)) {
+          return (
+            <div className="om-web-publish-growth-row" data-web-publish-growth="">
+              <a
+                className="om-web-publish-growth-link"
+                href={teamUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <RemixIcon name="group-line" size={13} />
+                <span>{t('Create a team')}</span>
+              </a>
+              <a
+                className="om-web-publish-growth-link"
+                href={resetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <RemixIcon name="gift-line" size={13} />
+                <span>{t('Invite for reset cards')}</span>
+              </a>
+            </div>
+          );
+        }
         const resolvedKind = targetKind === 'design' || targetKind === 'game' ? targetKind : 'motion';
         const resolvedTitle = title || status?.title || targetId;
         if (!projectTeamWs && activeTeamWs) {
@@ -839,6 +872,17 @@ export function WebPublishPopover({
                 </Button>
               </div>
               <CommentSyncBanner projectId={targetId} compact />
+              <div className="om-web-publish-growth-row" data-web-publish-growth="">
+                <a
+                  className="om-web-publish-growth-link"
+                  href={resetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <RemixIcon name="gift-line" size={13} />
+                  <span>{t('Invite teammates for reset cards')}</span>
+                </a>
+              </div>
             </div>
           );
         }
@@ -881,6 +925,17 @@ export function WebPublishPopover({
               </Button>
             </div>
             <CommentSyncBanner projectId={targetId} compact />
+            <div className="om-web-publish-growth-row" data-web-publish-growth="">
+              <a
+                className="om-web-publish-growth-link"
+                href={resetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <RemixIcon name="gift-line" size={13} />
+                <span>{t('Invite teammates for reset cards')}</span>
+              </a>
+            </div>
           </div>
         );
       })()}

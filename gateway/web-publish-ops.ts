@@ -437,10 +437,11 @@ export async function webPublishOperation(
       origin,
     );
     const visibility =
-      input.visibility === 'public' || input.visibility === 'unlisted'
+      targetKind === 'game' && (input.visibility === 'public' || input.visibility === 'unlisted')
         ? (input.visibility as WebPublishVisibility)
         : undefined;
-    const allowRemix = typeof input.allowRemix === 'boolean' ? input.allowRemix : undefined;
+    const allowRemix =
+      targetKind === 'game' && typeof input.allowRemix === 'boolean' ? input.allowRemix : undefined;
     return await service.publish(resolved, {
       filePath,
       workspaceId: typeof input.workspaceId === 'string' ? input.workspaceId : undefined,
@@ -452,6 +453,9 @@ export async function webPublishOperation(
   }
 
   if (command === 'visibility') {
+    if (targetKind !== 'game') {
+      throw new Error('INVALID_ARGUMENT: Visibility controls are only supported for game deployments');
+    }
     const visibility =
       input.visibility === 'public' || input.visibility === 'unlisted'
         ? (input.visibility as WebPublishVisibility)
