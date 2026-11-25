@@ -11,6 +11,13 @@ const LEVEL_RANK: Readonly<Record<LogLevel, number>> = {
 const SENSITIVE_KEY_PATTERN =
   /(password|secret|token|apikey|api_key|authorization|cookie|set-cookie|access_key|secret_key|private_key|client_secret|pat)/i;
 
+// Dashboard dimensions are registered route templates. Raw paths may carry
+// filenames or preview credentials and must still be redacted.
+const projectIoTemplates = new Set([
+  '/api/projects/:id/file-source', '/api/projects/:id/files/*',
+  '/api/projects/:id/text-edits', '/api/projects/:id/text-edits/batch',
+]);
+
 const URL_CREDENTIALS_PATTERN = /([a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:)([^/\s@]+)(@)/gi;
 
 export function redactString(input: string): string {
@@ -35,7 +42,9 @@ export function redactValue(value: unknown, depth = 0): unknown {
   }
   const output: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (SENSITIVE_KEY_PATTERN.test(key)) {
+    if (key === 'path' && typeof entry === 'string' && projectIoTemplates.has(entry)) {
+      output[key] = entry;
+    } else if (SENSITIVE_KEY_PATTERN.test(key)) {
       output[key] = '[REDACTED]';
     } else {
       output[key] = redactValue(entry, depth + 1);
