@@ -77,7 +77,7 @@
     "Export package (no account needed)": "导出包（无需连接账号）",
     "Playable ad export": "可玩广告",
     "Could not copy the link": "链接复制失败",
-    "Also publish on OpenDesign": "同时上架到 OpenDesign",
+    "Also publish on OpenDesign": "同时发布到 OpenDesign",
     "Creates a game link anyone can play": "生成一条谁都能玩的游戏链接",
     "Publishing on OpenDesign…": "正在同时上架到 OpenDesign…",
     "Live on OpenDesign": "已在 OpenDesign 上线",
@@ -603,14 +603,9 @@
     "Publish “{title}” to {name}": "把「{title}」上架到{name}",
     "I installed {tool}": "我装好了{tool}",
     "Download {tool}": "下载{tool}",
-    "Also publish to": "同时上架到",
-    "Publish to": "上架到",
-    "Publish on OpenDesign too": "同时发布到 OpenDesign",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "已选中：生成一个谁都能打开就玩的链接。下面选的平台也会一起带上。",
-    "A play link anyone can open.": "一个谁都能打开就玩的链接。",
-    "Publish only to OpenDesign": "只发布到 OpenDesign",
     "Play link": "试玩链接",
-    "Publishing…": "发布中…"
+    "Publishing…": "发布中…",
+    "Only OpenDesign": "只发 OpenDesign"
   },
   "ja": {
     "WeChat Mini Game": "WeChat ミニゲーム",
@@ -1216,14 +1211,9 @@
     "Publish “{title}” to {name}": "「{title}」を {name} に公開する",
     "I installed {tool}": "{tool} をインストールしました",
     "Download {tool}": "{tool} をダウンロード",
-    "Also publish to": "同時に公開する先",
-    "Publish to": "公開先",
-    "Publish on OpenDesign too": "OpenDesign にも公開する",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "選択中：誰でも開いて遊べるリンクです。下で選ぶプラットフォームにも付きます。",
-    "A play link anyone can open.": "誰でも開いて遊べるリンクです。",
-    "Publish only to OpenDesign": "OpenDesign だけに公開",
     "Play link": "プレイリンク",
-    "Publishing…": "公開中…"
+    "Publishing…": "公開中…",
+    "Only OpenDesign": "OpenDesign だけ"
   },
   "ko": {
     "WeChat Mini Game": "WeChat 미니게임",
@@ -1829,14 +1819,9 @@
     "Publish “{title}” to {name}": "\"{title}\"을(를) {name}에 출시하기",
     "I installed {tool}": "{tool}을(를) 설치했습니다",
     "Download {tool}": "{tool} 다운로드",
-    "Also publish to": "함께 출시할 곳",
-    "Publish to": "출시할 곳",
-    "Publish on OpenDesign too": "OpenDesign에도 게시",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "선택됨: 누구나 열어서 플레이할 수 있는 링크입니다. 아래에서 고른 플랫폼에도 함께 적용됩니다.",
-    "A play link anyone can open.": "누구나 열어서 플레이할 수 있는 링크입니다.",
-    "Publish only to OpenDesign": "OpenDesign에만 게시",
     "Play link": "플레이 링크",
-    "Publishing…": "게시 중…"
+    "Publishing…": "게시 중…",
+    "Only OpenDesign": "OpenDesign만"
   },
   "de": {
     "WeChat Mini Game": "WeChat-Minispiel",
@@ -2442,14 +2427,9 @@
     "Publish “{title}” to {name}": "„{title}“ auf {name} veröffentlichen",
     "I installed {tool}": "Ich habe {tool} installiert",
     "Download {tool}": "{tool} herunterladen",
-    "Also publish to": "Außerdem veröffentlichen auf",
-    "Publish to": "Veröffentlichen auf",
-    "Publish on OpenDesign too": "Auch auf OpenDesign veröffentlichen",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Ausgewählt: ein Spiel-Link, den jeder öffnen kann. Plattformen, die du unten wählst, bekommen ihn auch.",
-    "A play link anyone can open.": "Ein Spiel-Link, den jeder öffnen kann.",
-    "Publish only to OpenDesign": "Nur auf OpenDesign veröffentlichen",
     "Play link": "Spiel-Link",
-    "Publishing…": "Wird veröffentlicht…"
+    "Publishing…": "Wird veröffentlicht…",
+    "Only OpenDesign": "Nur OpenDesign"
   },
   "fr": {
     "WeChat Mini Game": "Mini-jeu WeChat",
@@ -3055,14 +3035,9 @@
     "Publish “{title}” to {name}": "Publier « {title} » sur {name}",
     "I installed {tool}": "J'ai installé {tool}",
     "Download {tool}": "Télécharger {tool}",
-    "Also publish to": "Publier aussi sur",
-    "Publish to": "Publier sur",
-    "Publish on OpenDesign too": "Publier aussi sur OpenDesign",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Sélectionné : un lien de jeu que tout le monde peut ouvrir. Les plateformes choisies ci-dessous l’auront aussi.",
-    "A play link anyone can open.": "Un lien de jeu que tout le monde peut ouvrir.",
-    "Publish only to OpenDesign": "Publier seulement sur OpenDesign",
     "Play link": "Lien de jeu",
-    "Publishing…": "Publication…"
+    "Publishing…": "Publication…",
+    "Only OpenDesign": "Seulement OpenDesign"
   },
   "ru": {
     "WeChat Mini Game": "Мини-игра WeChat",
@@ -3668,14 +3643,9 @@
     "Publish “{title}” to {name}": "Опубликовать «{title}» в {name}",
     "I installed {tool}": "Я установил {tool}",
     "Download {tool}": "Скачать {tool}",
-    "Also publish to": "Также опубликовать в",
-    "Publish to": "Опубликовать в",
-    "Publish on OpenDesign too": "Также опубликовать в OpenDesign",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Выбрано: ссылка на игру, которую может открыть любой. Платформы ниже тоже её получат.",
-    "A play link anyone can open.": "Ссылка на игру, которую может открыть любой.",
-    "Publish only to OpenDesign": "Опубликовать только в OpenDesign",
     "Play link": "Ссылка на игру",
-    "Publishing…": "Публикация…"
+    "Publishing…": "Публикация…",
+    "Only OpenDesign": "Только OpenDesign"
   },
   "es": {
     "WeChat Mini Game": "Minijuego de WeChat",
@@ -4281,14 +4251,9 @@
     "Publish “{title}” to {name}": "Publicar «{title}» en {name}",
     "I installed {tool}": "He instalado {tool}",
     "Download {tool}": "Descargar {tool}",
-    "Also publish to": "Publicar también en",
-    "Publish to": "Publicar en",
-    "Publish on OpenDesign too": "Publicar también en OpenDesign",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Seleccionado: un enlace que cualquiera puede abrir para jugar. Las plataformas que elijas abajo también lo tendrán.",
-    "A play link anyone can open.": "Un enlace que cualquiera puede abrir para jugar.",
-    "Publish only to OpenDesign": "Publicar solo en OpenDesign",
     "Play link": "Enlace para jugar",
-    "Publishing…": "Publicando…"
+    "Publishing…": "Publicando…",
+    "Only OpenDesign": "Solo OpenDesign"
   },
   "pt-BR": {
     "WeChat Mini Game": "Minijogo do WeChat",
@@ -4894,14 +4859,9 @@
     "Publish “{title}” to {name}": "Publicar “{title}” em {name}",
     "I installed {tool}": "Instalei o {tool}",
     "Download {tool}": "Baixar {tool}",
-    "Also publish to": "Publicar também em",
-    "Publish to": "Publicar em",
-    "Publish on OpenDesign too": "Publicar também no OpenDesign",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Selecionado: um link que qualquer pessoa pode abrir para jogar. As plataformas escolhidas abaixo também recebem.",
-    "A play link anyone can open.": "Um link que qualquer pessoa pode abrir para jogar.",
-    "Publish only to OpenDesign": "Publicar só no OpenDesign",
     "Play link": "Link para jogar",
-    "Publishing…": "Publicando…"
+    "Publishing…": "Publicando…",
+    "Only OpenDesign": "Só OpenDesign"
   },
   "it": {
     "WeChat Mini Game": "Minigioco WeChat",
@@ -5507,14 +5467,9 @@
     "Publish “{title}” to {name}": "Pubblica «{title}» su {name}",
     "I installed {tool}": "Ho installato {tool}",
     "Download {tool}": "Scarica {tool}",
-    "Also publish to": "Pubblica anche su",
-    "Publish to": "Pubblica su",
-    "Publish on OpenDesign too": "Pubblica anche su OpenDesign",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Selezionato: un link di gioco che chiunque può aprire. Anche le piattaforme scelte sotto lo avranno.",
-    "A play link anyone can open.": "Un link di gioco che chiunque può aprire.",
-    "Publish only to OpenDesign": "Pubblica solo su OpenDesign",
     "Play link": "Link di gioco",
-    "Publishing…": "Pubblicazione…"
+    "Publishing…": "Pubblicazione…",
+    "Only OpenDesign": "Solo OpenDesign"
   },
   "tr": {
     "WeChat Mini Game": "WeChat Mini Oyunu",
@@ -5594,7 +5549,7 @@
     "Export package (no account needed)": "Paketi dışa aktar (hesap gerekmez)",
     "Playable ad export": "Oynanabilir reklam dışa aktarma",
     "Could not copy the link": "Bağlantı kopyalanamadı",
-    "Also publish on OpenDesign": "OpenDesign’da da yayımla",
+    "Also publish on OpenDesign": "OpenDesign’da da yayınla",
     "Creates a game link anyone can play": "Herkesin oynayabileceği bir oyun bağlantısı oluşturur",
     "Publishing on OpenDesign…": "OpenDesign’da yayımlanıyor…",
     "Live on OpenDesign": "OpenDesign’da yayında",
@@ -6120,13 +6075,8 @@
     "Publish “{title}” to {name}": "\"{title}\" oyununu {name} platformunda yayınla",
     "I installed {tool}": "{tool} kurdum",
     "Download {tool}": "{tool} indir",
-    "Also publish to": "Şuralarda da yayınla",
-    "Publish to": "Şurada yayınla",
-    "Publish on OpenDesign too": "OpenDesign’da da yayınla",
-    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Seçili: herkesin açıp oynayabileceği bir bağlantı. Aşağıda seçtiğin platformlar da alır.",
-    "A play link anyone can open.": "Herkesin açıp oynayabileceği bir bağlantı.",
-    "Publish only to OpenDesign": "Yalnızca OpenDesign’da yayınla",
     "Play link": "Oyun bağlantısı",
-    "Publishing…": "Yayınlanıyor…"
+    "Publishing…": "Yayınlanıyor…",
+    "Only OpenDesign": "Yalnızca OpenDesign"
   }
 }
