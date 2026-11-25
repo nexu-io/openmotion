@@ -7,6 +7,7 @@ import type { AccountSummary } from '../../../shared/provider-directory';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 import { Select } from '../components/ui/Select';
+import { useMountEffect } from '../hooks/useMountEffect';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { gatewayRequest, type CloudApiError } from './gatewayClient';
@@ -327,34 +328,20 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [switchingWorkspace, setSwitchingWorkspace] = useState(false);
+  const switchInFlight = useRef(false);
 
   // Connected OAuth applications ("已连接的应用") state
   const [connections, setConnections] = useState<ConnectedApplicationRecord[] | null>(null);
   const [revokingClientId, setRevokingClientId] = useState<string | null>(null);
 
-  // Personal Access Token management state
-  const [tokens, setTokens] = useState<PersonalAccessTokenRecord[] | null>(null);
-  const [tokensError, setTokensError] = useState(false);
-  const [tokenName, setTokenName] = useState('');
-  const [tokenExpiryDays, setTokenExpiryDays] = useState('90');
-  const [creatingToken, setCreatingToken] = useState(false);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [createdToken, setCreatedToken] = useState<{ token: string; name: string } | null>(null);
-
   const account = state.account;
   const signedIn = account?.state === 'signed-in';
   const isDevMode = account?.authMode === 'dev';
-
-  const loadTokens = useCallback(async () => {
-    if (!signedIn || subscription) return;
-    try {
-      const response = await gatewayRequest<{ tokens: PersonalAccessTokenRecord[] }>('tokens');
-      setTokens(Array.isArray(response.tokens) ? response.tokens : []);
-      setTokensError(false);
-    } catch {
-      setTokensError(true);
-    }
-  }, [signedIn, subscription]);
+  const activeWorkspace = account?.activeWorkspace;
+  const workspaces = account?.workspaces ?? [];
+  const canSwitchWorkspace = account?.authMethod === 'session_cookie' && workspaces.length > 1
+    && workspaces.some(ws => ws.id === activeWorkspace?.id);
 
   const loadConnections = useCallback(async () => {
     if (!signedIn || subscription) return;
@@ -367,11 +354,8 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   }, [signedIn, subscription]);
 
   useEffect(() => {
-    if (signedIn && !subscription) {
-      void loadTokens();
-      void loadConnections();
-    }
-  }, [signedIn, subscription, loadTokens, loadConnections]);
+    void loadConnections();
+  }, [loadConnections]);
 
   function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
     const consoleUrl = state.account!.consoleUrl;
@@ -420,8 +404,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
-      setTokens(null);
-      setCreatedToken(null);
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
       toast.showToast(t('Signed out'), 'info');
@@ -446,35 +428,23 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     }
   }
 
-  async function createToken(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = tokenName.trim();
-    if (!trimmed) {
-      toast.showToast(t('Enter a name for this token'), 'error');
-      return;
-    }
-    setCreatingToken(true);
+  async function switchWorkspace(workspaceId: string) {
+    if (switchInFlight.current || !canSwitchWorkspace || workspaceId === activeWorkspace?.id
+      || !workspaces.some(ws => ws.id === workspaceId)) return;
+    switchInFlight.current = true;
+    setSwitchingWorkspace(true);
     try {
-      const expiresInDays = tokenExpiryDays === 'never' ? undefined : Number(tokenExpiryDays);
-      // Omit explicit `scopes` so `createPat()` intersects DEFAULT_PAT_SCOPES with the user's live workspace role (incl. viewers).
-      const response = await gatewayRequest<{
-        id?: string;
-        name?: string;
-        token: string;
-        scopes?: string[];
-        record?: PersonalAccessTokenRecord;
-      }>('tokens', 'POST', {
-        name: trimmed,
-        ...(expiresInDays ? { expiresInDays } : {}),
-      });
-      setCreatedToken({ token: response.token, name: response.name ?? response.record?.name ?? trimmed });
-      setTokenName('');
-      await loadTokens();
-      toast.showToast(t('Personal access token created'), 'info');
+      await gatewayRequest('account/workspaces/switch', 'POST', { workspaceId });
+      clearPrivateSwrCache();
+      await state.refresh(true);
+      notifyProvidersChanged();
+      window.dispatchEvent(new Event('motion:account-changed'));
+      toast.showToast(t('Workspace switched'), 'info');
     } catch (error) {
-      toast.showToast(error instanceof Error ? error.message : t('Could not create token'), 'error');
+      toast.showToast(error instanceof Error ? error.message : t('Could not switch workspace'), 'error');
     } finally {
-      setCreatingToken(false);
+      switchInFlight.current = false;
+      setSwitchingWorkspace(false);
     }
   }
 
@@ -488,29 +458,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       toast.showToast(error instanceof Error ? error.message : t('Could not revoke connection'), 'error');
     } finally {
       setRevokingClientId(null);
-    }
-  }
-
-  async function revokeToken(id: string) {
-    setRevokingId(id);
-    try {
-      await gatewayRequest(`tokens/${encodeURIComponent(id)}`, 'DELETE');
-      await loadTokens();
-      toast.showToast(t('Token revoked'), 'info');
-    } catch (error) {
-      toast.showToast(error instanceof Error ? error.message : t('Could not revoke token'), 'error');
-    } finally {
-      setRevokingId(null);
-    }
-  }
-
-  async function copyCreatedToken() {
-    if (!createdToken) return;
-    try {
-      await navigator.clipboard.writeText(createdToken.token);
-      toast.showToast(t('Token copied'), 'info');
-    } catch {
-      toast.showToast(t('Could not copy token'), 'error');
     }
   }
 
@@ -543,8 +490,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   const name = account?.user?.name?.trim();
   const email = account?.user?.email;
   const named = Boolean(name) && name!.toLowerCase() !== email?.toLowerCase();
-  const workspaces = account?.workspaces ?? [];
-  const activeTokens = (tokens ?? []).filter(item => !item.revokedAt);
 
   return (
     <div className="om-settings-page">
@@ -603,26 +548,24 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
             </section>
           )}
 
-          {!subscription && signedIn && workspaces.length > 0 && (
-            <section className="om-settings-section" aria-label={t('Workspaces')}>
-              <div className="om-settings-row">
+          {!subscription && signedIn && activeWorkspace && (
+            <section className="om-card min-w-0" aria-label={t('Workspaces')}>
+              <div className="om-preference-row">
                 <h2 className="om-subtitle">{t('Workspaces')}</h2>
-              </div>
-              <div className="om-card om-card-stack">
-                {workspaces.map(ws => {
-                  const isActive = ws.id === account.activeWorkspace?.id;
-                  return (
-                    <div className="om-preference-row" key={ws.id}>
-                      <div>
-                        <strong>{ws.name}</strong>
-                        <p className="om-muted">{ws.slug} · {ws.role}</p>
-                      </div>
-                      {isActive && <Button variant="ghost" className="om-button h-auto" disabled>
-                        <RemixIcon name="check-line" size={14} />{t('Active workspace')}
-                      </Button>}
-                    </div>
-                  );
-                })}
+                <div className="om-label w-full min-w-0 sm:w-1/2">
+                  {canSwitchWorkspace ? (
+                    <Select
+                      label={t('Switch workspace')}
+                      value={activeWorkspace.id}
+                      options={workspaces.map(ws => ({ value: ws.id, label: ws.name, description: `${ws.slug} · ${ws.role}` }))}
+                      disabled={switchingWorkspace}
+                      onCommit={switchWorkspace}
+                    />
+                  ) : <strong className="wrap-anywhere">{activeWorkspace.name}</strong>}
+                  <span className="om-muted wrap-anywhere" aria-live="polite">
+                    {switchingWorkspace ? t('Switching…') : `${activeWorkspace.slug} · ${activeWorkspace.role}`}
+                  </span>
+                </div>
               </div>
             </section>
           )}
@@ -672,114 +615,11 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
           )}
 
           {!subscription && signedIn && (
-            <section id="account-tokens" className="om-settings-section" aria-label={t('Personal access tokens')}>
-              <div className="om-settings-row">
-                <div>
-                  <h2 className="om-subtitle">{t('Personal access tokens')}</h2>
-                  <p className="om-muted">{t('Use a Bearer token to connect external MCP Agents over Streamable HTTP (/mcp) when OAuth 2.1 is unavailable.')}</p>
-                </div>
-                <Tooltip label={t('Refresh tokens')} wrap>
-                  <IconButton
-                    variant="ghost"
-                    className="motion-icon-button"
-                    aria-label={t('Refresh tokens')}
-                    onClick={() => void loadTokens()}
-                    icon={<RemixIcon name="refresh-line" size={17} />}
-                  />
-                </Tooltip>
-              </div>
-
-              {createdToken && (
-                <div className="om-card om-card-stack" role="status" data-pat-created="true">
-                  <div className="om-settings-row">
-                    <strong>{t('Copy your new token now')} · {createdToken.name}</strong>
-                    <div className="om-settings-actions">
-                      <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => void copyCreatedToken()}>
-                        <RemixIcon name="file-copy-line" size={15} />{t('Copy token')}
-                      </Button>
-                      <IconButton
-                        variant="ghost"
-                        className="motion-icon-button"
-                        aria-label={t('Dismiss')}
-                        onClick={() => setCreatedToken(null)}
-                        icon={<RemixIcon name="close-line" size={16} />}
-                      />
-                    </div>
-                  </div>
-                  <p className="om-muted">{t('For security, this token is shown once and cannot be retrieved later.')}</p>
-                  <code className="om-inset">{createdToken.token}</code>
-                </div>
-              )}
-
-              <form className="om-card om-card-stack" onSubmit={event => void createToken(event)}>
-                <div className="om-settings-row">
-                  <label className="om-label" style={{ flex: 1 }}>
-                    {t('Token name')}
-                    <span className="om-field">
-                      <input
-                        type="text"
-                        value={tokenName}
-                        onChange={event => setTokenName(event.target.value)}
-                        placeholder={t('e.g. Cursor laptop or CI runner')}
-                        aria-label={t('Token name')}
-                        maxLength={80}
-                      />
-                    </span>
-                  </label>
-                  <div className="om-label">
-                    {t('Expiration')}
-                    <Select
-                      label={t('Expiration')}
-                      value={tokenExpiryDays}
-                      onCommit={setTokenExpiryDays}
-                      options={[
-                        { value: '30', label: t('30 days') },
-                        { value: '90', label: t('90 days') },
-                        { value: '365', label: t('1 year') },
-                        { value: 'never', label: t('No expiration') },
-                      ]}
-                    />
-                  </div>
-                </div>
-                <div className="om-settings-row">
-                  <span className="om-muted">{t('Scopes')}: {DEFAULT_PAT_SCOPES.join(', ')}</span>
-                  <Button variant="ghost" className="om-button h-auto" data-primary type="submit" disabled={creatingToken || !tokenName.trim()}>
-                    <RemixIcon name="lock-line" size={15} />
-                    {t(creatingToken ? 'Creating token…' : 'Create token')}
-                  </Button>
-                </div>
-              </form>
-
-              <div className="om-card om-card-stack">
-                {tokensError ? (
-                  <p className="om-muted">{t('Could not load personal access tokens.')}</p>
-                ) : tokens === null ? (
-                  <p className="om-muted">{t('Loading tokens…')}</p>
-                ) : activeTokens.length === 0 ? (
-                  <p className="om-muted">{t('No active personal access tokens yet.')}</p>
-                ) : (
-                  activeTokens.map(item => (
-                    <div className="om-preference-row" key={item.id}>
-                      <div>
-                        <strong>{item.name}</strong>
-                        <p className="om-muted">
-                          <code>{item.tokenPrefix}…</code> · {t('Created')} {formatDate(item.createdAt)} · {t('Expires')} {item.expiresAt ? formatDate(item.expiresAt) : t('Never')}
-                          {item.lastUsedAt ? ` · ${t('Last used')} ${formatDate(item.lastUsedAt)}` : ''}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        className="om-button h-auto"
-                        disabled={revokingId === item.id}
-                        onClick={() => void revokeToken(item.id)}
-                      >
-                        {t(revokingId === item.id ? 'Revoking…' : 'Revoke')}
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
+            <WorkspaceTokens
+              key={`${account.userId ?? account.user?.email ?? ''}:${activeWorkspace?.id ?? ''}`}
+              switchingWorkspace={switchingWorkspace}
+              showToast={toast.showToast}
+            />
           )}
 
           {upgradeGuide && (
@@ -900,5 +740,216 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       )}
       <StudioToastViewport {...toast} />
     </div>
+  );
+}
+
+function WorkspaceTokens({ switchingWorkspace, showToast }: {
+  switchingWorkspace: boolean;
+  showToast: ReturnType<typeof useToast>['showToast'];
+}) {
+  const { t } = useI18n();
+  const mounted = useRef(true);
+  const latestRead = useRef(0);
+  const [tokens, setTokens] = useState<PersonalAccessTokenRecord[] | null>(null);
+  const [tokensError, setTokensError] = useState(false);
+  const [tokenName, setTokenName] = useState('');
+  const [tokenExpiryDays, setTokenExpiryDays] = useState('90');
+  const [creatingToken, setCreatingToken] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [createdToken, setCreatedToken] = useState<{ token: string; name: string } | null>(null);
+
+  async function loadTokens() {
+    if (!mounted.current) return;
+    const request = ++latestRead.current;
+    try {
+      const response = await gatewayRequest<{ tokens: PersonalAccessTokenRecord[] }>('tokens');
+      if (request !== latestRead.current) return;
+      setTokens(Array.isArray(response.tokens) ? response.tokens : []);
+      setTokensError(false);
+    } catch {
+      if (request === latestRead.current) setTokensError(true);
+    }
+  }
+
+  useMountEffect(() => {
+    mounted.current = true;
+    void loadTokens();
+    return () => {
+      mounted.current = false;
+      latestRead.current++;
+    };
+  });
+
+  function notify(message: string, tone: 'info' | 'error') {
+    if (mounted.current) showToast(message, tone);
+  }
+
+  async function createToken(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = tokenName.trim();
+    if (!trimmed) {
+      notify(t('Enter a name for this token'), 'error');
+      return;
+    }
+    setCreatingToken(true);
+    try {
+      const expiresInDays = tokenExpiryDays === 'never' ? undefined : Number(tokenExpiryDays);
+      // Omit explicit `scopes` so `createPat()` intersects DEFAULT_PAT_SCOPES with the user's live workspace role (incl. viewers).
+      const response = await gatewayRequest<{
+        id?: string;
+        name?: string;
+        token: string;
+        scopes?: string[];
+        record?: PersonalAccessTokenRecord;
+      }>('tokens', 'POST', {
+        name: trimmed,
+        ...(expiresInDays ? { expiresInDays } : {}),
+      });
+      if (!mounted.current) return;
+      setCreatedToken({ token: response.token, name: response.name ?? response.record?.name ?? trimmed });
+      setTokenName('');
+      await loadTokens();
+      notify(t('Personal access token created'), 'info');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : t('Could not create token'), 'error');
+    } finally {
+      setCreatingToken(false);
+    }
+  }
+
+  async function revokeToken(id: string) {
+    setRevokingId(id);
+    try {
+      await gatewayRequest(`tokens/${encodeURIComponent(id)}`, 'DELETE');
+      await loadTokens();
+      notify(t('Token revoked'), 'info');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : t('Could not revoke token'), 'error');
+    } finally {
+      setRevokingId(null);
+    }
+  }
+
+  async function copyCreatedToken() {
+    if (!createdToken) return;
+    try {
+      await navigator.clipboard.writeText(createdToken.token);
+      notify(t('Token copied'), 'info');
+    } catch {
+      notify(t('Could not copy token'), 'error');
+    }
+  }
+
+  const activeTokens = (tokens ?? []).filter(item => !item.revokedAt);
+
+  return (
+    <section id="account-tokens" className="om-settings-section" aria-label={t('Personal access tokens')} inert={switchingWorkspace}>
+      <div className="om-settings-row">
+        <div>
+          <h2 className="om-subtitle">{t('Personal access tokens')}</h2>
+          <p className="om-muted">{t('Use a Bearer token to connect external MCP Agents over Streamable HTTP (/mcp) when OAuth 2.1 is unavailable.')}</p>
+        </div>
+        <Tooltip label={t('Refresh tokens')} wrap>
+          <IconButton
+            variant="ghost"
+            className="motion-icon-button"
+            aria-label={t('Refresh tokens')}
+            onClick={() => void loadTokens()}
+            icon={<RemixIcon name="refresh-line" size={17} />}
+          />
+        </Tooltip>
+      </div>
+
+      {createdToken && (
+        <div className="om-card om-card-stack" role="status" data-pat-created="true">
+          <div className="om-settings-row">
+            <strong>{t('Copy your new token now')} · {createdToken.name}</strong>
+            <div className="om-settings-actions">
+              <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => void copyCreatedToken()}>
+                <RemixIcon name="file-copy-line" size={15} />{t('Copy token')}
+              </Button>
+              <IconButton
+                variant="ghost"
+                className="motion-icon-button"
+                aria-label={t('Dismiss')}
+                onClick={() => setCreatedToken(null)}
+                icon={<RemixIcon name="close-line" size={16} />}
+              />
+            </div>
+          </div>
+          <p className="om-muted">{t('For security, this token is shown once and cannot be retrieved later.')}</p>
+          <code className="om-inset">{createdToken.token}</code>
+        </div>
+      )}
+
+      <form className="om-card om-card-stack" onSubmit={event => void createToken(event)}>
+        <div className="om-settings-row">
+          <label className="om-label" style={{ flex: 1 }}>
+            {t('Token name')}
+            <span className="om-field">
+              <input
+                type="text"
+                value={tokenName}
+                onChange={event => setTokenName(event.target.value)}
+                placeholder={t('e.g. Cursor laptop or CI runner')}
+                aria-label={t('Token name')}
+                maxLength={80}
+              />
+            </span>
+          </label>
+          <div className="om-label">
+            {t('Expiration')}
+            <Select
+              label={t('Expiration')}
+              value={tokenExpiryDays}
+              onCommit={setTokenExpiryDays}
+              options={[
+                { value: '30', label: t('30 days') },
+                { value: '90', label: t('90 days') },
+                { value: '365', label: t('1 year') },
+                { value: 'never', label: t('No expiration') },
+              ]}
+            />
+          </div>
+        </div>
+        <div className="om-settings-row">
+          <span className="om-muted">{t('Scopes')}: {DEFAULT_PAT_SCOPES.join(', ')}</span>
+          <Button variant="ghost" className="om-button h-auto" data-primary type="submit" disabled={creatingToken || !tokenName.trim()}>
+            <RemixIcon name="lock-line" size={15} />
+            {t(creatingToken ? 'Creating token…' : 'Create token')}
+          </Button>
+        </div>
+      </form>
+
+      <div className="om-card om-card-stack">
+        {tokensError ? (
+          <p className="om-muted">{t('Could not load personal access tokens.')}</p>
+        ) : tokens === null ? (
+          <p className="om-muted">{t('Loading tokens…')}</p>
+        ) : activeTokens.length === 0 ? (
+          <p className="om-muted">{t('No active personal access tokens yet.')}</p>
+        ) : (
+          activeTokens.map(item => (
+            <div className="om-preference-row" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <p className="om-muted">
+                  <code>{item.tokenPrefix}…</code> · {t('Created')} {formatDate(item.createdAt)} · {t('Expires')} {item.expiresAt ? formatDate(item.expiresAt) : t('Never')}
+                  {item.lastUsedAt ? ` · ${t('Last used')} ${formatDate(item.lastUsedAt)}` : ''}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                className="om-button h-auto"
+                disabled={revokingId === item.id}
+                onClick={() => void revokeToken(item.id)}
+              >
+                {t(revokingId === item.id ? 'Revoking…' : 'Revoke')}
+              </Button>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }

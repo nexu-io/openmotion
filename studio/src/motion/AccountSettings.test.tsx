@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { I18nProvider, type Locale } from '../i18n/I18n';
 import { AccountSettings, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
+import { getPrivateSwrIdentity } from './swrCache';
+import { notifyProvidersChanged } from './useProviderDirectory';
 
 const hooks = vi.hoisted(() => ({
   summary: undefined as unknown,
@@ -89,28 +91,143 @@ it('shows Local Dev Mode banner when AUTH_MODE=dev and hides OIDC sign-out', asy
   expect(findButton(page, 'Sign out')).toBeUndefined();
 });
 
-it('lists workspaces without a switch action and signs out cleanly in OIDC mode', async () => {
+const studioA = { id: 'ws-1', slug: 'studio-a', name: 'Studio A', role: 'owner' } as const;
+const studioB = { id: 'ws-2', slug: 'studio-b', name: 'Studio B', role: 'editor' } as const;
+const cookieAccount = {
+  authenticated: true,
+  authMode: 'oidc' as const,
+  authMethod: 'session_cookie' as const,
+  user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+  activeWorkspace: studioA,
+  workspaces: [studioB, studioA],
+};
+
+async function workspaceOptions(trigger: HTMLButtonElement) {
+  await act(async () => trigger.click());
+  return [...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')];
+}
+
+async function submitToken(page: HTMLElement, name: string) {
+  const input = page.querySelector<HTMLInputElement>('input[aria-label="Token name"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, name);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => page.querySelector('#account-tokens form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+}
+
+it('switches once through the workspace dropdown and updates the active workspace after refresh', async () => {
+  const page = await open(cookieAccount);
+  const section = page.querySelector<HTMLElement>('section[aria-label="Workspaces"]')!;
+  const trigger = section.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  expect(section.querySelectorAll('button')).toHaveLength(1);
+  expect(trigger.textContent).toBe('Studio A');
+  expect(section.textContent).toContain('studio-a · owner');
+
+  const [other, active] = await workspaceOptions(trigger);
+  expect(other.textContent).toContain('Studio B');
+  expect(other.textContent).toContain('studio-b · editor');
+  expect(active.getAttribute('aria-selected')).toBe('true');
+  await act(async () => active.click());
+  expect(hooks.request.mock.calls.some(([path]) => path === 'account/workspaces/switch')).toBe(false);
+
+  const [target] = await workspaceOptions(trigger);
+  const change = Promise.withResolvers<void>();
+  hooks.request.mockReturnValueOnce(change.promise);
+  const dispatch = vi.spyOn(window, 'dispatchEvent');
+  await act(async () => { target.click(); target.click(); });
+  expect(hooks.request.mock.calls.filter(([path]) => path === 'account/workspaces/switch')).toEqual([
+    ['account/workspaces/switch', 'POST', { workspaceId: studioB.id }],
+  ]);
+  expect(trigger.disabled).toBe(true);
+  expect(trigger.textContent).toBe('Studio A');
+  expect(section.textContent).toContain('Switching…');
+
+  hooks.summary = { ...cookieAccount, activeWorkspace: studioB };
+  await act(async () => change.resolve());
+  expect(hooks.request).toHaveBeenCalledWith('account/summary?refresh=true');
+  expect(getPrivateSwrIdentity()).toBe('u1:ws-2');
+  expect(notifyProvidersChanged).toHaveBeenCalledOnce();
+  expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'motion:account-changed' }));
+  expect(trigger.disabled).toBe(false);
+  expect(trigger.textContent).toBe('Studio B');
+  expect(section.textContent).toContain('studio-b · editor');
+  expect(document.querySelector('.hf-toast-viewport [role="status"]')?.textContent).toBe('Workspace switched');
+});
+
+it('keeps the current workspace and enables another choice after a rejected switch', async () => {
+  const page = await open(cookieAccount);
+  const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  const [target] = await workspaceOptions(trigger);
+  hooks.request.mockRejectedValueOnce(new Error('Failed to fetch'));
+  await act(async () => target.click());
+  expect(document.querySelector('.hf-toast-viewport [role="alert"]')?.textContent).toBe('Connection lost.');
+  expect(trigger.disabled).toBe(false);
+  expect(trigger.textContent).toBe('Studio A');
+  expect(getPrivateSwrIdentity()).toBe('u1:ws-1');
+  expect(notifyProvidersChanged).not.toHaveBeenCalled();
+  expect(hooks.request).not.toHaveBeenCalledWith('account/summary?refresh=true');
+  expect(await workspaceOptions(trigger)).toHaveLength(2);
+});
+
+it('replaces the workspace token list and one-time secret without replaying late responses', async () => {
+  const page = await open(cookieAccount);
+  await submitToken(page, 'Studio A runner');
+  const tokensA = hooks.tokens;
+  expect(page.querySelector('#account-tokens')?.textContent).toContain('om_pat_abcd_secret_once');
+
+  const oldList = Promise.withResolvers<{ tokens: PersonalAccessTokenRecord[] }>();
+  hooks.request.mockReturnValueOnce(oldList.promise);
+  await act(async () => page.querySelector<HTMLButtonElement>('[aria-label="Refresh tokens"]')!.click());
+  const oldCreate = Promise.withResolvers<{ token: string }>();
+  hooks.request.mockReturnValueOnce(oldCreate.promise);
+  await submitToken(page, 'Another Studio A token');
+
+  const [target] = await workspaceOptions(page.querySelector<HTMLButtonElement>('[aria-label="Switch workspace"]')!);
+  hooks.tokens = [{ ...tokensA[0], id: 'pat-b', name: 'Studio B runner', tokenPrefix: 'om_pat_bbbb' }];
+  hooks.summary = { ...cookieAccount, activeWorkspace: studioB };
+  const connectionReads = () => hooks.request.mock.calls.filter(([path]) => path === 'connections').length;
+  const beforeSwitch = connectionReads();
+  await act(async () => target.click());
+
+  const panel = page.querySelector('#account-tokens')!;
+  expect(panel.textContent).toContain('Studio B runner');
+  expect(panel.textContent).not.toContain('Studio A runner');
+  expect(panel.querySelector('[data-pat-created]')).toBeNull();
+  expect(panel.querySelector('input')?.value).toBe('');
+  expect(connectionReads()).toBe(beforeSwitch);
+
+  await act(async () => {
+    oldList.resolve({ tokens: tokensA });
+    oldCreate.resolve({ token: 'om_pat_late_secret' });
+  });
+  expect(panel.textContent).toContain('Studio B runner');
+  expect(panel.textContent).not.toContain('Studio A runner');
+  expect(panel.querySelector('[data-pat-created]')).toBeNull();
+});
+
+it.each([
+  ['session_cookie', [studioA]],
+  ['pat', [studioB, studioA]],
+  ['oauth_bearer', [studioB, studioA]],
+  ['oidc_jwt', [studioB, studioA]],
+  ['dev_bypass', [studioB, studioA]],
+] as const)('shows only the current workspace as text when switching is unavailable (%s)', async (authMethod, memberships) => {
+  const page = await open({ ...cookieAccount, authMethod, workspaces: [...memberships] });
+  const section = page.querySelector('section[aria-label="Workspaces"]')!;
+  expect(section.textContent).toContain('Studio A');
+  expect(section.textContent).toContain('studio-a · owner');
+  expect(section.textContent).not.toContain('Studio B');
+  expect(section.querySelector('button, [role="combobox"]')).toBeNull();
+});
+
+it('signs out cleanly in OIDC mode', async () => {
   const fetchSpy = vi.fn(async () => {
     hooks.summary = { authenticated: false, authMode: 'oidc', consoleUrl: 'https://open-design.ai/cloud' };
     return Response.json({ ok: true });
   });
   vi.stubGlobal('fetch', fetchSpy);
-  const page = await open({
-    authenticated: true,
-    authMode: 'oidc',
-    authMethod: 'session_cookie',
-    user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
-    activeWorkspace: { id: 'ws-1', slug: 'studio-a', name: 'Studio A', role: 'owner' },
-    workspaces: [
-      { id: 'ws-1', slug: 'studio-a', name: 'Studio A', role: 'owner' },
-      { id: 'ws-2', slug: 'studio-b', name: 'Studio B', role: 'editor' },
-    ],
-    billing: { plan: 'pro', mediaEntitlement: 'included', balanceUsd: 12 },
-  });
-  expect(page.textContent).toContain('Studio A');
-  expect(page.textContent).toContain('Studio B');
-  expect(findButton(page, 'Switch workspace')).toBeUndefined();
-  expect(findButton(page, 'Active workspace')?.closest('.om-preference-row')?.textContent).toContain('Studio A');
+  const page = await open(cookieAccount);
   await act(async () => findButton(page, 'Sign out')!.click());
   expect(fetchSpy).toHaveBeenCalledWith('/auth/logout', expect.objectContaining({ method: 'POST' }));
   expect(page.querySelector('.om-plan-guide')).not.toBeNull();
@@ -125,12 +242,7 @@ it('creates, copies once, and revokes Personal Access Tokens (PAT)', async () =>
     authMethod: 'session_cookie',
     user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
   });
-  const input = page.querySelector<HTMLInputElement>('input[aria-label="Token name"]')!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Cursor Laptop');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-  await act(async () => page.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  await submitToken(page, 'Cursor Laptop');
   const createCall = hooks.request.mock.calls.find(([p, m]) => p === 'tokens' && m === 'POST');
   expect(createCall?.[2]).toEqual({ name: 'Cursor Laptop', expiresInDays: 90 });
   expect(page.textContent).toContain('media:generate');
