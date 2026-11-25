@@ -14,6 +14,9 @@ import { usePreviewPersistence } from "./usePreviewPersistence";
 import { rememberPeerTimingDocument } from "../player/peerTimingPreview";
 import { hasPendingHistoryTimeline } from "../player/timelineRestorePending";
 import { rememberSource, forgetSource } from "../utils/confirmedTextSources";
+import { parseAuthoredTimeline } from "../player/lib/authoredTimeline";
+import { beginPeerTimelineUpdate, beginTimelineSourceRead, openTimelineSource } from "../player/lib/peerTimeline";
+import { trackStudioPendingEdit } from "../utils/studioPendingEdits";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -356,4 +359,97 @@ it("projects the quantized move into a cross-origin timeline immediately and pre
   expect(usePlayerStore.getState().currentTime).toBe(8);
   expect(hasPendingHistoryTimeline(iframe)).toBe(false);
   forgetSource(project,path);
+});
+
+describe("project history for a split title in an isolated preview", () => {
+  const project = "split-title-history", path = "index.html";
+  const title = (id: string, start: number, duration: number) =>
+    `<h1 id="${id}" data-hf-id="hf-${id}" data-track-index="0" data-start="${start}" data-duration="${duration}">Title</h1>`;
+  const page = (body: string) => `<main data-composition-id="root" data-duration="8">${body}</main>`;
+  const whole = page(title("title", 0, 8));
+  const split = page(title("title", 0, 3.17) + title("right", 3.17, 4.83));
+  const runtimeRow: TimelineElement = { id: "generated", key: "index.html#generated", tag: "audio", start: 0, duration: 8, track: 1 };
+  const intervals = () => usePlayerStore.getState().elements.filter(row => row.tag === "h1").map(row => [row.id, row.start, row.duration, row.track]);
+  const wholeIntervals = [["title", 0, 8, 0]];
+  const splitIntervals = [["title", 0, 3.17, 0], ["right", 3.17, 4.83, 0]];
+
+  function setup(previous: string, restored: string) {
+    const iframe = document.body.appendChild(document.createElement("iframe"));
+    Object.defineProperty(iframe, "src", {value:`https://preview.test/api/projects/${project}/preview?pt=grant`});
+    Object.defineProperty(iframe, "contentDocument", {value:null});
+    vi.spyOn(iframe.contentWindow!, "postMessage").mockImplementation(() => {});
+    const mounted = '"sha256:' + 'a'.repeat(64) + '"';
+    rememberPeerTimingDocument(iframe, "grant", "split-document", undefined, {}, false, {[path]:mounted});
+    const rows = parseAuthoredTimeline(previous, path, project)!.elements.map(row => ({ ...row, sourceDuration: 42 }));
+    usePlayerStore.setState({ timelineProjectId:project, elements:[...rows, runtimeRow], duration:8 });
+    const close = openTimelineSource(project, path);
+    let hook!: ReturnType<typeof usePreviewPersistence>;
+    function Harness() {
+      hook = usePreviewPersistence({ showToast:vi.fn(), readOptionalProjectFile:async () => "", writeProjectFile:vi.fn(), recordEdit:vi.fn(), previewIframeRef:{current:iframe}, activeCompPathRef:{current:path}, reloadPreview:vi.fn() });
+      return null;
+    }
+    mountReactHarness(<Harness />);
+    const files = {[path]:{previous, restored, versions:{previous:new Set([mounted]), previousVersion:mounted, restored:'"restored"'}}};
+    return { predict: () => hook.showHistoryRestoreNow(files, true)!, close };
+  }
+
+  it.each([
+    { action: "undo", previous: split, restored: whole, before: splitIntervals, after: wholeIntervals },
+    { action: "redo", previous: whole, restored: split, before: wholeIntervals, after: splitIntervals },
+  ])("publishes the complete $action before acknowledgement and restores the original rows on refusal", ({previous, restored, before, after}) => {
+    const {predict, close} = setup(previous, restored);
+    const published = vi.fn();
+    const unsubscribe = usePlayerStore.subscribe(published);
+    const putBack = predict();
+    expect(intervals()).toEqual(after);
+    expect(published).toHaveBeenCalledTimes(1);
+    // A separate edit may land while the server decides the prediction.
+    usePlayerStore.getState().updateElement(runtimeRow.key!, {volume: 0.5});
+    published.mockClear();
+    putBack();
+    expect(intervals()).toEqual(before);
+    expect(published).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().elements.find(row => row.id === "generated")?.volume).toBe(0.5);
+    expect(usePlayerStore.getState().elements.filter(row => row.tag === "h1").every(row => row.sourceDuration === 42)).toBe(true);
+    unsubscribe();
+    close();
+  });
+
+  it.each([
+    {start: 4}, {text: {value: "Edited title"}}, {volume: 0.5},
+  ])("defers the whole prediction when the removed half has a newer edit (%o)", edit => {
+    const {predict, close} = setup(split, whole);
+    usePlayerStore.getState().updateElement("index.html#right", edit);
+    const rows = usePlayerStore.getState().elements;
+    predict();
+    expect(usePlayerStore.getState().elements).toBe(rows);
+    close();
+  });
+
+  it("defers the whole prediction while a write is outstanding", async () => {
+    const {predict, close} = setup(split, whole);
+    const pending = Promise.withResolvers<void>();
+    trackStudioPendingEdit(pending.promise);
+    const rows = usePlayerStore.getState().elements;
+    try {
+      predict();
+      expect(usePlayerStore.getState().elements).toBe(rows);
+    } finally {
+      pending.resolve();
+      await pending.promise;
+      close();
+    }
+  });
+
+  it("drops a provisional redo's right half when a peer sends a different whole title", () => {
+    const {predict, close} = setup(whole, split);
+    const putBack = predict();
+    expect(intervals()).toEqual(splitIntervals);
+    beginTimelineSourceRead(project, path)(whole);
+    putBack.supersede?.();
+    beginPeerTimelineUpdate(project, path)!(page(title("title", 0, 7)), null);
+    expect(intervals()).toEqual([["title", 0, 7, 0]]);
+    expect(usePlayerStore.getState().elements).toContain(runtimeRow);
+    close();
+  });
 });

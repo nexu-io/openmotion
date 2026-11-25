@@ -14,6 +14,7 @@ type Projection = NonNullable<ReturnType<typeof parseAuthoredTimeline>>;
 type Baseline = ({ content: string; rows?: never } | { rows: Projection; content?: never }) & {
   writeRevision: number;
   generation: number;
+  refreshTiming?: boolean;
 };
 
 interface ActiveTimeline {
@@ -41,11 +42,11 @@ function timelineFor(projectId: string, path: string) {
     usePlayerStore.getState().timelineProjectId === projectId ? active : null;
 }
 
-/** After a provisional history paint the next authoritative rows must include
- * even timings whose new source value matches the pre-history baseline. */
-export function invalidateProjectedTimelineBase(projectId: string, path: string) {
+/** Reconcile the next peer update against the rows history actually displayed,
+ * including any provisional additions. Re-read timing for guarded fields. */
+export function rememberHistoryTimelineBase(projectId: string, path: string, content: string) {
   const scope = timelineFor(projectId, path);
-  if (scope?.baseline) scope.baseline.writeRevision = -1;
+  if (scope) scope.baseline = { content, writeRevision: studioFileRevision(), generation: ++scope.generation, refreshTiming: true };
 }
 
 /** Only a current, versioned source can unlock editing before the preview has a timeline.
@@ -76,7 +77,7 @@ export function beginTimelineSourceRead(
         studioFileRevision() !== revision) return;
     // The SDK often reads the same version immediately after NLE projects it.
     const baseline = scope.baseline;
-    if (baseline?.rows && baseline.writeRevision === revision && baseline.generation === generation) return;
+    if ((baseline?.rows || baseline?.refreshTiming) && baseline.writeRevision === revision && baseline.generation === generation) return;
     const rows = source?.rows ?? projectOpeningSource(projectId, path, content, source?.version);
     scope.baseline = { ...(rows ? { rows } : { content }), writeRevision: revision, generation };
   };
@@ -155,7 +156,7 @@ export function beginPeerTimelineUpdate(projectId: string, path: string, oldFram
   const generation = ++scope.generation;
   const previous = scope.baseline;
   const revision = studioFileRevision();
-  const staleBaseline = previous?.writeRevision !== revision;
+  const staleBaseline = previous?.writeRevision !== revision || previous.refreshTiming === true;
   const wasSaving = isStudioEditSaving();
   const contentGeneration = oldFrame ? previewContentGeneration(oldFrame) : null;
   const document = oldFrame?.contentDocument;

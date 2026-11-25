@@ -37,7 +37,7 @@ import { mountedPeerFileVersion, stagePeerHistoryGeometry } from "../player/peer
 import { scheduleCommittedPreview } from "../player/committedPreview";
 import { confirmedSource } from "../utils/confirmedTextSources";
 import { createPreviewAdapter, previewDocumentIdentity } from "../player/lib/previewAdapter";
-import { invalidateProjectedTimelineBase } from "../player/lib/peerTimeline";
+import { rememberHistoryTimelineBase } from "../player/lib/peerTimeline";
 import type { HistoryPaint } from "./useEditHistoryActions";
 
 /** The restore payload the undo/redo preview-sync consumes (from the history store). */
@@ -247,7 +247,10 @@ export function usePreviewPersistence({
         const current = confirmedSource(projectId, path);
         const alreadyShown = staged?.frame === iframe && staged.path === path && staged.restored === restored?.restored;
         if (restored && (!restored.versions || !current || current.version === restored.versions.restored)) {
-          if (syncHistoryTimelineFromFiles(activePath, restore.files, alreadyShown || hasStudioPendingEdits())) holdHistoryTimelineUntilPreviewReplaced(iframe);
+          if (syncHistoryTimelineFromFiles(activePath, restore.files, alreadyShown || hasStudioPendingEdits() ? "fields" : false)) {
+            rememberHistoryTimelineBase(projectId, path, restored.restored);
+            holdHistoryTimelineUntilPreviewReplaced(iframe);
+          }
         }
         scheduleCommittedPreview(iframe, projectId, changes, reloadPreview, {historyRestore:true});
         return;
@@ -328,7 +331,9 @@ export function usePreviewPersistence({
         const documentId = previewDocumentIdentity(iframe);
         const mountedContent = mounted === file.versions?.restored ? file.restored : mounted === file.versions?.previousVersion ? file.previous : known!.content;
         const discard = stagePeerHistoryGeometry(iframe, path, file.previous, file.restored, mounted, mountedContent);
-        const changed = syncHistoryTimelineFromFiles(activePath, files, true);
+        const previousRows = usePlayerStore.getState().elements;
+        const changed = syncHistoryTimelineFromFiles(activePath, files, hasStudioPendingEdits() ? "fields" : "predict");
+        if (changed) rememberHistoryTimelineBase(project, path, file.restored);
         const release = changed ? holdHistoryTimelineUntilPreviewReplaced(iframe) : undefined;
         const projection = changed ? {frame: iframe, path, restored: file.restored} : null;
         projectedHistory.current = projection;
@@ -340,13 +345,13 @@ export function usePreviewPersistence({
           // already show the last confirmed revision in that case.
           if (!file.versions?.previousVersion && confirmedSource(project, path)?.content === file.restored) return;
           if (changed && iframe === previewIframeRef.current && previewDocumentIdentity(iframe) === documentId &&
-              activeCompPathRef.current === activePath && usePlayerStore.getState().timelineProjectId === project)
-            syncHistoryTimelineFromFiles(activePath, { [path]: {previous: file.restored, restored: file.previous} }, true);
+              activeCompPathRef.current === activePath && usePlayerStore.getState().timelineProjectId === project &&
+              syncHistoryTimelineFromFiles(activePath, { [path]: {previous: file.restored, restored: file.previous} }, "predict", previousRows))
+            rememberHistoryTimelineBase(project, path, file.previous);
         };
         rollback.supersede = () => {
           discard?.supersede();
           if (projectedHistory.current === projection) projectedHistory.current = null;
-          if (changed) invalidateProjectedTimelineBase(project, path);
           // The incoming version retires the draft/manifest hold when it paints.
           // Rolling them back now would expose the previous move for a frame.
         };
