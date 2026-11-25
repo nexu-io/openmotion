@@ -529,3 +529,78 @@ it('shows the desktop guide on narrow mobile viewports when opening an editor ro
     setCachedCloudDisklessMode(null);
   }
 });
+
+it('shows a localized sign-in gate without generic failure or English auth errors when opening a cloud project while logged out (OPEND-5719)', async () => {
+  window.sessionStorage.clear();
+  const projectUuid = '96d90a40-7393-4041-8aa0-4752f676fadc';
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).includes('/preview/open') || String(url).includes('/projects') || String(url).includes('/project/status') || String(url).includes('/account/summary')) {
+      return Response.json(
+        { error: 'Authentication required', code: 'UNAUTHORIZED', errorCode: 'auth_required', sessionExpired: false },
+        { status: 401 },
+      );
+    }
+    return Response.json({});
+  }));
+  setCachedCloudDisklessMode(true);
+  history.replaceState(null, '', `/editor/${projectUuid}?source=codex`);
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+
+    const authGate = container.querySelector('[data-testid="project-auth-required"]');
+    expect(authGate).not.toBeNull();
+    expect(authGate?.textContent).toContain('登录后打开此项目');
+    expect(authGate?.textContent).toContain('使用 OpenDesign 登录');
+    expect(container.textContent).not.toContain('无法打开项目');
+    expect(container.textContent).not.toContain('Authentication required');
+    // Must not also pop up a duplicate top AuthRecoveryNotice alert bar for the same 401.
+    expect(container.querySelector('.om-auth-recovery-banner')).toBeNull();
+    expect(container.querySelector('[data-viewer-project]')).toBeNull();
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    history.replaceState(null, '', '/');
+    setCachedCloudDisklessMode(null);
+    window.sessionStorage.clear();
+  }
+});
+
+it('shows localized workspace-mismatch guidance when an authenticated user opens a project from another workspace (OPEND-5719)', async () => {
+  const projectUuid = '96d90a40-7393-4041-8aa0-4752f676fadc';
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).includes('/preview/open')) {
+      return Response.json(
+        { error: `Project ${projectUuid} was not found in this workspace.`, code: 'NOT_FOUND' },
+        { status: 404 },
+      );
+    }
+    if (String(url).endsWith('/projects')) {
+      return Response.json({ activeId: id, projects: [{ id, title: 'Other' }], sessions: [] });
+    }
+    return Response.json({ projectId: id, revision: 'r1' });
+  }));
+  setCachedCloudDisklessMode(true);
+  history.replaceState(null, '', `/editor/${projectUuid}`);
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+
+    const notFound = container.querySelector('[data-testid="project-workspace-not-found"]');
+    expect(notFound).not.toBeNull();
+    expect(notFound?.textContent).toContain('当前工作空间中未找到该项目');
+    expect(notFound?.textContent).toContain('账户设置');
+    expect(container.textContent).not.toContain('was not found in this workspace');
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    history.replaceState(null, '', '/');
+    setCachedCloudDisklessMode(null);
+  }
+});

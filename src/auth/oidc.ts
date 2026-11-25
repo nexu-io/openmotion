@@ -352,7 +352,7 @@ export class OidcService {
       error?: string | null;
       amrIdentity?: AmrIdentityClient;
     },
-  ): Promise<{ membership: MembershipResolution; returnTo: string }> {
+  ): Promise<{ membership: MembershipResolution; returnTo: string; idToken: string }> {
     if (input.error) {
       if (input.state) {
         await this.cache.del(oidcTxCacheKey(input.state));
@@ -468,7 +468,35 @@ export class OidcService {
           externalWorkspaceId,
         });
 
-    return { membership, returnTo: tx.returnTo };
+    return { membership, returnTo: tx.returnTo, idToken: tokenJson.id_token };
+  }
+
+  /**
+   * Revokes the upstream IdP session server-side using OIDC RP-Initiated Logout
+   * (`end_session_endpoint` + `id_token_hint`) so the raw ID token is never exposed
+   * to the browser and logout never strands the user on an IdP JSON/blank page.
+   *
+   * Best-effort: discovery or upstream errors return `{ ended: false }` without
+   * blocking local browser session revocation.
+   */
+  async endSession(idToken: string): Promise<{ ended: boolean }> {
+    if (!idToken) return { ended: false };
+    try {
+      const doc = await this.discover();
+      if (!doc.end_session_endpoint) return { ended: false };
+      const url = new URL(doc.end_session_endpoint);
+      url.searchParams.set('id_token_hint', idToken);
+      url.searchParams.set('client_id', this.cfg.clientId);
+      const res = await this.fetcher(url.toString(), {
+        method: 'GET',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(5_000),
+      });
+      await res.body?.cancel().catch(() => {});
+      return { ended: res.status >= 200 && res.status < 400 };
+    } catch {
+      return { ended: false };
+    }
   }
 
   /**

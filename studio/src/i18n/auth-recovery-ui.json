@@ -9,7 +9,14 @@
     "Resuming…": "正在继续…",
     "Sign in to view your assets": "登录后查看你的资产",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "使用 OpenDesign 登录以查看、上传和管理你的个人资产库。",
-    "Sign in with OpenDesign to view your projects.": "使用 OpenDesign 登录以查看你的项目。"
+    "Sign in with OpenDesign to view your projects.": "使用 OpenDesign 登录以查看你的项目。",
+    "Sign in to open this project": "登录后打开此项目",
+    "Sign in again to open this project": "重新登录后打开此项目",
+    "Sign in with OpenDesign to open this project.": "请先使用 OpenDesign 登录以打开此项目。",
+    "Your session has expired. Sign in again to open this project.": "登录状态已过期，请重新登录后打开此项目。",
+    "Project not in current workspace": "当前工作空间中未找到该项目",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "该项目不在当前工作空间中，请前往账户设置切换工作空间或账号后重试。",
+    "Account settings": "账户设置"
   },
   "ja": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "ログイン状態を一時的に確認できません。セッションと下書きは保持されています。しばらくしてから再試行してください。",
@@ -21,7 +28,14 @@
     "Resuming…": "再開しています…",
     "Sign in to view your assets": "サインインしてアセットを表示",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "OpenDesign にサインインして、個人アセットライブラリを表示・アップロード・管理します。",
-    "Sign in with OpenDesign to view your projects.": "OpenDesign にサインインしてプロジェクトを表示します。"
+    "Sign in with OpenDesign to view your projects.": "OpenDesign にサインインしてプロジェクトを表示します。",
+    "Sign in to open this project": "サインインしてこのプロジェクトを開く",
+    "Sign in again to open this project": "再度サインインしてこのプロジェクトを開く",
+    "Sign in with OpenDesign to open this project.": "このプロジェクトを開くには OpenDesign でサインインしてください。",
+    "Your session has expired. Sign in again to open this project.": "セッションの有効期限が切れました。このプロジェクトを開くには再度サインインしてください。",
+    "Project not in current workspace": "現在のワークスペースにこのプロジェクトが見つかりません",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "このプロジェクトは現在のワークスペースにありません。アカウント設定でワークスペースまたはアカウントを切り替えてから再試行してください。",
+    "Account settings": "アカウント設定"
   },
   "ko": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "일시적으로 로그인 상태를 확인할 수 없습니다. 세션과 초안은 보존되어 있으니 잠시 후 다시 시도하세요.",
@@ -33,7 +47,14 @@
     "Resuming…": "이어서 진행하는 중…",
     "Sign in to view your assets": "로그인하여 에셋 보기",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "OpenDesign에 로그인하여 개인 에셋 라이브러리를 보고 업로드 및 관리하세요.",
-    "Sign in with OpenDesign to view your projects.": "OpenDesign에 로그인하여 프로젝트를 확인하세요."
+    "Sign in with OpenDesign to view your projects.": "OpenDesign에 로그인하여 프로젝트를 확인하세요.",
+    "Sign in to open this project": "로그인하여 이 프로젝트 열기",
+    "Sign in again to open this project": "다시 로그인하여 이 프로젝트 열기",
+    "Sign in with OpenDesign to open this project.": "이 프로젝트를 열려면 OpenDesign으로 로그인하세요.",
+    "Your session has expired. Sign in again to open this project.": "세션이 만료되었습니다. 이 프로젝트를 열려면 다시 로그인하세요.",
+    "Project not in current workspace": "현재 워크스페이스에 프로젝트가 없습니다",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "이 프로젝트는 현재 워크스페이스에 없습니다. 계정 설정에서 워크스페이스 또는 계정을 전환한 후 다시 시도하세요.",
+    "Account settings": "계정 설정"
   },
   "de": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Dein Anmeldestatus konnte vorübergehend nicht überprüft werden. Sitzung und Entwürfe bleiben erhalten – bitte versuche es gleich erneut.",
@@ -45,7 +66,14 @@
     "Resuming…": "Wird fortgesetzt…",
     "Sign in to view your assets": "Anmelden, um deine Assets anzuzeigen",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Melde dich mit OpenDesign an, um deine persönliche Asset-Bibliothek anzuzeigen, hochzuladen und zu verwalten.",
-    "Sign in with OpenDesign to view your projects.": "Melde dich mit OpenDesign an, um deine Projekte anzuzeigen."
+    "Sign in with OpenDesign to view your projects.": "Melde dich mit OpenDesign an, um deine Projekte anzuzeigen.",
+    "Sign in to open this project": "Anmelden, um dieses Projekt zu öffnen",
+    "Sign in again to open this project": "Erneut anmelden, um dieses Projekt zu öffnen",
+    "Sign in with OpenDesign to open this project.": "Melde dich mit OpenDesign an, um dieses Projekt zu öffnen.",
+    "Your session has expired. Sign in again to open this project.": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dieses Projekt zu öffnen.",
+    "Project not in current workspace": "Projekt nicht im aktuellen Workspace",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "Dieses Projekt befindet sich nicht in deinem aktuellen Workspace. Wechsle in den Kontoeinstellungen den Workspace oder das Konto und versuche es erneut.",
+    "Account settings": "Kontoeinstellungen"
   },
   "fr": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Impossible de vérifier votre connexion pour le moment. Votre session et vos brouillons sont conservés — veuillez réessayer dans un instant.",
@@ -57,7 +85,14 @@
     "Resuming…": "Reprise en cours…",
     "Sign in to view your assets": "Connectez-vous pour voir vos ressources",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Connectez-vous avec OpenDesign pour consulter, importer et gérer votre bibliothèque personnelle de ressources.",
-    "Sign in with OpenDesign to view your projects.": "Connectez-vous avec OpenDesign pour voir vos projets."
+    "Sign in with OpenDesign to view your projects.": "Connectez-vous avec OpenDesign pour voir vos projets.",
+    "Sign in to open this project": "Connectez-vous pour ouvrir ce projet",
+    "Sign in again to open this project": "Reconnectez-vous pour ouvrir ce projet",
+    "Sign in with OpenDesign to open this project.": "Connectez-vous avec OpenDesign pour ouvrir ce projet.",
+    "Your session has expired. Sign in again to open this project.": "Votre session a expiré. Reconnectez-vous pour ouvrir ce projet.",
+    "Project not in current workspace": "Projet introuvable dans cet espace de travail",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "Ce projet ne se trouve pas dans votre espace de travail actuel. Changez d'espace de travail ou de compte dans les paramètres du compte, puis réessayez.",
+    "Account settings": "Paramètres du compte"
   },
   "ru": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Временно не удаётся проверить статус входа. Ваша сессия и черновики сохранены — повторите попытку чуть позже.",
@@ -69,7 +104,14 @@
     "Resuming…": "Продолжение…",
     "Sign in to view your assets": "Войдите, чтобы просмотреть ассеты",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Войдите через OpenDesign, чтобы просматривать, загружать и управлять личной библиотекой ассетов.",
-    "Sign in with OpenDesign to view your projects.": "Войдите через OpenDesign, чтобы просматривать свои проекты."
+    "Sign in with OpenDesign to view your projects.": "Войдите через OpenDesign, чтобы просматривать свои проекты.",
+    "Sign in to open this project": "Войдите, чтобы открыть этот проект",
+    "Sign in again to open this project": "Войдите снова, чтобы открыть этот проект",
+    "Sign in with OpenDesign to open this project.": "Войдите через OpenDesign, чтобы открыть этот проект.",
+    "Your session has expired. Sign in again to open this project.": "Сессия истекла. Войдите снова, чтобы открыть этот проект.",
+    "Project not in current workspace": "Проект не найден в текущем рабочем пространстве",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "Этот проект отсутствует в текущем рабочем пространстве. Переключите рабочее пространство или аккаунт в настройках аккаунта и повторите попытку.",
+    "Account settings": "Настройки аккаунта"
   },
   "es": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "No se puede verificar tu estado de inicio de sesión temporalmente. Tu sesión y borradores se conservan; inténtalo de nuevo en unos momentos.",
@@ -81,7 +123,14 @@
     "Resuming…": "Reanudando…",
     "Sign in to view your assets": "Inicia sesión para ver tus recursos",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Inicia sesión con OpenDesign para ver, subir y gestionar tu biblioteca personal de recursos.",
-    "Sign in with OpenDesign to view your projects.": "Inicia sesión con OpenDesign para ver tus proyectos."
+    "Sign in with OpenDesign to view your projects.": "Inicia sesión con OpenDesign para ver tus proyectos.",
+    "Sign in to open this project": "Inicia sesión para abrir este proyecto",
+    "Sign in again to open this project": "Vuelve a iniciar sesión para abrir este proyecto",
+    "Sign in with OpenDesign to open this project.": "Inicia sesión con OpenDesign para abrir este proyecto.",
+    "Your session has expired. Sign in again to open this project.": "Tu sesión ha caducado. Vuelve a iniciar sesión para abrir este proyecto.",
+    "Project not in current workspace": "Proyecto no encontrado en el espacio de trabajo actual",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "Este proyecto no está en tu espacio de trabajo actual. Cambia de espacio de trabajo o de cuenta en Configuración de la cuenta e inténtalo de nuevo.",
+    "Account settings": "Configuración de la cuenta"
   },
   "pt-BR": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Não foi possível verificar seu status de login temporariamente. Sua sessão e seus rascunhos foram preservados — tente novamente em instantes.",
@@ -93,7 +142,14 @@
     "Resuming…": "Retomando…",
     "Sign in to view your assets": "Entre para ver seus recursos",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Entre com o OpenDesign para visualizar, enviar e gerenciar sua biblioteca pessoal de recursos.",
-    "Sign in with OpenDesign to view your projects.": "Entre com o OpenDesign para ver seus projetos."
+    "Sign in with OpenDesign to view your projects.": "Entre com o OpenDesign para ver seus projetos.",
+    "Sign in to open this project": "Entre para abrir este projeto",
+    "Sign in again to open this project": "Entre novamente para abrir este projeto",
+    "Sign in with OpenDesign to open this project.": "Entre com o OpenDesign para abrir este projeto.",
+    "Your session has expired. Sign in again to open this project.": "Sua sessão expirou. Entre novamente para abrir este projeto.",
+    "Project not in current workspace": "Projeto não encontrado no workspace atual",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "Este projeto não está no seu workspace atual. Troque de workspace ou conta em Configurações da conta e tente novamente.",
+    "Account settings": "Configurações da conta"
   },
   "it": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Impossibile verificare temporaneamente lo stato di accesso. La sessione e le bozze sono state conservate — riprova tra poco.",
@@ -105,7 +161,14 @@
     "Resuming…": "Ripresa in corso…",
     "Sign in to view your assets": "Accedi per visualizzare le tue risorse",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Accedi con OpenDesign per visualizzare, caricare e gestire la tua libreria personale di risorse.",
-    "Sign in with OpenDesign to view your projects.": "Accedi con OpenDesign per visualizzare i tuoi progetti."
+    "Sign in with OpenDesign to view your projects.": "Accedi con OpenDesign per visualizzare i tuoi progetti.",
+    "Sign in to open this project": "Accedi per aprire questo progetto",
+    "Sign in again to open this project": "Accedi di nuovo per aprire questo progetto",
+    "Sign in with OpenDesign to open this project.": "Accedi con OpenDesign per aprire questo progetto.",
+    "Your session has expired. Sign in again to open this project.": "La sessione è scaduta. Accedi di nuovo per aprire questo progetto.",
+    "Project not in current workspace": "Progetto non presente nel workspace attuale",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "Questo progetto non si trova nel workspace attuale. Cambia workspace o account nelle impostazioni account e riprova.",
+    "Account settings": "Impostazioni account"
   },
   "tr": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Oturum durumunuz geçici olarak doğrulanamıyor. Oturumunuz ve taslaklarınız korundu — lütfen biraz sonra yeniden deneyin.",
@@ -117,6 +180,13 @@
     "Resuming…": "Devam ediliyor…",
     "Sign in to view your assets": "Varlıklarınızı görmek için giriş yapın",
     "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Kişisel varlık kütüphanenizi görüntülemek, yüklemek ve yönetmek için OpenDesign ile giriş yapın.",
-    "Sign in with OpenDesign to view your projects.": "Projelerinizi görmek için OpenDesign ile giriş yapın."
+    "Sign in with OpenDesign to view your projects.": "Projelerinizi görmek için OpenDesign ile giriş yapın.",
+    "Sign in to open this project": "Bu projeyi açmak için giriş yapın",
+    "Sign in again to open this project": "Bu projeyi açmak için yeniden giriş yapın",
+    "Sign in with OpenDesign to open this project.": "Bu projeyi açmak için OpenDesign ile giriş yapın.",
+    "Your session has expired. Sign in again to open this project.": "Oturumunuzun süresi doldu. Bu projeyi açmak için yeniden giriş yapın.",
+    "Project not in current workspace": "Proje mevcut çalışma alanında değil",
+    "This project is not in your current workspace. Switch workspaces or accounts in Account settings, then try again.": "Bu proje mevcut çalışma alanınızda değil. Hesap ayarlarından çalışma alanını veya hesabı değiştirip tekrar deneyin.",
+    "Account settings": "Hesap ayarları"
   }
 }

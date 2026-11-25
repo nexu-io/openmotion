@@ -27,9 +27,14 @@ export type WorkspaceStatus = { revision: string; projectId: string; projectTitl
 export type ProjectCatalog = { activeId: string; projects: SavedProject[]; sessions?: CreativeSession[]; activeSessionId?: string };
 const workspaceStatusPath = '/project/status?view=summary';
 
-export async function motionApi<T>(path: string, init?: RequestInit, projectId?: string): Promise<T> {
+export type MotionApiRequestInit = RequestInit & {
+  suppressAuthRecovery?: boolean;
+};
+
+export async function motionApi<T>(path: string, init?: MotionApiRequestInit, projectId?: string): Promise<T> {
+  const { suppressAuthRecovery, ...fetchInit } = init ?? {};
   const response = await diagnosticFetch('/motion-api' + path
-    + (projectId ? (path.includes('?') ? '&' : '?') + 'projectId=' + encodeURIComponent(projectId) : ''), init);
+    + (projectId ? (path.includes('?') ? '&' : '?') + 'projectId=' + encodeURIComponent(projectId) : ''), fetchInit);
   let data: Record<string, unknown> = {};
   try {
     data = (await response.json()) as Record<string, unknown>;
@@ -39,14 +44,15 @@ export async function motionApi<T>(path: string, init?: RequestInit, projectId?:
   if (!response.ok) {
     if (response.status === 401) clearPrivateSwrCache();
     const message = typeof data.error === 'string' ? data.error : 'Workspace connection failed';
-    const error = new Error(message) as Error & { status?: number; code?: string; errorCode?: string };
+    const error = new Error(message) as Error & { status?: number; code?: string; errorCode?: string; sessionExpired?: boolean };
     error.status = response.status;
     if (typeof data.code === 'string') error.code = data.code;
     if (typeof data.errorCode === 'string') error.errorCode = data.errorCode;
+    if (typeof data.sessionExpired === 'boolean') error.sessionExpired = data.sessionExpired;
     const authRecovery = classifyAuthHttpError(response.status, data, message);
-    const method = (init?.method ?? 'GET').toUpperCase();
+    const method = (fetchInit.method ?? 'GET').toUpperCase();
     const isMutating = method !== 'GET' && method !== 'HEAD';
-    if (authRecovery && (authRecovery.kind === 'auth_unavailable' || isMutating)) {
+    if (!suppressAuthRecovery && authRecovery && (authRecovery.kind === 'auth_unavailable' || isMutating)) {
       notifyAuthRecovery(authRecovery);
     }
     throw error;

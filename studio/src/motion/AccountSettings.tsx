@@ -404,7 +404,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     setBusy(true);
     try {
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
-      const data = await response.json().catch(() => ({})) as { ok?: boolean; endSessionUrl?: string };
       if (!response.ok) throw new Error(t('Could not sign out'));
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
@@ -412,9 +411,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
       toast.showToast(t('Signed out'), 'info');
-      if (data.endSessionUrl) {
-        window.location.assign(data.endSessionUrl);
-      }
     } catch (error) {
       toast.showToast(error instanceof Error ? error.message : t('Could not update account'), 'error');
     } finally {
