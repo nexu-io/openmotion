@@ -600,7 +600,7 @@ export class WebPublishService {
 
   async status(
     target: Pick<WebPublishTarget, 'kind' | 'id' | 'entryPath'>
-      & Partial<Pick<WebPublishTarget, 'sourcePath' | 'title' | 'multiplayer' | 'virtualEntryHtml'>>,
+      & Partial<Pick<WebPublishTarget, 'sourcePath' | 'title' | 'multiplayer' | 'virtualEntryHtml' | 'gameMeta'>>,
     options: { filePath?: string; refresh?: boolean } = {},
   ): Promise<WebPublishStatusResponse> {
     const accountSignedIn = await this.account.isSignedIn();
@@ -636,12 +636,25 @@ export class WebPublishService {
       let hydratedFromListing = false;
       if (currentPub?.slug && currentPub.status === 'published') {
         const remoteProjectId = currentPub.cloudProjectId || defaultCloudProjectId;
-        const remoteListing = await this.account
+        let remoteListing = await this.account
           .controlApiJson<GameListingControlResponse>(
             `/api/v1/collab/shares/${encodeURIComponent(currentPub.slug)}/game-listing?projectId=${encodeURIComponent(remoteProjectId)}`,
             { method: 'GET', workspaceId: currentPub.workspaceId, timeoutMs: 6_000 },
           )
           .catch(() => null);
+        // If a prior publish succeeded remotely but its best-effort PUT /game-listing
+        // failed transiently, currentPub has no communityUrl yet; retry syncing once.
+        if (!remoteListing && !currentPub.communityUrl) {
+          remoteListing = await this.syncGameListing({
+            target,
+            cloudProjectId: remoteProjectId,
+            workspaceId: currentPub.workspaceId,
+            slug: currentPub.slug,
+            displayName: (target.gameMeta?.title || target.title || currentPub.name).trim().slice(0, 120) || currentPub.name,
+            visibility: currentPub.visibility ?? 'public',
+            allowRemix: currentPub.allowRemix,
+          }).catch(() => null);
+        }
         if (remoteListing) {
           hydratedFromListing = true;
           if (typeof remoteListing.canUsePrivateShare === 'boolean') {
@@ -1306,7 +1319,7 @@ export class WebPublishService {
           ? {
               visibility: listingSync?.visibility ?? requestedVisibility,
               allowRemix: listingSync?.allowRemix ?? options.allowRemix ?? true,
-              feedStatus: listingSync?.feedStatus ?? existingPublication?.feedStatus ?? 'pending',
+              feedStatus: listingSync?.feedStatus ?? 'pending',
             }
           : {}),
         publishedAt,

@@ -756,6 +756,73 @@ test('WebPublishService preserves local publication state when post-publish game
   }
 });
 
+test('mode=new_link rotation never inherits old curated feedStatus when post-publish listing sync fails and heals on status()', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-rotate-unsynced-'));
+  try {
+    const gameDir = path.join(root, 'rotate-game');
+    await mkdir(gameDir, { recursive: true });
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Rotate Game</h1>');
+
+    const baseMock = createCommunityMockAccount('go');
+    let failListingPut = false;
+    const client: WebPublishAccountClient = {
+      isSignedIn: baseMock.client.isSignedIn,
+      listWorkspaces: baseMock.client.listWorkspaces,
+      summary: baseMock.client.summary,
+      runWithEnv: baseMock.client.runWithEnv,
+      async controlApiJson(apiPath: string, options?: { method?: string; body?: unknown }) {
+        const method = options?.method ?? 'GET';
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing$/.test(apiPath) && method === 'PUT' && failListingPut) {
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (503: SERVICE_UNAVAILABLE)`);
+        }
+        return baseMock.client.controlApiJson!(apiPath, options);
+      },
+    };
+
+    const service = new WebPublishService(path.join(root, 'pub-data'), client);
+    const target = {
+      kind: 'game' as const,
+      id: 'rotate-game',
+      title: 'Rotate Game',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-1',
+      sourcePath: gameDir,
+      gameMeta: {
+        title: 'Rotate Game',
+        description: 'Fresh rotated build',
+        genre: 'arcade',
+        orientation: 'landscape' as const,
+        controls: 'Arrows',
+      },
+    };
+
+    const first = await service.publish(target, { visibility: 'public' });
+    const oldEntry = baseMock.listings.get(first.publication.slug)!;
+    baseMock.listings.set(first.publication.slug, { ...oldEntry, feedStatus: 'featured' });
+    const curatedStatus = await service.status(target);
+    assert.equal(curatedStatus.active?.feedStatus, 'featured');
+
+    // Rotate to a new link while PUT /game-listing fails transiently:
+    // new publication MUST NOT inherit 'featured' or old communityUrl.
+    failListingPut = true;
+    const rotated = await service.publish(target, { mode: 'new_link', visibility: 'public' });
+    assert.notEqual(rotated.publication.slug, first.publication.slug);
+    assert.equal(rotated.publication.feedStatus, 'pending');
+    assert.equal(rotated.publication.communityUrl, undefined);
+    assert.equal(baseMock.listings.has(rotated.publication.slug), false);
+
+    // Once the control API recovers, status() retries the missing listing sync and hydrates communityUrl.
+    failListingPut = false;
+    const healedStatus = await service.status(target);
+    assert.equal(healedStatus.active?.slug, rotated.publication.slug);
+    assert.equal(healedStatus.active?.feedStatus, 'pending');
+    assert.equal(healedStatus.active?.communityUrl, `https://open-design.app/games/${rotated.publication.slug}`);
+    assert.equal(baseMock.listings.has(rotated.publication.slug), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('defaultTemplateDeployDataDir resolves outside the repository checkout', () => {
   const previous = process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR;
   delete process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR;
