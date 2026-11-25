@@ -15,6 +15,16 @@ export type ThumbnailValue =
       label?: string;
     }
   | { kind: "filmstrip"; urls: readonly string[]; aspect: number }
+  | {
+      kind: "sprite";
+      url: string;
+      aspect: number;
+      frameCount: number;
+      cols: number;
+      rows: number;
+      frameWidth: number;
+      frameHeight: number;
+    }
   | { kind: "waveform"; peaks: readonly number[] };
 
 export interface ThumbnailLoadedResult {

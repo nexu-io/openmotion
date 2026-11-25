@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
 import { useLocalUploadPreview } from "../../utils/localUploadPreviewStore";
@@ -8,7 +8,13 @@ import {
   type ThumbnailSnapshot,
 } from "../lib/thumbnailScheduler";
 import { bindThumbnailPlaybackHold } from "../lib/thumbnailPlaybackHold";
-import { createVideoThumbnailRequest } from "../lib/videoThumbnailRequest";
+import {
+  createVideoThumbnailRequest,
+  peekReadyVideoThumbnailRequest,
+  recordReadyVideoThumbnailRequest,
+  sliceVideoFallbackUrls,
+  type ReadyVideoFallbackEntry,
+} from "../lib/videoThumbnailRequest";
 import { matchesFailedPreviewAsset } from "../lib/previewAssetReadiness";
 import { usePlayerStore } from "../store/playerStore";
 import { triggerEditorAssetRetry } from "../../components/EditorAssetLoadingOverlay";
@@ -40,10 +46,12 @@ function selectThumbnailSnapshot(
   poster: ThumbnailSnapshot,
   rich: ThumbnailSnapshot,
   shown: ThumbnailSnapshot,
+  fallback: ThumbnailSnapshot,
 ): ThumbnailSnapshot {
   if (rich.status === "ready") return rich;
   if (shown.status === "ready") return shown;
   if (poster.status === "ready") return poster;
+  if (fallback.status === "ready") return fallback;
   if (rich.status === "loading" || poster.status === "loading") return { status: "loading" };
   return poster;
 }
@@ -54,6 +62,8 @@ function useVideoThumbnailSnapshot(
   poster: VideoThumbnailRequest | null,
   rich: VideoThumbnailRequest | null,
   media: string,
+  sessionMediaKey: string,
+  range: { sourceStart: number; sourceRangeDuration: number; frameCount: number },
 ): ThumbnailSnapshot {
   const posterSnapshot = useThumbnailLease(poster);
   const richSnapshot = useThumbnailLease(rich);
@@ -61,7 +71,78 @@ function useVideoThumbnailSnapshot(
   const richSettled = richSnapshot.status === "ready" || rich === null;
   if (richSettled && (shown.media !== media || shown.request !== rich)) setShown({ media, request: rich });
   const shownSnapshot = useThumbnailLease(shown.media === media ? shown.request : null);
-  return selectThumbnailSnapshot(posterSnapshot, richSnapshot, shownSnapshot);
+
+  // On initial mount (e.g. newly created right half of a split video clip), borrow an
+  // already-ready scheduler entry for the exact same video source so frame 0 renders
+  // immediately without flashing a loading shimmer while the child range decodes locally.
+  const [mountFallback, setMountFallback] = useState<{
+    sessionMediaKey: string;
+    entry: ReadyVideoFallbackEntry;
+  } | null>(() => {
+    const candidate = peekReadyVideoThumbnailRequest(sessionMediaKey);
+    return candidate ? { sessionMediaKey, entry: candidate } : null;
+  });
+
+  const ownSettledOrFailed =
+    richSnapshot.status === "ready" ||
+    posterSnapshot.status === "ready" ||
+    (posterSnapshot.status === "error" && (rich === null || richSnapshot.status === "error"));
+  if (mountFallback && (mountFallback.sessionMediaKey !== sessionMediaKey || ownSettledOrFailed)) {
+    setMountFallback(null);
+  }
+  const activeFallback =
+    mountFallback && mountFallback.sessionMediaKey === sessionMediaKey ? mountFallback.entry : null;
+  const fallbackSnapshot = useThumbnailLease(activeFallback?.request ?? null);
+
+  useEffect(() => {
+    if (rich && richSnapshot.status === "ready") {
+      recordReadyVideoThumbnailRequest(sessionMediaKey, {
+        request: rich,
+        sourceStart: range.sourceStart,
+        sourceRangeDuration: range.sourceRangeDuration,
+        frameCount: range.frameCount,
+      });
+    } else if (poster && posterSnapshot.status === "ready") {
+      recordReadyVideoThumbnailRequest(sessionMediaKey, {
+        request: poster,
+        sourceStart: range.sourceStart,
+        sourceRangeDuration: range.sourceRangeDuration,
+        frameCount: 1,
+      });
+    }
+  }, [
+    poster,
+    posterSnapshot.status,
+    range.frameCount,
+    range.sourceRangeDuration,
+    range.sourceStart,
+    rich,
+    richSnapshot.status,
+    sessionMediaKey,
+  ]);
+
+  const slicedFallbackSnapshot = useMemo<ThumbnailSnapshot>(() => {
+    if (!activeFallback || fallbackSnapshot.status !== "ready") return fallbackSnapshot;
+    if (fallbackSnapshot.value.kind !== "filmstrip") return fallbackSnapshot;
+    const slicedUrls = sliceVideoFallbackUrls(
+      fallbackSnapshot.value.urls,
+      activeFallback.sourceStart,
+      activeFallback.sourceRangeDuration,
+      range.sourceStart,
+      range.sourceRangeDuration,
+    );
+    if (slicedUrls === fallbackSnapshot.value.urls) return fallbackSnapshot;
+    return {
+      status: "ready",
+      value: {
+        kind: "filmstrip",
+        urls: slicedUrls,
+        aspect: fallbackSnapshot.value.aspect,
+      },
+    };
+  }, [activeFallback, fallbackSnapshot, range.sourceRangeDuration, range.sourceStart]);
+
+  return selectThumbnailSnapshot(posterSnapshot, richSnapshot, shownSnapshot, slicedFallbackSnapshot);
 }
 
 function useRangeHeldDuringTrim(
@@ -141,6 +222,12 @@ export const VideoThumbnail = memo(function VideoThumbnail({
     measured ? posterRequest : null,
     measured && requestFrameCount > 1 ? richRequest : null,
     `${projectId}\0${videoSrc}`,
+    `${projectId}\0${sessionEpoch}\0${videoSrc}`,
+    {
+      sourceStart: requestProps.sourceStart ?? 0,
+      sourceRangeDuration: requestProps.sourceRangeDuration ?? requestProps.duration,
+      frameCount: requestFrameCount,
+    },
   );
   const previewAssetFailed = usePlayerStore((s) =>
     matchesFailedPreviewAsset(s.assetReadinessFailed, videoSrc),

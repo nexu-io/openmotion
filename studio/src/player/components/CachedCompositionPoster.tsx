@@ -5,6 +5,7 @@ import {
 } from "../lib/clientCompositionCapture";
 import { usePlayerStore } from "../store/playerStore";
 import { thumbnailRevisionOf } from "../store/thumbnailSlice";
+import { SpriteFrame } from "./SpriteFrame";
 import { encodePreviewPath } from "./thumbnailUtils";
 
 /** Borrow the sidebar's current in-memory cover. A miss must not schedule a capture or a fetch. */
@@ -15,12 +16,29 @@ export function CachedCompositionPoster({ projectId, compositionPath }: { projec
   const capture = useSyncExternalStore(subscribe, () => peekCachedCompositionCapture({
     projectId, previewUrl, contentRevision, frameCount: 1,
   }), () => null);
-  const src = capture?.kind === "image" ? capture.url : capture?.kind === "filmstrip" ? capture.urls[0] : undefined;
+  const src =
+    capture?.kind === "image"
+      ? capture.url
+      : capture?.kind === "filmstrip"
+        ? capture.urls[0]
+        : capture?.kind === "sprite"
+          ? capture.url
+          : undefined;
   const [failed, setFailed] = useState<string>();
   const shown = src && src !== failed ? capture : null;
   useLayoutEffect(() => retainCachedCompositionCapture(shown), [shown]);
 
-  return shown && src
-    ? <img key={src} src={src} alt="" draggable={false} className="size-full object-contain" onError={() => setFailed(src)} />
-    : null;
+  if (!shown || !src) return null;
+  if (shown.kind === "sprite" && shown.frameCount > 0) {
+    return (
+      <SpriteFrame
+        key={src}
+        sprite={shown}
+        frameIndex={Math.floor(shown.frameCount / 2)}
+        fit="contain"
+        className="size-full"
+      />
+    );
+  }
+  return <img key={src} src={src} alt="" draggable={false} className="size-full object-contain" onError={() => setFailed(src)} />;
 }

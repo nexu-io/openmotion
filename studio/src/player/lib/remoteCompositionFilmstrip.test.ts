@@ -53,20 +53,13 @@ describe("remoteCompositionFilmstrip", () => {
     expect(subsampleFilmstripFrames(frames, 8)).toEqual(frames);
   });
 
-  it("hydrates RAM + cover cache from a Tier 1.5 remote 8-frame sprite hit with 1 deduplicated GET and 0 SnapDOM iframes", async () => {
+  it("hydrates RAM + cover cache from a Tier 1.5 remote 8-frame sprite hit with 1 deduplicated GET, 1 object URL, 0 canvas slicing, and 0 SnapDOM iframes", async () => {
     setCachedCloudDisklessMode(true);
     setCachedProjectRevision("proj-remote", "rev-1");
     let urlSeq = 0;
     vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:remote-${++urlSeq}`);
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-
-    const decodeSprite = vi.fn(async (_blob: Blob, meta: { frameCount: number }) =>
-      Array.from({ length: meta.frameCount }, (_, i) => new Blob([`frame-${i}`], { type: "image/jpeg" })),
-    );
-    setRemoteFilmstripCodecForTest({
-      decodeSprite,
-      packSprite: vi.fn(async () => null),
-    });
+    const createCanvasSpy = vi.spyOn(document, "createElement");
 
     const origFetch = globalThis.fetch;
     const fetchSpy = vi.fn(async () => {
@@ -88,7 +81,7 @@ describe("remoteCompositionFilmstrip", () => {
 
     try {
       const previewUrl = "/api/projects/proj-remote/preview/comp/compositions/intro.html";
-      // Concurrent 4-frame timeline request + 1-frame sidebar cover request share ONE remote GET & decode.
+      // Concurrent 4-frame timeline request + 1-frame sidebar cover request share ONE remote GET & ONE sprite URL.
       const [stripLease, coverLease] = await Promise.all([
         acquireCachedCompositionCaptureFromIdb({
           projectId: "proj-remote",
@@ -101,25 +94,41 @@ describe("remoteCompositionFilmstrip", () => {
           previewUrl,
           contentRevision: 0,
           frameCount: 1,
+          preferMultiFrame: true,
         }),
       ]);
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
-      expect(decodeSprite).toHaveBeenCalledTimes(1);
+      expect(urlSeq).toBe(1);
+      expect(
+        createCanvasSpy.mock.calls.filter(([tag]) => String(tag).toLowerCase() === "canvas"),
+      ).toHaveLength(0);
       expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
         "/api/projects/proj-remote/composition-filmstrip/compositions/intro.html",
       );
-      expect(stripLease?.value.kind).toBe("filmstrip");
-      expect(coverLease?.value.kind).toBe("image");
-      if (stripLease?.value.kind === "filmstrip") {
-        expect(stripLease.value.urls).toHaveLength(8);
-      }
+      expect(stripLease?.value).toEqual({
+        kind: "sprite",
+        url: "blob:remote-1",
+        aspect: 1.7778,
+        frameCount: 8,
+        cols: 8,
+        rows: 1,
+        frameWidth: 160,
+        frameHeight: 90,
+      });
+      expect(coverLease?.value).toBe(stripLease?.value);
 
-      // Zooming in/out across 1, 2, 4, 8 frames now hits RAM synchronously in 0ms without re-fetching.
-      expect(peekCachedCompositionCapture({ projectId: "proj-remote", previewUrl, contentRevision: 0, frameCount: 8 })?.kind).toBe("filmstrip");
-      expect(peekCachedCompositionCapture({ projectId: "proj-remote", previewUrl, contentRevision: 0, frameCount: 4 })?.kind).toBe("filmstrip");
-      expect(peekCachedCompositionCapture({ projectId: "proj-remote", previewUrl, contentRevision: 0, frameCount: 2 })?.kind).toBe("filmstrip");
-      expect(peekCachedCompositionCapture({ projectId: "proj-remote", previewUrl, contentRevision: 0, frameCount: 1 })?.kind).toBe("image");
+      // Zooming in/out across 1, 2, 4, 8 frames now hits RAM synchronously in 0ms sharing the single sprite URL.
+      for (const frameCount of [8, 4, 2, 1]) {
+        const peeked = peekCachedCompositionCapture({
+          projectId: "proj-remote",
+          previewUrl,
+          contentRevision: 0,
+          frameCount,
+        });
+        expect(peeked).toBe(stripLease?.value);
+      }
+      expect(urlSeq).toBe(1);
       expect(document.querySelectorAll('iframe[data-openmotion-thumb-capture="true"]')).toHaveLength(0);
 
       stripLease?.release();
@@ -164,7 +173,6 @@ describe("remoteCompositionFilmstrip", () => {
       frameHeight,
     }));
     setRemoteFilmstripCodecForTest({
-      decodeSprite: vi.fn(async () => null),
       packSprite,
     });
 

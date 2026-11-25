@@ -5,7 +5,6 @@ import { thumbnailRevisionOf } from "../store/thumbnailSlice";
 import {
   clearRemoteCompositionFilmstripStateForTest,
   fetchRemoteCompositionFilmstrip,
-  subsampleFilmstripFrames,
   uploadRemoteCompositionFilmstripIfEligible,
 } from "./remoteCompositionFilmstrip";
 import {
@@ -47,19 +46,32 @@ const IDB_TOUCH_INTERVAL_MS = 60_000;
 const MEMORY_STRIP_CACHE_MAX = 128;
 const SHARED_COVER_CACHE_MAX = 256;
 
+interface CachedSpriteData {
+  blob: Blob;
+  frameCount: number;
+  cols: number;
+  rows: number;
+  frameWidth: number;
+  frameHeight: number;
+}
+
 interface CachedStripRecord {
   key: string;
   aspect: number;
   width: number;
   height: number;
-  blobs: Blob[];
+  /** Legacy per-frame blobs (SnapDOM captures and pre-sprite IDB records). */
+  blobs?: Blob[];
+  /** Zero-slice packed sprite sheet (remote filmstrip hits). */
+  sprite?: CachedSpriteData;
   updatedAt: number;
-  /** Total persisted bytes of `blobs`, used for byte-budgeted LRU eviction. */
+  /** Total persisted bytes of `sprite.blob` or `blobs`, used for byte-budgeted LRU eviction. */
   bytes?: number;
 }
 
 interface SharedCoverEntry {
-  blob: Blob;
+  blob?: Blob;
+  sprite?: CachedSpriteData;
   aspect: number;
   width: number;
   height: number;
@@ -71,6 +83,8 @@ interface SharedCoverEntry {
 
 interface MemoryStripEntry {
   blobs: readonly Blob[];
+  sprite?: CachedSpriteData;
+  frameCount: number;
   value: ThumbnailValue;
   coverValue: ThumbnailValue;
   urls: string[];
@@ -90,6 +104,13 @@ interface MemoryStripEntry {
   revoked: boolean;
   /** Retained solely for `peekFallbackCompositionCapture` after being superseded by a newer revision. */
   fallbackOnly: boolean;
+}
+
+function isMultiFrameVisualValue(value: ThumbnailValue): boolean {
+  return (
+    (value.kind === "filmstrip" && value.urls.length > 0) ||
+    (value.kind === "sprite" && value.frameCount > 0)
+  );
 }
 
 interface CapturePreviewWindow extends Window {
@@ -372,7 +393,7 @@ function evictStaleMemoryStripEntries(isStale: (entry: MemoryStripEntry) => bool
       staleEntries.push(pair);
     } else {
       entry.fallbackOnly = false;
-      if (entry.value.kind === "filmstrip" && entry.value.urls.length > 0) {
+      if (isMultiFrameVisualValue(entry.value)) {
         hasFreshFilmstrip.add(entry.clipIdentityKey);
       } else if (entry.value.kind === "image" && entry.value.representative === "render") {
         hasFreshRender.add(entry.clipIdentityKey);
@@ -383,7 +404,7 @@ function evictStaleMemoryStripEntries(isStale: (entry: MemoryStripEntry) => bool
   for (let i = staleEntries.length - 1; i >= 0; i--) {
     const [key, entry] = staleEntries[i]!;
     if (hasFreshFilmstrip.has(entry.clipIdentityKey)) continue;
-    if (entry.value.kind === "filmstrip" && entry.value.urls.length > 0) {
+    if (isMultiFrameVisualValue(entry.value)) {
       if (!preservedFallbackKeys.has(entry.clipIdentityKey)) {
         preservedFallbackKeys.set(entry.clipIdentityKey, key);
       }
@@ -930,23 +951,39 @@ export async function writeClientCompositionStripToIdbForTest(
 /** Tests only: inspect whether a strip record is still persisted in IndexedDB. */
 export async function readClientCompositionStripFromIdbForTest(
   key: string,
-): Promise<{ key: string; bytes: number; updatedAt: number; blobsCount: number } | null> {
+): Promise<{ key: string; bytes: number; updatedAt: number; blobsCount: number; spriteFrames?: number } | null> {
   const rec = await readCachedStrip(key);
   if (!rec) return null;
   return {
     key: rec.key,
     bytes: computeCachedStripBytes(rec),
     updatedAt: rec.updatedAt,
-    blobsCount: rec.blobs.length,
+    blobsCount: rec.sprite ? 1 : (rec.blobs?.length ?? 0),
+    ...(rec.sprite ? { spriteFrames: rec.sprite.frameCount } : {}),
   };
 }
 
-function computeCachedStripBytes(record: Pick<CachedStripRecord, "blobs" | "bytes">): number {
+function recordFrameCount(record: Pick<CachedStripRecord, "blobs" | "sprite">): number {
+  if (record.sprite && record.sprite.frameCount > 0) return record.sprite.frameCount;
+  return Array.isArray(record.blobs) ? record.blobs.length : 0;
+}
+
+function isValidCachedStripRecord(record: CachedStripRecord | undefined): record is CachedStripRecord {
+  if (!record) return false;
+  if (record.sprite && record.sprite.blob && record.sprite.frameCount > 0) return true;
+  return Array.isArray(record.blobs) && record.blobs.length > 0;
+}
+
+function computeCachedStripBytes(record: Pick<CachedStripRecord, "blobs" | "sprite" | "bytes">): number {
   if (typeof record.bytes === "number" && Number.isFinite(record.bytes) && record.bytes >= 0) {
     return record.bytes;
   }
+  if (record.sprite?.blob) {
+    const size = record.sprite.blob.size;
+    return typeof size === "number" && Number.isFinite(size) ? Math.max(0, size) : 0;
+  }
   let total = 0;
-  for (const blob of record.blobs) {
+  for (const blob of record.blobs ?? []) {
     const size = typeof blob?.size === "number" && Number.isFinite(blob.size) ? blob.size : 0;
     total += Math.max(0, size);
   }
@@ -1000,7 +1037,7 @@ async function readCachedStrip(key: string): Promise<CachedStripRecord | null> {
       const req = tx.objectStore(IDB_STORE).get(key);
       req.onsuccess = () => {
         const rec = req.result as CachedStripRecord | undefined;
-        if (rec && Array.isArray(rec.blobs) && rec.blobs.length > 0) {
+        if (isValidCachedStripRecord(rec)) {
           touchCachedStripTimestamp(db, rec);
           resolve(rec);
         } else {
@@ -1967,7 +2004,10 @@ async function captureIsolatedOrigin(
 }
 
 type StripCacheInput = Pick<ClientCaptureInput,
-  "projectId" | "previewUrl" | "contentRevision" | "frameCount" | "selector" | "selectorIndex" | "seekTime" | "duration">;
+  "projectId" | "previewUrl" | "contentRevision" | "frameCount" | "selector" | "selectorIndex" | "seekTime" | "duration"> & {
+  /** Prefer returning an already-warm multi-frame sprite/filmstrip when `frameCount === 1` (sidebar hover preview). */
+  preferMultiFrame?: boolean;
+};
 
 export function selectorCaptureWindowKey({ selector, seekTime, duration }: Pick<ClientCaptureInput, "selector" | "seekTime" | "duration">) {
   if (!selector) return undefined;
@@ -2044,6 +2084,118 @@ function stripMemoryCacheKey(
   };
 }
 
+function commitMemoryStripEntry(
+  idbKey: string,
+  meta: StripCacheMeta,
+  entry: MemoryStripEntry,
+): MemoryStripEntry {
+  entryByValue.set(entry.value, entry);
+  if (entry.coverValue !== entry.value) entryByValue.set(entry.coverValue, entry);
+  // Drop superseded revisions for the same clip once a fresh capture lands so repeated drags
+  // do not accumulate stale strips in RAM until the LRU ceiling is hit.
+  const currentCompRev = resolveCompositionRevision(meta.projectId, meta.compPath).rev;
+  const isCurrentRev = meta.compRev === currentCompRev;
+  const nextIsMultiFrame = isMultiFrameVisualValue(entry.value);
+  for (const [oldKey, oldEntry] of memoryStripCache) {
+    if (oldEntry.clipIdentityKey !== meta.clipIdentityKey) continue;
+    const isSuperseded =
+      oldEntry.fallbackOnly ||
+      oldEntry.contentRevision < meta.contentRevision ||
+      (isCurrentRev && oldEntry.compRev !== meta.compRev);
+    if (!isSuperseded) continue;
+    // Never replace a multi-frame filmstrip/sprite fallback with a 1-frame cover while a strip refresh is pending.
+    if (!nextIsMultiFrame && isMultiFrameVisualValue(oldEntry.value)) continue;
+    memoryStripCache.delete(oldKey);
+    oldEntry.inCache = false;
+    maybeRevokeEntry(oldEntry);
+  }
+  for (const [oldCoverKey, oldCover] of sharedCoverCache) {
+    if (oldCover.projectId !== meta.projectId || oldCover.compPath !== meta.compPath) continue;
+    const isSuperseded =
+      oldCover.contentRevision < meta.contentRevision ||
+      (isCurrentRev && oldCover.compRev !== meta.compRev);
+    if (isSuperseded) {
+      sharedCoverCache.delete(oldCoverKey);
+    }
+  }
+  thumbnailScheduler.invalidateMatching(meta.projectId, (req) => {
+    if (req.kind !== "composition" || req.compositionPath !== meta.compPath) return false;
+    if ((req.contentRevision ?? 0) < meta.contentRevision) return true;
+    return isCurrentRev && req.compositionRevision !== undefined && req.compositionRevision !== meta.compRev;
+  });
+  memoryStripCache.set(idbKey, entry);
+  while (memoryStripCache.size > MEMORY_STRIP_CACHE_MAX) {
+    const oldestKey = memoryStripCache.keys().next().value;
+    if (!oldestKey) break;
+    const evicted = memoryStripCache.get(oldestKey);
+    memoryStripCache.delete(oldestKey);
+    if (evicted) {
+      evicted.inCache = false;
+      maybeRevokeEntry(evicted);
+    }
+  }
+  return entry;
+}
+
+function putMemorySpriteCache(
+  idbKey: string,
+  baseCoverKey: string,
+  compPathKey: string,
+  meta: StripCacheMeta,
+  sprite: CachedSpriteData,
+  aspect: number,
+): MemoryStripEntry {
+  const existing = memoryStripCache.get(idbKey);
+  if (existing && !existing.revoked && existing.value.kind === "sprite") {
+    existing.fallbackOnly = false;
+    memoryStripCache.delete(idbKey);
+    memoryStripCache.set(idbKey, existing);
+    return existing;
+  }
+  if (existing) {
+    memoryStripCache.delete(idbKey);
+    existing.inCache = false;
+    maybeRevokeEntry(existing);
+  }
+  const url = URL.createObjectURL(sprite.blob);
+  const weight =
+    Math.max(1, sprite.cols * sprite.rows) * sprite.frameWidth * sprite.frameHeight * 4;
+  const value: ThumbnailValue = {
+    kind: "sprite",
+    url,
+    aspect,
+    frameCount: sprite.frameCount,
+    cols: sprite.cols,
+    rows: sprite.rows,
+    frameWidth: sprite.frameWidth,
+    frameHeight: sprite.frameHeight,
+  };
+  const entry: MemoryStripEntry = {
+    blobs: [],
+    sprite,
+    frameCount: sprite.frameCount,
+    value,
+    coverValue: value,
+    urls: [url],
+    aspect,
+    width: sprite.frameWidth,
+    height: sprite.frameHeight,
+    weight,
+    baseCoverKey,
+    compPathKey,
+    clipIdentityKey: meta.clipIdentityKey,
+    projectId: meta.projectId,
+    compPath: meta.compPath,
+    compRev: meta.compRev,
+    contentRevision: meta.contentRevision,
+    inCache: true,
+    refCount: 0,
+    revoked: false,
+    fallbackOnly: false,
+  };
+  return commitMemoryStripEntry(idbKey, meta, entry);
+}
+
 function putMemoryStripCache(
   idbKey: string,
   baseCoverKey: string,
@@ -2085,6 +2237,7 @@ function putMemoryStripCache(
       : { kind: "image", url: coverUrl, aspect, representative: "render" };
   const entry: MemoryStripEntry = {
     blobs,
+    frameCount: urls.length,
     value,
     coverValue,
     urls,
@@ -2104,66 +2257,33 @@ function putMemoryStripCache(
     revoked: false,
     fallbackOnly: false,
   };
-  entryByValue.set(value, entry);
-  if (coverValue !== value) entryByValue.set(coverValue, entry);
-  // Drop superseded revisions for the same clip once a fresh capture lands so repeated drags
-  // do not accumulate stale strips in RAM until the 64-entry LRU ceiling is hit.
-  const currentCompRev = resolveCompositionRevision(meta.projectId, meta.compPath).rev;
-  const isCurrentRev = meta.compRev === currentCompRev;
-  for (const [oldKey, oldEntry] of memoryStripCache) {
-    if (oldEntry.clipIdentityKey !== meta.clipIdentityKey) continue;
-    const isSuperseded =
-      oldEntry.fallbackOnly ||
-      oldEntry.contentRevision < meta.contentRevision ||
-      (isCurrentRev && oldEntry.compRev !== meta.compRev);
-    if (!isSuperseded) continue;
-    // Never replace a multi-frame filmstrip fallback with a 1-frame cover while a strip refresh is pending.
-    if (value.kind !== "filmstrip" && oldEntry.value.kind === "filmstrip") continue;
-    memoryStripCache.delete(oldKey);
-    oldEntry.inCache = false;
-    maybeRevokeEntry(oldEntry);
-  }
-  for (const [oldCoverKey, oldCover] of sharedCoverCache) {
-    if (oldCover.projectId !== meta.projectId || oldCover.compPath !== meta.compPath) continue;
-    const isSuperseded =
-      oldCover.contentRevision < meta.contentRevision ||
-      (isCurrentRev && oldCover.compRev !== meta.compRev);
-    if (isSuperseded) {
-      sharedCoverCache.delete(oldCoverKey);
-    }
-  }
-  thumbnailScheduler.invalidateMatching(meta.projectId, (req) => {
-    if (req.kind !== "composition" || req.compositionPath !== meta.compPath) return false;
-    if ((req.contentRevision ?? 0) < meta.contentRevision) return true;
-    return isCurrentRev && req.compositionRevision !== undefined && req.compositionRevision !== meta.compRev;
-  });
-  memoryStripCache.set(idbKey, entry);
-  while (memoryStripCache.size > MEMORY_STRIP_CACHE_MAX) {
-    const oldestKey = memoryStripCache.keys().next().value;
-    if (!oldestKey) break;
-    const evicted = memoryStripCache.get(oldestKey);
-    memoryStripCache.delete(oldestKey);
-    if (evicted) {
-      evicted.inCache = false;
-      maybeRevokeEntry(evicted);
-    }
-  }
-  return entry;
+  return commitMemoryStripEntry(idbKey, meta, entry);
 }
 
 function retainOrRematerialize(idbKey: string, entry: MemoryStripEntry): MemoryStripEntry {
   if (!entry.revoked) return entry;
+  const meta: StripCacheMeta = {
+    clipIdentityKey: entry.clipIdentityKey,
+    projectId: entry.projectId,
+    compPath: entry.compPath,
+    compRev: entry.compRev,
+    contentRevision: entry.contentRevision,
+  };
+  if (entry.sprite) {
+    return putMemorySpriteCache(
+      idbKey,
+      entry.baseCoverKey,
+      entry.compPathKey,
+      meta,
+      entry.sprite,
+      entry.aspect,
+    );
+  }
   return putMemoryStripCache(
     idbKey,
     entry.baseCoverKey,
     entry.compPathKey,
-    {
-      clipIdentityKey: entry.clipIdentityKey,
-      projectId: entry.projectId,
-      compPath: entry.compPath,
-      compRev: entry.compRev,
-      contentRevision: entry.contentRevision,
-    },
+    meta,
     entry.blobs,
     entry.aspect,
     entry.width,
@@ -2187,6 +2307,22 @@ function peekMemoryEntry(
   input: StripCacheInput,
 ): { entry: MemoryStripEntry; value: ThumbnailValue } | null {
   const { idbKey, baseCoverKey, compPathKey, meta } = stripMemoryCacheKey(input);
+  if (input.frameCount === 1 && input.preferMultiFrame) {
+    let bestKey: string | null = null;
+    let bestEntry: MemoryStripEntry | null = null;
+    for (const [key, entry] of memoryStripCache) {
+      if (entry.fallbackOnly || entry.baseCoverKey !== baseCoverKey) continue;
+      if (!bestEntry || entry.frameCount > bestEntry.frameCount) {
+        bestKey = key;
+        bestEntry = entry;
+      }
+    }
+    if (bestKey && bestEntry) {
+      memoryStripCache.delete(bestKey);
+      memoryStripCache.set(bestKey, bestEntry);
+      return { entry: bestEntry, value: bestEntry.value };
+    }
+  }
   const exact = memoryStripCache.get(idbKey);
   if (exact && !exact.fallbackOnly) {
     memoryStripCache.delete(idbKey);
@@ -2196,45 +2332,64 @@ function peekMemoryEntry(
   if (!input.selector && input.frameCount > 1 && input.frameCount < MAX_CLIENT_COMPOSITION_FRAMES) {
     const canonicalKey = `${baseCoverKey}&frames=${MAX_CLIENT_COMPOSITION_FRAMES}`;
     const canonical = memoryStripCache.get(canonicalKey);
-    if (canonical && !canonical.fallbackOnly && canonical.value.kind === "filmstrip" && canonical.urls.length >= input.frameCount) {
+    if (
+      canonical &&
+      !canonical.fallbackOnly &&
+      isMultiFrameVisualValue(canonical.value) &&
+      canonical.frameCount >= input.frameCount
+    ) {
       memoryStripCache.delete(canonicalKey);
       memoryStripCache.set(canonicalKey, canonical);
       return { entry: canonical, value: canonical.value };
     }
   }
   if (input.frameCount === 1) {
-    // Reuse an already-resident multi-frame strip's middle frame without creating duplicate
+    // Reuse an already-resident multi-frame strip or sprite without creating duplicate
     // object URLs or triggering LRU eviction during React render.
     for (const [key, entry] of memoryStripCache) {
       if (!entry.fallbackOnly && entry.baseCoverKey === baseCoverKey) {
         memoryStripCache.delete(key);
         memoryStripCache.set(key, entry);
-        return { entry, value: entry.coverValue };
+        return { entry, value: input.preferMultiFrame ? entry.value : entry.coverValue };
       }
     }
     const shared = sharedCoverCache.get(baseCoverKey);
     if (shared) {
-      const entry = putMemoryStripCache(
-        idbKey,
-        baseCoverKey,
-        compPathKey,
-        meta,
-        [shared.blob],
-        shared.aspect,
-        shared.width,
-        shared.height,
-      );
-      return { entry, value: entry.value };
+      if (shared.sprite) {
+        const spriteKey = `${baseCoverKey}&frames=${shared.sprite.frameCount}`;
+        const entry = putMemorySpriteCache(
+          spriteKey,
+          baseCoverKey,
+          compPathKey,
+          meta,
+          shared.sprite,
+          shared.aspect,
+        );
+        return { entry, value: entry.value };
+      }
+      if (shared.blob) {
+        const entry = putMemoryStripCache(
+          idbKey,
+          baseCoverKey,
+          compPathKey,
+          meta,
+          [shared.blob],
+          shared.aspect,
+          shared.width,
+          shared.height,
+        );
+        return { entry, value: entry.value };
+      }
     }
     return null;
   }
-  // Any already-cached strip with at least as many frames for the exact same content version
+  // Any already-cached strip/sprite with at least as many frames for the exact same content version
   // satisfies narrower frame counts without re-running SnapDOM (ThumbnailTiles samples evenly).
   let bestKey: string | null = null;
   let bestEntry: MemoryStripEntry | null = null;
   for (const [key, entry] of memoryStripCache) {
-    if (entry.fallbackOnly || entry.baseCoverKey !== baseCoverKey || entry.urls.length < input.frameCount) continue;
-    if (!bestEntry || entry.urls.length > bestEntry.urls.length) {
+    if (entry.fallbackOnly || entry.baseCoverKey !== baseCoverKey || entry.frameCount < input.frameCount) continue;
+    if (!bestEntry || entry.frameCount > bestEntry.frameCount) {
       bestKey = key;
       bestEntry = entry;
     }
@@ -2273,7 +2428,7 @@ export function peekFallbackCompositionCapture(
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i]!;
     if (entry.revoked || entry.clipIdentityKey !== target) continue;
-    if (entry.value.kind === "filmstrip" && entry.value.urls.length > 0) {
+    if (isMultiFrameVisualValue(entry.value)) {
       return entry.value;
     }
     if (!fallbackRenderImage && entry.value.kind === "image" && entry.value.representative === "render") {
@@ -2318,8 +2473,9 @@ export function seedSplitCompositionCaptureFallback(params: {
   const entries = [...memoryStripCache.values()];
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i]!;
-    if (entry.revoked || entry.clipIdentityKey !== fromIdentity || entry.blobs.length === 0) continue;
-    if (entry.value.kind === "filmstrip" && entry.value.urls.length > 0) {
+    if (entry.revoked || entry.clipIdentityKey !== fromIdentity) continue;
+    if (!entry.sprite && entry.blobs.length === 0) continue;
+    if (isMultiFrameVisualValue(entry.value)) {
       source = entry;
       break;
     }
@@ -2328,6 +2484,54 @@ export function seedSplitCompositionCaptureFallback(params: {
     }
   }
   if (!source) return false;
+
+  const fallbackKey = `split-fallback:${toIdentity}`;
+  const prev = memoryStripCache.get(fallbackKey);
+  if (prev) {
+    memoryStripCache.delete(fallbackKey);
+    prev.inCache = false;
+    maybeRevokeEntry(prev);
+  }
+
+  if (source.sprite) {
+    const url = URL.createObjectURL(source.sprite.blob);
+    const value: ThumbnailValue = {
+      kind: "sprite",
+      url,
+      aspect: source.aspect,
+      frameCount: source.sprite.frameCount,
+      cols: source.sprite.cols,
+      rows: source.sprite.rows,
+      frameWidth: source.sprite.frameWidth,
+      frameHeight: source.sprite.frameHeight,
+    };
+    const entry: MemoryStripEntry = {
+      blobs: [],
+      sprite: source.sprite,
+      frameCount: source.sprite.frameCount,
+      value,
+      coverValue: value,
+      urls: [url],
+      aspect: source.aspect,
+      width: source.width,
+      height: source.height,
+      weight: source.weight,
+      baseCoverKey: fallbackKey,
+      compPathKey: source.compPathKey,
+      clipIdentityKey: toIdentity,
+      projectId: source.projectId,
+      compPath: source.compPath,
+      compRev: "__split_fallback__",
+      contentRevision: -1,
+      inCache: true,
+      refCount: 0,
+      revoked: false,
+      fallbackOnly: true,
+    };
+    entryByValue.set(value, entry);
+    memoryStripCache.set(fallbackKey, entry);
+    return true;
+  }
 
   const fraction =
     typeof params.splitFraction === "number" && Number.isFinite(params.splitFraction)
@@ -2339,14 +2543,6 @@ export function seedSplitCompositionCaptureFallback(params: {
       : 0;
   const slicedBlobs = source.blobs.slice(startIdx);
   if (slicedBlobs.length === 0) return false;
-
-  const fallbackKey = `split-fallback:${toIdentity}`;
-  const prev = memoryStripCache.get(fallbackKey);
-  if (prev) {
-    memoryStripCache.delete(fallbackKey);
-    prev.inCache = false;
-    maybeRevokeEntry(prev);
-  }
 
   const urls = slicedBlobs.map((blob) => URL.createObjectURL(blob));
   const value: ThumbnailValue =
@@ -2360,6 +2556,7 @@ export function seedSplitCompositionCaptureFallback(params: {
       : { kind: "image", url: coverUrl, aspect: source.aspect, representative: "render" };
   const entry: MemoryStripEntry = {
     blobs: slicedBlobs,
+    frameCount: urls.length,
     value,
     coverValue,
     urls,
@@ -2409,6 +2606,38 @@ export function seedClientCompositionCaptureForTest(
   return putMemoryStripCache(idbKey, baseCoverKey, compPathKey, meta, blobs, aspect, width, height).value;
 }
 
+/** Seed an in-memory zero-slice sprite capture in unit tests. */
+export function seedClientCompositionSpriteForTest(
+  input: StripCacheInput,
+  spriteBlob: Blob,
+  dims: { frameCount?: number; cols?: number; rows?: number; width?: number; height?: number; aspect?: number } = {},
+): ThumbnailValue {
+  const frameCount = Math.max(1, dims.frameCount ?? input.frameCount);
+  const { idbKey, baseCoverKey, compPathKey, meta } = stripMemoryCacheKey({ ...input, frameCount });
+  const frameWidth = dims.width ?? CAPTURE_TARGET_WIDTH;
+  const frameHeight = dims.height ?? 90;
+  const aspect = dims.aspect ?? frameWidth / frameHeight;
+  const sprite: CachedSpriteData = {
+    blob: spriteBlob,
+    frameCount,
+    cols: dims.cols ?? frameCount,
+    rows: dims.rows ?? 1,
+    frameWidth,
+    frameHeight,
+  };
+  putSharedCoverCache(baseCoverKey, {
+    sprite,
+    aspect,
+    width: frameWidth,
+    height: frameHeight,
+    projectId: meta.projectId,
+    compPath: meta.compPath,
+    compRev: meta.compRev,
+    contentRevision: meta.contentRevision,
+  });
+  return putMemorySpriteCache(idbKey, baseCoverKey, compPathKey, meta, sprite, aspect).value;
+}
+
 /** Subscribe to mid-capture progressive frame updates for a composition strip. */
 export function subscribeProgressiveCompositionCapture(
   input: StripCacheInput,
@@ -2441,23 +2670,85 @@ async function readCachedStripWithCanonicalFallback(
   idbKey: string,
   baseCoverKey: string,
   frameCount: number,
+  preferMultiFrame = false,
 ): Promise<{ storageKey: string; record: CachedStripRecord } | null> {
+  const canonicalKey =
+    frameCount < MAX_CLIENT_COMPOSITION_FRAMES
+      ? `${baseCoverKey}&frames=${MAX_CLIENT_COMPOSITION_FRAMES}`
+      : null;
+  if (preferMultiFrame && canonicalKey) {
+    const canonical = await readCachedStrip(canonicalKey);
+    if (canonical && recordFrameCount(canonical) >= frameCount) {
+      return { storageKey: canonicalKey, record: canonical };
+    }
+  }
   const exact = await readCachedStrip(idbKey);
   if (exact) return { storageKey: idbKey, record: exact };
-  if (frameCount < MAX_CLIENT_COMPOSITION_FRAMES) {
-    const canonicalKey = `${baseCoverKey}&frames=${MAX_CLIENT_COMPOSITION_FRAMES}`;
+  if (canonicalKey && !preferMultiFrame) {
     const canonical = await readCachedStrip(canonicalKey);
-    if (canonical && (frameCount === 1 || canonical.blobs.length >= frameCount)) {
+    if (canonical && (frameCount === 1 || recordFrameCount(canonical) >= frameCount)) {
       return { storageKey: canonicalKey, record: canonical };
     }
   }
   return null;
 }
 
+function hydrateCachedRecordIntoMemory(
+  storageKey: string,
+  baseCoverKey: string,
+  compPathKey: string,
+  meta: StripCacheMeta,
+  cached: CachedStripRecord,
+): MemoryStripEntry | null {
+  if (cached.sprite && cached.sprite.blob && cached.sprite.frameCount > 0) {
+    putSharedCoverCache(baseCoverKey, {
+      sprite: cached.sprite,
+      aspect: cached.aspect,
+      width: cached.sprite.frameWidth,
+      height: cached.sprite.frameHeight,
+      projectId: meta.projectId,
+      compPath: meta.compPath,
+      compRev: meta.compRev,
+      contentRevision: meta.contentRevision,
+    });
+    return putMemorySpriteCache(
+      storageKey,
+      baseCoverKey,
+      compPathKey,
+      meta,
+      cached.sprite,
+      cached.aspect,
+    );
+  }
+  const blobs = cached.blobs;
+  if (!Array.isArray(blobs) || blobs.length === 0) return null;
+  const coverBlob = blobs[Math.min(blobs.length - 1, Math.floor(blobs.length / 2))]!;
+  putSharedCoverCache(baseCoverKey, {
+    blob: coverBlob,
+    aspect: cached.aspect,
+    width: cached.width,
+    height: cached.height,
+    projectId: meta.projectId,
+    compPath: meta.compPath,
+    compRev: meta.compRev,
+    contentRevision: meta.contentRevision,
+  });
+  return putMemoryStripCache(
+    storageKey,
+    baseCoverKey,
+    compPathKey,
+    meta,
+    blobs,
+    cached.aspect,
+    cached.width,
+    cached.height,
+  );
+}
+
 /**
  * Fast-path IndexedDB + remote shared filmstrip lookup that bypasses `thumbnailScheduler`'s
  * 2-slot composition bucket so warm reloads (~5–15ms) and cold pre-baked/S3 template opens
- * (~20–60ms, 0 SnapDOM) recover all cached strips in parallel.
+ * (~20–60ms, 0 SnapDOM, 0 canvas slicing) recover all cached strips in parallel.
  * Returns a retained lease that the caller must release when unmounting or changing keys.
  */
 export function acquireCachedCompositionCaptureFromIdb(
@@ -2473,57 +2764,29 @@ export function acquireCachedCompositionCaptureFromIdb(
   const { rev: compRev, hasFileVersion } = resolveCompositionRevision(input.projectId, input.previewUrl);
   const remoteContentRevision = hasFileVersion ? 0 : input.contentRevision;
   const { idbKey, baseCoverKey, compPathKey, meta } = stripMemoryCacheKey(input);
-  const canonicalIdbKey =
-    !input.selector && input.frameCount < MAX_CLIENT_COMPOSITION_FRAMES
-      ? `${baseCoverKey}&frames=${MAX_CLIENT_COMPOSITION_FRAMES}`
-      : null;
+  const readKey = input.preferMultiFrame ? `${idbKey}|multi` : idbKey;
 
-  const hydrateRecord = (
-    targetKey: string,
-    blobs: readonly Blob[],
-    aspect: number,
-    width: number,
-    height: number,
-  ): MemoryStripEntry => {
-    const coverBlob = blobs[Math.min(blobs.length - 1, Math.floor(blobs.length / 2))]!;
-    putSharedCoverCache(baseCoverKey, {
-      blob: coverBlob,
-      aspect,
-      width,
-      height,
-      projectId: meta.projectId,
-      compPath: meta.compPath,
-      compRev: meta.compRev,
-      contentRevision: meta.contentRevision,
-    });
-    return putMemoryStripCache(
-      targetKey,
-      baseCoverKey,
-      compPathKey,
-      meta,
-      blobs,
-      aspect,
-      width,
-      height,
-    );
-  };
-
-  let entryPromise = inFlightIdbReads.get(idbKey);
+  let entryPromise = inFlightIdbReads.get(readKey);
   if (!entryPromise) {
     entryPromise = (async (): Promise<MemoryStripEntry | null> => {
-      const found = await readCachedStripWithCanonicalFallback(idbKey, baseCoverKey, input.frameCount);
+      const found = await readCachedStripWithCanonicalFallback(
+        idbKey,
+        baseCoverKey,
+        input.frameCount,
+        Boolean(input.preferMultiFrame),
+      );
       if (found) {
-        const { storageKey, record: cached } = found;
-        return hydrateRecord(
-          storageKey,
-          cached.blobs,
-          cached.aspect,
-          cached.width,
-          cached.height,
+        return hydrateCachedRecordIntoMemory(
+          found.storageKey,
+          baseCoverKey,
+          compPathKey,
+          meta,
+          found.record,
         );
       }
 
       // Tier 1.5: shared pre-baked / S3 composition filmstrip sprite cache (whole compositions only).
+      // Zero-slice: persist and render the packed sprite blob directly via CSS background-position.
       if (!input.selector && getCachedCloudDisklessMode()) {
         const remote = await fetchRemoteCompositionFilmstrip({
           projectId: input.projectId,
@@ -2532,50 +2795,58 @@ export function acquireCachedCompositionCaptureFromIdb(
           contentRevision: remoteContentRevision,
         });
         if (remote.status === "hit") {
+          const sprite: CachedSpriteData = {
+            blob: remote.spriteBlob,
+            frameCount: remote.frameCount,
+            cols: remote.cols,
+            rows: remote.rows,
+            frameWidth: remote.width,
+            frameHeight: remote.height,
+          };
           const remoteKey = `${baseCoverKey}&frames=${remote.frameCount}`;
-          const remoteEntry = hydrateRecord(
+          putSharedCoverCache(baseCoverKey, {
+            sprite,
+            aspect: remote.aspect,
+            width: remote.width,
+            height: remote.height,
+            projectId: meta.projectId,
+            compPath: meta.compPath,
+            compRev: meta.compRev,
+            contentRevision: meta.contentRevision,
+          });
+          const remoteEntry = putMemorySpriteCache(
             remoteKey,
-            remote.blobs,
+            baseCoverKey,
+            compPathKey,
+            meta,
+            sprite,
             remote.aspect,
-            remote.width,
-            remote.height,
           );
           void writeCachedStrip({
             key: remoteKey,
             aspect: remote.aspect,
             width: remote.width,
             height: remote.height,
-            blobs: remote.blobs,
+            sprite,
             updatedAt: Date.now(),
           });
-          if (remote.frameCount >= input.frameCount) {
-            if (remote.frameCount === input.frameCount || remote.frameCount === MAX_CLIENT_COMPOSITION_FRAMES) {
-              return remoteEntry;
-            }
-            if (input.frameCount === 1) {
-              const coverBlob = subsampleFilmstripFrames(remote.blobs, 1)[0]!;
-              return hydrateRecord(idbKey, [coverBlob], remote.aspect, remote.width, remote.height);
-            }
-            const sliced = subsampleFilmstripFrames(remote.blobs, input.frameCount);
-            return hydrateRecord(idbKey, sliced, remote.aspect, remote.width, remote.height);
+          if (remote.frameCount >= input.frameCount || input.frameCount === 1) {
+            return remoteEntry;
           }
         }
       }
       return null;
     })().finally(() => {
-      inFlightIdbReads.delete(idbKey);
+      inFlightIdbReads.delete(readKey);
     });
-    inFlightIdbReads.set(idbKey, entryPromise);
+    inFlightIdbReads.set(readKey, entryPromise);
   }
   return entryPromise.then((entry) => {
     if (!entry) return null;
-    const storageKey =
-      canonicalIdbKey && entry.blobs.length >= MAX_CLIENT_COMPOSITION_FRAMES
-        ? canonicalIdbKey
-        : idbKey;
+    const storageKey = `${baseCoverKey}&frames=${entry.frameCount}`;
     const live = retainOrRematerialize(storageKey, entry);
     return {
-      value: input.frameCount === 1 ? live.coverValue : live.value,
+      value: input.frameCount === 1 && !input.preferMultiFrame ? live.coverValue : live.value,
       release: retainMemoryEntry(live),
     };
   });
@@ -2600,41 +2871,31 @@ async function runClientCompositionCapture(
     };
   }
 
-  // 2. Fast path: persistent IndexedDB hit across page refreshes (reusing canonical strip when present).
+  // 2. Fast path: persistent IndexedDB hit across page refreshes (reusing canonical strip/sprite when present).
   const found = await readCachedStripWithCanonicalFallback(idbKey, baseCoverKey, input.frameCount);
   if (signal.aborted) throw abortError();
   if (found) {
-    const { storageKey, record: cached } = found;
-    const coverBlob = cached.blobs[Math.min(cached.blobs.length - 1, Math.floor(cached.blobs.length / 2))]!;
-    putSharedCoverCache(baseCoverKey, {
-      blob: coverBlob,
-      aspect: cached.aspect,
-      width: cached.width,
-      height: cached.height,
-      projectId: meta.projectId,
-      compPath: meta.compPath,
-      compRev: meta.compRev,
-      contentRevision: meta.contentRevision,
-    });
-    const entry = putMemoryStripCache(
-      storageKey,
+    const entry = hydrateCachedRecordIntoMemory(
+      found.storageKey,
       baseCoverKey,
       compPathKey,
       meta,
-      cached.blobs,
-      cached.aspect,
-      cached.width,
-      cached.height,
+      found.record,
     );
-    if (input.frameCount === 1) {
-      const release = retainMemoryEntry(entry);
-      return {
-        value: entry.coverValue,
-        weight: entry.width * entry.height * 4,
-        dispose: release,
-      };
+    if (entry) {
+      if (input.frameCount === 1) {
+        const release = retainMemoryEntry(entry);
+        return {
+          value: entry.coverValue,
+          weight:
+            entry.coverValue === entry.value
+              ? entry.weight
+              : entry.width * entry.height * 4,
+          dispose: release,
+        };
+      }
+      return memoryEntryToThumbnailResult(entry);
     }
-    return memoryEntryToThumbnailResult(entry);
   }
 
   // 3. Priority-queued bounded-pool offscreen browser capture (paused during playback).

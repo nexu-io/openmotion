@@ -6,6 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { thumbnailScheduler } from "../../player/lib/thumbnailScheduler";
 import { TIMELINE_VIEWPORT_BUDGETS } from "../../player/lib/timelineViewportBudgets";
 import { CompositionThumbnail } from "../../player/components/CompositionThumbnail";
+import {
+  clearClientCompositionCaptureCacheForTest,
+  seedClientCompositionSpriteForTest,
+  setClientCompositionCaptureCapabilityForTest,
+} from "../../player/lib/clientCompositionCapture";
+import { setCachedCloudDisklessMode } from "../../utils/cloudRuntime";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { renderPosterForNextOpen } from "../nle/PreviewPoster";
 import { mountCompositionsTab } from "./compositionsTabTestUtils";
@@ -90,6 +96,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setCachedCloudDisklessMode(null);
+  setClientCompositionCaptureCapabilityForTest(null);
+  clearClientCompositionCaptureCacheForTest();
   Object.assign(globalThis, {
     fetch: real.fetch,
     Image: real.Image,
@@ -390,5 +399,88 @@ describe("composition card thumbnails", () => {
     await nextRevisionShows(host, "1", "blob:frame-2");
     act(() => host.querySelector("img")!.dispatchEvent(new Event("load")));
     expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+  });
+
+  it("renders a zero-slice multi-frame sprite cover, cycles and scrubs on hover with 0 iframes, and respects reduced motion", () => {
+    vi.useFakeTimers();
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    const previewUrl = "/api/projects/demo/preview/comp/compositions/headline.html";
+    seedClientCompositionSpriteForTest(
+      {
+        projectId: "demo",
+        previewUrl,
+        contentRevision: 0,
+        frameCount: 8,
+      },
+      new Blob(["sprite-jpeg"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+
+    const origMatchMedia = window.matchMedia;
+    let reducedMotion = false;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("prefers-reduced-motion") ? reducedMotion : false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+
+    try {
+      const host = mount();
+      // Static default: middle frame (index 4 of 8), no placeholder, no <img>, no network fetch.
+      expect(renders).toHaveLength(0);
+      expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+      expect(host.querySelector("img")).toBeNull();
+      const spriteEl = () => host.querySelector<HTMLElement>("[data-sprite-frame]");
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("4");
+      expect(spriteEl()?.getAttribute("data-sprite-url")).toBe("blob:frame-1");
+
+      const card = host.querySelector<HTMLElement>('[aria-label^="Open composition"]')!;
+      const thumbBox = spriteEl()!.parentElement!;
+      thumbBox.getBoundingClientRect = () => ({ left: 100, width: 80, top: 0, height: 45 }) as DOMRect;
+
+      // Hover starts cycling after 120ms and NEVER mounts an iframe (even past 300ms+).
+      act(() => {
+        card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+      });
+      act(() => vi.advanceTimersByTime(120));
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(host.querySelector('[data-testid="composition-hover-progress"]')).not.toBeNull();
+
+      act(() => vi.advanceTimersByTime(360));
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("1");
+      expect(host.querySelector("iframe")).toBeNull();
+
+      // Pointer scrub across thumbnail maps horizontal position directly to frame index.
+      act(() => {
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 175 }));
+      });
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("7");
+
+      // Pointer leave resets back to static middle frame (index 4) and hides scrub bar.
+      act(() => {
+        card.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      });
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("4");
+      expect(host.querySelector('[data-testid="composition-hover-progress"]')).toBeNull();
+      expect(host.querySelector("iframe")).toBeNull();
+
+      // With prefers-reduced-motion: reduce, hover does not auto-cycle, while pointer scrub still works.
+      reducedMotion = true;
+      act(() => {
+        card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+      });
+      act(() => vi.advanceTimersByTime(600));
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("4");
+      act(() => {
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 112 }));
+      });
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("1");
+      expect(host.querySelector("iframe")).toBeNull();
+    } finally {
+      window.matchMedia = origMatchMedia;
+      vi.useRealTimers();
+    }
   });
 });

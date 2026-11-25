@@ -3,7 +3,10 @@ import { act, type ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupMounted, mountHost, trackedRoot } from "../../components/ui/mountHost.testHelpers";
 import {
-  clearClientCompositionCaptureCacheForTest, seedClientCompositionCaptureForTest, setCachedProjectRevision,
+  clearClientCompositionCaptureCacheForTest,
+  seedClientCompositionCaptureForTest,
+  seedClientCompositionSpriteForTest,
+  setCachedProjectRevision,
 } from "../lib/clientCompositionCapture";
 import { thumbnailScheduler } from "../lib/thumbnailScheduler";
 import { usePlayerStore } from "../store/playerStore";
@@ -208,5 +211,25 @@ describe("after three seconds on the stage", () => {
     expect(host.querySelector(backdrop)).not.toBeNull();
     expect(fetch).not.toHaveBeenCalled();
     expect(acquire).not.toHaveBeenCalled();
+  });
+
+  it("renders a zero-slice sprite cover via SpriteFrame at the middle frame", () => {
+    const spriteVal = seedClientCompositionSpriteForTest(
+      {
+        projectId: "p-sprite",
+        previewUrl: "/api/projects/p-sprite/preview/comp/index.html",
+        contentRevision: 0,
+        frameCount: 8,
+      },
+      new Blob(["sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+    expect(spriteVal.kind).toBe("sprite");
+    const host = mountHost(<PreviewCompositionLoading showMark={false} loadingPoster={poster("p-sprite")} />);
+    advance(3_000);
+    const spriteEl = host.querySelector<HTMLElement>("[data-sprite-frame]");
+    expect(spriteEl).not.toBeNull();
+    expect(spriteEl?.getAttribute("data-sprite-frame")).toBe("4");
+    expect(host.querySelector("img")).toBeNull();
   });
 });

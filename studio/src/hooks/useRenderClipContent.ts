@@ -121,6 +121,22 @@ function withSoundStrip(
   return createElement(AudibleVideoClipContent, { thumbnail, waveform: waveform(0) });
 }
 
+function resolveAuthoredMediaSrc(rawSrc: string, sourceFile: string | undefined): string {
+  if (sourceFile && /^\.\.\//.test(rawSrc)) {
+    try {
+      const normalizedSource = sourceFile.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+      const resolved = new URL(rawSrc, `https://project.invalid/${normalizedSource}`);
+      const relPath = resolved.pathname.replace(/^\/+/, "");
+      if (relPath) {
+        return authoredSrcPath(`${relPath}${resolved.search}${resolved.hash}`);
+      }
+    } catch {
+      // Fall back to direct authored path normalization below.
+    }
+  }
+  return authoredSrcPath(rawSrc);
+}
+
 export interface UseRenderClipContentOptions {
   fileTreeLoaded: boolean;
   projectIdRef: { current: string | null };
@@ -204,34 +220,14 @@ export function useRenderClipContent({
 
       if (el.text) return createElement(TextClipContent, { text: el.text });
 
-      // When drilled into a composition, render all inner elements via
-      // CompositionThumbnail at their start time — most accurate visual.
-      if (activePreviewUrl && el.duration > 0) {
-        return createElement(CompositionThumbnail, {
-          previewUrl: activePreviewUrl,
-          label: "",
-          labelColor: style.label,
-
-          selector: el.selector,
-          selectorIndex: el.selectorIndex,
-          seekTime: el.start,
-          duration: el.duration,
-          projectId: pid,
-          sessionEpoch,
-          contentRevision: thumbnailRevisionOf(
-            thumbnailRevisions,
-            compositionPathOfPreviewUrl(activePreviewUrl),
-          ),
-          priority: context.priority,
-          rich: context.rich,
-        });
-      }
-
-      const htmlPreviewEligible = el.duration > 0 && effectiveTimelineDuration > 0;
-
+      // Direct <video> and <img> clips always use native media thumbnail decoders — even
+      // when drilled into a sub-composition — instead of spawning offscreen SnapDOM captures.
       if ((el.tag === "video" || el.tag === "img") && el.src) {
+        const sourceFile =
+          el.sourceFile ??
+          (activePreviewUrl ? compositionPathOfPreviewUrl(activePreviewUrl) : undefined);
         let mediaSrc = resolveMediaPreviewUrl(
-          authoredSrcPath(el.src),
+          resolveAuthoredMediaSrc(el.src, sourceFile),
           pid,
           window.location.origin,
         );
@@ -276,6 +272,31 @@ export function useRenderClipContent({
         });
         return mvp ? thumbnail : withSoundStrip(el, thumbnail, waveform);
       }
+
+      // When drilled into a composition, render remaining inner HTML elements via
+      // CompositionThumbnail at their start time — most accurate visual.
+      if (activePreviewUrl && el.duration > 0) {
+        return createElement(CompositionThumbnail, {
+          previewUrl: activePreviewUrl,
+          label: "",
+          labelColor: style.label,
+
+          selector: el.selector,
+          selectorIndex: el.selectorIndex,
+          seekTime: el.start,
+          duration: el.duration,
+          projectId: pid,
+          sessionEpoch,
+          contentRevision: thumbnailRevisionOf(
+            thumbnailRevisions,
+            compositionPathOfPreviewUrl(activePreviewUrl),
+          ),
+          priority: context.priority,
+          rich: context.rich,
+        });
+      }
+
+      const htmlPreviewEligible = el.duration > 0 && effectiveTimelineDuration > 0;
 
       if (htmlPreviewEligible) {
         return createElement(CompositionThumbnail, {

@@ -8,7 +8,6 @@ const MAX_FRAME_HEIGHT = 320;
 const MAX_SPRITE_UPLOAD_BYTES = 512 * 1024;
 const MAX_UPLOAD_FRAME_WIDTH = 160;
 const SPRITE_ENCODE_QUALITY = 0.78;
-const SLICE_ENCODE_QUALITY = 0.82;
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const MAX_PENDING_WRITE_TARGETS = 256;
 const MAX_COMPLETED_UPLOADS = 512;
@@ -24,8 +23,10 @@ const HEADER_SOURCE = "x-openmotion-filmstrip-source";
 
 export interface RemoteFilmstripHit {
   readonly status: "hit";
-  readonly blobs: Blob[];
+  readonly spriteBlob: Blob;
   readonly frameCount: number;
+  readonly cols: number;
+  readonly rows: number;
   readonly width: number;
   readonly height: number;
   readonly aspect: number;
@@ -45,10 +46,6 @@ export interface RemoteFilmstripMiss {
 export type RemoteFilmstripResult = RemoteFilmstripHit | RemoteFilmstripMiss;
 
 export interface RemoteFilmstripCodec {
-  decodeSprite(
-    spriteBlob: Blob,
-    meta: { frameCount: number; frameWidth: number; frameHeight: number },
-  ): Promise<Blob[] | null>;
   packSprite(
     blobs: readonly Blob[],
     frameWidth: number,
@@ -219,50 +216,6 @@ function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<B
   });
 }
 
-async function defaultDecodeSprite(
-  spriteBlob: Blob,
-  meta: { frameCount: number; frameWidth: number; frameHeight: number },
-): Promise<Blob[] | null> {
-  if (typeof document === "undefined") return null;
-  const decoded = await decodeBlobToSource(spriteBlob);
-  if (!decoded) return null;
-  try {
-    const expectedTotalW = meta.frameCount * meta.frameWidth;
-    if (decoded.width !== expectedTotalW || decoded.height !== meta.frameHeight) {
-      return null;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = meta.frameWidth;
-    canvas.height = meta.frameHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    const blobs: Blob[] = [];
-    for (let i = 0; i < meta.frameCount; i++) {
-      ctx.clearRect(0, 0, meta.frameWidth, meta.frameHeight);
-      ctx.drawImage(
-        decoded.source,
-        i * meta.frameWidth,
-        0,
-        meta.frameWidth,
-        meta.frameHeight,
-        0,
-        0,
-        meta.frameWidth,
-        meta.frameHeight,
-      );
-      const frameBlob = await canvasToJpegBlob(canvas, SLICE_ENCODE_QUALITY);
-      if (!frameBlob) return null;
-      blobs.push(frameBlob);
-    }
-    canvas.width = 0;
-    canvas.height = 0;
-    return blobs;
-  } finally {
-    decoded.release();
-  }
-}
-
 /**
  * Compute uniform aspect-preserving pixel dimensions for a single filmstrip frame
  * within `[MIN_FRAME_WIDTH..MAX_UPLOAD_FRAME_WIDTH]` × `[MIN_FRAME_HEIGHT..MAX_FRAME_HEIGHT]`.
@@ -408,14 +361,6 @@ export function fetchRemoteCompositionFilmstrip(input: {
         return { status: "miss" };
       }
 
-      const codec = testCodecOverride;
-      const blobs = codec
-        ? await codec.decodeSprite(spriteBlob, { frameCount, frameWidth, frameHeight })
-        : await defaultDecodeSprite(spriteBlob, { frameCount, frameWidth, frameHeight });
-      if (!blobs || blobs.length !== frameCount) {
-        return { status: "miss" };
-      }
-
       if (sha256 && renderKey && frameCount < MAX_REMOTE_FILMSTRIP_FRAMES) {
         // Allow a later higher-frame-count capture to upgrade this cached sprite in S3.
         recordPendingWriteTarget(targetKey, { sha256, renderKey, scope, existingFrames: frameCount });
@@ -425,8 +370,10 @@ export function fetchRemoteCompositionFilmstrip(input: {
 
       return {
         status: "hit",
-        blobs,
+        spriteBlob,
         frameCount,
+        cols: frameCount,
+        rows: 1,
         width: frameWidth,
         height: frameHeight,
         aspect,

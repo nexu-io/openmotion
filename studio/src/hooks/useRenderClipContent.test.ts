@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CompositionThumbnail, VideoThumbnail } from "../player";
 import { AudioWaveform } from "../player/components/AudioWaveform";
 import { AudibleVideoClipContent } from "../player/components/AudibleVideoClipContent";
+import { ImageThumbnail } from "../player/components/ImageThumbnail";
 import { TextClipContent } from "../player/components/TextClipContent";
 import { ClipPeakMarks } from "../player/components/ClipPeakMarks";
 
@@ -604,4 +605,59 @@ describe("useRenderClipContent", () => {
       expect(clipUrl).toBe(compositionCardThumbnailUrl("my-project", compositionSrc, 3));
     },
   );
+
+  it("routes drilled-in <video> and <img> clips to native media thumbnails instead of CompositionThumbnail", () => {
+    usePlayerStore.setState({ thumbnailMode: "adaptive" });
+    const drilledPreview = "/api/projects/my-project/preview/comp/compositions/scene.html";
+
+    const video = renderClipContent(
+      {
+        id: "hero-vid",
+        tag: "video",
+        start: 1,
+        duration: 5,
+        track: 0,
+        src: "../assets/demo.mp4",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+    );
+    expect(isValidElement<{ videoSrc: string }>(video)).toBe(true);
+    if (isValidElement<{ videoSrc: string }>(video)) {
+      expect(video.type).toBe(VideoThumbnail);
+      expect(video.props.videoSrc).toBe("/api/projects/my-project/preview/assets/demo.mp4");
+    }
+
+    const image = renderClipContent(
+      {
+        id: "hero-img",
+        tag: "img",
+        start: 0,
+        duration: 4,
+        track: 0,
+        src: "../assets/banner.png",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+    );
+    expect(isValidElement<{ imageSrc: string }>(image)).toBe(true);
+    if (isValidElement<{ imageSrc: string }>(image)) {
+      expect(image.type).toBe(ImageThumbnail);
+      expect(image.props.imageSrc).toBe("/api/projects/my-project/preview/assets/banner.png");
+    }
+
+    // Non-media elements inside a drilled-in composition still render via CompositionThumbnail.
+    const box = renderClipContent(
+      {
+        id: "card",
+        tag: "div",
+        start: 0,
+        duration: 4,
+        track: 0,
+        selector: "#card",
+      },
+      drilledPreview,
+    );
+    expect(isValidElement(box) && box.type).toBe(CompositionThumbnail);
+  });
 });

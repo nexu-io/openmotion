@@ -4,7 +4,7 @@ import { IconButton } from "open-design-ui/icon-button";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import {
   thumbnailScheduler,
@@ -34,6 +34,7 @@ import { postFrameDisplayScale } from "../../player/lib/runtimeProtocol";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { thumbnailRevisionOf } from "../../player/store/thumbnailSlice";
 import { encodePreviewPath } from "../../player/components/thumbnailUtils";
+import { SpriteFrame } from "../../player/components/SpriteFrame";
 import { TIMELINE_COMPOSITION_MIME } from "../../utils/timelineCompositionDrop";
 import { useDockPanelVisible } from "../dock/Dock";
 import { ItemLoadErrorBadge } from "../ui/ItemLoadErrorBadge";
@@ -57,6 +58,9 @@ const DEFAULT_PREVIEW_STAGE = { width: 1920, height: 1080 };
 const CARD_W = 80;
 const CARD_H = 45;
 const THUMBNAIL_PLAYBACK_SYNC_ATTEMPTS = 10;
+const SPRITE_HOVER_DEBOUNCE_MS = 120;
+const SPRITE_HOVER_INTERVAL_MS = 360;
+const IFRAME_HOVER_DEBOUNCE_MS = 300;
 
 type PreviewWindow = Window & {
   __player?: {
@@ -153,12 +157,31 @@ export function syncIframePlayback(iframe: HTMLIFrameElement | null, shouldPlay:
   }
 }
 
+const coverFrameCount = (value: ThumbnailValue | null | undefined): number =>
+  value?.kind === "sprite"
+    ? Math.max(0, value.frameCount)
+    : value?.kind === "filmstrip"
+      ? value.urls.length
+      : value?.kind === "image" && value.url
+        ? 1
+        : 0;
+
 const coverUrlOf = (value: ThumbnailValue | null | undefined): string | null =>
   value?.kind === "image"
     ? value.url
-    : value?.kind === "filmstrip"
-      ? (value.urls[0] ?? null)
-      : null;
+    : value?.kind === "sprite"
+      ? (value.frameCount > 0 ? value.url : null)
+      : value?.kind === "filmstrip"
+        ? (value.urls[Math.min(value.urls.length - 1, Math.floor(value.urls.length / 2))] ?? value.urls[0] ?? null)
+        : null;
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 const imageUrlOf = (snapshot: ThumbnailSnapshot) =>
   snapshot.status === "ready" ? coverUrlOf(snapshot.value) : null;
@@ -300,6 +323,9 @@ function CompCard({
   const panelVisible = useDockPanelVisible();
   const previewOrigin = isolatedPreviewOrigin();
   const [hovered, setHovered] = useState(false);
+  const [spriteHoverActive, setSpriteHoverActive] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [hoverFrameIndex, setHoverFrameIndex] = useState<number | null>(null);
   const [stageSize, setStageSize] = useState(DEFAULT_PREVIEW_STAGE);
   const [livePreviewLoaded, setLivePreviewLoaded] = useState(false);
   const [loadedFrameUrl, setLoadedFrameUrl] = useState<string | null>(null);
@@ -335,13 +361,11 @@ function CompCard({
       syncTimer.current = null;
     }
     setHovered(false);
+    setSpriteHoverActive(false);
+    setIsScrubbing(false);
+    setHoverFrameIndex(null);
     setLivePreviewLoaded(false);
   }, []);
-
-  const handleEnter = () => {
-    if (!panelVisible) return;
-    hoverTimer.current = setTimeout(() => setHovered(true), 300);
-  };
 
   useEffect(() => {
     if (!panelVisible) stopHoverPreview();
@@ -381,6 +405,7 @@ function CompCard({
             projectId,
             contentRevision: captureContentRevision,
             frameCount: 1,
+            preferMultiFrame: true,
           })
         : null,
     [captureContentRevision, captureEnabled, compCacheRev, coverPreviewUrl, projectId],
@@ -403,6 +428,7 @@ function CompCard({
       projectId,
       contentRevision: captureContentRevision,
       frameCount: 1,
+      preferMultiFrame: true,
     })
       .then((lease) => {
         if (cancelled) {
@@ -497,23 +523,84 @@ function CompCard({
       ? captureThumbnail
       : posterThumbnail;
   const lastFrameUrl = useLastFrame(activeRequest, thumbnail, nearViewport, coverIdentity);
-  const frameUrl = coverUrlOf(activeRetainedCover) ?? lastFrameUrl;
+  const displayedCoverValue =
+    activeRetainedCover ?? (thumbnail.status === "ready" ? thumbnail.value : null);
+  const totalCoverFrames = coverFrameCount(displayedCoverValue);
+  const hasMultiFramePreview =
+    totalCoverFrames > 1 &&
+    (displayedCoverValue?.kind === "sprite" || displayedCoverValue?.kind === "filmstrip");
+  const defaultFrameIndex = totalCoverFrames > 1 ? Math.floor(totalCoverFrames / 2) : 0;
+  const activeFrameIndex =
+    hoverFrameIndex !== null
+      ? Math.max(0, Math.min(totalCoverFrames - 1, hoverFrameIndex))
+      : defaultFrameIndex;
+  const spriteCoverValue =
+    displayedCoverValue?.kind === "sprite" &&
+    displayedCoverValue.frameCount > 0 &&
+    displayedCoverValue.url !== failedFrameUrl
+      ? displayedCoverValue
+      : null;
+  const activeFilmstripUrl =
+    displayedCoverValue?.kind === "filmstrip" && displayedCoverValue.urls.length > 0
+      ? (displayedCoverValue.urls[activeFrameIndex] ?? displayedCoverValue.urls[0] ?? null)
+      : null;
+  const frameUrl = activeFilmstripUrl ?? coverUrlOf(activeRetainedCover) ?? lastFrameUrl;
   const thumbnailFailed = thumbnail.status === "error";
-  const posterUrl = !thumbnailFailed && frameUrl !== failedFrameUrl ? frameUrl : null;
-  const posterLoaded = !!posterUrl && loadedFrameUrl === posterUrl;
-  const hasRenderedCover = Boolean(posterUrl) && renderedCoverIdentity === coverIdentity;
+  const posterUrl =
+    spriteCoverValue || thumbnailFailed || frameUrl === failedFrameUrl ? null : frameUrl;
+  const posterLoaded = Boolean(spriteCoverValue) || (!!posterUrl && loadedFrameUrl === posterUrl);
+  const hasRenderedCover = Boolean(spriteCoverValue) || (Boolean(posterUrl) && renderedCoverIdentity === coverIdentity);
   const posterRequestFailed = Boolean(thumbnailRequest) && posterThumbnail.status === "error";
   const captureRequestFailed = captureEnabled
     ? Boolean(captureRequest) && captureThumbnail.status === "error"
     : true;
   const imageElementFailed = Boolean(frameUrl && failedFrameUrl === frameUrl);
   const showCoverError =
+    !spriteCoverValue &&
     !activeRetainedCover &&
     !livePreviewLoaded &&
     !idbCoverPending &&
     !posterLoaded &&
     !hasRenderedCover &&
     (imageElementFailed || (posterRequestFailed && captureRequestFailed));
+  const handleEnter = () => {
+    if (!panelVisible) return;
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    if (hasMultiFramePreview) {
+      hoverTimer.current = setTimeout(() => {
+        setSpriteHoverActive(true);
+      }, SPRITE_HOVER_DEBOUNCE_MS);
+      return;
+    }
+    hoverTimer.current = setTimeout(() => setHovered(true), IFRAME_HOVER_DEBOUNCE_MS);
+  };
+  const handleThumbnailPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!panelVisible || !hasMultiFramePreview) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(0.9999, (event.clientX - rect.left) / rect.width));
+    const nextIdx = Math.floor(ratio * totalCoverFrames);
+    setIsScrubbing(true);
+    setHoverFrameIndex(nextIdx);
+  };
+  const handleThumbnailPointerLeave = () => {
+    setIsScrubbing(false);
+  };
+  const shouldMountIframeHover = hovered && panelVisible && !hasMultiFramePreview;
+
+  useEffect(() => {
+    if (!hasMultiFramePreview || !spriteHoverActive || !panelVisible || isScrubbing) return;
+    if (prefersReducedMotion()) return;
+    setHoverFrameIndex((prev) => (prev === null ? 0 : (prev + 1) % totalCoverFrames));
+    const interval = setInterval(() => {
+      setHoverFrameIndex((prev) => (prev === null ? 0 : (prev + 1) % totalCoverFrames));
+    }, SPRITE_HOVER_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [hasMultiFramePreview, isScrubbing, panelVisible, spriteHoverActive, totalCoverFrames]);
+
   const handleReloadCover = useCallback(() => {
     setFailedFrameUrl(null);
     let retried = false;
@@ -533,15 +620,15 @@ function CompCard({
   const thumbnailOffsetY = (CARD_H - stageSize.height * previewScale) / 2;
 
   useEffect(() => {
-    if (hovered && !previewOrigin) requestIframePlaybackSync(true);
-  }, [hovered, previewOrigin, requestIframePlaybackSync]);
+    if (shouldMountIframeHover && !previewOrigin) requestIframePlaybackSync(true);
+  }, [shouldMountIframeHover, previewOrigin, requestIframePlaybackSync]);
 
   useEffect(() => {
     if (livePreviewLoaded) postFrameDisplayScale(iframeRef.current);
   }, [livePreviewLoaded, previewScale]);
 
   useEffect(() => {
-    if (!hovered) return;
+    if (!shouldMountIframeHover) return;
     const onRuntimeReady = (event: MessageEvent) => {
       const frame = iframeRef.current;
       if (frame && event.source === frame.contentWindow && event.data?.type === "ready") {
@@ -550,7 +637,7 @@ function CompCard({
     };
     window.addEventListener("message", onRuntimeReady);
     return () => window.removeEventListener("message", onRuntimeReady);
-  }, [hovered]);
+  }, [shouldMountIframeHover]);
 
   useEffect(() => {
     return () => {
@@ -600,6 +687,8 @@ function CompCard({
     >
       <div
         ref={thumbnailBox}
+        onPointerMove={handleThumbnailPointerMove}
+        onPointerLeave={handleThumbnailPointerLeave}
         className="w-20 h-[45px] rounded-sm overflow-hidden bg-neutral-900 shrink-0 relative"
       >
         {!posterLoaded && !hasRenderedCover && !livePreviewLoaded && (
@@ -607,12 +696,23 @@ function CompCard({
             <span className="motion-composition-placeholder-mark" />
           </div>
         )}
+        {spriteCoverValue && (
+          <SpriteFrame
+            sprite={spriteCoverValue}
+            frameIndex={activeFrameIndex}
+            fit="contain"
+            containerWidth={CARD_W}
+            containerHeight={CARD_H}
+            className="absolute inset-0"
+          />
+        )}
         {posterUrl && (
           <img
             src={posterUrl}
             alt=""
             draggable={false}
             decoding="async"
+            data-filmstrip-frame={hasMultiFramePreview ? activeFrameIndex : undefined}
             onLoad={() => {
               setLoadedFrameUrl(posterUrl);
               setRenderedCoverIdentity(coverIdentity);
@@ -626,13 +726,25 @@ function CompCard({
             }`}
           />
         )}
-        {hovered && panelVisible && previewOrigin && (
+        {hasMultiFramePreview && (spriteHoverActive || isScrubbing) && (
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-neutral-950/60"
+            data-testid="composition-hover-progress"
+            aria-hidden="true"
+          >
+            <div
+              className="h-full bg-studio-accent transition-[width] duration-75"
+              style={{ width: `${((activeFrameIndex + 1) / totalCoverFrames) * 100}%` }}
+            />
+          </div>
+        )}
+        {shouldMountIframeHover && previewOrigin && (
           <div className="absolute inset-0 pointer-events-none" style={{ visibility: livePreviewLoaded ? "visible" : "hidden" }}>
             <IsolatedHoverPlayer source={previewUrl} origin={previewOrigin} onReady={setLivePreviewLoaded}
               onError={() => setLivePreviewLoaded(false)} />
           </div>
         )}
-        {hovered && panelVisible && !previewOrigin && (
+        {shouldMountIframeHover && !previewOrigin && (
           <iframe
             ref={iframeRef}
             src={previewUrl}
