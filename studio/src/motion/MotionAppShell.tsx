@@ -24,9 +24,7 @@ const LazyMotionEditorHost = lazy(loadMotionEditorHost);
 const shellHost: StudioHost = {
   feedback: false,
   EditorHost: LazyMotionEditorHost,
-  preloadEditorHost: () => {
-    void loadMotionEditorHost();
-  },
+  preloadEditorHost: loadMotionEditorHost,
 };
 
 /**

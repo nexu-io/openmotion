@@ -109,7 +109,7 @@ function MotionAppContent() {
       const origin = isolatedPreviewOrigin();
       if (origin) previewLease = preparePreviewLease(projectId, origin, controller.signal);
       preloadMotionProjectEditor();
-      host?.preloadEditorHost?.();
+      void host?.preloadEditorHost?.().catch(() => {}); // The mounted host retries the import.
     }
     return () => controller.abort();
   }, [route, attempt, libraryOnly, settingsPage, host]);
