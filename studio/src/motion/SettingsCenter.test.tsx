@@ -14,6 +14,8 @@ import {
 import { I18nProvider } from '../i18n/I18n';
 import { invalidateHostCapabilities } from '../utils/platformHost';
 import { SettingsCenter } from './SettingsCenter';
+import { RecoveryScreen } from '../components/RecoveryScreen';
+import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
@@ -52,6 +54,31 @@ function createSnapshot(
     pendingRestartKeys,
   };
 }
+it.each([
+  { cloud: true, desktop: false, visible: false },
+  { cloud: true, desktop: true, visible: true },
+  { cloud: false, desktop: false, visible: true },
+])('only offers diagnostic ZIPs on supported hosts (cloud=$cloud, desktop=$desktop)', ({ cloud, desktop, visible }) => {
+  setCachedCloudDisklessMode(cloud);
+  if (desktop) window.__OPENMOTION_HOST__ = { info: vi.fn(), capabilities: vi.fn(), invoke: vi.fn(), subscribe: vi.fn() };
+  try {
+    const html = renderToStaticMarkup(<I18nProvider initialLocale="en">
+      <RecoveryScreen title="Could not open project" message="Session expired"><button>Retry</button></RecoveryScreen>
+      <SettingsCenter section="help" onSection={() => {}} openConnections={() => {}} />
+      <SettingsCenter section="privacy" onSection={() => {}} openConnections={() => {}} />
+    </I18nProvider>);
+    const page = new DOMParser().parseFromString(html, 'text/html');
+    const exports = [...page.querySelectorAll('button')].filter(button => button.textContent === 'Export diagnostic ZIP');
+    expect(exports).toHaveLength(visible ? 3 : 0);
+    expect(Boolean(page.querySelector('.om-recovery-diagnostics'))).toBe(visible);
+    expect(page.body.textContent?.includes('Diagnostics & logs')).toBe(visible);
+    expect(page.body.textContent).toContain('Share usage data');
+    expect(page.body.textContent).toContain('Retry');
+  } finally {
+    setCachedCloudDisklessMode(null);
+  }
+});
+
 it.each([
   { locale: 'zh-CN', heading: '社群', labels: ['飞书群', 'Discord'], document: chineseReadme, platforms: ['飞书群', 'Discord'] },
   { locale: 'en', heading: 'Community', labels: ['Discord', 'Feishu group'], document: readme, platforms: ['Discord', 'Feishu'] },

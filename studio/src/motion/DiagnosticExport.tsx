@@ -7,6 +7,12 @@ import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { RemixIcon } from '../icons/RemixIcons';
 import { exportDesktopDiagnosticBundle, isDesktopApp } from '../utils/platformHost';
+import { useCloudDisklessMode } from '../utils/cloudRuntime';
+
+export function useDiagnosticExportAvailable() {
+  const cloud = useCloudDisklessMode();
+  return !cloud || isDesktopApp();
+}
 
 export function DiagnosticExport() {
   const { t } = useI18n();

@@ -4,7 +4,7 @@ import { trackStudioClick } from './editorTracking';
 import { useI18n } from '../i18n/I18n';
 import { motionApi } from './useWorkspace';
 import { setMotionTrackingEnabled } from './tracking';
-import { DiagnosticExport } from './DiagnosticExport';
+import { DiagnosticExport, useDiagnosticExportAvailable } from './DiagnosticExport';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { Toggle } from './settingsPrimitives';
@@ -14,6 +14,7 @@ type Status = { enabled: boolean; preference: boolean; locked: boolean; reason?:
 export function PrivacySettings({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const { t } = useI18n(), dialog = useRef<HTMLDialogElement>(null);
   const toast = useToast();
+  const showDiagnostics = useDiagnosticExportAvailable();
   const [status, setStatus] = useState<Status | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
   useEffect(() => { if (!embedded) dialog.current?.showModal(); return () => dialog.current?.close(); }, [embedded]);
   useEffect(() => {
@@ -46,7 +47,9 @@ export function PrivacySettings({ onClose, embedded = false }: { onClose: () => 
       <p className="om-muted">{t('This setting applies to MCP and Studio on this installation and is kept after restart.')}</p>
       {status?.locked && <p className="om-muted" role="status">{t(status.reason === 'test_build' ? 'Usage data collection is disabled in test builds.' : 'Disabled by your environment settings.')}</p>}
       {error && <p role="alert">{t(error)}</p>}
-    </section><section className={embedded ? 'om-card om-card-stack' : undefined}><DiagnosticExport /></section><StudioToastViewport {...toast} /></>;
+    </section>
+    {showDiagnostics && <section className={embedded ? 'om-card om-card-stack' : undefined}><DiagnosticExport /></section>}
+    <StudioToastViewport {...toast} /></>;
   if (embedded) return content;
   return <dialog ref={dialog} className="motion-model-dialog motion-media-surface motion-privacy-dialog" aria-labelledby="privacy-settings-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><h2 id="privacy-settings-title">{t('Privacy settings')}</h2><IconButton variant="plain" className="motion-media-close" aria-label={t('Close')} onClick={onClose} icon="×" /></header>

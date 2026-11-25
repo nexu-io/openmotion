@@ -16,7 +16,7 @@ import { useProviderDirectory } from './useProviderDirectory';
 import { gatewayRequest } from './gatewayClient';
 import { SettingsError, SettingsLoading, Toggle } from './settingsPrimitives';
 import { AgentSettings } from './AgentSettings';
-import { DiagnosticExport } from './DiagnosticExport';
+import { DiagnosticExport, useDiagnosticExportAvailable } from './DiagnosticExport';
 import { discord, feishu } from './CommunityLink';
 import { GITHUB_REPOSITORY, repositorySupportLinks } from './githubRepository';
 import { SettingsSurfaceBoundary } from './SettingsSurfaceBoundary';
@@ -436,6 +436,7 @@ function DesktopAppSettings() {
 }
 
 function ResourceSettings({ about, openConnections }: { about: boolean; openConnections: () => void }) {
+  const showDiagnostics = useDiagnosticExportAvailable();
   const { t, locale } = useI18n();
   const desktopApp = isDesktopApp();
   const updater = useDesktopUpdateState();
@@ -586,7 +587,7 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
           ))}
         </section>
       )}
-      {!about && (
+      {!about && showDiagnostics && (
         <section className="om-card om-card-stack">
           <h2 className="om-subtitle">{t('Diagnostics & logs')}</h2>
           <DiagnosticExport />
