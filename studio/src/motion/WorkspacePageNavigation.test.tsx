@@ -17,7 +17,7 @@ import { workspaceHistoryIndex, writeWorkspaceHistory } from '../utils/workspace
 import { preloadAllWorkspacePages } from '../router/lazyPages';
 import { resetBannerDismissal } from './campaignAttribution';
 
-const editor = vi.hoisted(() => ({ mounts: 0, fail: false, wait: async () => {} }));
+const editor = vi.hoisted(() => ({ mounts: 0, fail: false, blocked: false, wait: async () => {} }));
 vi.mock('./AssetsPage', () => ({ AssetsPage: ({ studio }: { studio?: StudioCreation }) => <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} /> }));
 vi.mock('./MotionProjectEditor', () => ({ preloadMotionProjectEditor: vi.fn() }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
@@ -25,7 +25,7 @@ vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: 
   const { registerEditor } = useWorkspaceChrome();
   useEffect(() => {
     editor.mounts++;
-    registerEditor({ blocked: false, saveState: '', message: '', waitForSaves: async () => {
+    registerEditor({ blocked: editor.blocked, saveState: '', message: editor.blocked ? 'Auto-save paused' : '', waitForSaves: async () => {
       await editor.wait(); if (editor.fail) throw new Error('Unsaved edit');
     } });
     return () => registerEditor(null);
@@ -77,7 +77,7 @@ async function mount(key = 0) { await act(async () => root.render(<I18nProvider 
 beforeEach(() => {
   localStorage.clear(); history.replaceState(null, '', firstUrl);
   vi.mocked(preloadMotionProjectEditor).mockClear();
-  editor.mounts = 0; editor.fail = false; editor.wait = async () => {};
+  editor.mounts = 0; editor.fail = false; editor.blocked = false; editor.wait = async () => {};
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   fetcher = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, location.origin), projectId = url.searchParams.get('projectId') ?? first;
@@ -2298,4 +2298,128 @@ it.each([
     localStorage.clear();
     resetBannerDismissal();
   }
+});
+
+it('recovers Open Motion Editor when /motion carries a stale #project hash that 404s', async () => {
+  const staleId = '2b22bcca-8aca-45c4-808b-f7920af66a48';
+  history.replaceState(null, '', `/motion#project/${staleId}`);
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (url.pathname.endsWith('/project/status') && url.searchParams.get('projectId') === staleId) {
+      return Response.json({ code: 'PROJECT_NOT_FOUND', error: `Project ${staleId} was not found in this workspace.` }, { status: 404 });
+    }
+    return fallback(input, init);
+  });
+
+  await mount();
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+  expect(location.pathname).toBe('/motion');
+  expect(location.hash).toBe('');
+  const openBtn = button('Open Motion Editor');
+  expect(openBtn).toBeTruthy();
+  expect(openBtn.disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(page()).toMatchObject({ motion: false, explore: false, templates: false });
+  expect(container.querySelector('[aria-label="Editor draft"]')?.getAttribute('data-project')).toBe(first);
+});
+
+it('keeps Open Motion Editor enabled when a signed-in workspace has zero active projects and creates a blank project on click', async () => {
+  const createdId = '33333333-3333-3333-3333-333333333333';
+  const createdArtifact = { id: createdId, projectId: createdId, kind: 'motion-project', title: 'Untitled Project' };
+  let workspaceProjects: typeof catalog.projects = [];
+  let workspaceSessions: typeof catalog.sessions = [];
+  history.replaceState(null, '', '/motion');
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (url.pathname.endsWith('/projects') && init?.method === 'POST') {
+      workspaceProjects = [{ id: createdId, title: 'Untitled Project' }];
+      workspaceSessions = [{ id: createdId, artifacts: [createdArtifact] }];
+      return Response.json({ projectId: createdId, sessionId: createdId, revision: 'r-new' }, { status: 201 });
+    }
+    if (url.pathname.endsWith('/projects') && !init?.method) {
+      return Response.json({ activeId: workspaceProjects[0]?.id ?? '', projects: workspaceProjects, sessions: workspaceSessions });
+    }
+    if (url.pathname.includes('/sessions/' + createdId)) {
+      return Response.json(workspaceSessions[0]);
+    }
+    if (url.pathname.endsWith('/project/status')) {
+      const id = url.searchParams.get('projectId') ?? workspaceProjects[0]?.id ?? '';
+      return Response.json({ activeId: id, projectId: id, projectTitle: '', revision: id ? 'r-new' : '', exportJob: null });
+    }
+    return fallback(input, init);
+  });
+
+  await mount();
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+  const openBtn = button('Open Motion Editor');
+  expect(openBtn).toBeTruthy();
+  expect(openBtn.disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(fetcher.mock.calls.some(([url, init]) => String(url).endsWith('/motion-api/projects') && init?.method === 'POST')).toBe(true);
+  expect(container.querySelector('[aria-label="Editor draft"]')?.getAttribute('data-project')).toBe(createdId);
+});
+
+it('lets Open Motion Editor return to a mounted editor even when its write guard is blocked', async () => {
+  editor.blocked = true;
+  history.replaceState(null, '', firstUrl.replaceAll(first, second));
+  await mount();
+  const draft = container.querySelector<HTMLInputElement>('[aria-label="Editor draft"]')!;
+  expect(draft.getAttribute('data-project')).toBe(second);
+
+  await click('Motion Studio');
+  expect(page().motion).toBe(true);
+  const openBtn = button('Open Motion Editor');
+  expect(openBtn).toBeTruthy();
+  expect(openBtn.disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(page().motion).toBe(false);
+  expect(container.querySelector('[aria-label="Editor draft"]')).toBe(draft);
+  expect(editor.mounts).toBe(1);
+});
+
+it('clears a stale #project hash after switching accounts or workspaces on /motion', async () => {
+  let switched = false;
+  history.replaceState(null, '', `/motion#project/${first}`);
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (switched) {
+      if (url.pathname.endsWith('/project/status') && url.searchParams.get('projectId') === first) {
+        return Response.json({ code: 'PROJECT_NOT_FOUND', error: `Project ${first} was not found in this workspace.` }, { status: 404 });
+      }
+      if (url.pathname.endsWith('/projects') && !init?.method) {
+        return Response.json({
+          activeId: second,
+          projects: [{ id: second, title: 'Second project' }],
+          sessions: [catalog.sessions[1]],
+        });
+      }
+      if (url.pathname.endsWith('/project/status')) {
+        return Response.json({ projectId: second, revision: 'r2', exportJob: null });
+      }
+    }
+    return fallback(input, init);
+  });
+
+  await mount();
+  expect(button('Open Motion Editor').disabled).toBe(false);
+
+  switched = true;
+  await act(async () => {
+    window.dispatchEvent(new Event('motion:account-changed'));
+    await new Promise(resolve => setTimeout(resolve, 20));
+  });
+
+  expect(location.hash).toBe('');
+  expect(button('Open Motion Editor').disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(container.querySelector('[aria-label="Editor draft"]')?.getAttribute('data-project')).toBe(second);
 });

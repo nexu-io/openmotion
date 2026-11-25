@@ -6,6 +6,7 @@ import { useInRouterContext, useLocation } from 'react-router';
 import { useI18n } from '../i18n/I18n';
 import { WorkspaceFrame, WorkspaceMenuButton, useWorkspaceChrome } from './WorkspaceFrame';
 import { requestedProject, validWorkspaceProject, type WorkspaceRoute } from './workspaceRouting';
+import { parseProjectIdFromHash } from '../utils/projectRouting';
 import { resolveWorkspaceRoute } from './resolveWorkspaceRoute';
 import { preloadMotionProjectEditor } from './MotionProjectEditor';
 import { ArtifactViewer } from './ArtifactViewer';
@@ -159,9 +160,31 @@ function MotionAppContent() {
   const closeLibrary = () => {
     setLibraryOnly(false);
   };
+  const onInvalidProject = useCallback((staleId: string) => {
+    setRoute(previous => (previous.projectId === staleId ? { ...previous, projectId: null } : previous));
+    setReady(previous => (previous?.artifact?.projectId === staleId ? null : previous));
+    if (typeof window === 'undefined') return;
+    const url = new URL(location.href);
+    if (!isStandaloneSpaPath(url.pathname, url.search, url.hash) && !isNotFoundSpaPath(url.pathname, url.search, url.hash)) {
+      return;
+    }
+    let changed = false;
+    if (url.searchParams.get('project') === staleId) {
+      url.searchParams.delete('project');
+      changed = true;
+    }
+    if (parseProjectIdFromHash(url.hash) === staleId) {
+      url.hash = '';
+      changed = true;
+    }
+    if (changed) {
+      writeWorkspaceHistory(url, true);
+    }
+  }, []);
   const shellLoading = !ready && !routeError && !libraryOnly && !settingsPage;
   return <WorkspaceFrame waitForSaves={noPendingSaves} projectId={ready?.artifact?.projectId ?? (routeError ? undefined : projectId ?? undefined)}
     sessionId={libraryOnly ? undefined : ready?.sessionId ?? sessionId ?? undefined} onNavigate={onNavigate}
+    onInvalidProject={onInvalidProject}
     blocked={shellLoading} onLibraryClose={libraryOnly ? closeLibrary : undefined}>
     <div className="motion-project-surface">
       <EditorOpeningGateHost
