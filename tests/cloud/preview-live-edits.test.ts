@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { parseHTMLContent } from '@hyperframes/core/compiler/html-document';
 import { assembleBuiltinTemplate, BUILTIN_TEMPLATES } from '../../src/services/builtin-template-source.ts';
 import { buildSubCompositionHtmlInMemory, bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
-import { verifiedPreviewLiveEdits } from '../../src/studio/engine/preview-live-edits.ts';
+import { previewBehaviorDigest, verifiedPreviewLiveEdits } from '../../src/studio/engine/preview-live-edits.ts';
 import { InMemoryVirtualProject } from '../../src/studio/virtual-project-store.ts';
 import { isLiveMediaMove } from '../../shared/preview-live-media.ts';
 import type { PreviewChange } from '../../shared/preview-timing.ts';
@@ -41,7 +41,7 @@ async function welcomeFixture() {
 test('only an author-reviewed script set opts into position and media timing updates', async () => {
   const {template, fixture} = await welcomeFixture();
   const project = fixture();
-  const capabilities = {mediaTiming:true, position:true};
+  const capabilities = {mediaTiming:true, position:true, audioTrimV1:true};
   assert.deepEqual(await verifiedPreviewLiveEdits(project), capabilities);
   const html = await bundlePreviewInMemory(project, {bridgeOrigin:'https://preview.test', studioOrigin:'https://studio.test',skipDeterministicFonts:true});
   const settings = JSON.parse(parseHTMLContent(html!).querySelector('script[data-openmotion-preview]')!.getAttribute('data-openmotion-preview')!);
@@ -64,6 +64,13 @@ test('only an author-reviewed script set opts into position and media timing upd
     {'compositions/new.html': '<img src="title.png" onload="changeTimeline()">'},
   ];
   for (const change of changes) assert.equal(await verifiedPreviewLiveEdits(fixture(change)), undefined);
+
+  // A template author can independently certify moves for different scripts, including
+  // startup code that caches clip duration. That promise does not certify audio trims.
+  const changed = index.replace('</body>', '<script>window.cachedLength=document.querySelector("audio").dataset.duration</script></body>');
+  const digest = previewBehaviorDigest(fixture({'index.html':changed}), 'mediaTiming position')!;
+  const recertified = changed.replace(/data-scripts-sha256="[0-9a-f]+"/, `data-scripts-sha256="${digest}"`);
+  assert.deepEqual(await verifiedPreviewLiveEdits(fixture({'index.html':recertified}, template.id)), { mediaTiming:true, position:true });
 });
 
 test('preview silently stops recursive mounts while rendering each independent instance', async () => {

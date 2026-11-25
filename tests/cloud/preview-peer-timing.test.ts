@@ -229,6 +229,51 @@ it('draws a history timing draft and confirms it without a second seek or replac
   assert.equal(frame.send({ discardDraftId: 'undo' }), false);
 });
 
+it('rebinds one audited audio trim at the current playhead and restores the saved window through history', () => {
+  const setup = (caps: PreviewLiveEdits) => {
+    const frame = preview(false, caps);
+    const audio = frame.document.getElementById('clip')!;
+    audio.setAttribute('data-duration', '13');
+    return { ...frame, audio };
+  };
+  const left = { ...clip, attributes: [...clip.attributes, ['data-duration', '13', '12']] };
+  const right = { ...clip, attributes: [['data-duration', '12', '11']] };
+  const reverse = (change: typeof right | typeof root) => ({ ...change, attributes: change.attributes.map(([name, from, to]) => [name, to, from]) });
+  assert.equal(setup({mediaTiming:true}).send({changes:[left]}), false);
+
+  const { send, audio, document, window, hooks } = setup({audioTrimV1:true});
+  for (const invalid of [
+    {documentId:'obsolete'}, {before:etag(2)}, {path:'scenes/intro.html', before:etag(3)},
+    {changes:[left, {...root, compositionId:'child'}]}, {changes:[left, left]},
+    {changes:[{...left, attributes:[...left.attributes, ['loop', null, '']]}]},
+    {changes:[{...left, attributes:[...left.attributes, ['data-playback-start', null, '1']]}]},
+  ]) assert.equal(send({changes:[left], ...invalid}), false);
+  assert.deepEqual(hooks, []);
+  assert.equal(audio.getAttribute('data-duration'), '13');
+  window.__player.isPlaying = () => false;
+  assert.equal(send({changes:[left]}), true);
+  assert.equal(audio.getAttribute('data-start'), '3');
+  assert.equal(audio.getAttribute('data-media-start'), '1');
+  assert.deepEqual(hooks, ['seek:4','rebind']);
+  window.__player.getTime = () => 8;
+  window.__player.isPlaying = () => true;
+  assert.equal(send({before:etag(2), after:etag(3), changes:[root,right]}), true);
+  assert.equal(audio.getAttribute('data-duration'), '11');
+  assert.equal(document.querySelector('main')!.getAttribute('data-duration'), '14');
+  assert.deepEqual(hooks.slice(-3), ['seek:8','rebind','play']);
+
+  const undo = [reverse(root), reverse(right)];
+  assert.equal(send({before:etag(3), after:etag(3), changes:undo, historyDraftId:'undo'}), true);
+  const calls = [...hooks];
+  assert.equal(send({before:etag(3), after:etag(4), changes:undo, historyRestore:true}), true);
+  assert.deepEqual(hooks, calls);
+  assert.equal(audio.getAttribute('data-duration'), '12');
+  assert.equal(send({before:etag(4), after:etag(5), changes:[root,right], historyRestore:true}), true);
+  assert.equal(document.querySelector('main')!.getAttribute('data-hf-authored-duration'), '14');
+  assert.equal(send({type:'mounted-file-version'}), etag(5));
+  assert.equal(document.getElementById('clip'), audio);
+});
+
 it('discards only the geometry a refused canvas history draft still owns', () => {
   const frame = preview(false, {position:true});
   const target = frame.document.getElementById('title')!;

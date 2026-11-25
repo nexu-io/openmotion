@@ -1,5 +1,5 @@
 import { diffGroupChange } from "./visualGroupChange";
-import { isLiveMediaMove } from "../../../shared/preview-live-media";
+import { isLiveAudioTrim, isLiveMediaMove } from "../../../shared/preview-live-media";
 import { takeInsertedClip, takeRemovedClip } from "./visualClipStructure";
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from "../../../packages/edit-core/canvas-position";
 import { createPreviewAdapter } from "./lib/previewAdapter";
@@ -275,7 +275,8 @@ async function applyPeerChanges(
   const grade = changes.length > 0 && changes.every(isGradeOnlyChange);
   const cssBox = cssLayoutOffset && changes.length > 0 && changes.every(change => isPixelBoxChange(change, true));
   const canAdvance = grade || nestedBox || caption || cssBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
-    (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
+    (document.liveEdits.mediaTiming && isLiveMediaMove(changes)) ||
+    (document.liveEdits.audioTrimV1 && update.path === 'index.html' && isLiveAudioTrim(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
   if (temporary && (document.canRebind || !onlyStyles(changes))) return "requires-scene-rebuild";
   if (!temporary && !canAdvance) return "requires-scene-rebuild";

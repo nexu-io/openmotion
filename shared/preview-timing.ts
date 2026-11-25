@@ -1,5 +1,5 @@
 import type { GroupChange } from "./preview-group.ts";
-export type PreviewLiveEdits = { position?: true; mediaTiming?: true; presentation?: true; cssLayoutOffset?: true };
+export type PreviewLiveEdits = { position?: true; mediaTiming?: true; audioTrimV1?: true; presentation?: true; cssLayoutOffset?: true };
 export const PREVIEW_ATTRIBUTES = [
   "data-start", "data-end", "data-duration", "data-track-index", "data-playback-start", "data-media-start",
   "data-timeline-locked", "data-hidden", "muted", "data-volume", "loop", "data-playback-rate", "data-color-grading",

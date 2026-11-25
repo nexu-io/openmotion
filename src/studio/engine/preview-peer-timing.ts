@@ -1,5 +1,5 @@
 import { indexGroupMembers, stageGroupChange } from "../../../shared/preview-group.ts";
-import { isLiveMediaMove } from '../../../shared/preview-live-media.ts';
+import { isLiveAudioTrim, isLiveMediaMove } from '../../../shared/preview-live-media.ts';
 import { isHistoryGeometry } from '../../../shared/preview-timing.ts';
 import { stageVisualClipInsert } from '../../../shared/preview-visual-insert.ts';
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from '../../../packages/edit-core/canvas-position.ts';
@@ -107,6 +107,7 @@ export const PREVIEW_PEER_TIMING = `
   const isLivePositionEdit = ${isLivePositionEdit.toString()};
   const isHistoryGeometry = ${isHistoryGeometry.toString()};
   const isMediaMove = ${isLiveMediaMove.toString()};
+  const isLiveAudioTrim = ${isLiveAudioTrim.toString()};
   const stageClipInsert = ${stageVisualClipInsert.toString()};
   // A draft owns only its provisional DOM. Its source version stays unchanged until storage confirms it.
   let structureDraft;
@@ -154,8 +155,10 @@ export const PREVIEW_PEER_TIMING = `
       (nestedCaption || (position && m.changes.every(c => c.styles?.length && !c.text && !c.attributes.length && !c.group && !c.insert && !c.removeFromComposition))) &&
       (!drag || disjoint(drag.selection?.sourceFile)) && Array.from(pendingDrags.values()).every(step => disjoint(step.selection?.sourceFile)) &&
       (!inlineText || (disjoint(sourceFileForElement(inlineText.el)) && (!inlineText.binding || disjoint(inlineText.binding.sourceFile))));
-    const media = settings.liveEdits?.mediaTiming === true && m.type === 'peer-timing' &&
-      Array.isArray(m.changes) && isMediaMove(m.changes);
+    const audioTrim = settings.liveEdits?.audioTrimV1 === true && compositionPath === 'index.html' &&
+      m.path === compositionPath && m.type === 'peer-timing' && isLiveAudioTrim(m.changes);
+    const media = audioTrim || (settings.liveEdits?.mediaTiming === true && m.type === 'peer-timing' &&
+      Array.isArray(m.changes) && isMediaMove(m.changes));
     // Only this mounted file may update its verified live text/style, preserving the
     // already-executed handlers. Nested scenes also need their remount cache updated.
     const authored = m.type === 'peer-presentation' && m.path === compositionPath && isAuthoredPresentation(m.changes);
@@ -258,6 +261,7 @@ export const PREVIEW_PEER_TIMING = `
         effects.push(forward => forward ? node.remove() : parent.insertBefore(node, next));
       }
       if (media && change.tag !== 'audio' && node !== document.querySelector('[data-composition-id]')) return false;
+      if (audioTrim && change.tag === 'audio' && node.parentElement !== document.querySelector('[data-composition-id]')) return false;
       if ((position || nestedCaption) && change.styles?.some(([name]) => name === 'position')) {
         if (parkedSource || node.childElementCount) return false;
         // Inline declarations alone cannot tell whether stylesheet positioning is static.

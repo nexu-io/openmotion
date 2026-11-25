@@ -5,6 +5,9 @@ import { readBuiltinTemplateEntry } from '../../services/builtin-template-source
 import { resolveVirtualPath, virtualDirname, type VirtualProjectReader } from '../virtual-project-store.ts';
 
 const selector = 'meta[name="openmotion-live-edits"]';
+// Welcome's existing declaration binds its sorted capabilities and all startup scripts.
+// Keep the separate trim audit valid for previously created copies of the same behavior.
+const welcomeAudioTrimDigest = '7369040b0b9438f944ac70b22a259f740b4c15b6257b73683a6f2f5de3fa2dc4';
 
 /** An author can promise these edits do not affect startup code. Bind that promise to the reviewed code. */
 export function previewBehaviorDigest(project: VirtualProjectReader, capabilities: string): string | null {
@@ -53,5 +56,6 @@ export async function verifiedPreviewLiveEdits(project: VirtualProjectReader): P
   const expected = declaration.getAttribute('data-scripts-sha256');
   if (!expected || !/^[0-9a-f]{64}$/.test(expected) ||
       previewBehaviorDigest(project, capabilities.join(' ')) !== expected) return;
-  return Object.fromEntries(capabilities.map(name => [name, true]));
+  return { ...Object.fromEntries(capabilities.map(name => [name, true])),
+    ...(expected === welcomeAudioTrimDigest && { audioTrimV1: true }) };
 }

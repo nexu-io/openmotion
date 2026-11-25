@@ -1,12 +1,35 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
+import { applyTimelineCommand } from '../../../packages/edit-core/timeline-commands';
+import { isLiveAudioTrim } from '../../../shared/preview-live-media';
+import welcome from '../../../template-library/openmotion-welcome/index.html?raw';
 import welcomeEditor from '../../../template-library/openmotion-welcome/compositions/editor.html?raw';
 import { applyCommittedPeerChanges, diffMountedPreview, diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, refreshPeerScenes, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
 
 const source = '<!doctype html><main data-composition-id="root" data-duration="15"><audio id="a" data-start="2" data-duration="3"></audio><script>window.run(1)</script></main>';
 
 describe("peer timing classification", () => {
+  it('recognizes actual Welcome trim receipts and their inverses, including first-edit ID stamping', async ({onTestFinished}) => {
+    const settings = window.happyDOM.settings;
+    const previous = settings.handleDisabledFileLoadingAsSuccess;
+    settings.handleDisabledFileLoadingAsSuccess = true;
+    onTestFinished(() => { settings.handleDisabledFileLoadingAsSuccess = previous; });
+    const stamped = ensureHfIds(welcome);
+    const hfId = new DOMParser().parseFromString(stamped, 'text/html').querySelector('audio')!.getAttribute('data-hf-id')!;
+    const trim = (source: string, start: number, duration: number) => applyTimelineCommand(source, {
+      kind:'trimClips', changes:[{hfId, start, duration}],
+    });
+    const left = trim(stamped, 1, 36.3);
+    const right = trim(left, 1, 33);
+    for (const [before, after] of [[welcome, left], [left, right], [right, left], [left, welcome]] as const) {
+      expect(isLiveAudioTrim((await diffMountedPreview(before, after)) ?? [])).toBe(true);
+    }
+    for (const edited of [left.replace('assets/soundtrack.m4a','new.m4a'), left.replace('gsap.timeline','changed.timeline')]) {
+      expect(await diffMountedPreview(welcome, edited)).toBeNull();
+    }
+  });
+
   it("identifies a single visual clip deletion and the new composition end together", () => {
     const clip = '<div class="clip" data-hf-id="first" data-start="0" data-duration="3">First</div>';
     const remaining = '<div class="clip" data-hf-id="last" data-start="5" data-duration="2">Last</div>';
