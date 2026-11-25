@@ -9,6 +9,9 @@ import { thumbnailScheduler } from "../lib/thumbnailScheduler";
 import { usePlayerStore } from "../store/playerStore";
 import { PreviewCompositionLoading } from "./PreviewCompositionLoading";
 
+import { CachedCompositionPoster } from "./CachedCompositionPoster";
+
+const poster = (projectId: string, compositionPath = "index.html") => <CachedCompositionPoster projectId={projectId} compositionPath={compositionPath} />;
 const filename = "夜の街 — opening shot.mp4";
 const title = "Preparing preview assets";
 const firstFrameTitle = "Preparing the first preview frame";
@@ -148,7 +151,7 @@ describe("after three seconds on the stage", () => {
   });
 
   it("borrows the root cover already in memory at the deadline and releases its URL on unmount", () => {
-    const host = mountHost(<PreviewCompositionLoading showMark={false} posterProjectId="p" />);
+    const host = mountHost(<PreviewCompositionLoading showMark={false} loadingPoster={poster("p")} />);
     advance(2_900);
     const url = seedCover("p");
     expect(host.querySelector("img")).toBeNull();
@@ -164,14 +167,14 @@ describe("after three seconds on the stage", () => {
     const { host, render } = setup();
     setCachedProjectRevision("a", "v1", { [clip]: "file-1" });
     const url = seedCover("a", clip);
-    render({ posterProjectId: "a", posterCompositionPath: clip });
+    render({ loadingPoster: poster("a", clip) });
     advance(3_000);
     expect(host.querySelector("img")?.getAttribute("src")).toBe(url);
-    render({ posterProjectId: "b", posterCompositionPath: clip });
+    render({ loadingPoster: poster("b", clip) });
     expect(host.querySelector("img")).toBeNull();
-    render({ posterProjectId: "a", posterCompositionPath: "other.html" });
+    render({ loadingPoster: poster("a", "other.html") });
     expect(host.querySelector("img")).toBeNull();
-    render({ posterProjectId: "a", posterCompositionPath: clip });
+    render({ loadingPoster: poster("a", clip) });
     expect(host.querySelector("img")?.getAttribute("src")).toBe(url);
     act(() => setCachedProjectRevision("a", "v2", { [clip]: "file-2" }));
     expect(host.querySelector("img")).toBeNull();
@@ -182,7 +185,7 @@ describe("after three seconds on the stage", () => {
     const path = "parts/scene.html";
     usePlayerStore.getState().bumpThumbnailRevisions([path]);
     const url = seedCover("p", path, 1);
-    const host = mountHost(<PreviewCompositionLoading posterProjectId="p" posterCompositionPath={path} />);
+    const host = mountHost(<PreviewCompositionLoading loadingPoster={poster("p", path)} />);
     advance(3_000);
     expect(host.querySelector("img")?.getAttribute("src")).toBe(url);
     act(() => usePlayerStore.getState().bumpThumbnailRevisions([path]));
@@ -194,7 +197,7 @@ describe("after three seconds on the stage", () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     const acquire = vi.spyOn(thumbnailScheduler, "acquire");
     const url = seedCover("p");
-    const host = mountHost(<PreviewCompositionLoading posterProjectId="p" />);
+    const host = mountHost(<PreviewCompositionLoading loadingPoster={poster("p")} />);
     advance(3_000);
     const img = host.querySelector("img")!;
     expect(img.getAttribute("src")).toBe(url);

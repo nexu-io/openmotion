@@ -4,7 +4,6 @@ import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { applyPreviewVariablesToUrl } from "../../hooks/previewVariablesStore";
 import { buildProjectApiPath } from "../../utils/projectRouting";
-import { compositionPathOfPreviewUrl } from "../../utils/projectCompositionPath";
 import { createPreviewAdapter, observePreviewDocument } from "../lib/previewAdapter";
 import { rememberBridgeTimelineState } from "../lib/playbackAdapter";
 import { bindPreviewLease } from "../lib/previewLease";
@@ -375,8 +374,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           <PreviewCompositionLoading
             showMark={!props.suppressLoadingOverlay}
             canEditWhileLoading={props.canEditWhileLoading}
-            posterProjectId={tracksAssets ? props.projectId : undefined}
-            posterCompositionPath={props.directUrl ? compositionPathOfPreviewUrl(props.directUrl) : undefined}
+            loadingPoster={props.loadingPoster}
             assetGeneration={tracksAssets ? assetReadinessGenRef : undefined}
           />
         )}

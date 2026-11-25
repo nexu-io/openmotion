@@ -4,7 +4,6 @@ import { isolatedPreviewOrigin } from "../lib/previewLease";
 import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
-import { compositionPathOfPreviewUrl } from "../../utils/projectCompositionPath";
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { isLottieAnimationLoaded } from "@hyperframes/core/runtime/lottie-readiness";
 import { scanPendingCompositionAssets } from "@hyperframes/core/composition-readiness";
@@ -58,6 +57,8 @@ export interface PlayerProps {
   /** Show the live preview’s loading indicator until its first displayable frame. */
   showInitialLoading?: boolean;
   canEditWhileLoading?: boolean;
+  /** Optional host-supplied cover to mount after the first-frame status expires. */
+  loadingPoster?: React.ReactNode;
   /** Track all referenced composition assets for the unified editor readiness gate (live slot only). */
   trackAssets?: boolean;
   /** Keeps a hidden shadow preview out of focus order and the accessibility tree while still rasterizing. */
@@ -201,6 +202,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
       noLoadTimeout,
       showInitialLoading,
       canEditWhileLoading,
+      loadingPoster,
       trackAssets,
       inert,
       ...host
@@ -691,8 +693,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         <div ref={containerRef} className="w-full h-full" />
         {showCompositionOverlay && <PreviewCompositionLoading
           canEditWhileLoading={canEditWhileLoading}
-          posterProjectId={tracksAssets ? projectId : undefined}
-          posterCompositionPath={directUrl ? compositionPathOfPreviewUrl(directUrl) : undefined}
+          loadingPoster={loadingPoster}
           assetGeneration={tracksAssets ? assetReadinessGenRef : undefined}
         />}
         {showAssetOverlay && (

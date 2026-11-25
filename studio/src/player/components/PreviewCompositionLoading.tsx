@@ -1,18 +1,16 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useI18n } from "../../i18n/I18n";
 import { usePlayerStore } from "../store/playerStore";
-import { CachedCompositionPoster } from "./CachedCompositionPoster";
 
 interface PreviewCompositionLoadingProps {
   showMark?: boolean;
   canEditWhileLoading?: boolean;
   assetGeneration?: { readonly current: number };
-  posterProjectId?: string;
-  posterCompositionPath?: string;
+  loadingPoster?: ReactNode;
 }
 
 /** Bound the loading message, not the player's wait for a displayable frame. */
-export function PreviewCompositionLoading({ posterProjectId, posterCompositionPath = "index.html", ...status }: PreviewCompositionLoadingProps) {
+export function PreviewCompositionLoading({ loadingPoster, ...status }: PreviewCompositionLoadingProps) {
   const [expired, setExpired] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setExpired(true), 3_000);
@@ -27,7 +25,7 @@ export function PreviewCompositionLoading({ posterProjectId, posterCompositionPa
       data-testid="composition-loading-backdrop"
       aria-hidden="true"
     >
-      {posterProjectId && <CachedCompositionPoster projectId={posterProjectId} compositionPath={posterCompositionPath} />}
+      {loadingPoster}
     </div>
   );
 }
