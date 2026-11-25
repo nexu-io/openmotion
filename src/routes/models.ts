@@ -75,7 +75,6 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
       return await deps.gateway.listMediaModels(
         {
           workspaceId: 'public',
-          userId: 'guest',
           signal,
         },
         { refresh: false },
