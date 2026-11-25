@@ -65,3 +65,14 @@ test('Motion templates load the next batch when the shelf end scrolls into view,
   expect(cards()).toBe(40);
   expect(host.querySelector('.om-shelf-sentinel')).toBeNull();
 });
+
+test('without IntersectionObserver the Motion shelf keeps a More button instead of rendering every template', async () => {
+  catalog.splice(0, catalog.length, ...Array.from({ length: 40 }, (_, index) => template(`n${index}`)));
+  vi.stubGlobal('IntersectionObserver', undefined);
+  const cards = () => host.querySelectorAll('.om-gallery-card:not([data-new-project])').length;
+  await act(async () => root.render(<I18nProvider initialLocale="en"><MotionTemplateShelf root={createRef()} active /></I18nProvider>));
+  expect(cards()).toBe(16);
+  const more = [...host.querySelectorAll('button')].find(node => node.textContent === 'More templates')!;
+  await act(async () => more.click());
+  expect(cards()).toBe(32);
+});

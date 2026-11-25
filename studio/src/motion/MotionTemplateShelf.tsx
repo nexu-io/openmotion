@@ -42,10 +42,11 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
   const playing = useTemplatePlayback(root, visible.map(item => item.id).join('|'), active, true, priority, true);
   const hasMore = visible.length < matches.length;
   // The next batch appears as the user scrolls toward the end of the shelf; no "More templates" click.
-  const sentinel = useLoadMoreOnScroll(root, hasMore, () => {
+  const loadMore = () => {
     reportCreativeClick('creative_studio', 'studio_bar', 'load_more', { studio: 'motion' });
     setLimit(previous => previous + batchSize);
-  }, `${collection}:${limit}`);
+  };
+  const { sentinel, observing } = useLoadMoreOnScroll(root, hasMore, loadMore, `${collection}:${limit}`);
   const selectCollection = (next: TemplateCollection | null, group: 'uses' | 'industries' | 'editable' | 'brand') => {
     if (next === collection) return;
     setCollection(next);
@@ -97,7 +98,8 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
     {/* Announces each automatically appended batch; the visible count above is the category total. */}
     {visible.length > 0 && <span className="sr-only" aria-live="polite">{t('{count} templates', { count: visible.length })}</span>}
     {catalog && !matches.length && <p className="om-muted">{t('No matching templates.')}</p>}
-    {hasMore && <div ref={sentinel} className="om-shelf-sentinel" aria-hidden="true" />}
+    {hasMore && (observing ? <div ref={sentinel} className="om-shelf-sentinel" aria-hidden="true" />
+      : <Button variant="plain" type="button" className="om-button om-shelf-more" onClick={loadMore}>{t('More templates')}<RemixIcon name="arrow-down-s-line" size={16} /></Button>)}
     {failed && <div className="om-discovery-empty" role="alert"><span>{t('Templates could not be loaded.')}</span>
       <Button variant="ghost" className="om-button h-auto" onClick={retry}>{t('Retry')}</Button></div>}
   </ExploreShelf>;

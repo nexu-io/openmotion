@@ -42,7 +42,7 @@ export function StudioTemplateShelf({ studio, root, active }: {
   const loadMore = () => tag && matching.length > shown ? setShown(count => count + shelfSize) : templates.loadMore();
   const [priority, setPriority] = useState<string | null>(null);
   // Further templates load as the user scrolls toward the end of the shelf; never while a page is in flight or after an error.
-  const sentinel = useLoadMoreOnScroll(root, hasMore && !templates.loading && !templates.error, loadMore, `${loaded.length}:${shown}`);
+  const { sentinel, observing } = useLoadMoreOnScroll(root, hasMore && !templates.loading && !templates.error, loadMore, `${loaded.length}:${shown}`);
   const playing = useTemplatePlayback(root, items.map(item => item.id).join('|'), active, true, priority, true);
   const title = t('Templates');
   return <section className="om-studio-template-shelf" data-studio={studio} aria-label={title}>
@@ -56,7 +56,8 @@ export function StudioTemplateShelf({ studio, root, active }: {
     {items.length > 0 && <span className="sr-only" aria-live="polite">{t('{count} templates', { count: items.length })}</span>}
     {templates.loading && <div className="om-studio-template-grid" role="status" aria-label={t('Loading templates…')}>{[0, 1, 2, 3].map(n => <Skeleton key={n} />)}</div>}
     {templates.error ? <div className="om-discovery-empty"><span>{t('Templates could not be loaded.')}</span><Button variant="ghost" className="om-button h-auto" onClick={templates.retry}>{t('Retry')}</Button></div>
-      : hasMore ? <div ref={sentinel} className="om-shelf-sentinel" aria-hidden="true" />
+      : hasMore ? (observing ? <div ref={sentinel} className="om-shelf-sentinel" aria-hidden="true" />
+        : !templates.loading && <Button variant="plain" className="om-button om-shelf-more" onClick={loadMore}>{t('More templates')}<RemixIcon name="arrow-down-s-line" size={16} /></Button>)
       : !templates.loading && !items.length && <p className="om-muted">{t('No templates available. Open the library or try again later.')}</p>}
   </section>;
 }
