@@ -75,8 +75,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '26.11.1'
-      - name: Fetch versioned Studio preview sources
-        run: git lfs pull --include='studio/preview-media/**' --exclude=''
       - name: Publish and verify Studio preview media before promotion
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK }}

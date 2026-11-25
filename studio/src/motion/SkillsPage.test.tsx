@@ -279,12 +279,16 @@ it('opens the contribution guide section for submitting a skill, like the templa
 it('serves Skill covers from first-party assets and streams previews only during playback', async () => {
   const firstPartyMedia = /^https:\/\/releases\.open-design\.ai\/open-motion\/media\/sha256\/[a-f0-9]{64}\.(mp4|gif|webp)$/;
   const previews = motionSkills.flatMap(skill => [skill.cover?.video, skill.cover?.gif].filter(Boolean));
-  expect(previews.filter(url => firstPartyMedia.test(url!)).length).toBeGreaterThan(100);
+  expect(previews.length).toBeGreaterThan(120);
+  expect(previews.every(url => firstPartyMedia.test(url!))).toBe(true);
   for (const { cover, id } of motionSkills) {
-    for (const url of [cover?.video, cover?.gif, cover?.poster]) {
-      if (url) expect(new URL(url, location.origin).hostname, id).not.toBe('raw.githubusercontent.com');
+    if (!cover) continue;
+    for (const url of [cover.video, cover.gif, cover.poster]) {
+      if (!url) continue;
+      if (/^https?:\/\//.test(url)) expect(url, id).toMatch(firstPartyMedia);
+      else expect(url, id).toMatch(/\.webp$/);
     }
-    if (firstPartyMedia.test(cover?.video ?? cover?.gif ?? '')) expect(cover?.poster, id).toMatch(/\.webp$/);
+    if (cover.video || cover.gif) expect(cover.poster, id).toMatch(/\.webp$/);
   }
   const skill = motionSkills.find(entry => entry.id === 'motionmaxxing')!;
   act(() => root.render(<SkillMedia skill={skill} />));
