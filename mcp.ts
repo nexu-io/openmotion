@@ -58,6 +58,7 @@ const serverIcons = ['light', 'dark'].map(theme => ({
 }));
 
 export type McpRpcOptions = {
+  transport?: 'stdio' | 'http';
   authorizeToolCall?: (tool: { name: string; annotations?: { readOnlyHint?: boolean } }, args: unknown) => void;
   callPhase1?: (payload: { name: string; arguments: any; trackingHost: HostContext; trackingContext?: string }) => Promise<any>;
 };
@@ -123,6 +124,14 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
       presentation: message.params.arguments.presentation ?? 'foreground',
       embedded: message.params.arguments.embedded !== false,
     }, undefined, undefined, host);
+  }
+  // Any discovery route (media_use inspect, capability_discover providers/list) may carry the internal link result:
+  // strip it before the agent sees it and record the link generation once.
+  if (value && !value.isError && content?._upgradeLinkResult) {
+    const { _upgradeLinkResult, ...visible } = content;
+    if (options?.transport !== 'http') tracking.track('upgrade_link_result', _upgradeLinkResult, undefined, undefined, host);
+    value.structuredContent = visible;
+    value.content = [{ type: 'text', text: JSON.stringify(visible) }];
   }
   const lifecycleStatus = gameResultStatusIsLifecycle(name);
   const outcome = value?.isError || !lifecycleStatus && content?.status === 'failed' ? 'failure'
