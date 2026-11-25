@@ -97,8 +97,11 @@ try {
   });
   // Pause the first response after acceptance, leaving input and the peer's SSE connection live.
   const endpoint = "/api/projects/" + projectId + "/text-edits/batch";
+  const dropResponse = process.argv.includes('--lose-first-response');
+  const attempts = [];
   await sender.send("Fetch.enable", { patterns: [{ urlPattern: "*" + endpoint, requestStage: "Response" }] });
   sender.on("Fetch.requestPaused", event => {
+    if (dropResponse) attempts.push(JSON.parse(event.request.postData).operations.map(op => op.id));
     if (!held) held = event.requestId;
     else void sender.send("Fetch.continueRequest", { requestId: event.requestId });
   });
@@ -143,12 +146,14 @@ try {
     await mkdir(evidence, { recursive: true });
     await writer.screenshot({ path: join(evidence, "canvas-before-first-ack.png") });
   }
-  await sender.send("Fetch.continueRequest", { requestId: held });
+  if (dropResponse) await sender.send("Fetch.failRequest", { requestId: held, errorReason: "ConnectionReset" });
+  else await sender.send("Fetch.continueRequest", { requestId: held });
   await until(() => receipts.flat().length, n => n >= count, "Missing accepted edits");
   await until(() => broadcasts.flat().length, n => n >= count, "Missing peer edit events");
   assert.equal(receipts.flat().length, count);
   assert.equal(new Set(receipts.flat()).size, count, "Duplicate or missing operation IDs");
   assert.deepEqual(broadcasts, receipts, "One ordered SSE group per accepted batch");
+  if (dropResponse) assert.deepEqual(attempts[1], attempts[0], 'Retry after ambiguous acceptance must reuse the original operation IDs');
   assert(receipts.length < count, "Each gesture sent a separate request");
   const cold = await openEditor(url);
   for (const [name, page] of Object.entries({ writer, peer, cold })) {
@@ -156,7 +161,7 @@ try {
   }
   await checkOutline(peer, await geometry(peer));
   assert.deepEqual(fileReads, [], "Warm editor should apply the received patches without fetching project files");
-  const metrics = { gestures: count, gestureMs, editsPerRequest: receipts.map(batch => batch.length), peerEvents: broadcasts.length };
+  const metrics = { gestures: count, gestureMs, editsPerRequest: receipts.map(batch => batch.length), peerEvents: broadcasts.length, lostFirstResponse: dropResponse };
   if (evidence) {
     await peer.screenshot({ path: join(evidence, "canvas-peer.png") });
     await writeFile(join(evidence, "metrics.json"), JSON.stringify(metrics, null, 2));

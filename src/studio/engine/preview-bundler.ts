@@ -571,11 +571,24 @@ function hasOnlyDeclarativeMarkup(doc: Document, runtimeUrl: string, includeForm
     el.getAttributeNames().some(name => name.toLowerCase().startsWith('on')));
 }
 
+// Inspect the assembled tree, not the parked DOM: a repeated mount or a nested
+// dependency cannot participate in the sibling-paint fast path.
+function independentSceneFiles(doc: Document, mounted: ReadonlySet<string>): string[] | undefined {
+  const leaves = new Map<string, boolean>();
+  for (const host of doc.querySelectorAll('[data-composition-file]')) {
+    const path = host.getAttribute('data-composition-file')!;
+    leaves.set(path, !leaves.has(path) && mounted.has(path) && !host.parentElement?.closest('[data-composition-file]') &&
+      !host.querySelector('[data-composition-file],[data-composition-src]'));
+  }
+  const files = [...leaves].filter(([, leaf]) => leaf).map(([path]) => path);
+  return files.length > 1 ? files : undefined;
+}
+
 async function applyStudioPreviewAugmentations(
   html: string,
   project: VirtualProjectReader,
   activeCompositionPath: string,
-  options: { capture: boolean; gsapBaseUrl: string; sceneManifest?: boolean; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; declarativePlacement?: boolean; smallMountedSources?: string[]; htmlSources?: string[]; variables?: Record<string, unknown> | null },
+  options: { capture: boolean; gsapBaseUrl: string; sceneManifest?: boolean; bridgeOrigin?: string; studioOrigin?: string; canRebindTiming?: boolean; declarativePlacement?: boolean; smallMountedSources?: string[]; independentSceneFiles?: () => string[] | undefined; htmlSources?: string[]; variables?: Record<string, unknown> | null },
 ): Promise<string> {
   let out = repairCodeExtrudeMaterial(html);
   let bridgeScript: string | undefined;
@@ -598,16 +611,19 @@ async function applyStudioPreviewAugmentations(
     .map(file => [file.path, file.blobScope === 'patch' ? formatFileVersion(file.blobScope, file.sha256) : file.sha256]));
   if (options.bridgeOrigin) {
     let liveEdits;
+    let independentSceneFiles;
     // Runtime overrides can own the same properties as an authored pixel box.
     const authoredLayout = !options.capture && !Object.keys(options.variables ?? {}).length &&
       !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH);
     if (authoredLayout && !options.canRebindTiming) {
       const reviewed = await verifiedPreviewLiveEdits(project);
       liveEdits = options.declarativePlacement ? { ...reviewed, position: true as const, cssLayoutOffset: true as const } : reviewed;
+      if (reviewed?.position || (options.htmlSources && options.declarativePlacement)) independentSceneFiles = options.independentSceneFiles?.();
     }
     const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions(), {
       studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,
       smallMountedSources: authoredLayout ? options.smallMountedSources : undefined,
+      independentSceneFiles,
     });
     const snapdomPreload = options.capture
       ? `<link rel="preload" as="script" href="${new URL('/api/vendor/snapdom.js', options.bridgeOrigin).href}">`
@@ -961,6 +977,7 @@ export async function bundlePreviewInMemory(
     canRebindTiming,
     declarativePlacement,
     smallMountedSources: [...smallMountedSources],
+    independentSceneFiles: allCompositionsResolved && smallMountedSources.size > 1 ? () => independentSceneFiles(document, smallMountedSources) : undefined,
     sceneManifest: true,
     htmlSources: htmlSources?.paths(),
   });

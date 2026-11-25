@@ -207,7 +207,7 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   function ready(){
     var paths=[compositionPath].concat(settings.smallMountedSources||[]);
     var mountedVersions=Object.fromEntries(paths.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}).filter(function(entry){return typeof entry[1]==='string';}));
-    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:Object.assign({presentation:true},settings.liveEdits),mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
+    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:Object.assign({presentation:true},settings.liveEdits),mountedVersions:mountedVersions,htmlSources:settings.htmlSources,independentSceneFiles:settings.independentSceneFiles,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
     var state=timeline(true);
     if(state.duration>0){
       durationBootAnnounced=true;
@@ -436,11 +436,11 @@ function htmlAttribute(value: string): string {
 }
 
 export function bridgeDocumentTags(origin: string, projectId: string, compositionPath: string, sourceVersions: Record<string, string>, options: {
-  studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; liveEdits?: PreviewLiveEdits; smallMountedSources?: string[];
+  studioOrigin?: string; canRebindTiming?: boolean; htmlSources?: string[]; liveEdits?: PreviewLiveEdits; smallMountedSources?: string[]; independentSceneFiles?: string[];
 } = {}) {
-  const { studioOrigin, canRebindTiming, htmlSources, liveEdits, smallMountedSources } = options;
+  const { studioOrigin, canRebindTiming, htmlSources, liveEdits, smallMountedSources, independentSceneFiles } = options;
   const src = new URL(PREVIEW_BRIDGE_ASSET, origin);
-  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, smallMountedSources, ...(canRebindTiming && { canRebindTiming }) }));
+  const settings = htmlAttribute(JSON.stringify({ projectId, compositionPath, sourceVersions, studioOrigin, htmlSources, liveEdits, smallMountedSources, independentSceneFiles, ...(canRebindTiming && { canRebindTiming }) }));
   // A pod from before this route existed may still serve an asset request
   // during rollout. Reuse the player's bounded preview retry if loading fails.
   const retry = htmlAttribute(previewBuildBusyScript(projectId, 1));

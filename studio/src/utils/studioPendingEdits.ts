@@ -11,7 +11,10 @@ export type StudioPendingEditsDrainResult = StudioSaveDrainResult;
 
 export type StudioEditRevert = () => () => void;
 
+export type StudioEditScope = { frame: HTMLIFrameElement; paths: readonly string[] };
+
 interface PendingEdit {
+  scope?: StudioEditScope;
   revert: StudioEditRevert | null;
   landed: () => Promise<boolean>;
   redraws: Array<() => void>;
@@ -98,6 +101,11 @@ export function isStudioEditSaving(): boolean {
   return pendingEdits.size > 0 || shownRestores.size > 0;
 }
 
+/** History restores and edits without a verified target still own the whole preview. */
+export function studioPendingEditBlocks(independent: (scope: StudioEditScope) => boolean): boolean {
+  return shownRestores.size > 0 || [...pendingEdits.values()].some(edit => !edit.scope || !independent(edit.scope));
+}
+
 export function afterStudioPendingEdits(run: () => void): () => void {
   let waiting = true;
   const check = () => {
@@ -117,11 +125,19 @@ export function afterStudioPendingEdits(run: () => void): () => void {
 
 export function trackStudioPendingEdit(
   result: Promise<unknown> | unknown,
+  scope?: StudioEditScope,
 ): Promise<unknown> | undefined {
   if (!result) return undefined;
   const promise = Promise.resolve(result);
   if (adopting) return promise;
+  const known = pendingEdits.get(promise);
+  if (known) {
+    // Nested action wrappers can register the very same promise before its input owner.
+    if (scope && !known.scope) { known.scope = scope; notifySaving(); }
+    return promise;
+  }
   pendingEdits.set(promise, {
+    scope,
     revert: null,
     landed: NOT_SAVED,
     redraws: [],

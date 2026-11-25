@@ -2,7 +2,9 @@ import { useCallback, useMemo, type MutableRefObject } from "react";
 import { changedFilePaths, changedFileVersion, changedFileVersions, readFileChangeAffectsPreview, readFileTreeChanged } from "../components/editor/manualEditsParsing";
 import { isUnrelatedPreviewHtmlChange } from "../player/lib/previewHtmlSources";
 import { presentPendingCanvasChange } from "./submitIsolatedCanvasEdit";
-import { syncPeerComposition } from "./syncPeerComposition";
+import { queuePeerPreviewFiles, syncPeerComposition } from "./syncPeerComposition";
+import { canPresentDuringStudioEdit } from "../player/committedPreview";
+import { previewDocumentIdentity } from "../player/lib/previewAdapter";
 import { createRemoteFileReader } from "./remoteFileReads";
 import { knownCompositionSource } from "../player/lib/compositionPosterSource";
 import { evictStaleCompositionCaptures } from "../player/lib/clientCompositionCapture";
@@ -81,14 +83,29 @@ export function useStudioExternalFileChanges({
     [bumpThumbnailRevisions, onOutsideChange, projectId],
   );
   const filesForChange = useMemo(() => createRemoteFileReader(), []);
+  const earlyPreviews = useMemo(() => new WeakMap<HTMLIFrameElement, Map<string, { version: string | null; queued: boolean; src: string; documentId?: string }>>(), [projectId]);
   const presentPendingPeerChange = useCallback((payload: unknown) => {
     const paths = changedFilePaths(payload);
+    const frame = previewIframeRef.current;
+    if (frame && !paths) earlyPreviews.delete(frame);
     if (!projectId || !paths?.length) return;
     const read = filesForChange(projectId, payload);
+    const versions = changedFileVersions(payload);
+    const independent = frame && !frame.contentDocument && versions && readFileChangeAffectsPreview(payload) && !readFileTreeChanged(payload) &&
+      paths.every(file => versions[file] && canPresentDuringStudioEdit(frame, projectId, file));
+    if (frame) {
+      const early = earlyPreviews.get(frame) ?? new Map();
+      for (const file of paths) {
+        if (independent || early.has(file)) early.set(file, { version: versions?.[file] ?? null, queued: !!independent, src: frame.src, documentId: previewDocumentIdentity(frame) });
+      }
+      if (early.size) earlyPreviews.set(frame, early);
+      // Only presentation can pass the drain; source views and conflict handling still settle in order.
+      if (independent) queuePeerPreviewFiles(frame, projectId, paths, versions, read, reloadPreview);
+    }
     for (const file of paths) {
       void presentPendingCanvasChange(projectId, file, previewIframeRef, () => read(projectId, file)).catch(() => {});
     }
-  }, [projectId, previewIframeRef, filesForChange]);
+  }, [projectId, previewIframeRef, filesForChange, earlyPreviews, reloadPreview]);
   const refreshFileViews = useCallback((payload: unknown, acceptChange: (unaffectedPreview?: string) => void) => {
     const activePath = activeCompPath ?? masterCompPath;
     const previous = projectId && activePath
@@ -110,6 +127,15 @@ export function useStudioExternalFileChanges({
     const preview = unrelated ? "unaffected" as const : affectsPreview
       ? syncPeerComposition(projectId, activePath, paths, read, previewIframeRef, previous, version, {
         versions: changedFileVersions(payload), treeChanged, refresh: reloadPreview,
+        alreadyQueued: (file, version) => {
+          const frame = previewIframeRef.current;
+          const early = frame && earlyPreviews.get(frame);
+          const latest = early?.get(file);
+          if (!frame || !early || !latest) return false;
+          if (latest.version !== version) return true; // A newer event owns this file while the drain catches up.
+          early.delete(file);
+          return latest.queued && frame.src === latest.src && latest.documentId === previewDocumentIdentity(frame);
+        },
       })
       : undefined;
     if (!paths) forgetProjectSources(projectId);
@@ -122,7 +148,7 @@ export function useStudioExternalFileChanges({
       fileManager.refreshOpenSource(path, read);
     }
     return preview;
-  }, [projectId, activeCompPath, masterCompPath, previewIframeRef, filesForChange, fileManager.refreshOpenSource, reloadPreview]);
+  }, [projectId, activeCompPath, masterCompPath, previewIframeRef, filesForChange, fileManager.refreshOpenSource, reloadPreview, earlyPreviews]);
 
   const drainPendingChanges = useCallback(async () => {
     const source = await flushPendingSourceSave();

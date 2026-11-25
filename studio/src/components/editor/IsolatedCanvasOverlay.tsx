@@ -1,4 +1,4 @@
-import { trackStudioPendingEdit } from "../../utils/studioPendingEdits";
+import { trackStudioPendingEdit, type StudioEditScope } from "../../utils/studioPendingEdits";
 import { IsolatedCanvasContextMenu, type CanvasMenuPick } from "./IsolatedCanvasContextMenu";
 import { useIsolatedInlineText } from "./useIsolatedInlineText";
 import { isIsolatedSourceTarget, isolatedPatchTarget, isolatedSourceVersion, type IsolatedSourceTarget } from "./isolatedSourceTarget";
@@ -14,7 +14,7 @@ import { onPreviewPromoted, SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwa
 import { usePlayerStore } from "../../player/store/playerStore";
 import { canvasBoxOperations, type CanvasBox, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
-import { beginStudioManualEditGesture, endStudioManualEditGesture } from "./manualEditsDom";
+import { beginStudioManualEditGesture, endStudioManualEditGesture, scopeStudioManualEditGesture } from "./manualEditsDom";
 import { supportsOrderedTextEdits, supportsProjectTextEdits } from "../../utils/confirmedTextSources";
 import { watchCanvasTarget } from "./remoteCanvasTargets";
 import { saveCanvasDrag } from "./saveCanvasDrag";
@@ -25,6 +25,7 @@ interface Drag {
   batchWrites: boolean;
   optimistic: boolean;
   hold?: string;
+  scope?: StudioEditScope;
   unwatch?: () => void;
   adapter: PreviewAdapter;
   startX: number;
@@ -208,6 +209,8 @@ export function IsolatedCanvasOverlay() {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
         if (active.optimistic && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
+          active.scope = { frame: iframe, paths: [pick.target.sourceFile] };
+          if (active.hold) scopeStudioManualEditGesture(iframe, active.hold, active.scope.paths);
           active.unwatch = watchCanvasTarget(iframe, pick.target, () => {
             active.unwatch?.();
             if (previewIframeRef.current !== iframe) return;
@@ -269,7 +272,7 @@ export function IsolatedCanvasOverlay() {
     const gestureSession = session.current;
     const issuedInDocument = documentGeneration.current;
     const wholePath = event.altKey || !usePlayerStore.getState().autoKeyframeEnabled;
-    const finished = active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
+    const finished: Promise<void> = active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
       if (gestureSession !== session.current) return;
       if (documentGeneration.current !== issuedInDocument || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
         reportUnapplied();
@@ -281,6 +284,9 @@ export function IsolatedCanvasOverlay() {
         return;
       }
       const frame = active.adapter.iframe;
+      active.scope = { frame, paths: [result.sourceFile] };
+      if (active.hold) scopeStudioManualEditGesture(frame, active.hold, active.scope.paths);
+      trackStudioPendingEdit(finished, active.scope);
       const finalBounds = (active.corner || active.liveResizeBounds) && relativeLayerBounds(result);
       if (lastPick.current === active && finalBounds) setDraft({ frame, bounds: finalBounds });
       const write = async (version?: string) => {
@@ -289,7 +295,9 @@ export function IsolatedCanvasOverlay() {
         // write settles cannot invalidate its target and conditional source version.
         if (gestureSession !== session.current) return;
         if (version) patch.ifMatch = version;
-        return commitDomEditPatchBatches([patch], { label: active.corner ? "Resize layer" : "Move layer", coalesceKey: active.gestureId });
+        const save = commitDomEditPatchBatches([patch], { label: active.corner ? "Resize layer" : "Move layer", coalesceKey: active.gestureId });
+        trackStudioPendingEdit(save, active.scope);
+        return save;
       };
       const saved = active.batchWrites ? await write()
         : await saveCanvasDrag(frame, result.sourceFile, active.gestureId, result.predecessor, write, active.optimistic ? isolatedSourceVersion(result) : undefined);
@@ -315,7 +323,7 @@ export function IsolatedCanvasOverlay() {
     });
     // The frame owns the final geometry until measurement and persistence settle.
     // A new pointer can start immediately, including a click that changes selection.
-    trackStudioPendingEdit(finished);
+    trackStudioPendingEdit(finished, active.scope);
   }
 
   function lostCapture(event: PointerEvent<HTMLDivElement>) {

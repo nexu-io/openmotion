@@ -6,7 +6,7 @@ import { createPreviewAdapter } from "./lib/previewAdapter";
 import { capturePresentedTimelineChanges } from "./lib/isolatedTimelineEdits";
 import { setPreviewMediaMuted } from "./lib/timelineIframeHelpers";
 import { usePlayerStore } from "./store/playerStore";
-import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isGradeOnlyChange, isAuthoredPresentation, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
+import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, readPreviewText, samePreviewText, isMountedCaptionBatch, type PreviewChange, type PreviewLiveEdits, isGradeOnlyChange, isAuthoredPresentation, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
 
 type FileSnapshot = { content: string; version: string };
 
@@ -78,16 +78,13 @@ export interface PeerTimingUpdate {
 }
 
 function elements(doc: Document | DocumentFragment): Element[] {
-  return [...doc.querySelectorAll("*")].flatMap(node =>
+  // Direct BRs belong to the parent's text proof, not the clip insert/delete path.
+  // The final whole-document comparison still catches every unconsumed element or attribute.
+  return [...doc.querySelectorAll("*")].filter(node => node.localName !== 'br' || !presentationTags.has(node.parentElement?.localName ?? '')).flatMap(node =>
     node instanceof HTMLTemplateElement ? [node, ...elements(node.content)] : [node]);
 }
 
 const presentationTags = new Set<string>(PRESENTATION_TAGS);
-
-function simpleText(element: Element): Text | null {
-  const node = element.firstChild;
-  return node?.nodeType === Node.TEXT_NODE && !node.nextSibling ? node as Text : null;
-}
 
 /** Compare the browser's CSS declarations, including fallback order and shorthands. */
 function changedStyles(left: HTMLElement, right: HTMLElement): PreviewChange["styles"] | null {
@@ -113,7 +110,7 @@ function changedStyles(left: HTMLElement, right: HTMLElement): PreviewChange["st
   return styles.length && projected.style.cssText === next.cssText ? styles : null;
 }
 
-type BoxCapabilities = { measured?: boolean; mounted?: boolean; cssLayoutOffset?: boolean };
+type BoxCapabilities = { measured?: boolean; mounted?: boolean; cssLayoutOffset?: boolean; position?: boolean };
 
 /** Strip only supported changes, then compare the entire remaining document before touching the player. */
 export function diffPreviewChanges(previous: string, current: string, box: BoxCapabilities = {}): PreviewChange[] | null {
@@ -169,11 +166,17 @@ export function diffPreviewChanges(previous: string, current: string, box: BoxCa
         left.removeAttribute("style");
         right.removeAttribute("style");
       }
-      const from = simpleText(left), to = simpleText(right);
-      if (from && to && from.data !== to.data) {
-        if (Math.max(from.length, to.length) > MAX_PREVIEW_TEXT_LENGTH) return null;
-        text = [from.data, to.data];
-        from.data = to.data;
+      if (presentationTags.has(left.localName)) {
+        const from = readPreviewText(left), to = readPreviewText(right);
+        if (from !== null && to !== null && !samePreviewText(from, to)) {
+          // A change of authorship on existing breaks is an attribute edit, not a caption.
+          if (typeof from !== 'string' && typeof to !== 'string' &&
+              (from.breaks.length === to.breaks.length ? from.breaks.some((id, i) => id !== to.breaks[i]) :
+                from.breaks.some(id => id && !to.breaks.includes(id)) && to.breaks.some(id => id && !from.breaks.includes(id)))) return null;
+          text = [from, to];
+          left.replaceChildren();
+          right.replaceChildren();
+        }
       }
     }
     if (!attributes.length && !styles && !text) continue;
@@ -181,13 +184,14 @@ export function diffPreviewChanges(previous: string, current: string, box: BoxCa
     const compositionId = left.getAttribute("data-composition-id");
     if (!hfId && !left.id && !compositionId) return null;
     const change = { hfId, id: left.id, compositionId, tag: left.localName, attributes, styles, text, captureOriginalTranslate };
-    // CSS geometry preserves a canvas drawing buffer or media decoder. Intrinsic dimensions and source URLs still need separate handling.
-    if (!presentationTags.has(change.tag) && (styles || text) && !isPaintOnlyChange(change) && !(box.measured && isMediaBoxChange(change)) &&
-        !(box.mounted && isPixelBoxChange(change)) && !(box.cssLayoutOffset && isPixelBoxChange(change, true)) &&
-        !(change.tag === "canvas" && isLivePositionEdit([change]))) return null;
     changes.push(change);
   }
   if (!changes.length || before.documentElement.outerHTML !== after.documentElement.outerHTML) return null;
+  // Only verified geometry can preserve a media decoder or canvas drawing buffer.
+  const caption = box.mounted && isMountedCaptionBatch(changes, !!box.position, !!box.cssLayoutOffset);
+  for (const c of changes) if (!presentationTags.has(c.tag) && (c.styles || c.text) && !caption &&
+      !isPaintOnlyChange(c) && !(box.measured && isMediaBoxChange(c)) && !(box.mounted && isPixelBoxChange(c)) &&
+      !(box.cssLayoutOffset && isPixelBoxChange(c, true)) && !(c.tag === 'canvas' && isLivePositionEdit([c]))) return null;
   return changes;
 }
 
@@ -208,16 +212,38 @@ export async function diffScriptedPreviewStyles(previous: string, current: strin
   return changes && onlyStyles(changes) ? changes : null;
 }
 
-export async function tryApplyPeerChanges(
+export type PeerApplyOutcome = "applied" | "superseded" | "requires-scene-rebuild" | "unconfirmed";
+type PeerApplyOptions = "paint-only" | "temporary" | "keep-visible" | { gestureId?: string } |
+  { structureDraftId: string; onGroup?: (group: import("../../../shared/preview-group").GroupChange) => void };
+
+/** Only a current, confirmed inability to paint authorizes scene recovery. */
+export function applyCommittedPeerChanges(
   frame: HTMLIFrameElement | null,
   update: PeerTimingUpdate,
   isCurrent: () => boolean,
-  options?: "paint-only" | "temporary" | "keep-visible" | { gestureId?: string } | { structureDraftId: string; onGroup?: (group: import("../../../shared/preview-group").GroupChange) => void },
+  options?: { gestureId?: string },
+): Promise<PeerApplyOutcome> {
+  return applyPeerChanges(frame, update, isCurrent, options);
+}
+
+/** Compatibility for provisional paints and callers that only consume success. */
+export async function tryApplyPeerChanges(
+  frame: HTMLIFrameElement | null, update: PeerTimingUpdate, isCurrent: () => boolean, options?: PeerApplyOptions,
 ): Promise<boolean> {
-  if (!frame || !isCurrent()) return false;
+  return await applyPeerChanges(frame, update, isCurrent, options) === "applied";
+}
+
+async function applyPeerChanges(
+  frame: HTMLIFrameElement | null, update: PeerTimingUpdate, isCurrent: () => boolean, options?: PeerApplyOptions,
+): Promise<PeerApplyOutcome> {
+  if (!frame || !isCurrent()) return "superseded";
   const adapter = createPreviewAdapter({ iframe: frame });
   const document = documents.get(frame);
-  if (adapter.sameOrigin || !document || document.token !== adapter.token || !adapter.projectId) return false;
+  if (adapter.sameOrigin) return "requires-scene-rebuild";
+  if (!document || !adapter.projectId) return "unconfirmed";
+  if (document.token !== adapter.token) return "superseded";
+  const src = frame.src;
+  const sameDocument = () => documents.get(frame) === document && frame.src === src;
   const { previous, current } = update;
   const releasePresented = capturePresentedTimelineChanges(frame, update.path);
   // Several accepted toggles can bring the file back to the exact source already on screen.
@@ -225,25 +251,27 @@ export async function tryApplyPeerChanges(
   const measured = typeof options === "object" && "gestureId" in options && !!options.gestureId;
   const cssLayoutOffset = document.canRebind || document.liveEdits.cssLayoutOffset === true;
   const mounted = document.mountedVersions.has(update.path);
-  const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
-    await diffMountedPreview(previous.content, current.content, { measured, mounted, cssLayoutOffset });
-  if (!changes || !isCurrent() || (options === "paint-only" && !changes.every(isPaintOnlyChange))) return false;
+  const changes = sameContent ? [] : await (options === "temporary" ? diffScriptedPreviewStyles(previous.content, current.content) :
+    diffMountedPreview(previous.content, current.content, { measured, mounted, cssLayoutOffset, position: document.liveEdits.position })).catch(() => null);
+  if (!sameDocument() || !isCurrent()) return "superseded";
+  if (!changes || (options === "paint-only" && !changes.every(isPaintOnlyChange))) return "requires-scene-rebuild";
   const nestedBox = mounted && changes.length > 0 && changes.every(change => isPixelBoxChange(change));
+  const caption = mounted && isMountedCaptionBatch(changes, !!document.liveEdits.position, cssLayoutOffset);
   const grade = changes.length > 0 && changes.every(isGradeOnlyChange);
   const cssBox = cssLayoutOffset && changes.length > 0 && changes.every(change => isPixelBoxChange(change, true));
-  const canAdvance = grade || nestedBox || cssBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
+  const canAdvance = grade || nestedBox || caption || cssBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
     (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
-  if (temporary && (document.canRebind || !onlyStyles(changes))) return false;
-  if (!temporary && !canAdvance) return false;
+  if (temporary && (document.canRebind || !onlyStyles(changes))) return "requires-scene-rebuild";
+  if (!temporary && !canAdvance) return "requires-scene-rebuild";
   const draftId = typeof options === "object" && "structureDraftId" in options ? options.structureDraftId : undefined;
-  if (draftId && (!document.canRebind || !changes.some(change => change.removeFromComposition || change.insert || change.group))) return false;
+  if (draftId && (!document.canRebind || !changes.some(change => change.removeFromComposition || change.insert || change.group))) return "requires-scene-rebuild";
   const localSave = typeof options === "object" && !("structureDraftId" in options) ? options : undefined;
   const presentation = changes.some(c => c.styles || c.text);
   const mediaControl = !presentation && !!document.canRebind && changes.length > 0 && changes.every(c =>
     (c.tag === "audio" || c.tag === "video") && c.attributes.length > 0 &&
     c.attributes.every(([name]) => ["data-media-start", "data-playback-start", "loop", "data-playback-rate"].includes(name)));
-  if (localSave && !mediaControl && (!presentation || changes.some(c => c.attributes.length))) return false;
+  if (localSave && !mediaControl && (!presentation || changes.some(c => c.attributes.length))) return "requires-scene-rebuild";
   const timeout = 350;
   const sentFrom = document.mountedVersions.get(update.path);
   try {
@@ -255,27 +283,31 @@ export async function tryApplyPeerChanges(
     // A provisional style can paint in parallel with the authoritative script rebuild.
     if (temporary && options === "keep-visible") {
       void paint.catch(() => {});
-      return false;
+      return "requires-scene-rebuild";
     }
     // A busy player can apply an edit before Studio receives its reply. Verify the
     // mounted revision without performing the mutation a second time.
     const applied = await paint.catch(async () => {
-      if (temporary || draftId || previous.version === current.version || documents.get(frame) !== document) return false;
-      const version = await adapter.request<string | null>("mounted-file-version", { documentId: document.id, path: update.path });
+      if (temporary || draftId || previous.version === current.version || !sameDocument()) return undefined;
+      const version = await adapter.request<unknown>("mounted-file-version", { documentId: document.id, path: update.path });
+      if (typeof version !== "string" || !version) return undefined;
       return version === current.version;
     });
-    if (applied !== true || documents.get(frame) !== document) return false;
+    if (!sameDocument()) return "superseded";
     // A newer gesture supersedes an old paint's UI side effects, but its next
     // patch still needs to know which source the live frame actually accepted.
     const lastKnown = document.mountedVersions.get(update.path);
-    if (!temporary && !draftId && (lastKnown === sentFrom || lastKnown === previous.version)) {
-      document.mountedVersions.set(update.path, current.version);
+    if (!temporary && !draftId) {
+      if (lastKnown !== sentFrom && lastKnown !== previous.version && lastKnown !== current.version) return "superseded";
+      if (applied === true) document.mountedVersions.set(update.path, current.version);
     }
-    if (!isCurrent()) return false;
+    if (!isCurrent()) return "superseded";
+    if (applied === false) return "requires-scene-rebuild";
+    if (applied !== true) return "unconfirmed";
     if (draftId) {
       const group = changes[0]?.group;
       if (group && typeof options === "object" && "structureDraftId" in options) options.onGroup?.(group);
-      return true;
+      return "applied";
     }
     // The HTML attribute changes defaultMuted. The runtime combines per-clip mute
     // with this window's independent monitor preference on a set-muted message.
@@ -286,8 +318,8 @@ export async function tryApplyPeerChanges(
     if (!temporary && (!presentation || document.timingFile?.path === update.path)) {
       document.timingFile = { path: update.path, version: current.version };
     }
-    return true;
-  } catch { return false; }
+    return "applied";
+  } catch { return sameDocument() && isCurrent() ? "unconfirmed" : "superseded"; }
 }
 
 /** Paint the same structural delta that its receipt will confirm. The draft never advances the file version. */

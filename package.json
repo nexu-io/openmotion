@@ -24,6 +24,7 @@
     "design:check": "node --experimental-strip-types scripts/design-check.ts",
     "pretest": "npm run build:studio",
     "test:studio": "vitest run --config studio/vitest.config.ts",
+    "test:preview-collaboration": "node studio/tests/e2e/preview-receipt-ownership.mjs && node studio/tests/e2e/preview-peer-recovery.mjs && node studio/tests/e2e/ordered-canvas-drags.mjs --lose-first-response",
     "verify:export": "node --experimental-strip-types scripts/verify-export.ts",
     "catalog:import": "node --experimental-strip-types scripts/import-hyperframes.ts",
     "catalog:covers": "node --experimental-strip-types scripts/cache-template-covers.ts",

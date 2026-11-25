@@ -25,15 +25,26 @@ Use the existing [editing contract](edit-core.md), project queue and isolated pr
 | Save or player reply times out | Reuse the write ID on a save retry. For a lost paint reply, check the mounted revision before repeating the update. Only a definitive write rejection warrants reverting that write. |
 | Script or root document changes | Update a supported change in place. Rebuild the affected scene when its script must restart. Use a temporary second iframe when the entire document must restart and a seamless transition is possible. Surface script errors against the affected revision. |
 
-## Implementation order
+## Implementation
 
-1. **Protect revision ownership during recovery.** Start in [committedPreview.ts](../../studio/src/player/committedPreview.ts). Use the same revision check for an in-place paint and a batch scene rebuild. A late local receipt must preserve a queued update for the confirmed revision. When the current scene cannot be updated safely, retain recovery from the latest project state.
-2. **Give update results distinct meanings.** Migrate the bridge and its callers together. Distinguish applied, superseded, scene rebuild required and unconfirmed communication. Reuse the existing mounted-version probe. Remove the superseded fallback decisions as each caller moves.
-3. **Narrow waits where independence is known.** Associate pending gestures with their affected files and reuse verified composition dependencies. Keep the document-wide hold for unknown impact, root changes and document replacement. Extend independent updates to the observer while retaining protection for the operator's active input.
-4. **Qualify document replacement.** Record which update required a new document in the browser test. Drag, resize, inline text and a disjoint Agent edit must use the same visible iframe with zero new shadow iframes and zero full-preview HTML downloads attributable to these actions.
+1. [The scheduler](../../studio/src/player/committedPreview.ts) checks ownership before and after an asynchronous paint or scene recovery. A late receipt can confirm persistence while a newer revision owns presentation. The committed-edit path distinguishes applied, superseded, scene rebuild required and unconfirmed communication. A lost paint acknowledgment triggers a mounted-version probe.
+2. The compiler identifies unique, independently mounted leaf scenes in eligible previews. Studio can present a verified sibling update while a gesture or save owns another leaf. Shared dependencies, root changes and unknown targets retain document-wide coordination. File views, conflict handling and durable writes still settle through their existing owners.
+3. For a parked scene the player can verify a change against its compiled markup and remember accepted geometry or caption edits for remount. Captions support bounded literal text and plain line breaks. For more complex changes, the bridge can recover matching scene fragments from one compilation or request document replacement when shared code or runtime behavior requires it.
 
 ## Acceptance
 
 Use a disposable copy of Welcome in two Studio windows and an independent MCP client. Hold the first save response, move an image, resize it, then move a title. Run with the writer's SSE before and after its HTTP receipt. Check each operation in persisted history, all three final values in both windows and the reopened project, and the on-screen values while each response is released. Capture iframe identity and full-preview requests throughout.
 
 Repeat with the Agent changing an independent clip, changing the same file and deleting the selected element. Include an ambiguous network failure and a genuine version conflict. Finally replace the root runtime and verify the legitimate document-replacement path, playback position and failure reporting. Measure save acceptance, observer event receipt and first correct frame separately. Unit tests establish ordering decisions. The two-window run establishes interaction quality and actual network costs.
+
+### Running the combined browser check
+
+Build Studio from the checkout under test and restart its API so that the page, compiler and preview bridge come from the same build. Use a local dev-auth stack with PostgreSQL, Redis, S3-compatible storage, `TEXT_PATCH_WRITES=true`, an isolated `PREVIEW_PUBLIC_ORIGIN` and the Welcome template. The runner creates disposable projects. An installed Chrome or `PUPPETEER_EXECUTABLE_PATH` supplies the browser.
+
+```sh
+STUDIO_URL=http://127.0.0.1:4173 EVIDENCE_DIR=/path/to/results npm run test:preview-collaboration
+```
+
+The receipt-order scenarios save the actual HTTP receipts, observed SSE events, display samples and iframe counts. Network evidence distinguishes active preview HTML, scene snapshots, timeline thumbnail captures and the initial load of the reopened project. The recovery scenario verifies deletion during a drag, a rejected stale MCP write, whole-document replacement, restored playback position and error delivery to Studio. The burst scenario drops an accepted HTTP response and checks that the retry reuses its operation IDs, all 100 drags persist and the observer receives each accepted operation once.
+
+In the local Welcome acceptance run on 2026-11-25, both delivery orders produced five consecutive persisted versions. Both windows retained their original preview document. Each scenario recorded zero new stage iframes, zero full preview downloads, zero scene-fragment downloads and five thumbnail captures across the two warm windows. A separate 100-drag run recovered from a lost response with two accepted batches of 20 and 80 edits. These results cover the tested build and scenarios; deployment acceptance uses the same runner against the version being released.
