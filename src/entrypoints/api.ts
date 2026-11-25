@@ -568,6 +568,7 @@ function createCloudMediaJobsPort(deps: {
       assets: [],
       libraryAssets,
       remoteId: row.remoteId ?? null,
+      remoteTerminal: Boolean(row.remoteTerminal),
       savePending: row.savePending,
       requestId: row.requestId ?? null,
       ...(row.resultJson ? { result } : {}),

@@ -522,7 +522,7 @@
 .om-placeholder-center { display: grid; justify-items: center; text-align: center; gap: var(--motion-space-6); color: var(--motion-strong); margin: auto; max-width: 100%; padding-inline: var(--motion-space-8); }
 .om-placeholder-status-line { font-size: var(--motion-text-xs); font-weight: var(--motion-weight-medium); color: var(--motion-strong); font-variant-numeric: tabular-nums; }
 .om-placeholder-download { font-size: var(--motion-text-step-10); color: var(--motion-muted); font-variant-numeric: tabular-nums; }
-.om-placeholder-error { font-size: var(--motion-text-step-10); color: var(--motion-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 28ch; }
+.om-placeholder-error { font-size: var(--motion-text-step-10); color: var(--motion-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; max-width: min(42ch, 100%); text-wrap: balance; }
 .om-placeholder-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--motion-space-6); margin-top: var(--motion-space-4); }
 .om-placeholder-progress { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--motion-space-2); height: 2px; }
 .om-placeholder-segment { display: block; height: 100%; background: var(--motion-border-subtle); }

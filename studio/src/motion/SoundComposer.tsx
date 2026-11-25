@@ -115,6 +115,7 @@ export function SoundComposer({
   const openSubscription = () => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
   const unconfiguredPreferred = Boolean(gateway && preferred && !selected && preferredProvider && !preferredProvider.available);
   const accountNotIncluded = (selected?.provider === 'account' || selected?.provider === 'opendesign') && selectedProvider?.mediaEntitlement === 'not-included';
+  const accountBalanceLow = !accountNotIncluded && (selected?.provider === 'account' || selected?.provider === 'opendesign') && selectedProvider?.hasBalance === false;
   const previewModel = selected ?? preferred;
   const parameters = previewModel ? parameterDrafts[previewModel.id] ?? emptyParameters : emptyParameters;
   const currentSpeed = typeof parameters.values.speed === 'number'
@@ -422,9 +423,24 @@ export function SoundComposer({
                 type="button"
                 variant="ghost"
                 className="om-button h-auto"
-                onClick={() => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)()}
+                onClick={openSubscription}
               >
                 {t('Manage subscription')}
+              </Button>
+            </div>
+          )}
+
+          {!studio.guestPreview && accountBalanceLow && (
+            <div className="om-creation-setup" role="status" data-balance-warning="true">
+              <RemixIcon name="bank-card-line" size={18} />
+              <p className="om-muted">{t('Your OpenDesign balance is too low for this request. Top up in OpenDesign Console, then try again.')}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                className="om-button h-auto"
+                onClick={openSubscription}
+              >
+                {t('Top up balance')}
               </Button>
             </div>
           )}

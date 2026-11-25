@@ -3440,18 +3440,22 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
     // must only return jobs from granted projectA (never projectB)
     const listAllRes = await callTool(5, 'openmotion_assets_use', { action: 'jobs' });
     assert.equal(listAllRes.result?.isError, undefined, JSON.stringify(listAllRes.result));
-    const listedAll = (listAllRes.result?.structuredContent?.jobs ?? []) as Array<{ id: string; projectId: string }>;
+    const listedAll = (listAllRes.result?.structuredContent?.jobs ?? []) as Array<{ id: string; projectId: string; remoteTerminal?: boolean }>;
     assert.equal(listedAll.length, 2);
     assert.ok(listedAll.every((j) => j.projectId === projectA));
+    assert.equal(listedAll.find((j) => j.id === jobAId)?.remoteTerminal, false);
+    assert.equal(listedAll.find((j) => j.id === jobASavePendingId)?.remoteTerminal, true);
     assert.doesNotMatch(JSON.stringify(listAllRes.result), /Secret prompt B|Secret save B/);
 
     const restListAll = await app.request('/motion-api/models/jobs', {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
     });
     assert.equal(restListAll.status, 200);
-    const restListAllBody = (await restListAll.json()) as { jobs: Array<{ id: string; projectId: string }> };
+    const restListAllBody = (await restListAll.json()) as { jobs: Array<{ id: string; projectId: string; remoteTerminal?: boolean }> };
     assert.equal(restListAllBody.jobs.length, 2);
     assert.ok(restListAllBody.jobs.every((j) => j.projectId === projectA));
+    assert.equal(restListAllBody.jobs.find((j) => j.id === jobAId)?.remoteTerminal, false);
+    assert.equal(restListAllBody.jobs.find((j) => j.id === jobASavePendingId)?.remoteTerminal, true);
 
     // 2b. listJobs with non-UUID projectId must return empty (never fall back to workspace-wide list)
     const restListBadId = await app.request('/motion-api/models/jobs?projectId=not-a-uuid', {
@@ -3665,5 +3669,96 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
       await readConsoleUrl({ OPENDESIGN_CONSOLE_URL: 'https://console.example.test/cloud' }),
       'https://console.example.test/cloud',
     );
+  });
+
+  it('serializes remoteTerminal on media jobs so terminal failures are distinguishable from resumable jobs', async () => {
+    const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const workspaceId = config.DEV_WORKSPACE_ID;
+    const nowIso = new Date().toISOString();
+    const terminalJobId = randomUUID();
+    const resumableJobId = randomUUID();
+
+    pgClient.seed('jobs', {
+      id: terminalJobId,
+      workspace_id: workspaceId,
+      project_id: null,
+      kind: 'media_generate',
+      state: 'failed',
+      stage: 'failed',
+      remote_id: 'mit_terminal_balance',
+      remote_terminal: true,
+      save_pending: false,
+      error_code: 'insufficient_balance',
+      error_message: 'Your OpenDesign balance is too low for this request. Top up in OpenDesign Console, then try again.',
+      result_json: { error: { code: 'insufficient_balance', outcomeUnknown: false } },
+      request_id: 'req_terminal_1',
+      idempotency_key: 'req_terminal_1',
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'seedream-5.5', prompt: 'Amber glass bottle' },
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+    pgClient.seed('jobs', {
+      id: resumableJobId,
+      workspace_id: workspaceId,
+      project_id: null,
+      kind: 'media_generate',
+      state: 'failed',
+      stage: 'failed',
+      remote_id: 'mit_unknown_timeout',
+      remote_terminal: false,
+      save_pending: false,
+      error_code: 'request_state_unknown',
+      error_message: 'OpenDesign could not confirm whether this request ran, so it was not resubmitted. Inspect the original task before retrying.',
+      result_json: { error: { code: 'request_state_unknown', outcomeUnknown: true } },
+      request_id: 'req_resumable_1',
+      idempotency_key: 'req_resumable_1',
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'seedream-5.5', prompt: 'Amber glass bottle' },
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+
+    const terminalRes = await app.request(`/motion-api/models/jobs/${terminalJobId}`);
+    assert.equal(terminalRes.status, 200);
+    const terminalBody = (await terminalRes.json()) as { job: { remoteTerminal?: boolean; errorCode?: string } };
+    assert.equal(terminalBody.job.remoteTerminal, true);
+    assert.equal(terminalBody.job.errorCode, 'insufficient_balance');
+
+    const resumableRes = await app.request(`/motion-api/models/jobs/${resumableJobId}`);
+    assert.equal(resumableRes.status, 200);
+    const resumableBody = (await resumableRes.json()) as { job: { remoteTerminal?: boolean; errorCode?: string } };
+    assert.equal(resumableBody.job.remoteTerminal, false);
+    assert.equal(resumableBody.job.errorCode, 'request_state_unknown');
+
+    const phase1ListRes = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'openmotion_assets_use', arguments: { action: 'jobs' } }),
+    });
+    assert.equal(phase1ListRes.status, 200);
+    const phase1Jobs = ((await phase1ListRes.json()) as { jobs: Array<{ id: string; remoteTerminal?: boolean }> }).jobs;
+    assert.equal(phase1Jobs.find((j) => j.id === terminalJobId)?.remoteTerminal, true);
+    assert.equal(phase1Jobs.find((j) => j.id === resumableJobId)?.remoteTerminal, false);
+
+    const resumeTerminalRes = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'resume', jobId: terminalJobId, requestId: `resume-${terminalJobId}` },
+      }),
+    });
+    assert.equal(resumeTerminalRes.status, 409);
+
+    const resumeActiveRes = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'resume', jobId: resumableJobId, requestId: `resume-${resumableJobId}` },
+      }),
+    });
+    assert.equal(resumeActiveRes.status, 200);
+    const resumed = (await resumeActiveRes.json()) as { job: { state: string } };
+    assert.equal(resumed.job.state, 'queued');
   });
 });

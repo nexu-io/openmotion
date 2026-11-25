@@ -2,9 +2,10 @@ import { generationOptions } from '../../../shared/generation-options';
 import type { Model, ProviderState } from '../../../shared/gateway';
 import { providerRegistry, registeredProvider } from '../../../shared/provider-registry';
 import { openDesignImageReferenceCap, openDesignModelLabel, openDesignModels } from '../../../shared/opendesign-models';
-import { videoModelBadge } from '../../../shared/video-features';
+import { videoModelBadge, videoModelLabel } from '../../../shared/video-features';
 import { supportsScene, studioScenes } from './creativeStudios';
 import { isCloudWebMode } from './entitlementModalBus';
+import { isUnifiedCloudGateway } from './ProviderSetupNotice';
 
 export const imageScene = studioScenes.find(scene => scene.id === 'text-to-image')!;
 export const editImageScene = studioScenes.find(scene => scene.id === 'image-edit')!;
@@ -66,7 +67,7 @@ export const providerReady = (providers: ProviderState[], providerId: string) =>
 /** The same model served by several providers is one choice; providers are picked after the model. */
 export type ModelFamily = { key: string; label: string; variants: Model[]; representative: Model; ready: boolean };
 export const modelFamilyLabel = (model: Model) => (isOpenDesignProvider(model.provider) && openDesignModelLabel(model.modelId))
-  || (model.modality === 'image' ? imageModelLabel(model) : model.label);
+  || (model.modality === 'image' ? imageModelLabel(model) : model.modality === 'video' ? videoModelLabel(model) : model.label);
 export const modelFamilyKey = (model: Model) => model.modality + ':' + normalize(modelFamilyLabel(model));
 
 /** Choose a provider variant: keep the current provider when it is ready, otherwise the first ready one in provider order. */
@@ -91,8 +92,11 @@ export function modelFamilies(models: Model[], providers: ProviderState[]): Mode
     || a.label.localeCompare(b.label));
 }
 
-/** Before the OpenDesign key or sign-in is set up its models still open and ask for setup; afterwards the live catalogue decides. */
+/** Before any OpenDesign route is set up in local/BYOK mode its models still open and ask for setup;
+ * once OpenDesign is ready or in unified Cloud mode, the live gateway catalogue is the sole source of truth. */
 export function withOpenDesignModels(models: Model[], providers: ProviderState[]): Model[] {
+  if (isUnifiedCloudGateway(providers)) return models;
+  if (providers.some(provider => isOpenDesignProvider(provider.id) && provider.available)) return models;
   const known = new Set(models.map(model => model.id));
   const missing = (['opendesign', 'account'] as const).filter(provider => !providerReady(providers, provider)).flatMap(provider =>
     openDesignModels.filter(model => !known.has(provider + ':' + model.modelId)).map((model): Model => {
@@ -107,12 +111,20 @@ export function withOpenDesignModels(models: Model[], providers: ProviderState[]
   return [...models, ...missing];
 }
 
-/** Menus list a fixed set: the models an OpenDesign API key serves, in that list's order, then Codex Image. */
+/** Sort priority for flagship models in menus and Studio pickers (ordering only — never hides live gateway models). */
 const menuOrder = [...openDesignModels.map(model => model.modelId), 'image-generation'];
 export const menuRank = (model: Model) => menuOrder.indexOf(model.provider === 'codex' ? model.modelId : isOpenDesignProvider(model.provider) ? model.modelId : '');
+export function studioModelRank(model: Model): number {
+  if (model.modality === 'image') return familyIndex(model);
+  const rank = menuRank(model);
+  return rank >= 0 ? rank : menuOrder.length;
+}
 export function menuFamilies(models: Model[], providers: ProviderState[]) {
-  return modelFamilies(models.filter(model => menuRank(model) >= 0), providers)
-    .sort((a, b) => Math.min(...a.variants.map(menuRank)) - Math.min(...b.variants.map(menuRank)));
+  return modelFamilies(models, providers)
+    .sort((a, b) => Number(b.ready) - Number(a.ready)
+      || studioModelRank(a.representative) - studioModelRank(b.representative)
+      || Number(isOpenDesignProvider(b.representative.provider)) - Number(isOpenDesignProvider(a.representative.provider))
+      || a.label.localeCompare(b.label));
 }
 
 export function imageMenuModels(models: Model[], providers: ProviderState[]) {

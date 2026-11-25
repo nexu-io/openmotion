@@ -1164,4 +1164,90 @@ describe('SoundStudioWorkspace', () => {
     expect(chromeMocks.openSubscriptionSettings).toHaveBeenCalledTimes(1);
     expect(host.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
   });
+
+  it('shows low-balance composer warning and failed-row Top up balance action without Check original task', async () => {
+    const soundStudio = findMediaStudio('sound')!;
+    const musicModel = {
+      id: 'opendesign:elevenlabs-music-v2',
+      provider: 'opendesign',
+      modelId: 'elevenlabs-music-v2',
+      label: 'Eleven Music v2',
+      modality: 'audio' as const,
+      mode: 'text-to-audio',
+      source: 'live' as const,
+    };
+    const zeroBalanceStudio: StudioCreation = {
+      destination: studioDestination(soundStudio, 'music', null),
+      soundTab: 'music',
+      catalog: {
+        catalog: {
+          models: [musicModel],
+          status: {
+            consoleUrl: 'https://console.example.test',
+            providers: [
+              {
+                id: 'opendesign',
+                label: 'OpenDesign',
+                enabled: true,
+                configured: true,
+                available: true,
+                credentialSource: 'environment',
+                verification: 'verified',
+                reason: 'Unified OpenDesign platform gateway',
+                mediaEntitlement: 'included',
+                plan: 'max',
+                hasBalance: false,
+              },
+            ],
+            agents: [],
+            routes: { audio: musicModel.id },
+            capabilities: [],
+          },
+          mode: 'opendesign',
+        },
+        failed: false,
+        retry: vi.fn(),
+      },
+      chooseModel: vi.fn(),
+      remember: vi.fn(),
+    };
+    const runningJob: GenerationJob = {
+      id: 'job-sound-balance-1',
+      state: 'running',
+      phase: 'generating',
+      modality: 'audio',
+      prompt: 'Warm acoustic guitar loop',
+      model: musicModel,
+      parameters: {},
+      requestHash: 'hash-1',
+      remoteId: 'mit_sound_001',
+      assets: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const failedBalanceJob: GenerationJob = {
+      ...runningJob,
+      state: 'failed',
+      phase: 'failed',
+      remoteTerminal: true,
+      errorCode: 'insufficient_balance',
+      error: 'Your OpenDesign balance is too low for this request. Top up in OpenDesign Console, then try again.',
+      result: { error: { code: 'insufficient_balance', outcomeUnknown: false } },
+      updatedAt: Date.now() + 2000,
+    };
+
+    chromeMocks.openSubscriptionSettings.mockClear();
+    const { updateState } = await renderSound(zeroBalanceStudio, { assets: [], jobs: [runningJob] });
+    await updateState({ jobs: [failedBalanceJob] });
+
+    expect(host.querySelector('[data-balance-warning="true"]')).not.toBeNull();
+    expect(host.textContent).not.toContain('Check original task');
+    const failedRow = host.querySelector('.om-sound-failed-row')!;
+    expect(failedRow).not.toBeNull();
+    expect(failedRow.textContent).toContain('Your OpenDesign balance is too low');
+    const topUpBtn = [...failedRow.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.includes('Top up balance'))!;
+    expect(topUpBtn).toBeTruthy();
+    await act(async () => { topUpBtn.click(); });
+    expect(chromeMocks.openSubscriptionSettings).toHaveBeenCalledTimes(1);
+  });
 });

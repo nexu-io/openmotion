@@ -619,7 +619,7 @@ it('hides reference controls when unsupported and clears image references when s
   expect(container.querySelector('.om-creation-reference')).toBeNull();
 });
 
-it('chooses a provider, then one of its fixed-list models, keeping unconfigured providers visible but unavailable', async () => {
+it('chooses a provider, then any live gateway model for it in flagship order, keeping unconfigured providers visible but unavailable', async () => {
   const { findMediaStudio } = await import('../../../shared/studio-catalog');
   const { studioDestination } = await import('./creativeStudios');
   const base = { modality: 'image' as const, mode: 'text-to-image' as const, source: 'live' as const };
@@ -641,7 +641,7 @@ it('chooses a provider, then one of its fixed-list models, keeping unconfigured 
   const options = () => [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')];
   const names = () => options().map(option => option.querySelector('strong')?.textContent);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
-  expect(names()).toEqual(['OpenDesign', 'OpenDesign Cloud', 'Codex']);
+  expect(names()).toEqual(['OpenDesign', 'OpenDesign Cloud', 'Codex', 'fal.ai']);
   expect(document.querySelector('.om-picker-popover .om-picker-footer')?.textContent).toContain('Manage providers & API keys');
   expect(options()[0].disabled).toBe(false);
   expect(options()[1].disabled).toBe(true);
@@ -649,14 +649,84 @@ it('chooses a provider, then one of its fixed-list models, keeping unconfigured 
   await act(async () => document.querySelector<HTMLButtonElement>('.om-picker-setup')!.click());
   expect(chrome.openProviderSettings).toHaveBeenCalledExactlyOnceWith('opendesign');
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
-  // Only the chosen provider's models from the fixed list; others such as Nano Banana and FLUX are not offered.
-  expect(names()).toEqual(['GPT Image 2.6 Flare', 'Seedream 5.5']);
+  // Every live model returned by the chosen provider appears in flagship-first order without a static allowlist.
+  expect(names()).toEqual(['GPT Image 2.6 Flare', 'Seedream 5.5', 'Nano Banana 2']);
   expect(document.querySelector('.om-picker-popover .om-picker-footer')).toBeNull();
   await act(async () => options()[0].click());
   expect(chooseModel).toHaveBeenCalledExactlyOnceWith(flare.id);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
   await act(async () => options()[2].click());
   expect(chooseModel).toHaveBeenLastCalledWith(codex.id);
+});
+
+it('shows all live OpenDesign image and video models from the gateway catalog without static allowlist filtering', async () => {
+  const { findMediaStudio } = await import('../../../shared/studio-catalog');
+  const { studioDestination } = await import('./creativeStudios');
+  const { ImageMegaMenu } = await import('./ImageMegaMenu');
+  const { VideoMegaMenu } = await import('./VideoMegaMenu');
+  const imgBase = { provider: 'opendesign', modality: 'image' as const, mode: 'text-to-image' as const, source: 'live' as const, supportsImageReference: true, maxInputImages: 10 };
+  const imageModels: Model[] = [
+    { ...imgBase, id: 'opendesign:gpt-image-2', modelId: 'gpt-image-2', label: 'gpt-image-2' },
+    { ...imgBase, id: 'opendesign:gpt-image-2.6-flare', modelId: 'gpt-image-2.6-flare', label: 'gpt-image-2.6-flare' },
+    { ...imgBase, id: 'opendesign:gpt-image-2.6-sunburst', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst' },
+    { ...imgBase, id: 'opendesign:nano-banana-2', modelId: 'nano-banana-2', label: 'nano-banana-2' },
+    { ...imgBase, id: 'opendesign:nano-banana-2-lite', modelId: 'nano-banana-2-lite', label: 'nano-banana-2-lite' },
+    { ...imgBase, id: 'opendesign:seedream-5.0', modelId: 'seedream-5.0', label: 'seedream-5.0' },
+    { ...imgBase, id: 'opendesign:seedream-5.0-flash', modelId: 'seedream-5.0-flash', label: 'seedream-5.0-flash' },
+    { ...imgBase, id: 'opendesign:seedream-5.0-pro', modelId: 'seedream-5.0-pro', label: 'seedream-5.0-pro' },
+    { ...imgBase, id: 'opendesign:seedream-5.5', modelId: 'seedream-5.5', label: 'seedream-5.5', maxInputImages: 1 },
+    { ...imgBase, id: 'opendesign:future-aurora-1', modelId: 'future-aurora-1', label: 'Aurora 1' },
+  ];
+  const vidBase = { provider: 'opendesign', modality: 'video' as const, mode: 'text-to-video' as const, source: 'live' as const, maxInputImages: 1 };
+  const videoModels: Model[] = [
+    { ...vidBase, id: 'opendesign:doubao-seedance-2-0-260128', modelId: 'doubao-seedance-2-0-260128', label: 'doubao-seedance-2-0-260128' },
+    { ...vidBase, id: 'opendesign:doubao-seedance-2-5-260628', modelId: 'doubao-seedance-2-5-260628', label: 'doubao-seedance-2-5-260628' },
+    { ...vidBase, id: 'opendesign:doubao-seedance-2-5-flash-261115', modelId: 'doubao-seedance-2-5-flash-261115', label: 'doubao-seedance-2-5-flash-261115' },
+    { ...vidBase, id: 'opendesign:wan-2.7', modelId: 'wan-2.7', label: 'wan-2.7' },
+  ];
+  const catalog = {
+    models: [...imageModels, ...videoModels],
+    status: {
+      routes: { image: 'opendesign:seedream-5.5', video: 'opendesign:doubao-seedance-2-5-260628' },
+      providers: [{ id: 'opendesign', label: 'OpenDesign', available: true, credentialSource: 'environment' as const }],
+    },
+  };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Studio light', references: [] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: studioDestination(findMediaStudio('design')!, 'text-to-image', null),
+  }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
+  const imageOptionNames = [...document.querySelectorAll('[role="option"] strong')].map(node => node.textContent);
+  expect(imageOptionNames).toEqual([
+    'GPT Image 2.6 Flare',
+    'GPT Image 2.6 Sunburst',
+    'Seedream 5.5',
+    'Nano Banana 2',
+    'GPT Image 2',
+    'Seedream 5.0 Pro',
+    'Seedream 5.0 Flash',
+    'Seedream 5.0',
+    'Nano Banana 2 Lite',
+    'Aurora 1',
+  ]);
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt: 'Ocean wave', references: [] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: studioDestination(findMediaStudio('cinema')!, 'text-to-video', null),
+  }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
+  const videoOptionNames = [...document.querySelectorAll('[role="option"] strong')].map(node => node.textContent);
+  expect(videoOptionNames).toEqual(['Seedance 2.5', 'Seedance 2.5 Flash', 'Wan 2.7', 'Seedance 2.0']);
+
+  await act(async () => root.render(<ImageMegaMenu catalog={catalog} destination={null} onNavigate={vi.fn()} />));
+  const moreBtn = container.querySelector<HTMLButtonElement>('section[aria-label="Models"] button.om-media-mega-more')!;
+  expect(moreBtn).toBeTruthy();
+  await act(async () => moreBtn.click());
+  const imageMenuLabels = [...container.querySelectorAll('section[aria-label="Models"] .om-media-mega-label')].map(node => node.textContent);
+  expect(imageMenuLabels).toEqual(imageOptionNames);
+
+  await act(async () => root.render(<VideoMegaMenu catalog={catalog} destination={null} onNavigate={vi.fn()} />));
+  const videoMenuLabels = [...container.querySelectorAll('section[aria-label="Models"] .om-media-mega-label')].map(node => node.textContent);
+  expect(videoMenuLabels).toEqual(['Seedance 2.5', 'Seedance 2.5 Flash', 'Wan 2.7', 'Seedance 2.0']);
 });
 
 it('offers only OpenDesign providers for feature entries and keeps the prompt while asking for setup', async () => {
@@ -673,10 +743,10 @@ it('offers only OpenDesign providers for feature entries and keeps the prompt wh
     destination: studioDestination(findMediaStudio('design')!, sceneId, null),
   }} />));
   const names = () => [...document.querySelectorAll('[role="option"] strong')].map(node => node.textContent);
-  // Ordinary non-feature Studio entries keep Codex Image alongside OpenDesign and persist choices via studio.chooseModel.
+  // Ordinary non-feature Studio entries include every configured catalog provider and persist choices via studio.chooseModel.
   await render('text-to-image', [flux, cloud, accountSeedream, codex], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
-  expect(names()).toEqual(['OpenDesign Cloud', 'OpenDesign', 'Codex']);
+  expect(names()).toEqual(['OpenDesign Cloud', 'OpenDesign', 'Codex', 'fal.ai']);
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')][2].click());
   expect(chooseModel).toHaveBeenCalledWith(codex.id);
   // Feature scenes restrict strictly to OpenDesign providers and preserve the prompt when OpenDesign needs setup.
@@ -1677,4 +1747,55 @@ it('shows feature-specific cloud unavailability with Model gateway action when u
     await act(async () => root.unmount());
     root = createRoot(container);
   }
+});
+
+it('shows a non-blocking low-balance notice with Top up balance CTA when an entitled OpenDesign workspace has zero balance', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const zeroBalanceCatalog = {
+    models: [existing.sunburst],
+    status: {
+      consoleUrl: 'https://console.example.test',
+      providers: [
+        {
+          id: 'opendesign',
+          label: 'OpenDesign',
+          enabled: true,
+          configured: true,
+          available: true,
+          credentialSource: 'environment' as const,
+          verification: 'verified' as const,
+          reason: 'Unified OpenDesign platform gateway',
+          mediaEntitlement: 'included' as const,
+          plan: 'max',
+          hasBalance: false,
+        },
+      ],
+      agents: [],
+      routes: { image: existing.sunburst.id },
+      capabilities: [],
+    },
+    mode: 'opendesign' as const,
+  };
+  chrome.openSubscriptionSettings.mockClear();
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={{ modality: 'image', prompt: 'Amber glass bottle', references: [] }}
+      studio={{
+        catalog: { catalog: zeroBalanceCatalog, failed: false, retry: vi.fn() },
+        chooseModel: vi.fn(),
+        remember: vi.fn(),
+        destination: mediaEditorDestination('text-to-image'),
+      }}
+    />,
+  ));
+  const warning = container.querySelector('[data-balance-warning="true"]');
+  expect(warning).not.toBeNull();
+  const topUpBtn = [...warning!.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.trim() === 'Top up balance')!;
+  expect(topUpBtn).toBeTruthy();
+  await act(async () => topUpBtn.click());
+  expect(chrome.openSubscriptionSettings).toHaveBeenCalledTimes(1);
+  // Keep submit enabled so the user can retry immediately after topping up in another tab.
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
 });

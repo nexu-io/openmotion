@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { GenerationJob } from '../../../shared/gateway';
 import { AssetGenerationCard } from './AssetCreationVisuals';
+import { AssetGenerationPlaceholder } from './AssetGenerationPlaceholder';
 vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string) => text }) }));
 let root: Root, container: HTMLDivElement;
 const cancel = vi.fn(), view = vi.fn();
@@ -121,4 +122,71 @@ it('continues the original account image download with progress and guards dupli
   await act(async () => finish()); expect(button.disabled).toBe(false);
   await act(async () => root.render(<AssetGenerationCard job={{ ...job, remoteTerminal: true }} onCancel={cancel} onView={view} onResume={resume} />));
   expect(container.textContent).not.toContain('Continue download');
+});
+
+it('hides Check original task on terminal balance/entitlement failures and shows a direct billing recovery action', async () => {
+  const resume = vi.fn(async () => {});
+  const openBilling = vi.fn();
+  const insufficientBalanceJob: GenerationJob = {
+    ...initial,
+    model: { ...initial.model, provider: 'opendesign' },
+    state: 'failed',
+    remoteId: 'mit_csx30p8000pz9bzvx8bzy2qh',
+    remoteTerminal: true,
+    errorCode: 'insufficient_balance',
+    error: 'Your OpenDesign balance is too low for this request. Top up in OpenDesign Console, then try again.',
+    result: { error: { code: 'insufficient_balance', outcomeUnknown: false } },
+  };
+
+  // Both AssetGenerationPlaceholder and AssetGenerationCard hide Check original task and show Top up balance.
+  await act(async () => root.render(
+    <AssetGenerationPlaceholder
+      job={insufficientBalanceJob}
+      onCancel={cancel}
+      onView={view}
+      onResume={resume}
+      onOpenBilling={openBilling}
+    />,
+  ));
+  expect(container.textContent).not.toContain('Check original task');
+  const topUpBtn = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('Top up balance'))!;
+  expect(topUpBtn).toBeTruthy();
+  await act(async () => topUpBtn.click());
+  expect(openBilling).toHaveBeenCalledTimes(1);
+
+  // Even when a legacy payload omits remoteTerminal, result.error.outcomeUnknown === false still suppresses resume.
+  const legacyOutcomeKnownJob: GenerationJob = { ...insufficientBalanceJob, remoteTerminal: undefined };
+  await act(async () => root.render(
+    <AssetGenerationCard
+      job={legacyOutcomeKnownJob}
+      onCancel={cancel}
+      onView={view}
+      onResume={resume}
+      onOpenBilling={openBilling}
+    />,
+  ));
+  expect(container.textContent).not.toContain('Check original task');
+  const cardTopUp = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('Top up balance'))!;
+  expect(cardTopUp).toBeTruthy();
+  await act(async () => cardTopUp.click());
+  expect(openBilling).toHaveBeenCalledTimes(2);
+
+  // Plan entitlement failure shows Manage subscription instead of Check original task.
+  const planJob: GenerationJob = {
+    ...insufficientBalanceJob,
+    errorCode: 'tier_model_not_entitled',
+    error: 'Your OpenDesign plan does not include this model. Choose another model or upgrade your plan.',
+    result: { error: { code: 'tier_model_not_entitled', outcomeUnknown: false } },
+  };
+  await act(async () => root.render(
+    <AssetGenerationPlaceholder
+      job={planJob}
+      onCancel={cancel}
+      onView={view}
+      onResume={resume}
+      onOpenBilling={openBilling}
+    />,
+  ));
+  expect(container.textContent).not.toContain('Check original task');
+  expect(container.textContent).toContain('Manage subscription');
 });

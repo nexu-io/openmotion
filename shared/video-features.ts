@@ -49,7 +49,12 @@ export const openDesignVideoModels: readonly OpenDesignVideoEntry[] = [
 const openDesignVideoById = new Map(openDesignVideoModels.map(entry => [entry.modelId, entry]));
 
 export function videoModelLabel(model: Pick<Model, 'modelId' | 'label'>) {
-  return openDesignVideoById.get(model.modelId)?.label ?? model.label;
+  const known = openDesignVideoById.get(model.modelId)?.label;
+  if (known) return known;
+  if (model.label === model.modelId && /^doubao-seedance-2[.-]0(?:-|$)/i.test(model.modelId)) {
+    return 'Seedance 2.0';
+  }
+  return model.label;
 }
 
 export function videoModelBadge(model: Pick<Model, 'modelId'>) {

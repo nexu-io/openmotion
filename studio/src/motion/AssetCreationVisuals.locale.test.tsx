@@ -16,6 +16,12 @@ it('shows a known failure reason in the interface language and keeps other detai
   const details = () => container.querySelector('.om-creation-job-error p')?.textContent;
   await render('OpenDesign rejected this request for the selected model. Choose another model or change the options, then try again.');
   expect(details()).toBe('OpenDesign 拒绝了当前模型的这次请求。请换一个模型或调整参数后重试。');
+  await render('Your OpenDesign balance is too low for this request. Top up in OpenDesign Console, then try again.');
+  expect(details()).toBe('OpenDesign 余额不足，请前往控制台充值后重试。');
+  await render('Upstream media generation timed out; use resume to continue polling');
+  expect(details()).toBe('媒体生成等待超时，请点击「查询原任务」继续获取结果。');
+  await render('Media generation failed');
+  expect(details()).toBe('媒体生成失败，请重试。');
   await render('Provider HTTP 500');
   expect(details()).toBe('Provider HTTP 500');
   await act(async () => root.unmount()); container.remove();

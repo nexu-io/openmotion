@@ -91,6 +91,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const unconfiguredPreferred = Boolean(studio && gateway && preferred && !selected && preferredProvider && !preferredProvider.available);
   const providerLabel = preferredProvider?.label ?? (preferred && registeredProvider(preferred.provider)?.label) ?? preferred?.provider ?? '';
   const accountNotIncluded = (selected?.provider === 'account' || selected?.provider === 'opendesign') && preferredProvider?.mediaEntitlement === 'not-included';
+  const accountBalanceLow = !accountNotIncluded && (selected?.provider === 'account' || selected?.provider === 'opendesign') && preferredProvider?.hasBalance === false;
   const maximumReferences = selected ? Math.min(modelReferenceLimit(selected), featureRule?.maxReferences ?? Infinity) : 0;
   const attachableReferences = scene ? attachableReferenceLimit(resolvedModels, scene) : maximumReferences;
   const showReferenceSection = Boolean(scene && (needsImage(scene) || ((scene.modality === 'image' || Boolean(videoFeature)) && maximumReferences > 0)));
@@ -394,6 +395,13 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
         <p className="om-muted">{t('Signed in; multimodal generation requires OpenDesign Plus or above')}</p>
         <Button variant="ghost" className="om-button h-auto" onClick={openSubscription}>
           {t('Manage subscription')}
+        </Button>
+      </div>}
+      {accountBalanceLow && <div className="om-creation-setup" role="status" data-balance-warning="true">
+        <RemixIcon name="bank-card-line" size={20} />
+        <p className="om-muted">{t('Your OpenDesign balance is too low for this request. Top up in OpenDesign Console, then try again.')}</p>
+        <Button variant="ghost" className="om-button h-auto" onClick={openSubscription}>
+          {t('Top up balance')}
         </Button>
       </div>}
       {gateway && modelId && !selected && !unconfiguredPreferred && !openDesignMissing && !cloudFeatureUnavailable && !cloudEmptyCatalog && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}

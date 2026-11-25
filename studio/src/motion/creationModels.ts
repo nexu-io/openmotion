@@ -3,17 +3,14 @@ import { imageFeatures } from '../../../shared/image-features';
 import { videoFeatures } from '../../../shared/video-features';
 import { isFeatureScene, sceneFeature, sceneVideoFeature, supportsScene, type StudioScene } from './creativeStudios';
 import type { loadGateway } from './gatewayClient';
-import { isOpenDesignProvider, menuRank, providerRank, providerReady } from './imageMenuModels';
-
-const studioSortRank = (model: Model) => {
-  const rank = menuRank(model);
-  return rank < 0 ? Number.MAX_SAFE_INTEGER : rank;
-};
+import { isOpenDesignProvider, modelFamilyLabel, providerRank, providerReady, studioModelRank } from './imageMenuModels';
 
 /**
- * Resolves eligible models for Studio scenes and ordinary Assets library generation.
- * Feature scenes match OpenDesign models dynamically by declared capabilities (`supportsScene`)
- * rather than restricting to static menu IDs, so newly published OpenDesign models appear automatically.
+ * Resolves eligible models for Studio scenes and ordinary Assets library generation
+ * from the single live gateway catalog (`gateway.models`).
+ * Every scene matches models dynamically by modality and declared capabilities (`supportsScene`)
+ * without static model-ID allowlists, so newly published OpenDesign models appear automatically.
+ * Feature scenes still scope to OpenDesign routes (`restrictToOpenDesign`).
  * With two or more image references, models that accept fewer drop out (e.g. Seedream 5.5 accepts 1).
  */
 export function creationModels(
@@ -28,13 +25,14 @@ export function creationModels(
   const providers = gateway?.status.providers ?? [];
   const featureScene = isFeatureScene(scene);
   const restrictToOpenDesign = openDesignOnly || featureScene;
-  // Non-feature Studio scenes follow the navigation menu model set; feature scenes accept any capability-matched OpenDesign model.
+  // Single source of truth: follow the live gateway catalog for every Studio scene, using flagship rank only for display order.
   // Never synthesize placeholder models when the live catalog is empty so creation pickers stay truthful to the gateway.
   const listed = (gateway ? gateway.models.filter(model => model.modality === modality
-    && (!scene || featureScene || menuRank(model) >= 0 || model.id === modelId)
     && (!scene || supportsScene(model, scene))
     && (!restrictToOpenDesign || isOpenDesignProvider(model.provider))) : [])
-    .sort((a, b) => providerRank(a.provider) - providerRank(b.provider) || (scene ? studioSortRank(a) - studioSortRank(b) : 0));
+    .sort((a, b) =>
+      providerRank(a.provider) - providerRank(b.provider)
+      || (scene ? studioModelRank(a) - studioModelRank(b) || modelFamilyLabel(a).localeCompare(modelFamilyLabel(b)) : 0));
   // When nothing takes every reference, keep the list so the page can explain the limit instead of offering setup.
   const fitting = referenceCount >= 2 && modality === 'image' ? listed.filter(model => modelReferenceLimit(model) >= referenceCount) : listed;
   const compatible = fitting.length ? fitting : listed;

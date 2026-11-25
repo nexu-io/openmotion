@@ -1147,6 +1147,7 @@ describe('worker-media: media-generate (remote_id persisted BEFORE polling + res
       const failedPublished = failEvents.filter((e) => e.state === 'failed');
       assert.equal(failedPublished.length, 1, 'Must emit exactly one failed event (no duplicate catch event)');
       assert.equal(failedPublished[0].errorCode, 'insufficient_balance');
+      assert.equal(failedPublished[0].remoteTerminal, true);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

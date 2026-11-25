@@ -7,15 +7,8 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { Tooltip } from '../components/ui/Tooltip';
 import { WorkingIndicator } from './AssetCreationVisuals';
 import { formatElapsed, modelDisplayLabel } from './generationLabels';
-
-function formatJobError(error: string | undefined, t: (key: string) => string): string | undefined {
-  if (!error) return undefined;
-  if (error.startsWith('SAVE_NOT_AVAILABLE:')) return t('The retained files are missing, changed or unreadable. Saving cannot be retried. No new generation was requested.');
-  if (error.startsWith('CODEX_IMAGE_PROXY_AUTH_REQUIRED:')) return t('The local Codex proxy requires its own authentication. In Codex settings, select the configured proxy provider and check its endpoint and credentials. Signing in again alone will not fix a missing proxy key. Your original asset is unchanged; no automatic retry was made.');
-  if (error.startsWith('CODEX_IMAGE_AUTH_REQUIRED:')) return t('The configured Codex image service rejected authorization. Check the active provider, endpoint and authentication in Codex settings; sign in again only if your account session has expired. Your original asset is unchanged; no automatic retry was made.');
-  if (error.startsWith('ASSET_MEDIA_RUNTIME_NOT_READY:')) return t('Local media components are unavailable. Prepare or repair this installation, then submit again. No model request was made; your original asset is unchanged.');
-  return t(error);
-}
+import { formatGenerationJobError, jobBillingAction } from './jobErrors';
+import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 
 function useElapsedLabel(startedAt: number, active: boolean): string {
   const [now, setNow] = useState(() => Date.now());
@@ -47,6 +40,7 @@ export function AssetGenerationPlaceholder({
   onResume,
   onReusePrompt,
   onDismiss,
+  onOpenBilling,
 }: {
   job: GenerationJob;
   variant?: 'overlay' | 'tile';
@@ -58,8 +52,12 @@ export function AssetGenerationPlaceholder({
   onResume?: (job: GenerationJob) => Promise<void>;
   onReusePrompt?: (prompt: string) => void;
   onDismiss?: (jobId: string) => void;
+  onOpenBilling?: () => void;
 }) {
   const { t } = useI18n();
+  const chrome = useOptionalWorkspaceChrome();
+  const openBilling = onOpenBilling ?? chrome?.openSubscriptionSettings ?? chrome?.openAccountSettings;
+  const billingAction = jobBillingAction(job);
   const working = job.state === 'queued' || job.state === 'running';
   const done = job.state === 'completed';
   const saving = job.phase === 'downloading' || job.phase === 'saving';
@@ -97,7 +95,7 @@ export function AssetGenerationPlaceholder({
                 ? t('Generation failed')
                 : t('Generation stopped');
 
-  const errorText = formatJobError(job.error, t);
+  const errorText = formatGenerationJobError(job.error, t);
   const modelName = modelDisplayLabel(models, job.model.id, job.model.label);
 
   const retrySave = async () => {
@@ -187,6 +185,12 @@ export function AssetGenerationPlaceholder({
           )}
           {!working && !done && (
             <div className="om-placeholder-actions">
+              {billingAction && openBilling && (
+                <Button variant="plain" className="om-gen-action-pill" onClick={openBilling}>
+                  <RemixIcon name={billingAction === 'topup' ? 'bank-card-line' : 'sparkling-line'} size={12} />
+                  {t(billingAction === 'topup' ? 'Top up balance' : 'Manage subscription')}
+                </Button>
+              )}
               {resumable && onResume && (
                 <Button variant="plain" className="om-gen-action-pill" disabled={retrying} onClick={() => void resume()}>
                   {t(accountImage ? (retrying ? 'Continuing download…' : 'Continue download') : (retrying ? 'Checking original task…' : 'Check original task'))}

@@ -45,6 +45,8 @@ import {
 } from './soundTabs';
 import { ComingSoonGuide } from './ComingSoonGuide';
 import { dayKey } from './generationLabels';
+import { formatGenerationJobError, jobBillingAction } from './jobErrors';
+import { useWorkspaceChrome } from './WorkspaceFrame';
 import { GeneratingWaveform, InteractiveWaveform } from './SoundWaveforms';
 import { useAudioWaveforms } from './useAudioWaveforms';
 import { useVoiceAudition } from './voicePreviews';
@@ -215,17 +217,15 @@ function SoundFailedRow({
   onDismiss: () => void;
 }) {
   const { t } = useI18n();
+  const { openSubscriptionSettings, openAccountSettings, openModelSettings } = useWorkspaceChrome();
+  const openBilling = openSubscriptionSettings ?? openAccountSettings ?? openModelSettings;
+  const billingAction = jobBillingAction(job);
   const [retrying, setRetrying] = useState(false);
   const [showError, setShowError] = useState(false);
   const resumable = resumableJob(job);
   const cancelled = job.state === 'cancelled' && !job.savePending;
 
-  let diagnostic = job.error;
-  if (diagnostic?.startsWith('SAVE_NOT_AVAILABLE:')) {
-    diagnostic = t('The retained files are missing, changed or unreadable. Saving cannot be retried. No new generation was requested.');
-  } else if (diagnostic?.startsWith('ASSET_MEDIA_RUNTIME_NOT_READY:')) {
-    diagnostic = t('Local media components are unavailable. Prepare or repair this installation, then submit again. No model request was made; your original asset is unchanged.');
-  }
+  const diagnostic = formatGenerationJobError(job.error, t);
 
   const retrySave = async () => {
     if (!onRetrySave || retrying) return;
@@ -252,6 +252,17 @@ function SoundFailedRow({
             <RemixIcon name={cancelled ? 'close-line' : 'error-warning-line'} size={14} />
             <span>{t(cancelled ? 'Cancelled' : 'Failed')}</span>
           </span>
+          {billingAction && openBilling && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="om-button h-auto om-sound-row-pill-btn"
+              onClick={openBilling}
+            >
+              <RemixIcon name={billingAction === 'topup' ? 'bank-card-line' : 'sparkling-line'} size={13} />
+              <span>{t(billingAction === 'topup' ? 'Top up balance' : 'Manage subscription')}</span>
+            </Button>
+          )}
           {job.savePending && onRetrySave && (
             <Tooltip label={t('Generated files are kept locally. Retry saving without generating again.')} wrap>
               <Button
@@ -281,7 +292,11 @@ function SoundFailedRow({
         <div className="om-sound-failed-copy">
           <div className="om-sound-failed-heading">
             <strong className="om-sound-row-title">
-              {t(cancelled ? 'Generation cancelled' : 'Try again, or adjust your prompt and settings.')}
+              {cancelled
+                ? t('Generation cancelled')
+                : billingAction && diagnostic
+                  ? diagnostic
+                  : t('Try again, or adjust your prompt and settings.')}
             </strong>
             {diagnostic && (
               <Tooltip label={t('Failure details')}>
@@ -326,7 +341,7 @@ function SoundFailedRow({
       </div>
 
       {diagnostic && showError && (
-        <p className="om-sound-failed-detail">{t(diagnostic)}</p>
+        <p className="om-sound-failed-detail">{diagnostic}</p>
       )}
     </div>
   );

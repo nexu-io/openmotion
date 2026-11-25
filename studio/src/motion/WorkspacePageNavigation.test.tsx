@@ -84,7 +84,22 @@ beforeEach(() => {
     if (url.pathname.endsWith('/projects') && !init?.method) return Response.json(catalog);
     if (url.pathname.includes('/sessions/')) return Response.json(catalog.sessions.find(item => url.pathname.endsWith(item.id)));
     if (url.pathname.includes('/projects/') && url.pathname.endsWith('/open')) return Response.json({ projectId: url.pathname.split('/').at(-2), revision: 'r' });
-    if (url.pathname.endsWith('/models/catalog')) return Response.json({ provider: 'opendesign', mode: 'opendesign', models: [], defaults: {} });
+    if (url.pathname.endsWith('/models/catalog')) return Response.json({
+      provider: 'opendesign',
+      mode: 'opendesign',
+      models: [
+        { id: 'opendesign:gpt-image-2', provider: 'opendesign', modelId: 'gpt-image-2', label: 'GPT Image 2', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:gpt-image-2.6-flare', provider: 'opendesign', modelId: 'gpt-image-2.6-flare', label: 'GPT Image 2.6 Flare', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'GPT Image 2.6 Sunburst', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:nano-banana-2', provider: 'opendesign', modelId: 'nano-banana-2', label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:nano-banana-2-lite', provider: 'opendesign', modelId: 'nano-banana-2-lite', label: 'Nano Banana 2 Lite', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:seedream-5.0', provider: 'opendesign', modelId: 'seedream-5.0', label: 'Seedream 5.0', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:seedream-5.0-flash', provider: 'opendesign', modelId: 'seedream-5.0-flash', label: 'Seedream 5.0 Flash', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:seedream-5.0-pro', provider: 'opendesign', modelId: 'seedream-5.0-pro', label: 'Seedream 5.0 Pro', modality: 'image', mode: 'text-to-image', source: 'live' },
+        { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'Seedream 5.5', modality: 'image', mode: 'text-to-image', source: 'live' },
+      ],
+      defaults: {},
+    });
     if (url.pathname.endsWith('/models/status')) return Response.json({ providers: [{ ...provider, id: 'opendesign', available: true, configured: true, enabled: true }], routes: {}, agents: [], capabilities: [] });
     if (url.pathname.endsWith('/integration')) return Response.json(info);
     if (url.pathname.endsWith('/brand-kits')) return Response.json({ kits: [] });
@@ -1576,10 +1591,17 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(menu.textContent).toContain('Batch');
   expect(menu.textContent).toContain('Image layers');
   expect(menu.querySelector('button[aria-label="More Features"]')).toBeNull();
-  // The Models column is the fixed OpenDesign API list, without setup tags.
-  const models = [...menu.querySelectorAll('section[aria-label="Models"] .om-media-mega-row .om-media-mega-label')].map(node => node.textContent);
-  expect(models).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.5', 'Seedream 5.0 Flash']);
-  expect(menu.textContent).not.toContain('Nano Banana');
+  // The Models column lists every live gateway image model in flagship order (with More expanding beyond 5), without setup tags.
+  const visibleModels = [...menu.querySelectorAll('section[aria-label="Models"] .om-media-mega-row .om-media-mega-label')].map(node => node.textContent);
+  expect(visibleModels).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.5', 'Nano Banana 2', 'GPT Image 2']);
+  const moreModels = menu.querySelector<HTMLButtonElement>('button[aria-label="More Models"]')!;
+  expect(moreModels).not.toBeNull();
+  await act(async () => moreModels.click());
+  const allModels = [...menu.querySelectorAll('section[aria-label="Models"] .om-media-mega-row .om-media-mega-label')].map(node => node.textContent);
+  expect(allModels).toEqual([
+    'GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.5', 'Nano Banana 2', 'GPT Image 2',
+    'Seedream 5.0 Pro', 'Seedream 5.0 Flash', 'Seedream 5.0', 'Nano Banana 2 Lite',
+  ]);
   expect(menu.textContent).not.toContain('Setup required');
   // Features never pin a model.
   await act(async () => entryCards[0].click());

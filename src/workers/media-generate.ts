@@ -512,7 +512,11 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           )
           .where(and(eq(jobs.id, jobId), eq(jobs.workspaceId, workspaceId), eq(jobs.claimToken, claimToken)));
 
-        await publishProgress('cancelled', 'cancelled', 0, { errorCode, errorMessage });
+        await publishProgress('cancelled', 'cancelled', 0, {
+          errorCode,
+          errorMessage,
+          remoteTerminal: !outcomeUnknown,
+        });
         terminalHandled = true;
         return { jobId, state: 'cancelled', remoteId };
       }
@@ -540,7 +544,11 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           )
           .where(and(eq(jobs.id, jobId), eq(jobs.workspaceId, workspaceId), eq(jobs.claimToken, claimToken)));
 
-        await publishProgress('failed', 'failed', 0, { errorCode, errorMessage });
+        await publishProgress('failed', 'failed', 0, {
+          errorCode,
+          errorMessage,
+          remoteTerminal: !outcomeUnknown,
+        });
         terminalHandled = true;
         throw new CloudError('STORAGE_ERROR', errorMessage, { status: 502 });
       }
@@ -815,7 +823,13 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
         }
         await publishProgress('cancelled', 'cancelled', 0);
       } else {
-        const errorCode = isCloudError(error) ? error.code : 'MEDIA_GENERATE_FAILED';
+        const rawCode =
+          !isCloudError(error) && error instanceof Error
+            ? (error as Error & { code?: unknown }).code
+            : undefined;
+        const gatewayCode =
+          typeof rawCode === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(rawCode) ? rawCode : null;
+        const errorCode = isCloudError(error) ? error.code : (gatewayCode ?? 'MEDIA_GENERATE_FAILED');
         const errorMessage = error instanceof Error ? error.message : 'Media generation failed';
         try {
           await deps.db
@@ -842,7 +856,11 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
         } catch {
           // Best-effort terminal persistence during failure handling.
         }
-        await publishProgress('failed', 'failed', 0, { errorCode, errorMessage });
+        await publishProgress('failed', 'failed', 0, {
+          errorCode,
+          errorMessage,
+          remoteTerminal: false,
+        });
       }
     }
     throw error;

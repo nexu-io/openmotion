@@ -5,6 +5,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { imageModelBadge, isOpenDesignProvider, menuFamilies, withOpenDesignModels } from './imageMenuModels';
 import { MegaMenuColumn } from './ImageMegaMenu';
+import { isUnifiedCloudGateway } from './ProviderSetupNotice';
 import { sceneExamples } from './sceneShowcase';
 import { ModelAvatar } from './settingsPrimitives';
 import type { useMediaCatalog } from './useMediaCatalog';
@@ -67,8 +68,9 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
   const openFeature = (scene: StudioScene) => onNavigate(sceneDestination(scene, destination, null));
 
   const anyOpenDesignReady = providers.some(provider => isOpenDesignProvider(provider.id) && provider.available);
+  const unifiedCloudEmpty = isUnifiedCloudGateway(providers) && !anyOpenDesignReady;
   const presentModelIds = new Set(families.flatMap(family => family.variants.map(variant => variant.modelId)));
-  const pendingOpenDesign = openDesignVideoModels.filter(entry => !presentModelIds.has(entry.modelId));
+  const pendingOpenDesign = unifiedCloudEmpty ? [] : openDesignVideoModels.filter(entry => !presentModelIds.has(entry.modelId));
   const modelItems = [
     ...families.map(family => {
       const pending = anyOpenDesignReady && !family.ready;

@@ -79,6 +79,7 @@ export interface JobProgressEvent {
   progress: number;
   errorCode?: string;
   errorMessage?: string;
+  remoteTerminal?: boolean;
   resultJson?: Record<string, unknown>;
   ts: number;
 }
