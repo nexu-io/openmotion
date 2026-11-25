@@ -34,6 +34,7 @@ import {
 import { moveLiveTweens } from "../utils/gsapLiveRetime";
 import { createPreviewAdapter } from "../player/lib/previewAdapter";
 import { scheduleCommittedTimelinePreview } from "../player/committedTimelinePreview";
+import { projectLocalTimelineEdit } from "../player/lib/peerTimeline";
 
 export async function readFileContent(projectId: string, targetPath: string): Promise<string> {
   if (targetPath.includes("\0") || targetPath.includes("..")) {
@@ -408,6 +409,18 @@ async function scaleGsapPositions(
   const mutation = scaleGsapMutation(elementId, oldStart, oldDuration, newStart, newDuration);
   if (!mutation) return UNMUTATED;
   return postGsapMutation(projectId, filePath, mutation, "scale-positions failed");
+}
+
+/** Paint edit-core's resolved trim, including any ripple changes, before the save receipt. */
+export function pendingTimelineResize(projectId: string, activePath: string | null) {
+  const path = activePath ?? "index.html";
+  return {
+    projectPending(files: Record<string, { before: string; after: string }>) {
+      // Resize already holds the affected clips against stale manifests. A whole-frame
+      // history hold here would also suppress playback state while the save is pending.
+      if (files[path]) return projectLocalTimelineEdit(projectId, path, files[path], null);
+    },
+  };
 }
 
 /** Rebind the optimistic clip timing or swap the animation script produced by the shared edit. */

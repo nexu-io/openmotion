@@ -30,6 +30,7 @@ import {
 import { playbackStartAttributeForElement } from "../player/lib/timelineElementHelpers";
 import {
   captureDurationRollback,
+  pendingTimelineResize,
   refreshCommittedTimeline,
   finishGroupTimingGsapFallback,
   timingGestureStep,
@@ -247,7 +248,8 @@ export function useTimelineGroupEditing({
 
   const persistCloudGroup = useCallback(async (projectId: string, changes: (TimelineGroupMoveChange | TimelineGroupResizeChange)[], label: string, paint?: TimelinePaintPlan) => {
     await saveCloudTimeline(projectId, timelineTimingEdits(changes, activeCompPath, paint), writeProjectFile, recordEdit, label,
-      refreshCommittedTimeline(previewIframeRef.current, activeCompPath ?? "index.html", projectId, reloadPreview));
+      refreshCommittedTimeline(previewIframeRef.current, activeCompPath ?? "index.html", projectId, reloadPreview),
+      changes.some(change => "duration" in change) ? pendingTimelineResize(projectId, activeCompPath) : undefined);
     forceReloadSdkSession?.();
   }, [activeCompPath, forceReloadSdkSession, previewIframeRef, recordEdit, reloadPreview, writeProjectFile]);
 
