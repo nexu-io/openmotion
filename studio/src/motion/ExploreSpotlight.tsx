@@ -130,14 +130,22 @@ export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motio
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    const updateTab = () => setTabVisible(!document.hidden);
+    let disposed = false;
+    const updateTab = () => { if (!disposed) setTabVisible(!document.hidden); };
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      updateTab();
+      document.addEventListener('visibilitychange', updateTab);
+      return () => { disposed = true; document.removeEventListener('visibilitychange', updateTab); };
+    }
     const observer = new IntersectionObserver(entries => {
+      if (disposed) return;
       setInView(entries[entries.length - 1].isIntersecting);
       updateTab();
     });
     observer.observe(element);
     document.addEventListener('visibilitychange', updateTab);
-    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', updateTab); };
+    return () => { disposed = true; observer.disconnect(); document.removeEventListener('visibilitychange', updateTab); };
   }, []);
 
   useEffect(() => {

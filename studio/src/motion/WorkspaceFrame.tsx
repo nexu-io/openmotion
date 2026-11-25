@@ -403,7 +403,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [editorActive, openSettings, toggleSidebar]);
   const cloudWeb = useCloudWebMode();
   const guestMode = Boolean(workspace.authRequired);
-  const authResolving = !guestMode && !workspace.catalogLoaded && !workspace.status && !workspace.connectionError;
+  const authResolving = !guestMode && !workspace.catalogVerified && !workspace.status && !workspace.connectionError;
   useEffect(() => {
     if (!guestMode || typeof window === 'undefined') return;
     if (!window.location.hash.startsWith('#project/')) return;

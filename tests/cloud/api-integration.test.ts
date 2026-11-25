@@ -15,6 +15,7 @@ import {
   SESSION_COOKIE_NAME,
   createBrowserSession,
   createPat,
+  revokeBrowserSession,
 } from '../../src/auth/index.ts';
 import {
   resolvePreviewTokenSecret,
@@ -1029,6 +1030,47 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
       headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` },
     });
     assert.equal(projectsRes.status, 200);
+
+    // Real expired and revoked session rows degrade cleanly to anonymous public reads (200) on
+    // /models/catalog and /models/status, while /models stays 401 and invalid Bearer headers
+    // paired with a valid browser cookie still strictly return 401 on both public endpoints.
+    const expiredSession = await createBrowserSession(authStore, { userId, workspaceId, ttlSec: -60 });
+    const revokedSession = await createBrowserSession(authStore, { userId, workspaceId });
+    assert.equal(await revokeBrowserSession(authStore, { sessionId: revokedSession.sessionId }), true);
+
+    for (const staleToken of [expiredSession.token, revokedSession.token]) {
+      const catRes = await app.request('/motion-api/models/catalog', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${staleToken}` },
+      });
+      assert.equal(catRes.status, 200);
+      const catBody = (await catRes.json()) as { defaults?: Record<string, unknown>; models?: unknown[] };
+      assert.deepEqual(catBody.defaults, {});
+      assert.ok(Array.isArray(catBody.models) && catBody.models.length > 0);
+
+      const stRes = await app.request('/motion-api/models/status', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${staleToken}` },
+      });
+      assert.equal(stRes.status, 200);
+      const stBody = (await stRes.json()) as { providers?: Array<Record<string, unknown>> };
+      assert.ok(Array.isArray(stBody.providers) && stBody.providers.length >= 1);
+      assert.equal('plan' in stBody.providers[0]!, false);
+      assert.equal('hasBalance' in stBody.providers[0]!, false);
+
+      const listRes = await app.request('/motion-api/models', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${staleToken}` },
+      });
+      assert.equal(listRes.status, 401);
+    }
+
+    for (const publicEndpoint of ['/motion-api/models/catalog', '/motion-api/models/status']) {
+      const invalidBearerWithValidCookie = await app.request(publicEndpoint, {
+        headers: {
+          Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}`,
+          Authorization: 'Bearer invalid-token',
+        },
+      });
+      assert.equal(invalidBearerWithValidCookie.status, 401, `expected 401 for invalid Bearer + valid cookie on ${publicEndpoint}`);
+    }
 
     // First-access welcome bootstrap ran exactly once for workspaceId and cached for subsequent requests
     assert.deepEqual(fixture.welcomeCalls, [workspaceId]);

@@ -38,6 +38,7 @@ vi.mock('./useIntegrationInfo', () => ({
 }));
 
 import { ExploreStudios } from './ExploreStudios';
+import { ExploreBlackFridaySpotlight } from './ExploreBlackFridaySpotlight';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -193,4 +194,46 @@ it('skips speculative editor preloading for guests and while auth is resolving, 
     [expect.any(Function), preloadHost],
     { delayMs: 4000 },
   );
+});
+
+it('ignores queued observer callbacks after Explore hides and renders cleanly when IntersectionObserver is missing', async () => {
+  const listTemplatesSpy = vi.spyOn(designClient, 'listTemplates').mockResolvedValue({ items: [], nextCursor: null });
+
+  renderExploreHome(true);
+  const designSection = container.querySelector('section[data-studio="design"]')!;
+  const staleTrigger = observed.get(designSection)!;
+
+  // Hide Explore before the queued observer entry fires; it must not trigger a Design fetch while hidden.
+  renderExploreHome(false);
+  await act(async () => {
+    staleTrigger();
+    await Promise.resolve();
+  });
+  expect(listTemplatesSpy).not.toHaveBeenCalled();
+
+  // Full Explore home (including Spotlight & Black Friday Spotlight) mounts without crashing when IntersectionObserver is absent.
+  vi.stubGlobal('IntersectionObserver', undefined);
+  mockUseMediaCatalog.mockClear();
+  act(() => root.unmount());
+  root = createRoot(container);
+  renderExploreHome(true);
+  await act(async () => { await Promise.resolve(); });
+  expect(listTemplatesSpy).toHaveBeenCalledTimes(1);
+  expect(mockUseMediaCatalog).toHaveBeenCalledWith(true);
+
+  act(() => root.unmount());
+  root = createRoot(container);
+  act(() => root.render(
+    <I18nProvider initialLocale="en">
+      <ExploreBlackFridaySpotlight
+        active
+        onNavigate={vi.fn()}
+        onOpenMotionEditor={vi.fn()}
+        motionEditorDisabled={false}
+        onOpenBlackFriday={vi.fn()}
+        onModelHub={vi.fn()}
+      />
+    </I18nProvider>,
+  ));
+  expect(container.querySelector('[data-bf-spotlight="true"]')).not.toBeNull();
 });

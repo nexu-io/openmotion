@@ -88,12 +88,14 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
   const keepLoaded = Boolean(retained ?? active);
   const video = useRef<HTMLVideoElement>(null);
   const resumedFromWarmPause = useRef(false);
+  const pendingPauseRetry = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [animate, setAnimate] = useState(false);
   useEffect(() => {
     resumedFromWarmPause.current = false;
+    pendingPauseRetry.current = false;
     setFailed(false);
     setRetryCount(0);
   }, [template.previewUrl]);
@@ -108,9 +110,12 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
     if (element.getAttribute('src') !== template.previewUrl) element.src = template.previewUrl;
     return () => {
       resumedFromWarmPause.current = false;
-      element.pause();
-      element.removeAttribute('src');
-      element.load();
+      pendingPauseRetry.current = false;
+      if (element.hasAttribute('src')) {
+        element.pause();
+        element.removeAttribute('src');
+        element.load();
+      }
       setPlaying(false);
     };
   }, [keepLoaded, template.previewUrl, failed, retryCount]);
@@ -120,6 +125,12 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
     if (!active) {
       resumedFromWarmPause.current = true;
       element.pause();
+      return;
+    }
+    if (pendingPauseRetry.current) {
+      pendingPauseRetry.current = false;
+      resumedFromWarmPause.current = false;
+      setRetryCount(1);
       return;
     }
     let cancelled = false;
@@ -138,9 +149,21 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
       <TemplatePoster key={template.posterUrl} template={template} coverUrl={coverUrl} brandedFallback={brandedFallback} />
       {template.previewUrl && <video ref={video} muted playsInline loop preload="none" aria-hidden="true" onPlaying={() => {
         resumedFromWarmPause.current = false;
+        pendingPauseRetry.current = false;
         setPlaying(true);
       }} onError={() => {
         setPlaying(false);
+        if (!active && keepLoaded && retryCount === 0) {
+          resumedFromWarmPause.current = false;
+          pendingPauseRetry.current = true;
+          const element = video.current;
+          if (element?.hasAttribute('src')) {
+            element.pause();
+            element.removeAttribute('src');
+            element.load();
+          }
+          return;
+        }
         if (resumedFromWarmPause.current && retryCount === 0 && active) {
           resumedFromWarmPause.current = false;
           setRetryCount(1);

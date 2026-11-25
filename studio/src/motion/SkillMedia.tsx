@@ -35,19 +35,25 @@ export function SkillMedia({ skill, playing = false, retained, large = false, br
 function CoverMedia({ cover, video, play, large, motif, name, onFail, brandedFallback }: { cover: NonNullable<MotionSkill['cover']>; video?: string; play: boolean; large: boolean; motif: SkillMotif; name: string; onFail: () => void; brandedFallback: boolean }) {
   const player = useRef<HTMLVideoElement>(null);
   const resumedFromWarmPause = useRef(false);
+  const pendingPauseRetry = useRef(false);
   // A video the browser cannot load or decode falls back to its poster before the motif illustration.
   const [videoFailed, setVideoFailed] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [readyVideo, setReadyVideo] = useState<string>();
+  const activeVideo = videoFailed ? undefined : video;
   useEffect(() => {
     resumedFromWarmPause.current = false;
+    pendingPauseRetry.current = false;
     setVideoFailed(false);
     setRetryCount(0);
+    setReadyVideo(undefined);
   }, [cover.video]);
   useEffect(() => {
     const element = player.current;
     return () => {
       resumedFromWarmPause.current = false;
+      pendingPauseRetry.current = false;
+      setReadyVideo(undefined);
       // Removing a playing video from the DOM alone need not stop its request.
       if (element?.hasAttribute('src')) {
         element.pause();
@@ -55,40 +61,63 @@ function CoverMedia({ cover, video, play, large, motif, name, onFail, brandedFal
         element.load();
       }
     };
-  }, [video, retryCount]);
+  }, [activeVideo, retryCount]);
   useEffect(() => {
     const element = player.current;
-    if (!element || !video) return;
+    if (!element || !activeVideo) return;
     if (play) {
-      if (element.getAttribute('src') !== video) element.src = video;
+      if (pendingPauseRetry.current) {
+        pendingPauseRetry.current = false;
+        resumedFromWarmPause.current = false;
+        setRetryCount(1);
+        return;
+      }
+      if (element.getAttribute('src') !== activeVideo) element.src = activeVideo;
       void element.play().catch(() => {});
     } else {
       resumedFromWarmPause.current = true;
       element.pause();
     }
-  }, [play, video, retryCount]);
+  }, [play, activeVideo, retryCount]);
   const handleVideoError = (fallbackToCardError: boolean) => {
     setReadyVideo(undefined);
+    if (!play && Boolean(activeVideo) && retryCount === 0) {
+      resumedFromWarmPause.current = false;
+      pendingPauseRetry.current = true;
+      const element = player.current;
+      if (element?.hasAttribute('src')) {
+        element.pause();
+        element.removeAttribute('src');
+        element.load();
+      }
+      return;
+    }
     if (resumedFromWarmPause.current && retryCount === 0 && play) {
       resumedFromWarmPause.current = false;
       setRetryCount(1);
       return;
     }
+    const element = player.current;
+    if (element?.hasAttribute('src')) {
+      element.pause();
+      element.removeAttribute('src');
+      element.load();
+    }
     if (fallbackToCardError) onFail();
     else setVideoFailed(true);
   };
   if (brandedFallback) return <>
-    <ExploreCoverImage src={video && !videoFailed ? cover.poster : (play && cover.gif ? cover.gif : cover.poster)} />
-    {video && !videoFailed && <video ref={player} src={video} muted playsInline loop preload="none" aria-hidden="true"
-      style={{ opacity: readyVideo === video ? 1 : 0 }} onLoadedData={() => { resumedFromWarmPause.current = false; setReadyVideo(video); }} onError={() => handleVideoError(false)} />}
+    <ExploreCoverImage src={activeVideo ? cover.poster : (play && cover.gif ? cover.gif : cover.poster)} />
+    {activeVideo && <video ref={player} src={activeVideo} muted playsInline loop preload="none" aria-hidden="true"
+      style={{ opacity: readyVideo === activeVideo ? 1 : 0 }} onLoadedData={() => { resumedFromWarmPause.current = false; pendingPauseRetry.current = false; setReadyVideo(activeVideo); }} onError={() => handleVideoError(false)} />}
   </>;
-  if (video && !videoFailed) return <>
+  if (activeVideo) return <>
     {cover.poster
       ? <img src={cover.poster} alt="" loading="lazy" decoding="async" />
       : <SkillCover motif={motif} name={name} large={large} playing={play} />}
-    <video ref={player} src={video} poster={cover.poster} muted playsInline loop
-      preload="none" aria-hidden="true" style={{ opacity: readyVideo === video ? 1 : 0 }}
-      onLoadedData={() => { resumedFromWarmPause.current = false; setReadyVideo(video); }} onError={() => handleVideoError(!cover.poster)} />
+    <video ref={player} src={activeVideo} poster={cover.poster} muted playsInline loop
+      preload="none" aria-hidden="true" style={{ opacity: readyVideo === activeVideo ? 1 : 0 }}
+      onLoadedData={() => { resumedFromWarmPause.current = false; pendingPauseRetry.current = false; setReadyVideo(activeVideo); }} onError={() => handleVideoError(!cover.poster)} />
   </>;
   const still = cover.poster ?? cover.gif;
   return <>{cover.gif && <img src={play ? cover.gif : still} alt="" loading="lazy" decoding="async" onError={onFail} />}

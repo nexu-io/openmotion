@@ -5,6 +5,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { observeStudioSavedAt } from '../utils/studioSaveState';
 import { useWorkspace } from './useWorkspace';
 import { notifyProjectActivity } from './workspaceRefresh';
+import { clearPrivateSwrCache, readSwrCache, setPrivateSwrIdentity, setSwrCacheEnabledForTests, writeSwrCache } from './swrCache';
 import { I18nProvider, useI18n } from '../i18n/I18n';
 import { languages, translate } from '../i18n/messages';
 
@@ -600,4 +601,89 @@ it('skips the unscoped /project/status probe for unauthenticated non-editor page
   expect(workspace.authRequired).toBe(false);
   expect(workspace.status?.projectId).toBe(first);
   expect(seenUrls).toEqual(['/motion-api/projects', '/motion-api/project/status?view=summary']);
+});
+
+it('discards stale workspace-A /projects responses across identity change and separates cached catalog from live auth verification', async () => {
+  setSwrCacheEnabledForTests(true);
+  try {
+    clearPrivateSwrCache();
+    setPrivateSwrIdentity({ userId: 'u1', workspaceId: 'ws-a' });
+    writeSwrCache('private', 'workspace-catalog', {
+      activeId: first,
+      projects: [{ id: first, title: 'Cached A' }],
+      sessions: [],
+    });
+
+    const seenUrls: string[] = [];
+    const pendingCatalogA = Promise.withResolvers<Response>();
+    const pendingCatalogB = Promise.withResolvers<Response>();
+    let catalogCall = 0;
+
+    fetcher.mockImplementation((url: string) => {
+      seenUrls.push(url);
+      const parsed = new URL(url, location.origin);
+      if (parsed.pathname.endsWith('/projects')) {
+        catalogCall++;
+        if (catalogCall === 1) return pendingCatalogA.promise;
+        if (catalogCall === 2) return pendingCatalogB.promise;
+        return Promise.resolve(Response.json({ code: 'UNAUTHORIZED', error: 'Authentication required' }, { status: 401 }));
+      }
+      return Promise.resolve(Response.json({ ...status, projectId: second, projectTitle: 'Workspace B' }));
+    });
+
+    function Harness() {
+      workspace = useWorkspace(async () => {}, undefined, undefined, undefined, {
+        allowUnscopedStatusFallback: true,
+        deferUnscopedStatusUntilCatalog: true,
+      });
+      return null;
+    }
+
+    await act(async () => root.render(<Harness />));
+    // Cached catalog populates projects optimistically, but must NOT unlock /project/status before current-session /projects verifies auth.
+    expect(workspace.projects.map(project => project.title)).toEqual(['Cached A']);
+    expect(workspace.catalogVerified).toBe(false);
+    expect(seenUrls).toEqual(['/motion-api/projects']);
+
+    // Identity switches to Workspace B while Workspace A's /projects is still pending.
+    await act(async () => {
+      setPrivateSwrIdentity({ userId: 'u1', workspaceId: 'ws-b' });
+      window.dispatchEvent(new Event('motion:account-changed'));
+    });
+    expect(workspace.projects).toEqual([]);
+    expect(workspace.status).toBeNull();
+    expect(workspace.catalogVerified).toBe(false);
+    expect(seenUrls).toEqual(['/motion-api/projects', '/motion-api/projects']);
+
+    // Late response from Workspace A must be discarded and must NOT pollute Workspace B's cache or open /project/status.
+    await act(async () => {
+      pendingCatalogA.resolve(Response.json({ activeId: first, projects: [{ id: first, title: 'Workspace A Project' }], sessions: [] }));
+      await Promise.resolve();
+    });
+    expect(workspace.projects).toEqual([]);
+    expect(workspace.catalogVerified).toBe(false);
+    expect(readSwrCache('private', 'workspace-catalog')).toBeNull();
+    expect(seenUrls).toEqual(['/motion-api/projects', '/motion-api/projects']);
+
+    // Workspace B's /projects resolves -> verifies current session, writes B's cache, and unlocks /project/status.
+    await act(async () => {
+      pendingCatalogB.resolve(Response.json({ activeId: second, projects: [{ id: second, title: 'Workspace B Project' }], sessions: [] }));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(workspace.catalogVerified).toBe(true);
+    expect(workspace.projects.map(project => project.title)).toEqual(['Workspace B Project']);
+    expect(workspace.status?.projectId).toBe(second);
+    expect((readSwrCache<{ projects: Array<{ title: string }> }>('private', 'workspace-catalog'))?.projects.map(p => p.title)).toEqual(['Workspace B Project']);
+    expect(seenUrls).toEqual(['/motion-api/projects', '/motion-api/projects', '/motion-api/project/status?view=summary']);
+
+    // Subsequent sign-out clears status immediately.
+    await act(async () => {
+      clearPrivateSwrCache();
+      window.dispatchEvent(new Event('motion:account-changed'));
+    });
+    expect(workspace.status).toBeNull();
+  } finally {
+    clearPrivateSwrCache();
+    setSwrCacheEnabledForTests(null);
+  }
 });

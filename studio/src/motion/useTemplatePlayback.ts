@@ -42,12 +42,14 @@ export function useTemplatePlaybackPool(
       setPool(previous => (previous.playing.size === 0 && previous.retained.size === 0 ? previous : EMPTY_POOL));
       return;
     }
+    let disposed = false;
     const media = matchMedia('(prefers-reduced-motion: reduce)');
     const compact = matchMedia('(max-width: 699px)');
     const connection = (navigator as Navigator & { connection?: EventTarget & { saveData?: boolean } }).connection;
     const visible = new Map<string, number>();
     const knownIds = new Set<string>();
     const update = () => {
+      if (disposed) return;
       const { autoplay, priority } = controls.current;
       const allowed = autoplay && !document.hidden && !media.matches;
       const candidates = [...visible].sort((a, b) => Number(b[0] === priority) - Number(a[0] === priority) || b[1] - a[1]);
@@ -95,27 +97,31 @@ export function useTemplatePlaybackPool(
       });
     };
     refresh.current = update;
-    const observer = new IntersectionObserver(entries => {
-      for (const entry of entries) {
-        const { playbackId, templateId } = (entry.target as HTMLElement).dataset;
-        const id = playbackId ?? templateId!;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.2) visible.set(id, entry.intersectionRatio);
-        else visible.delete(id);
-      }
-      update();
-    }, { root: container, threshold: [0, 0.2, 0.5, 1] });
+    const observer = typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver(entries => {
+          if (disposed) return;
+          for (const entry of entries) {
+            const { playbackId, templateId } = (entry.target as HTMLElement).dataset;
+            const id = playbackId ?? templateId!;
+            if (entry.isIntersecting && entry.intersectionRatio >= 0.2) visible.set(id, entry.intersectionRatio);
+            else visible.delete(id);
+          }
+          update();
+        }, { root: container, threshold: [0, 0.2, 0.5, 1] })
+      : null;
     container.querySelectorAll<HTMLElement>('[data-template-id][data-has-video="true"], [data-playback-id]').forEach(element => {
       const id = element.dataset.playbackId ?? element.dataset.templateId;
       if (id) knownIds.add(id);
-      observer.observe(element);
+      observer?.observe(element);
     });
     document.addEventListener('visibilitychange', update);
     media.addEventListener('change', update); compact.addEventListener('change', update);
     connection?.addEventListener('change', update);
     update();
     return () => {
+      disposed = true;
       refresh.current = () => {};
-      observer.disconnect(); document.removeEventListener('visibilitychange', update);
+      observer?.disconnect(); document.removeEventListener('visibilitychange', update);
       media.removeEventListener('change', update); compact.removeEventListener('change', update); connection?.removeEventListener('change', update);
     };
   }, [root, catalogKey, enabled, priorityOnly, playerBudget, retainedBudget]);

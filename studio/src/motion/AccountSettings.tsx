@@ -244,6 +244,8 @@ export function isInsufficientBalanceError(error: string | null | undefined): bo
 let cachedAccountSummary: CloudAccountSummary | null = null;
 let accountSummaryVersion = 0;
 let inflightAccountSummary: { promise: Promise<{ error: boolean }>; billing: boolean; version: number } | null = null;
+let selfDispatchedAccountChangeEvent: Event | null = null;
+let lastAccountChangeEvent: Event | null = null;
 const accountSummaryListeners = new Set<(value: CloudAccountSummary | null) => void>();
 
 function publishAccountSummary(value: CloudAccountSummary | null): void {
@@ -253,15 +255,22 @@ function publishAccountSummary(value: CloudAccountSummary | null): void {
   }
 }
 
-/** Test hook: clear cached account summary between isolated component tests. */
-export function resetAccountSummaryCacheForTest(): void {
+/** Invalidate any in-flight account summary fetch at an identity boundary (logout, workspace switch). */
+export function invalidateAccountSummaryCache(): void {
   accountSummaryVersion++;
   inflightAccountSummary = null;
+}
+
+/** Test hook: clear cached account summary between isolated component tests. */
+export function resetAccountSummaryCacheForTest(): void {
+  invalidateAccountSummaryCache();
+  selfDispatchedAccountChangeEvent = null;
+  lastAccountChangeEvent = null;
   publishAccountSummary(null);
 }
 
-function loadSharedAccountSummary(billing: boolean): Promise<{ error: boolean }> {
-  if (inflightAccountSummary && (!billing || inflightAccountSummary.billing)) {
+function loadSharedAccountSummary(billing: boolean, options?: { force?: boolean }): Promise<{ error: boolean }> {
+  if (!options?.force && inflightAccountSummary && (!billing || inflightAccountSummary.billing)) {
     return inflightAccountSummary.promise;
   }
   const version = ++accountSummaryVersion;
@@ -289,7 +298,13 @@ function loadSharedAccountSummary(billing: boolean): Promise<{ error: boolean }>
         );
         publishAccountSummary(normalized);
         if (scopeChanged) {
-          window.dispatchEvent(new Event('motion:account-changed'));
+          const event = new Event('motion:account-changed');
+          selfDispatchedAccountChangeEvent = event;
+          try {
+            window.dispatchEvent(event);
+          } finally {
+            if (selfDispatchedAccountChangeEvent === event) selfDispatchedAccountChangeEvent = null;
+          }
         }
         return { error: false };
       } catch (err) {
@@ -315,8 +330,7 @@ export function useAccountSummary(options?: { eager?: boolean }) {
   const eager = options?.eager ?? true;
   const [account, updateAccountState] = useState<CloudAccountSummary | null>(() => cachedAccountSummary);
   const updateAccount = useCallback((value: CloudAccountSummary) => {
-    accountSummaryVersion++;
-    inflightAccountSummary = null;
+    invalidateAccountSummaryCache();
     publishAccountSummary(value);
   }, []);
   useEffect(() => {
@@ -338,16 +352,23 @@ export function useAccountSummary(options?: { eager?: boolean }) {
     updateAccount(value);
     setError(false);
   }, [updateAccount]);
-  const refresh = useCallback(async (billing = false) => {
+  const refresh = useCallback(async (billing = false, refreshOptions?: { force?: boolean }) => {
     const current = ++request.current;
-    const result = await loadSharedAccountSummary(billing);
+    const result = await loadSharedAccountSummary(billing, refreshOptions);
     if (current === request.current) {
       setError(result.error);
     }
   }, []);
   useEffect(() => {
     if (eager) void refresh();
-    const update = () => void refresh();
+    const update = (event: Event) => {
+      if (event === selfDispatchedAccountChangeEvent) return;
+      if (lastAccountChangeEvent !== event) {
+        lastAccountChangeEvent = event;
+        invalidateAccountSummaryCache();
+      }
+      void refresh();
+    };
     window.addEventListener('motion:account-changed', update);
     return () => {
       request.current++;
@@ -444,6 +465,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error(t('Could not sign out'));
       markAuthenticatedSession(false);
+      setDiagnosticsAuthState(false);
       clearPrivateSwrCache();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       notifyProvidersChanged();
@@ -475,7 +497,8 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     try {
       await gatewayRequest('account/workspaces/switch', 'POST', { workspaceId });
       clearPrivateSwrCache();
-      await state.refresh(true);
+      invalidateAccountSummaryCache();
+      await state.refresh(true, { force: true });
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
       toast.showToast(t('Workspace switched'), 'info');

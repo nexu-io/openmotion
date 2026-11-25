@@ -175,15 +175,22 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    let inView = false;
-    const update = () => setVisible(inView && !document.hidden);
+    let disposed = false;
+    let inView = typeof IntersectionObserver === 'undefined';
+    const update = () => { if (!disposed) setVisible(inView && !document.hidden); };
+    if (typeof IntersectionObserver === 'undefined') {
+      update();
+      document.addEventListener('visibilitychange', update);
+      return () => { disposed = true; document.removeEventListener('visibilitychange', update); };
+    }
     const observer = new IntersectionObserver(entries => {
+      if (disposed) return;
       inView = entries[entries.length - 1].isIntersecting;
       update();
     });
     observer.observe(element);
     document.addEventListener('visibilitychange', update);
-    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', update); };
+    return () => { disposed = true; observer.disconnect(); document.removeEventListener('visibilitychange', update); };
   }, []);
 
   const syncEdges = useCallback((offset: number, maxOffset: number) => {

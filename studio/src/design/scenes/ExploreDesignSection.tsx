@@ -33,12 +33,13 @@ export function ExploreDesignSection({
   const { info: integrationInfo } = useIntegrationInfo();
   const toast = useToast();
   const sectionRef = useRef<HTMLDivElement>(null);
+  const templatesLoadedRef = useRef(false);
   const [templatesRequested, setTemplatesRequested] = useState(false);
   const [templates, setTemplates] = useState<DesignTemplateSummary[]>([]);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const [remixing, setRemixing] = useState(false);
   const previewTrigger = useRef<HTMLButtonElement>(null);
-  const requestTemplates = () => setTemplatesRequested(true);
+  const requestTemplates = () => { if (active) setTemplatesRequested(true); };
 
   useEffect(() => {
     if (!active || templatesRequested) return;
@@ -49,24 +50,32 @@ export function ExploreDesignSection({
     // Observe the outer content-visibility host when provided so preloading fires at the full 800px lead distance.
     const node = observerTargetRef?.current ?? sectionRef.current;
     if (!node) return;
+    let disposed = false;
     const root = scrollRoot?.current ?? node.closest('.om-explore');
     const observer = new IntersectionObserver(entries => {
-      if (!entries.some(entry => entry.isIntersecting)) return;
+      if (disposed || !entries.some(entry => entry.isIntersecting)) return;
+      disposed = true;
       observer.disconnect();
       setTemplatesRequested(true);
     }, { root, rootMargin: '0px 0px 800px 0px' });
     observer.observe(node);
-    return () => observer.disconnect();
+    return () => {
+      disposed = true;
+      observer.disconnect();
+    };
   }, [active, templatesRequested, scrollRoot, observerTargetRef]);
 
   useEffect(() => {
-    if (!templatesRequested) return;
+    if (!active || !templatesRequested || templatesLoadedRef.current) return;
     let mounted = true;
     designClient.listTemplates({ limit: 8 }).then(res => {
-      if (mounted && Array.isArray(res?.items)) setTemplates(res.items);
+      if (mounted && Array.isArray(res?.items)) {
+        templatesLoadedRef.current = true;
+        setTemplates(res.items);
+      }
     }).catch(() => { /* optional in offline/mocked tests */ });
     return () => { mounted = false; };
-  }, [templatesRequested]);
+  }, [active, templatesRequested]);
 
   const openPreview = (index: number, trigger: HTMLButtonElement) => {
     const template = templates[index];

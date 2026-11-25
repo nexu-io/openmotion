@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { StrictMode, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invalidateGatewayCache, loadGateway, type Model } from './gatewayClient';
 import { useMediaCatalog } from './useMediaCatalog';
 import { guestMediaCatalog } from './guestMediaCatalog';
 import { resetAccountSummaryCacheForTest, useAccountSummary } from './AccountSettings';
+import { clearPrivateSwrCache, getPrivateSwrIdentity, setPrivateSwrIdentity } from './swrCache';
 import { WorkspaceChromeContext, type WorkspaceChrome } from './WorkspaceChromeContext';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -241,10 +242,57 @@ describe('useMediaCatalog guest and auth-resolving behavior', () => {
     expect(latest?.failed).toBe(true);
     expect(latest?.catalog).toBeUndefined();
   });
+
+  it('invalidates cached and in-flight gateway responses on motion:account-changed and refreshes mounted consumers', async () => {
+    const modelA: Model = { ...liveModel, id: 'opendesign:ws-a-model', modelId: 'ws-a-model', label: 'Workspace A Model' };
+    const modelB: Model = { ...liveModel, id: 'opendesign:ws-b-model', modelId: 'ws-b-model', label: 'Workspace B Model' };
+
+    const deferredA = Promise.withResolvers<Response>();
+    let callBatch = 0;
+    vi.stubGlobal('fetch', vi.fn((input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith('/models/status')) {
+        return Promise.resolve(Response.json({ providers: [], agents: [], routes: {}, capabilities: [] }));
+      }
+      callBatch++;
+      if (callBatch === 1) return deferredA.promise;
+      return Promise.resolve(Response.json({ models: [modelB], mode: 'opendesign' }));
+    }));
+
+    let latest: ReturnType<typeof useMediaCatalog> | undefined;
+    function Probe() {
+      latest = useMediaCatalog(true);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <WorkspaceChromeContext.Provider value={makeChrome({ guestMode: false, authResolving: false })}>
+          <Probe />
+        </WorkspaceChromeContext.Provider>,
+      );
+    });
+    expect(callBatch).toBe(1);
+
+    // Account changes while Workspace A's catalog request is still in flight.
+    await act(async () => {
+      window.dispatchEvent(new Event('motion:account-changed'));
+      await Promise.resolve();
+    });
+    expect(callBatch).toBe(2);
+    expect(latest?.catalog?.models).toEqual([modelB]);
+
+    // Late response from Workspace A must be ignored and must not overwrite Workspace B.
+    await act(async () => {
+      deferredA.resolve(Response.json({ models: [modelA], mode: 'opendesign' }));
+      await Promise.resolve();
+    });
+    expect(latest?.catalog?.models).toEqual([modelB]);
+  });
 });
 
 describe('useAccountSummary in-flight deduplication', () => {
-  it('deduplicates concurrent account/summary requests across multiple mounted callers (and StrictMode)', async () => {
+  it('deduplicates concurrent account/summary requests across multiple mounted callers under StrictMode', async () => {
     resetAccountSummaryCacheForTest();
     let resolveResponse!: (res: Response) => void;
     const fetcher = vi.fn(() => new Promise<Response>(resolve => { resolveResponse = resolve; }));
@@ -256,7 +304,7 @@ describe('useAccountSummary in-flight deduplication', () => {
     function Second() { secondState = useAccountSummary(); return null; }
 
     await act(async () => {
-      root.render(<><First /><Second /></>);
+      root.render(<StrictMode><First /><Second /></StrictMode>);
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
 
@@ -270,5 +318,86 @@ describe('useAccountSummary in-flight deduplication', () => {
     expect(firstState?.error).toBe(false);
     expect(secondState?.error).toBe(false);
     resetAccountSummaryCacheForTest();
+  });
+
+  it('drops pre-logout in-flight summary responses on motion:account-changed and starts fresh for forced billing refreshes', async () => {
+    resetAccountSummaryCacheForTest();
+    clearPrivateSwrCache();
+    setPrivateSwrIdentity({ userId: 'u1', workspaceId: 'ws-a' });
+
+    const preLogout = Promise.withResolvers<Response>();
+    const postLogout = Promise.withResolvers<Response>();
+    const oldBilling = Promise.withResolvers<Response>();
+    const newBilling = Promise.withResolvers<Response>();
+    const pendingQueue = [preLogout.promise, postLogout.promise, oldBilling.promise, newBilling.promise];
+    const fetcher = vi.fn(() => pendingQueue.shift()!);
+    vi.stubGlobal('fetch', fetcher);
+
+    let firstState: ReturnType<typeof useAccountSummary> | undefined;
+    let secondState: ReturnType<typeof useAccountSummary> | undefined;
+    function First() { firstState = useAccountSummary(); return null; }
+    function Second() { secondState = useAccountSummary(); return null; }
+
+    await act(async () => {
+      root.render(<><First /><Second /></>);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // Header sign-out clears private cache and dispatches motion:account-changed while request #1 is pending.
+    await act(async () => {
+      clearPrivateSwrCache();
+      window.dispatchEvent(new Event('motion:account-changed'));
+    });
+    // Both callers share ONE fresh post-logout summary fetch instead of rejoining request #1.
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    // Pre-logout 200 arrives late and must be discarded (must NOT republish signed-in or restore ws-a identity).
+    await act(async () => {
+      preLogout.resolve(Response.json({
+        authenticated: true,
+        authMode: 'oidc',
+        user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+        activeWorkspace: { id: 'ws-a', slug: 'ws-a', name: 'Workspace A', role: 'owner' },
+      }));
+      await Promise.resolve();
+    });
+    expect(firstState?.account).toBeNull();
+    expect(getPrivateSwrIdentity()).toBeNull();
+
+    await act(async () => {
+      postLogout.resolve(Response.json({ error: 'Authentication required' }, { status: 401 }));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(firstState?.account?.state).toBe('signed-out');
+    expect(secondState?.account?.state).toBe('signed-out');
+
+    // A forced billing refresh (e.g., after workspace switch) must NOT reuse an already in-flight billing refresh.
+    let refreshOld!: Promise<void>;
+    let refreshNew!: Promise<void>;
+    await act(async () => {
+      refreshOld = firstState!.refresh(true);
+      refreshNew = firstState!.refresh(true, { force: true });
+    });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+
+    await act(async () => {
+      newBilling.resolve(Response.json({
+        authenticated: true,
+        authMode: 'oidc',
+        user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+        activeWorkspace: { id: 'ws-b', slug: 'ws-b', name: 'Workspace B', role: 'owner' },
+      }));
+      oldBilling.resolve(Response.json({
+        authenticated: true,
+        authMode: 'oidc',
+        user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+        activeWorkspace: { id: 'ws-a', slug: 'ws-a', name: 'Workspace A', role: 'owner' },
+      }));
+      await Promise.all([refreshOld, refreshNew]);
+    });
+    expect(firstState?.account?.activeWorkspace?.id).toBe('ws-b');
+    expect(getPrivateSwrIdentity()).toBe('u1:ws-b');
+    resetAccountSummaryCacheForTest();
+    clearPrivateSwrCache();
   });
 });

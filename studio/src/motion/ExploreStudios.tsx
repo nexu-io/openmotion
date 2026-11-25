@@ -419,7 +419,7 @@ function ExploreCollection({ community, root, firstPages, blackFridayHero, ...pr
   const home = !community && !medium;
   const showModelStories = !community && medium !== 'audio';
   const [modelCatalogRequested, setModelCatalogRequested] = useState(() => typeof IntersectionObserver === 'undefined');
-  const requestModelCatalog = () => setModelCatalogRequested(true);
+  const requestModelCatalog = () => { if (active) setModelCatalogRequested(true); };
   const seedanceSectionRef = useRef<HTMLElement>(null);
   const gptImageSectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -430,13 +430,18 @@ function ExploreCollection({ community, root, firstPages, blackFridayHero, ...pr
     }
     const targets = [seedanceSectionRef.current, gptImageSectionRef.current].filter((node): node is HTMLElement => Boolean(node));
     if (!targets.length) return;
+    let disposed = false;
     const observer = new IntersectionObserver(entries => {
-      if (!entries.some(entry => entry.isIntersecting)) return;
+      if (disposed || !entries.some(entry => entry.isIntersecting)) return;
+      disposed = true;
       observer.disconnect();
       setModelCatalogRequested(true);
     }, { root: root.current, rootMargin: '0px 0px 800px 0px' });
     for (const target of targets) observer.observe(target);
-    return () => observer.disconnect();
+    return () => {
+      disposed = true;
+      observer.disconnect();
+    };
   }, [active, showModelStories, modelCatalogRequested, medium, root]);
   const gateway = useMediaCatalog(active && showModelStories && modelCatalogRequested);
   const scenes = studioScenes.filter(scene => (!medium || scene.modality === medium) && (!community ||

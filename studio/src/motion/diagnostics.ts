@@ -7,7 +7,7 @@ const errors: Ring = { entries: [], bytes: 0 }, activity: Ring = { entries: [], 
 const encoder = new TextEncoder();
 const losses = { rateLimited: 0, repeated: 0, evicted: 0, delivery: 0 };
 const recent = new Map<string, number>();
-let loaded = false, active = false, remoteBlockedByAuth = false, timer: ReturnType<typeof setTimeout> | undefined, sending: Promise<void> | undefined;
+let loaded = false, active = false, remoteBlockedByAuth = false, authGeneration = 0, timer: ReturnType<typeof setTimeout> | undefined, sending: Promise<void> | undefined;
 let windowStart = 0, errorCount = 0, activityCount = 0;
 let sequence = 0;
 const session = crypto.randomUUID();
@@ -47,6 +47,7 @@ function schedule() {
   if (!remoteBlockedByAuth && !timer && !sending && pending.entries.length) timer = setTimeout(() => { void flushBrowserDiagnostics(); }, 5000);
 }
 export function setDiagnosticsAuthState(authenticated: boolean) {
+  authGeneration++;
   remoteBlockedByAuth = !authenticated;
   if (remoteBlockedByAuth) {
     clearTimeout(timer);
@@ -67,6 +68,7 @@ export function flushBrowserDiagnostics(): Promise<void> {
   }
   const batch = pending.entries.splice(0, 20);
   pending.bytes -= batch.reduce((sum, item) => sum + item.bytes, 0);
+  const requestAuthGeneration = authGeneration;
   // Logging has its own deadline and never shares the caller's signal or response body.
   const controller = new AbortController(), deadline = setTimeout(() => controller.abort(), 3000);
   sending = (async () => {
@@ -74,7 +76,9 @@ export function flushBrowserDiagnostics(): Promise<void> {
       const response = await fetch('/motion-api/diagnostics/events', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ errors: batch.map(item => item.event) }), signal: controller.signal, keepalive: true });
       if (response.status === 401 || response.status === 403) {
-        remoteBlockedByAuth = true;
+        if (requestAuthGeneration === authGeneration) {
+          remoteBlockedByAuth = true;
+        }
         losses.delivery += batch.length;
       } else if (!response.ok) {
         losses.delivery += batch.length;
@@ -109,12 +113,9 @@ export function initializeDiagnostics() {
   recordBrowserDiagnostic('activity_session', `session=${session} browser=${browser} inFrame=${window.self !== window.top} viewport=${innerWidth}x${innerHeight}`);
   const hide = () => { void flushBrowserDiagnostics(); };
   const visibility = () => { if (document.visibilityState === 'hidden') hide(); };
-  const onAccountChanged = () => { setDiagnosticsAuthState(true); };
   window.addEventListener('pagehide', hide); document.addEventListener('visibilitychange', visibility);
-  window.addEventListener('motion:account-changed', onAccountChanged);
   return () => {
     active = false; window.removeEventListener('pagehide', hide); document.removeEventListener('visibilitychange', visibility);
-    window.removeEventListener('motion:account-changed', onAccountChanged);
     clearTimeout(timer); timer = undefined;
   };
 }

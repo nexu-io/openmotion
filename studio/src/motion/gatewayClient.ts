@@ -29,6 +29,7 @@ function ensureGatewayInvalidationListener(): void {
   if (gatewayListenerRegistered || typeof window === 'undefined') return;
   gatewayListenerRegistered = true;
   window.addEventListener('motion:gateway-changed', invalidateGatewayCache);
+  window.addEventListener('motion:account-changed', invalidateGatewayCache);
 }
 
 export async function gatewayRequest<T>(

@@ -9,8 +9,39 @@ const CACHE_KEY = 'openmotion.github-stars';
 const BACKOFF_KEY = 'openmotion.github-stars.backoff';
 const CACHE_TTL = 5 * 60 * 1000;
 const DEFAULT_RETRY_MS = 60_000;
-const MAX_RATE_LIMIT_RETRY_MS = 15 * 60_000;
+const MAX_RATE_LIMIT_RETRY_MS = 2 * 60 * 60_000;
 type StarsCache = { count: number; at: number };
+
+function parseRetryAfterMs(header: string | null, now: number): number | null {
+  if (!header) return null;
+  const trimmed = header.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.min(seconds * 1000, MAX_RATE_LIMIT_RETRY_MS);
+    }
+    return null;
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs) && dateMs > now) {
+    return Math.min(dateMs - now, MAX_RATE_LIMIT_RETRY_MS);
+  }
+  return null;
+}
+
+function resolveRateLimitRetryMs(headers: Headers, now: number): number {
+  const retryAfterMs = parseRetryAfterMs(headers.get('retry-after'), now);
+  const resetHeader = headers.get('x-ratelimit-reset')?.trim();
+  const resetSeconds = resetHeader ? Number(resetHeader) : NaN;
+  const resetMs = Number.isFinite(resetSeconds) && resetSeconds * 1000 > now
+    ? Math.min(resetSeconds * 1000 - now, MAX_RATE_LIMIT_RETRY_MS)
+    : null;
+  if (retryAfterMs !== null && resetMs !== null) return Math.max(retryAfterMs, resetMs);
+  if (retryAfterMs !== null) return retryAfterMs;
+  if (resetMs !== null) return resetMs;
+  return DEFAULT_RETRY_MS;
+}
 
 function readPersistedRetryAt(): number {
   try {
@@ -52,12 +83,8 @@ export function createRepositoryStarsReader() {
       try {
         const response = await fetch(STARS_API, { credentials: 'omit', headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(5000) });
         if (response.status === 403 || response.status === 429) {
-          const resetSeconds = Number(response.headers.get('x-ratelimit-reset'));
           const now = Date.now();
-          const resetMs = Number.isFinite(resetSeconds) && resetSeconds * 1000 > now
-            ? Math.min(resetSeconds * 1000 - now, MAX_RATE_LIMIT_RETRY_MS)
-            : DEFAULT_RETRY_MS;
-          retryAt = now + Math.max(DEFAULT_RETRY_MS, resetMs);
+          retryAt = now + resolveRateLimitRetryMs(response.headers, now);
           persistRetryAt(retryAt);
           return null;
         }

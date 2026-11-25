@@ -67,21 +67,43 @@ it('hides the count when the request times out', async () => {
   expect(await createRepositoryStarsReader()()).toBeNull();
 });
 
-it('persists GitHub 403 rate-limit backoff across readers using x-ratelimit-reset', async () => {
+it('persists GitHub 403/429 rate-limit backoff across readers honoring full x-ratelimit-reset and Retry-After deadlines', async () => {
   let now = 10_000_000;
   vi.spyOn(Date, 'now').mockImplementation(() => now);
-  const resetEpochSeconds = Math.ceil((now + 5 * 60_000) / 1000);
+  // Primary rate limit 40 minutes away must not be truncated to 15 minutes.
+  const resetEpochSeconds = Math.ceil((now + 40 * 60_000) / 1000);
   const fetcher = vi.fn()
     .mockResolvedValueOnce(new Response('', { status: 403, headers: { 'x-ratelimit-reset': String(resetEpochSeconds) } }))
+    .mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '180' } }))
+    .mockResolvedValueOnce(new Response('', { status: 403, headers: { 'retry-after': new Date(now + 40 * 60_000 + 181_000 + 120_000).toUTCString() } }))
     .mockResolvedValueOnce(Response.json({ stargazers_count: 10001 }));
   vi.stubGlobal('fetch', fetcher);
 
   expect(await createRepositoryStarsReader()()).toBeNull();
-  // A fresh reader after page reload respects the persisted backoff without issuing another 403 request.
+  // Still backed off at 20 minutes (past the old 15-minute cap) across a fresh reader.
+  now += 20 * 60_000;
   expect(await createRepositoryStarsReader()()).toBeNull();
   expect(fetcher).toHaveBeenCalledTimes(1);
 
-  now += 5 * 60_000 + 1000;
-  expect(await createRepositoryStarsReader()()).toBe(10001);
+  // After the full 40-minute reset window, retries and receives secondary Retry-After: 180s.
+  now += 20 * 60_000 + 1000;
+  expect(await createRepositoryStarsReader()()).toBeNull();
   expect(fetcher).toHaveBeenCalledTimes(2);
+
+  now += 120_000;
+  expect(await createRepositoryStarsReader()()).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(2);
+
+  // After 180s Retry-After, retries and receives HTTP-date Retry-After (+120s).
+  now += 61_000;
+  expect(await createRepositoryStarsReader()()).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(3);
+
+  now += 60_000;
+  expect(await createRepositoryStarsReader()()).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(3);
+
+  now += 62_000;
+  expect(await createRepositoryStarsReader()()).toBe(10001);
+  expect(fetcher).toHaveBeenCalledTimes(4);
 });

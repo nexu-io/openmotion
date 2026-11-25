@@ -121,7 +121,7 @@ it('measures polling overhead without network or storage side effects', async ()
   process.stdout.write('DIAGNOSTIC_OVERHEAD ' + JSON.stringify({ scope: 'mocked healthy request, median of 5 x 2000 calls; not a playback benchmark', baselineMs, instrumentedMs, addedMs: instrumentedMs - baselineMs }) + '\n');
 });
 
-it('pauses remote diagnostic uploads when unauthenticated or after 401, and resumes after sign-in', async () => {
+it('pauses remote diagnostic uploads when unauthenticated or after 401, ignores sign-out events, and ignores stale 401s after re-auth', async () => {
   diagnostics.setDiagnosticsAuthState(false);
   diagnostics.recordBrowserDiagnostic('failure', 'guest-error');
   await vi.advanceTimersByTimeAsync(10_000);
@@ -129,10 +129,17 @@ it('pauses remote diagnostic uploads when unauthenticated or after 401, and resu
   expect(fetch).not.toHaveBeenCalled();
   expect(diagnostics.browserDiagnostics().some(event => event.message === 'guest-error')).toBe(true);
 
-  // Signing in resumes remote uploads; a 401 response stops subsequent uploads until next sign-in.
-  vi.mocked(fetch).mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
-    .mockResolvedValueOnce(new Response('ok', { status: 202 }));
+  // Dispatching motion:account-changed (which logout also emits) must NOT blindly unblock remote uploads.
   window.dispatchEvent(new Event('motion:account-changed'));
+  diagnostics.recordBrowserDiagnostic('failure', 'post-logout-event-error');
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(fetch).not.toHaveBeenCalled();
+
+  // Verified authentication resumes remote uploads; a 401 from the current generation stops subsequent uploads.
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
+    .mockResolvedValueOnce(new Response('ok', { status: 202 }));
+  diagnostics.setDiagnosticsAuthState(true);
   diagnostics.recordBrowserDiagnostic('failure', 'expired-session-error');
   await vi.advanceTimersByTimeAsync(5000);
   expect(fetch).toHaveBeenCalledTimes(1);
@@ -141,7 +148,22 @@ it('pauses remote diagnostic uploads when unauthenticated or after 401, and resu
   await vi.advanceTimersByTimeAsync(10_000);
   expect(fetch).toHaveBeenCalledTimes(1);
 
-  window.dispatchEvent(new Event('motion:account-changed'));
+  // A stale 401 from an earlier auth generation arriving AFTER verified re-auth must NOT re-block the new session.
+  const staleUnauthorized = Promise.withResolvers<Response>();
+  vi.mocked(fetch)
+    .mockReturnValueOnce(staleUnauthorized.promise)
+    .mockResolvedValueOnce(new Response('ok', { status: 202 }));
+  diagnostics.setDiagnosticsAuthState(true);
   await vi.advanceTimersByTimeAsync(5000);
   expect(fetch).toHaveBeenCalledTimes(2);
+
+  // New session verifies while the prior upload is still in flight, then the prior upload resolves 401.
+  diagnostics.setDiagnosticsAuthState(true);
+  staleUnauthorized.resolve(new Response('unauthorized', { status: 401 }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  diagnostics.recordBrowserDiagnostic('failure', 'new-session-error');
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(fetch).toHaveBeenCalledTimes(3);
 });

@@ -19,7 +19,11 @@ export function useMediaCatalog(active: boolean) {
   }, []);
   useEffect(() => {
     window.addEventListener('motion:gateway-changed', retry);
-    return () => window.removeEventListener('motion:gateway-changed', retry);
+    window.addEventListener('motion:account-changed', retry);
+    return () => {
+      window.removeEventListener('motion:gateway-changed', retry);
+      window.removeEventListener('motion:account-changed', retry);
+    };
   }, [retry]);
   useEffect(() => {
     setFailed(false);
