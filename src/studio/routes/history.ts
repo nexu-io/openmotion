@@ -7,6 +7,8 @@ import {
   type StudioVariables,
 } from '../context.ts';
 import { formatFileVersion } from '../etag.ts';
+import { isSha256Hex, isUuid } from '../../../shared/project-validation.ts';
+import type { HistoryStepGuard } from '../../../shared/ordered-text-edits.ts';
 
 function parseActorKind(raw: unknown): HistoryActorKind | undefined {
   if (raw === 'user' || raw === 'person') return 'user';
@@ -53,25 +55,35 @@ export function createStudioHistoryRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     return c.json(result);
   });
 
-  // POST /api/projects/:id/history/step — Step back (undo) or forward (redo).
-  app.post('/api/projects/:id/history/step', async (c) => {
+  // A distinct guarded route also fails closed on older pods which ignore unknown request fields.
+  app.on('POST', ['/api/projects/:id/history/step', '/api/projects/:id/history/step-guarded'], async (c) => {
     const auth = await getAuthContext(c, deps, { scope: 'projects:write', minRole: 'editor' });
     const projectId = c.req.param('id');
-    const body = (await c.req.json().catch(() => ({}))) as { direction?: string };
-    const rawDir = body.direction?.toLowerCase();
+    const body = (await c.req.json().catch(() => null)) as ({ direction?: unknown } & Partial<HistoryStepGuard>) | null;
+    const rawDir = typeof body?.direction === 'string' ? body.direction.toLowerCase() : undefined;
     const direction =
       rawDir === 'back' || rawDir === 'undo'
         ? 'back'
         : rawDir === 'forward' || rawDir === 'redo'
           ? 'forward'
           : null;
-    if (!direction) {
+    if (!body || !direction) {
       throw new CloudError('INVALID_ARGUMENT', 'direction must be "back"|"undo" or "forward"|"redo".', {
         status: 400,
         applied: false,
       });
     }
+    const { expectedVersionId, expectedRevision, expectedTargetVersionId, expectedTargetRevision } = body;
+    let guard: HistoryStepGuard | undefined;
+    if (c.req.path.endsWith('/step-guarded') || [expectedVersionId, expectedRevision, expectedTargetVersionId, expectedTargetRevision].some(value => value !== undefined)) {
+      if (!isUuid(expectedVersionId) || !isUuid(expectedTargetVersionId) ||
+          !isSha256Hex(expectedRevision) || !isSha256Hex(expectedTargetRevision)) {
+        throw new CloudError('INVALID_ARGUMENT', 'Supply valid current and target version IDs and revisions for a guarded history step.', { status: 400, applied: false });
+      }
+      guard = { expectedVersionId, expectedRevision, expectedTargetVersionId, expectedTargetRevision };
+    }
     const result = await deps.history.step(auth, projectId, direction, {
+      guard,
       writeToken: c.req.header('x-hyperframes-write-token'),
     });
     return c.json(result);

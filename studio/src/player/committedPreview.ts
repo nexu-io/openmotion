@@ -2,10 +2,10 @@ import { studioManualEditGestureFiles, subscribeStudioGestureRelease } from "../
 import { STUDIO_MANUAL_EDIT_GESTURE_ATTR } from "../components/editor/manualEditsTypes";
 import { confirmedSource, type ConfirmedSource } from "../utils/confirmedTextSources";
 import { isStudioEditSaving, studioPendingEditBlocks, subscribeStudioEditSaving } from "../utils/studioPendingEdits";
-import { applyCommittedPeerChanges, hasPeerLiveEdit, hasPeerTimingDocument, mountedPeerFileVersion, refreshPeerScenes, tryRefreshParkedPeerScene, type PeerApplyOutcome } from "./peerTimingPreview";
+import { applyCommittedPeerChanges, hasPeerLiveEdit, hasPeerTimingDocument, mountedPeerFileVersion, reconcileMountedHistoryDraft, refreshPeerScenes, tryRefreshParkedPeerScene, type PeerApplyOutcome } from "./peerTimingPreview";
 import { areIndependentPreviewFiles } from "./lib/previewHtmlSources";
 import { previewDocumentIdentity } from "./lib/previewAdapter";
-import { isPreviewChanging } from "./previewReloading";
+import { isPreviewChanging, previewScriptWritePending, subscribePreviewScriptWrites } from "./previewReloading";
 import { announcePreviewScenesSwapped } from "./sceneSwap";
 import { usePlayerStore } from "./store/playerStore";
 
@@ -21,7 +21,7 @@ export interface CommittedPreviewChange {
 }
 
 type Refresh = (paths: readonly string[]) => void;
-type Options = { gestureId?: string };
+type Options = { gestureId?: string; historyRestore?: boolean };
 type Change = CommittedPreviewChange & { options?: Options; observedVersion?: string; recovery?: "scene" | "document" };
 type Session = {
   src: string;
@@ -41,11 +41,13 @@ async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Sessi
   if (!target) return "requires-scene-rebuild";
   if (!isCurrent()) return "superseded";
   const mounted = mountedPeerFileVersion(frame, path);
-  if (mounted === target) return "applied";
+  if (mounted === target && !options?.historyRestore) return reconcileMountedHistoryDraft(frame, path, target, isCurrent) ?? "applied";
   // An older receipt can arrive after its successor was queued. Reuse that intermediate
   // source only when the iframe confirms it is what the user is actually seeing.
   const last = sent.get(path);
-  const base = last && last.version === mounted ? last : change.previous;
+  const base = options?.historyRestore && mounted === target && change.previous
+    ? { ...change.previous, version: target } // An ordered move can be visible before its base version advances.
+    : last && last.version === mounted ? last : change.previous;
   // A parked scene can adopt the new version without downloading its source into Studio.
   if (!base && change.readPrevious && tryParked && path !== "index.html") {
     const sceneCurrent = () => isCurrent() && !busy(frame);
@@ -83,6 +85,7 @@ export function canPresentDuringStudioEdit(frame: HTMLIFrameElement, project: st
 }
 
 function canAttempt(frame: HTMLIFrameElement, session: Session, change: Change) {
+  if (previewScriptWritePending()) return false;
   if (!busy(frame)) return true;
   if (change.recovery || !change.version || !canPresentDuringStudioEdit(frame, session.project, change.path)) return false;
   // The certificate describes the mounted tree. A pending root, deletion or tree change
@@ -135,7 +138,7 @@ async function present(frame: HTMLIFrameElement, session: Session) {
   const shown = applied.filter(change => ownsPath(change) && canAttempt(frame, session, change));
   shown.forEach(remove);
   if (shown.length) announcePreviewScenesSwapped(frame);
-  if (!busy(frame)) {
+  if (!busy(frame) && !previewScriptWritePending()) {
     const failed = pending.filter(change => ownsPath(change) && change.recovery);
     failed.forEach(remove);
     if (failed.length) session.refresh(failed.map(change => change.path));
@@ -147,7 +150,8 @@ async function present(frame: HTMLIFrameElement, session: Session) {
       const wake = () => schedule(frame, session);
       const stopSaving = subscribeStudioEditSaving(wake);
       const stopGestures = subscribeStudioGestureRelease(frame.ownerDocument, wake);
-      session.stopWaiting = () => { stopSaving(); stopGestures(); };
+      const stopScripts = subscribePreviewScriptWrites(wake);
+      session.stopWaiting = () => { stopSaving(); stopGestures(); stopScripts(); };
     }
   }
   else if (sessions.get(frame) === session) sessions.delete(frame);
@@ -178,6 +182,13 @@ export function scheduleCommittedPreview(
     const prior = session.pending.get(change.path);
     const target = change.current?.version ?? change.version;
     const priorTarget = prior?.current?.version ?? prior?.version;
+    if (options?.historyRestore) {
+      // File history just retired the forward write chain. A queued save receipt can
+      // describe the move being undone, including one whose pixels never reached this frame.
+      session.pending.set(change.path, { ...change, options });
+      session.sent.delete(change.path);
+      continue;
+    }
     // The queued revision already includes this local receipt. Keep its peer update and reader.
     if (priorTarget && change.current && !change.version && target !== priorTarget &&
         prior?.previous?.version === target && confirmedSource(project, change.path)?.version === priorTarget) continue;

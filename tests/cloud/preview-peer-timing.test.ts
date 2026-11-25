@@ -214,6 +214,35 @@ it('updates text and placement on the same live nodes without seeking or replaci
   assert.equal(send(message), false);
 });
 
+it('draws a history timing draft and confirms it without a second seek or replacing the clip', () => {
+  const frame = preview(false, { mediaTiming: true });
+  const audio = frame.document.getElementById('clip')!;
+  const changes = [{ id: 'clip', tag: 'audio', attributes: [['data-start', '2', '0']] }];
+  assert.equal(frame.send({ changes, after: etag(1), historyDraftId: 'undo' }), true);
+  assert.equal(audio.getAttribute('data-start'), '0');
+  assert.equal(frame.send({ type: 'mounted-file-version' }), etag(1));
+  const calls = [...frame.hooks];
+  assert.equal(frame.send({ changes, historyRestore: true }), true);
+  assert.deepEqual(frame.hooks, calls);
+  assert.equal(frame.document.getElementById('clip'), audio);
+  assert.equal(frame.send({ type: 'mounted-file-version' }), etag(2));
+  assert.equal(frame.send({ discardDraftId: 'undo' }), false);
+});
+
+it('discards only the geometry a refused canvas history draft still owns', () => {
+  const frame = preview(false, {position:true});
+  const target = frame.document.getElementById('title')!;
+  const changes = [{id:'title', tag:'div', attributes:[], styles:[['left','10px','5px'], ['top','','20px']]}];
+  assert.equal(frame.send({type:'peer-presentation', changes, after:etag(1), historyDraftId:'undo'}), true);
+  assert.equal(target.style.left, '5px');
+  target.style.left = '30px';
+  assert.equal(frame.send({discardDraftId:'undo'}), true);
+  assert.equal(target.style.left, '30px');
+  assert.equal(target.style.top || '', '');
+  assert.equal(frame.send({type:'mounted-file-version'}), etag(1));
+  assert.deepEqual(frame.hooks, []);
+});
+
 it('confirms nested geometry and a stamped BR caption atomically, then carries both across parking', () => {
   const path = 'scenes/intro.html';
   for (const local of [false, true]) {

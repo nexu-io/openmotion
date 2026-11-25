@@ -102,6 +102,7 @@ interface ExternalFileChangeCoordinatorOptions {
   refreshFileTree?: () => void | Promise<void>;
   /** Refresh the server-backed history view when another actor changes history without a file event. */
   onHistoryChanged?: (writeToken?: string) => void | Promise<void>;
+  onFileVersionNotice?: (writeToken?: string, paths?: readonly string[]) => void;
   presentPendingPeerChange?: (payload: unknown) => void;
 }
 
@@ -277,6 +278,7 @@ export function useExternalFileChangeCoordinator({
   onUseExternalFile,
   resetSaveQueues,
   onAcceptedPersistedFileChange,
+  onFileVersionNotice,
   refreshFileTree,
   onHistoryChanged,
 }: ExternalFileChangeCoordinatorOptions): ExternalFileChangeCoordinatorHandle {
@@ -601,6 +603,9 @@ export function useExternalFileChangeCoordinator({
         if (step.id !== token) consumeStudioWriteToken(step.id);
       }
       const ownWriteToken = consumeStudioWriteToken(token);
+      // A peer change can supersede a provisional Undo before its HTTP response arrives.
+      // Release its preview hold before entering the ordinary save drain.
+      onFileVersionNotice?.(ownWriteToken && token ? token : undefined, changedFilePaths(payload) ?? undefined);
       const ownContentEcho = content != null && isSelfWriteEcho(path, content);
       if (!ownWriteToken) invalidateLatestSourceWrite();
       if (ownWriteToken || ownContentEcho) {
@@ -622,7 +627,7 @@ export function useExternalFileChangeCoordinator({
       };
       void startDrainLoop();
     },
-    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange, presentPendingPeerChange, updateThumbnails],
+    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange, onFileVersionNotice, presentPendingPeerChange, updateThumbnails],
   );
 
   const processChangeRef = useRef(processChange);

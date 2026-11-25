@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
 import type { AuthContext } from '../contracts/auth.ts';
+import type { HistoryStepGuard } from '../../shared/ordered-text-edits.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { ProjectEvent } from '../contracts/events.ts';
 import type { BlobScope, StoragePort } from '../contracts/storage.ts';
@@ -97,9 +98,12 @@ export interface HistoryStepTarget {
   readonly paths: string[];
   readonly endedAt: number;
   readonly versionId: string;
+  readonly targetVersionId?: string;
+  readonly targetRevision?: string;
 }
 
 export interface HistoryListResult {
+  readonly supportsGuardedSteps: true;
   readonly lastSavedAt?: number;
   readonly projectId: string;
   readonly revision: string;
@@ -123,7 +127,7 @@ export interface HistoryMutationResult {
   readonly canRedo: boolean;
   readonly appliedFiles: string[];
   readonly stepLabel?: string;
-  readonly navigation?: Pick<HistoryListResult, 'currentSeq' | 'back' | 'forward'>;
+  readonly navigation?: Pick<HistoryListResult, 'supportsGuardedSteps' | 'currentSeq' | 'currentVersionId' | 'revision' | 'back' | 'forward'>;
   readonly writeToken: string;
   readonly entry?: HistoryListItem | null;
   readonly replayed?: boolean;
@@ -354,6 +358,8 @@ export class VersionHistoryService {
 
     const backItem = back && items.find(item => item.id === back.id);
     const forwardItem = next && items.find(item => item.id === next.id);
+    const backVersionId = active.at(-2)?.versionId;
+    const backVersion = backVersionId && versionMap.get(backVersionId);
     const canUndo = Boolean(backItem);
     const canRedo = Boolean(forwardItem);
 
@@ -362,6 +368,7 @@ export class VersionHistoryService {
       revision: project.revision.trim(),
       currentVersionId: project.currentVersionId ?? null,
       currentSeq: project.currentHistorySeq,
+      supportsGuardedSteps: true,
       ...(window && { lastSavedAt: entryRows.reduce((last, row) => Math.max(last, row.endedAt.getTime()), 0) }),
       canUndo,
       canRedo,
@@ -374,6 +381,7 @@ export class VersionHistoryService {
             endedAt: Date.parse(backItem.endedAt),
             label: backItem.label,
             versionId: backItem.versionId,
+            ...(backVersion && { targetVersionId: backVersion.id, targetRevision: backVersion.revision.trim() }),
           }
         : null,
       forward: forwardItem
@@ -385,6 +393,8 @@ export class VersionHistoryService {
             endedAt: Date.parse(forwardItem.endedAt),
             label: forwardItem.label,
             versionId: forwardItem.versionId,
+            targetVersionId: forwardItem.versionId,
+            targetRevision: forwardItem.revision,
           }
         : null,
       entries: [...items].reverse(),
@@ -570,7 +580,7 @@ export class VersionHistoryService {
     ctx: AuthContext,
     projectId: string,
     direction: 'back' | 'forward',
-    options: { writeToken?: string | null } = {},
+    options: { writeToken?: string | null; guard?: HistoryStepGuard } = {},
   ): Promise<HistoryMutationResult> {
     const writeToken = createWriteToken(options.writeToken);
 
@@ -580,6 +590,12 @@ export class VersionHistoryService {
         forUpdate: true,
         auth: ctx,
       });
+
+      const { guard } = options;
+      const changed = () => new CloudError('VERSION_CONFLICT', 'The project history changed before this step.', {
+        status: 409, applied: false, details: { currentVersionId: project.currentVersionId, currentRevision: project.revision.trim() },
+      });
+      if (guard && (project.currentVersionId !== guard.expectedVersionId || project.revision.trim() !== guard.expectedRevision)) throw changed();
 
       const entries = await tx
         .select()
@@ -597,6 +613,7 @@ export class VersionHistoryService {
       if (direction === 'back') {
         const active = entries.filter((e) => !e.undone && e.seq <= project.currentHistorySeq);
         if (active.length <= 1) {
+          if (guard) throw changed();
           throw new CloudError('INVALID_ARGUMENT', 'Nothing to undo.', { status: 400, applied: false });
         }
         const currentEntry = active[active.length - 1];
@@ -615,6 +632,7 @@ export class VersionHistoryService {
       } else {
         const undone = entries.filter((e) => e.undone && e.seq > project.currentHistorySeq);
         if (undone.length === 0) {
+          if (guard) throw changed();
           throw new CloudError('INVALID_ARGUMENT', 'Nothing to redo.', { status: 400, applied: false });
         }
         targetEntry = undone[0];
@@ -647,6 +665,7 @@ export class VersionHistoryService {
         });
       }
 
+      if (guard && (targetVersion.id !== guard.expectedTargetVersionId || targetVersion.revision.trim() !== guard.expectedTargetRevision)) throw changed();
       const changes = await this.applySnapshotToLiveFiles(
         tx,
         ctx.workspaceId,
@@ -699,7 +718,7 @@ export class VersionHistoryService {
       canRedo: list.canRedo,
       appliedFiles: txResult.appliedFiles,
       stepLabel: txResult.stepLabel,
-      navigation: { currentSeq: list.currentSeq, back: list.back, forward: list.forward },
+      navigation: { supportsGuardedSteps: true, currentSeq: list.currentSeq, currentVersionId: list.currentVersionId, revision: list.revision, back: list.back, forward: list.forward },
       writeToken,
       entry: list.entries.find((e) => e.seq === txResult.seq) ?? null,
     };

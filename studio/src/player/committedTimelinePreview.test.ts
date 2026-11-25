@@ -11,6 +11,7 @@ import { rememberPreviewHtmlSources } from "./lib/previewHtmlSources";
 import { observePreviewDocument } from "./lib/previewAdapter";
 
 vi.mock("./peerTimingPreview", () => ({
+  reconcileMountedHistoryDraft: () => undefined,
   refreshPeerScenes: vi.fn(async () => false), mountedPeerFileVersion: vi.fn(() => undefined), tryRefreshParkedPeerScene: () => false,
   hasPeerTimingDocument: vi.fn(() => true), hasPeerLiveEdit: () => false,
   applyCommittedPeerChanges: vi.fn(async () => "applied"),

@@ -51,7 +51,7 @@ interface UseStudioExternalFileChangesOptions {
   previewPersistence: PreviewPersistence;
   pendingTimelineEditPathRef: MutableRefObject<Set<string>>;
   reloadPreview: (path?: string | readonly string[]) => void;
-  onOutsideChange?: () => void;
+  onOutsideChange?: (writeToken?: string, paths?: readonly string[]) => void;
   onHistoryChanged?: (writeToken?: string) => void | Promise<void>;
 }
 
@@ -73,14 +73,13 @@ export function useStudioExternalFileChanges({
   const bumpThumbnailRevisions = usePlayerStore((state) => state.bumpThumbnailRevisions);
   const onAcceptedPersistedFileChange = useCallback(
     (path: string, affectedCompositions: readonly string[] | null, ownWrite?: { token: string; version: string }) => {
-      onOutsideChange?.();
       bumpThumbnailRevisions(affectedCompositions, path);
       if (projectId) {
         evictStaleCompositionCaptures(projectId, affectedCompositions, usePlayerStore.getState().thumbnailRevisions);
         if (ownWrite) expectPosterFileVersion(projectId, path, ownWrite);
       }
     },
-    [bumpThumbnailRevisions, onOutsideChange, projectId],
+    [bumpThumbnailRevisions, projectId],
   );
   const filesForChange = useMemo(() => createRemoteFileReader(), []);
   const earlyPreviews = useMemo(() => new WeakMap<HTMLIFrameElement, Map<string, { version: string | null; queued: boolean; src: string; documentId?: string }>>(), [projectId]);
@@ -182,6 +181,7 @@ export function useStudioExternalFileChanges({
     onUseExternalFile: fileManager.updateEditingFileContent,
     resetSaveQueues: resetDomEditSaveQueueBreaker,
     onAcceptedPersistedFileChange,
+    onFileVersionNotice: onOutsideChange,
     refreshFileTree: fileManager.refreshFileTree,
     onHistoryChanged,
   });

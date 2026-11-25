@@ -26,6 +26,19 @@ export interface OrderedTextEditReceipt {
   versionId: string | null;
   revision: string;
   writeToken: string;
+  /** Older servers and replayed receipts may omit the transaction's history context. */
+  parentVersionId?: string | null;
+  parentRevision?: string;
+  historySeq?: number;
+  coalesced?: boolean;
+}
+
+/** A prediction identifies both ends of the history step, including a replaced redo branch. */
+export interface HistoryStepGuard {
+  expectedVersionId: string;
+  expectedRevision: string;
+  expectedTargetVersionId: string;
+  expectedTargetRevision: string;
 }
 
 export interface OrderedTextEditFailure {

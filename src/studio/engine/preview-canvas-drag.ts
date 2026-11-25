@@ -214,6 +214,10 @@ export const PREVIEW_CANVAS_DRAG = `
       const path = pending.selection.sourceFile;
       const requiresFreshFrame = !pending.ordered && message.phase === 'commit' && message.changed && !pending.verifiedVersion;
       if (pending.ordered && message.phase === 'cancel') {
+        if (structureDraft?.pending?.includes(pending)) {
+          structureDraft.restore();
+          structureDraft = undefined;
+        }
         // Other queued operations own their own outcome, including edits to a different layer in this file.
         const later = [...pendingForSource(path).slice(pendingForSource(path).indexOf(pending) + 1), drag];
         for (const key of Object.keys(pending.applied || {})) {

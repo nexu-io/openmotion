@@ -6,6 +6,7 @@ import { studioApiFetch } from './studioApiFetch';
 import { createStudioWriteToken, markStudioWriteToken } from './studioFileVersion';
 import { createStudioSaveHttpError, retryStudioSave, StudioFileConflictError, StudioSaveNetworkError, StudioSaveHttpError } from './studioSaveDiagnostics';
 import { trackStudioProjectSave } from './studioSaveState';
+import { beginOrderedHistory } from './cloudEditHistory';
 
 type Output = { versions: Record<string, string>; changedPaths: string[] };
 export type EditFile<Version extends string | null = string> = { path: string; before: string; after: string; version: Version };
@@ -15,7 +16,7 @@ type Plan = Omit<OrderedTextEditOperation, 'id' | 'files' | 'dependencies'> & {
   edits: PreparedFile[]; label: string; dependencies?: Record<string, string>;
 };
 type Prepare = (drafts: ReadonlyMap<string, DraftSource>) => Promise<Plan>;
-type Intent = { at: number; prepare: Prepare; allowReplay: boolean; resolve(value: Output): void; reject(reason: unknown): void };
+type Intent = { at: number; prepare: Prepare; allowReplay: boolean; history: ReturnType<typeof beginOrderedHistory>; resolve(value: Output): void; reject(reason: unknown, uncertain?: boolean): void };
 type Step = { intent: Intent; edits: PreparedFile[]; payload: OrderedTextEditOperation };
 type Barrier = { at: number; run(): Promise<void>; reject(reason: unknown): void };
 type Queue = { project: string; waiting: (Intent | Barrier)[]; running: boolean; timer?: ReturnType<typeof setTimeout> };
@@ -25,10 +26,14 @@ export function hasOrderedProjectEdits(project: string) {
   return queues.has(project);
 }
 
-export function enqueueProjectEdit(project: string, path: string, prepare: Prepare, allowReplay = false) {
+export function enqueueProjectEdit(project: string, path: string, prepare: Prepare, allowReplay = false,
+  projection?: Parameters<typeof beginOrderedHistory>[1]) {
   const current = projectQueue(project);
+  const history = beginOrderedHistory(project, projection);
   return trackStudioProjectSave(project, path, () => new Promise<Output>((resolve, reject) => {
-    current.waiting.push({ at: Date.now(), prepare, allowReplay, resolve, reject });
+    current.waiting.push({ at: Date.now(), prepare, allowReplay, history,
+      resolve: value => { history?.finish(); resolve(value); },
+      reject: (reason, uncertain) => { history?.finish(uncertain); reject(reason); } });
     schedule(current);
   }));
 }
@@ -46,8 +51,10 @@ function projectQueue(project: string): Queue {
 export function runOrderedProjectBarrier<T>(project: string, task: () => Promise<T>): Promise<T> {
   if (!supportsOrderedTextEdits(project)) return task();
   const queue = projectQueue(project);
+  const history = beginOrderedHistory(project);
   return new Promise((resolve, reject) => {
-    queue.waiting.push({ at: Date.now(), run: async () => { resolve(await task()); }, reject });
+    queue.waiting.push({ at: Date.now(), run: async () => { const value = await task(); history?.finish(true); resolve(value); },
+      reject: (reason: unknown) => { history?.finish(true); reject(reason); } });
     schedule(queue);
   });
 }
@@ -148,6 +155,7 @@ async function prepareSteps(queue: Queue, steps: Step[]) {
 function accept(project: string, step: Step, receipt: OrderedTextEditReceipt, priorVersions: Map<string, string>) {
   const versions = { ...receipt.versions };
   const written = new Set(step.payload.files.map(file => file.path));
+  const deltas: Record<string, { before: string; after: string; beforeVersion: string; afterVersion: string }> = Object.create(null);
   for (const file of step.edits) {
     const before = priorVersions.get(file.path) ?? file.version;
     const version = versions[file.path] ?? before;
@@ -155,6 +163,9 @@ function accept(project: string, step: Step, receipt: OrderedTextEditReceipt, pr
     versions[file.path] = version;
     if (!written.has(file.path)) continue;
     priorVersions.set(file.path, version);
+    if (step.intent.history && before && receipt.changedPaths.includes(file.path)) {
+      deltas[file.path] = { before: file.before, after: file.after, beforeVersion: before, afterVersion: version };
+    }
     const observed = confirmedSource(project, file.path);
     // A peer read may already be newer than the delayed acknowledgement.
     if (!observed || observed.version === before || observed.version === version) {
@@ -162,6 +173,7 @@ function accept(project: string, step: Step, receipt: OrderedTextEditReceipt, pr
       acknowledgeFileEdit(project, file.path, before, version);
     }
   }
+  step.intent.history?.accept(receipt, deltas, step.payload.undoGroup);
   step.intent.resolve({ versions, changedPaths: receipt.changedPaths });
 }
 
@@ -177,7 +189,10 @@ async function flush(queue: Queue) {
     }
     await prepareSteps(queue, steps);
     if (!steps.length) return;
-    for (const step of steps) markStudioWriteToken(step.payload.id);
+    for (const step of steps) {
+      markStudioWriteToken(step.payload.id);
+      step.intent.history?.mark(step.payload.id);
+    }
     const result = await send(queue.project, steps.map(step => step.payload));
     const count = result.committed.length;
     const failed = result.failed;
@@ -200,10 +215,10 @@ async function flush(queue: Queue) {
     else if (conflict) {
       reconcileFileEdit(queue.project, path, failed.currentVersion);
       step.intent.reject(new StudioFileConflictError({ filePath: path, currentVersion: failed.currentVersion ?? null,
-        attemptedContent: step.edits.find(f => f.path === path)?.after ?? '', currentContent: null, syncLatest: true }));
+        attemptedContent: step.edits.find(f => f.path === path)?.after ?? '', currentContent: null, syncLatest: true }), true);
     } else step.intent.reject(new StudioSaveHttpError(failed.message, failed.status));
   } catch (error) {
-    for (const step of steps) step.intent.reject(error);
+    for (const step of steps) step.intent.reject(error, true);
     if (!steps.length) queue.waiting.splice(0).forEach(intent => intent.reject(error));
   } finally {
     queue.running = false;

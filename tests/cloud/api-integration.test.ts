@@ -1653,7 +1653,38 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const history = await (await app.request(base + '/history')).json();
     assert.equal(history.currentSeq, 3);
     assert.equal(history.back.label, '移动标题');
+    assert.equal(history.back.targetVersionId, second.versionId);
+    assert.equal(history.back.targetRevision, second.revision);
     assert.equal(history.entries[1].label, 'Edit source');
+
+    const step = (body: object, guarded = true) => app.request(base + (guarded ? '/history/step-guarded' : '/history/step'), { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const guard = { expectedVersionId: third.versionId, expectedRevision: third.revision,
+      expectedTargetVersionId: second.versionId, expectedTargetRevision: second.revision };
+    assert.equal((await step({ direction: 'back' })).status, 400);
+    assert.equal((await step({ direction: 'back', expectedRevision: third.revision })).status, 400);
+    // The first two saves share an ID, but only the second revision is a valid destination.
+    assert.equal((await step({ direction: 'back', ...guard, expectedTargetRevision: first.revision })).status, 409);
+    assert.equal((await step({ direction: 'back', ...guard, expectedVersionId: first.versionId })).status, 409);
+    const unchanged = await (await app.request(base + '/history')).json();
+    assert.equal(unchanged.currentVersionId, third.versionId);
+    assert.equal(unchanged.forward, null);
+    const undone = await step({ direction: 'back', ...guard });
+    assert.equal(undone.status, 200);
+    const { navigation } = await undone.json();
+    assert.equal(navigation.revision, second.revision);
+    assert.equal(navigation.currentVersionId, second.versionId);
+    assert.equal(navigation.forward.targetVersionId, third.versionId);
+    assert.equal(navigation.forward.targetRevision, third.revision);
+    const redo = { expectedVersionId: second.versionId, expectedRevision: second.revision,
+      expectedTargetVersionId: third.versionId, expectedTargetRevision: third.revision };
+    // A collaborator creates a different redo branch from the same starting snapshot.
+    const branch = await save('peer branch', randomUUID(), 'Peer edit', second.version);
+    assert.equal((await step({ direction: 'back' }, false)).status, 200);
+    assert.equal((await step({ direction: 'forward', ...redo })).status, 409);
+    const available = await (await app.request(base + '/history')).json();
+    assert.equal(available.currentVersionId, second.versionId);
+    assert.equal(available.forward.versionId, branch.versionId);
   });
 
   it('undoes a timeline deletion and its follow-up ripple as one named action', async () => {
@@ -1671,7 +1702,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     await json(file, { method: 'PUT', headers: { 'If-None-Match': '*' }, body:
       '<html><body><main data-composition-id="main" data-duration="6"><div id="first" data-track-index="0" data-start="0" data-duration="2"></div><div id="middle" data-track-index="0" data-start="2" data-duration="2"></div><div id="tail" data-track-index="0" data-start="4" data-duration="2"></div></main></body></html>' });
     const before = await json(file);
-    const { currentSeq } = await json(base + '/history');
+    const { currentSeq, revision, currentVersionId } = await json(base + '/history');
     const label = 'Delete timeline clip';
     const middle = before.content.match(/<div [^>]*id="middle"[^>]*>/)?.[0].match(/data-hf-id="([^"]+)"/)?.[1];
     assert.ok(middle);
@@ -1684,6 +1715,10 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
         files: [{path: 'scene.html', baseVersion: before.version, content: deleted.content}]}]}),
     });
     assert.equal(saved.committed.length, 1);
+    assert.equal(saved.committed[0].parentRevision, revision);
+    assert.equal(saved.committed[0].parentVersionId, currentVersionId);
+    assert.equal(saved.committed[0].historySeq, currentSeq + 1);
+    assert.equal(saved.committed[0].coalesced, false);
     const shrunk = (await json(file)).content;
     assert.doesNotMatch(shrunk, /id="middle"|data-start="4"/);
     assert.match(shrunk, /id="tail"/);

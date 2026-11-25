@@ -134,6 +134,15 @@ export function isLivePositionEdit(changes: PreviewChange[]): boolean {
   });
 }
 
+/** The subset that can be drawn and reversed without running authored scripts. */
+export function isHistoryGeometry(changes: PreviewChange[]): boolean {
+  return Array.isArray(changes) && changes.length > 0 && changes.every(c =>
+    c && !c.insert && !c.group && !c.removeFromComposition && !c.text && Array.isArray(c.attributes) &&
+    (c.styles ? c.attributes.length === 0 && (isLivePositionEdit([c]) || isPixelBoxChange(c, true)) :
+      c.attributes.length > 0 && c.attributes.every(a => Array.isArray(a) &&
+        ["data-start", "data-end", "data-duration", "data-track-index", "data-playback-start", "data-media-start"].includes(a[0]))));
+}
+
 /** An identified DOM box can keep its descendants and handlers when only pixel geometry changes. */
 export function isPixelBoxChange(change: PreviewChange, cssLayoutOffset = false): boolean {
   return !!change && !change.text && !change.insert && !change.group && !change.removeFromComposition &&

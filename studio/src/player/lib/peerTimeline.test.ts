@@ -153,6 +153,15 @@ it("can apply known source timing without a baseline and keeps unproven runtime 
   expect(usePlayerStore.getState().elements.map(row => row.id)).toEqual(["a", "generated"]);
 });
 
+it("targets the peer's freshly stamped clip after an undo restored an unstamped source", () => {
+  usePlayerStore.setState({elements:[{...row('a'), hfId:'hf-old'}]});
+  beginTimelineSourceRead('p',path)(original);
+  const restamped = page(audio('a',3.875,10,0,0).replace('<audio ', '<audio data-hf-id="hf-peer" '));
+  beginPeerTimelineUpdate('p',path,frame)!(restamped,frame);
+  expect(usePlayerStore.getState().elements[0]).toMatchObject({key:'index.html#a', hfId:'hf-peer', start:3.875, sourceDuration:90});
+  expect(hasPendingHistoryTimeline(frame)).toBe(true);
+});
+
 
 it("holds an unchanged projection until a swap started for the newest remote revision finishes", async () => {
   beginTimelineSourceRead("p", path)(original);

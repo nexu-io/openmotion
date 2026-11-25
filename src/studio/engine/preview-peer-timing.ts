@@ -1,5 +1,6 @@
 import { indexGroupMembers, stageGroupChange } from "../../../shared/preview-group.ts";
 import { isLiveMediaMove } from '../../../shared/preview-live-media.ts';
+import { isHistoryGeometry } from '../../../shared/preview-timing.ts';
 import { stageVisualClipInsert } from '../../../shared/preview-visual-insert.ts';
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from '../../../packages/edit-core/canvas-position.ts';
 import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESENTATION_STYLES, MAX_PREVIEW_TEXT_LENGTH, readPreviewText, validPreviewText, samePreviewText, isMountedCaptionBatch, isGradeOnlyChange, isAuthoredPresentation, isLivePositionEdit, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, canPatchPresentationValue } from '../../../shared/preview-timing.ts';
@@ -56,7 +57,7 @@ export const PREVIEW_PEER_TIMING = `
     }
     return forward => node.replaceChildren(...(forward ? next : original));
   }
-  function stagePresentation(node, change, effects, local, pending, authored, canUpdateBox) {
+  function stagePresentation(node, change, effects, local, pending, authored, canUpdateBox, ownsRollback) {
     if (change.captureOriginalTranslate !== undefined) {
       const move = Array.isArray(change.styles) && change.styles.find(style => Array.isArray(style) && style[0] === 'translate');
       if (typeof change.captureOriginalTranslate !== 'boolean' || !(timingDocumentId || authored) || !move) return false;
@@ -65,6 +66,7 @@ export const PREVIEW_PEER_TIMING = `
       const actual = node.getAttribute(originalTranslateAttribute);
       if (actual !== from && !(local && actual === to)) return false;
       effects.push(forward => {
+        if (!forward && ownsRollback && (!ownsRollback(node) || node.getAttribute(originalTranslateAttribute) !== to)) return;
         const value = forward ? to : actual;
         if (value === null) node.removeAttribute(originalTranslateAttribute);
         else node.setAttribute(originalTranslateAttribute, value);
@@ -87,6 +89,7 @@ export const PREVIEW_PEER_TIMING = `
         // This receipt advances storage. A later gesture owns the live CSS value.
         if (local && actual === newer) continue;
         effects.push(forward => {
+          if (!forward && ownsRollback && (!ownsRollback(node) || (node.style.getPropertyValue(name) || '') !== to)) return;
           const value = forward ? to : actual;
           if (value) node.style.setProperty(name, value);
           else node.style.removeProperty(name);
@@ -102,6 +105,7 @@ export const PREVIEW_PEER_TIMING = `
   }
   const isAuthoredPresentation = ${isAuthoredPresentation.toString()};
   const isLivePositionEdit = ${isLivePositionEdit.toString()};
+  const isHistoryGeometry = ${isHistoryGeometry.toString()};
   const isMediaMove = ${isLiveMediaMove.toString()};
   const stageClipInsert = ${stageVisualClipInsert.toString()};
   // A draft owns only its provisional DOM. Its source version stays unchanged until storage confirms it.
@@ -109,13 +113,16 @@ export const PREVIEW_PEER_TIMING = `
   function applyPeerTiming(m) {
     if (m.discardDraftId) {
       if (!structureDraft || m.discardDraftId !== structureDraft.id || m.path !== structureDraft.path ||
-          m.documentId !== timingDocumentId) return false;
+          m.documentId !== styleDocumentId) return false;
       const draft = structureDraft;
       structureDraft = undefined;
       draft.restore();
       return true;
     }
     const before = timingVersion(m.before), after = timingVersion(m.after), p = player();
+    const historyDraft = typeof m.historyDraftId === 'string';
+    const historyGeometry = (historyDraft || m.historyRestore === true) && isHistoryGeometry(m.changes);
+    if (historyDraft && (!historyGeometry || !m.historyDraftId.length || m.historyDraftId.length > 64 || before !== after)) return false;
     const temporary = m.type === 'peer-presentation' && m.temporary === true;
     const mediaControl = m.type === 'peer-timing' && Array.isArray(m.changes) && m.changes.length &&
       m.changes.every(c => ['video','audio'].includes(c?.tag) && !c.styles && !c.text && !c.insert && !c.removeFromComposition &&
@@ -124,6 +131,9 @@ export const PREVIEW_PEER_TIMING = `
     const local = !temporary && (m.type === 'peer-presentation' || mediaControl) && m.localSave === true;
     const pending = local && pendingDrags.get(m.gestureId);
     const ownDrag = pending && (pending.ordered || pendingForSource(m.path)[0] === pending);
+    // Pointer-up already drew this ordered move. Its receipt can still be in flight.
+    const finishedDrags = historyGeometry && !drag && !inlineText && Array.from(pendingDrags.values());
+    const pendingHistory = finishedDrags && finishedDrags.length > 0 && finishedDrags.every(step => step.ordered && step.selection.sourceFile === m.path);
     const paintDuringDrag = !local && Array.isArray(m.changes) && m.changes.every(paintOnly) &&
       (!drag || drag.ordered) && pendingForSource(m.path).every(step => step.ordered);
     const base = ownDrag ? pending.confirmedVersion || pending.sha256 : sourceVersions[m.path];
@@ -155,7 +165,7 @@ export const PREVIEW_PEER_TIMING = `
     if (!target || m.documentId !== target || (temporary ? !!timingDocumentId : !position && !nestedCaption && m.path !== compositionPath) ||
         !before || !after || before !== base ||
         !Number.isFinite(m.expiresAt) || Date.now() >= m.expiresAt ||
-        (!ownDrag && !paintDuringDrag && !siblingPaint && (drag || pendingDrags.size)) ||
+        (!ownDrag && !paintDuringDrag && !siblingPaint && !pendingHistory && (drag || pendingDrags.size)) ||
         (inlineText && !siblingPaint && !(local && inlineText.id === m.gestureId && inlineText.after !== undefined)) || !p || typeof p.seek !== 'function' ||
         typeof p.getTime !== 'function' || typeof window.__hfForceTimelineRebind !== 'function' ||
         !Array.isArray(m.changes)) return false;
@@ -165,10 +175,15 @@ export const PREVIEW_PEER_TIMING = `
     if (drafting && (!timingDocumentId || m.type !== 'peer-timing' || before !== after ||
         !m.structureDraftId.length || m.structureDraftId.length > 64 || !m.changes.some(c => c?.removeFromComposition || c?.insert || c?.group))) return false;
     if (structureDraft) {
-      if (drafting) return false;
+      if (drafting || historyDraft) return false;
       const draft = structureDraft;
       structureDraft = undefined;
-      if (m.type === 'peer-timing' && draft.path === m.path && draft.before === before &&
+      if (draft.history && m.historyRestore && draft.path === m.path && draft.before === before &&
+          draft.changes === JSON.stringify(m.changes) && draft.stillDrawn()) {
+        draft.confirm(after);
+        return true;
+      }
+      if (!draft.history && m.type === 'peer-timing' && draft.path === m.path && draft.before === before &&
           draft.changes === JSON.stringify(m.changes)) {
         confirmCanvasVersion(m.path, after);
         return true;
@@ -179,7 +194,9 @@ export const PREVIEW_PEER_TIMING = `
       confirmCanvasVersion(m.path, after);
       return true;
     }
-    const edits = [], effects = [], placements = [];
+    const edits = [], effects = [], placements = [], drawnStyles = [];
+    const ownsRollback = historyDraft && (node => drag?.element !== node &&
+      Array.from(pendingDrags.values()).every(step => step.element !== node || finishedDrags.includes(step)));
     let structureChanged = false;
     // Bulk edits resolve IDs in one traversal, including duplicate IDs across source files.
     const targets = new Map();
@@ -247,7 +264,9 @@ export const PREVIEW_PEER_TIMING = `
         const livePosition = getComputedStyle(node).position;
         if (livePosition !== 'static' && livePosition !== 'relative') return false;
       }
-      if (!stagePresentation(node, change, effects, local, pending, authored, nestedBox || cssBox || nestedCaption)) return false;
+      if (pendingHistory && (!change.styles || !finishedDrags.some(step => step.element === node))) return false;
+      if (historyDraft && change.styles) drawnStyles.push([node, change.styles]);
+      if (!stagePresentation(node, change, effects, local || historyGeometry, pending, authored, nestedBox || cssBox || nestedCaption, ownsRollback)) return false;
       if ((position || nestedCaption) && !temporary) placements.push([node, selector, change]);
       for (const [name, from, to] of change.attributes) {
         if (!previewAttributes.has(name) || [from, to].some(value => !canPatchPreviewAttribute(name, value, node.localName))) return false;
@@ -255,7 +274,7 @@ export const PREVIEW_PEER_TIMING = `
         const names = preserved && node.hasAttribute(preserved) ? [preserved,name] : [name];
         const control = previewControls.get(node)?.get(names[0]);
         const actual = control ? control.base : node.getAttribute(names[0]);
-        if (actual !== from && !(local && mediaControl && actual === to) && !(actual && from && Number(actual) === Number(from))) return false;
+        if (actual !== from && !((historyGeometry || local && mediaControl) && actual === to) && !(actual && from && Number(actual) === Number(from))) return false;
         for (const attr of names) edits.push({node,attr,old:attr === names[0] ? actual : node.getAttribute(attr),to});
       }
     }
@@ -263,9 +282,11 @@ export const PREVIEW_PEER_TIMING = `
     if (!Number.isFinite(time) || Date.now() >= m.expiresAt) return false;
     function update(key, at = time, resume = playing) {
       for (const e of edits) {
+        if (key === 'old' && ownsRollback && (!ownsRollback(e.node) || e.node.getAttribute(e.attr) !== e.to)) continue;
         applyTimelineReceipt(e.node, e.attr, e[key]);
       }
       for (const effect of effects) effect(key === 'to');
+      if (historyGeometry && picked?.isConnected) post('selection-geometry',{selection:describe(picked),historyRestore:true});
       // Lock is an editor flag. Studio reapplies the local monitor preference on mute.
       if (!structureChanged && !edits.some(edit => edit.attr !== 'data-timeline-locked' && edit.attr !== 'muted' && edit.attr !== 'data-color-grading')) return;
       p.seek(at);
@@ -274,20 +295,23 @@ export const PREVIEW_PEER_TIMING = `
       if (resume) p.play?.();
     }
     const run = cb => window.__hfSuppressSceneMutations ? window.__hfSuppressSceneMutations(cb) : cb();
+    function confirm(version) {
+      if (m.path !== compositionPath) advanceScenePlacements(m.path, before, version);
+      for (const [node, selector, change] of placements) rememberScenePlacement(node, m.path, selector, change, version);
+      if (ownDrag) pending.verifiedVersion = version;
+      confirmCanvasVersion(m.path, version);
+    }
     try { run(() => update('to')); }
     catch (_) { try { run(() => update('old')); } catch (_) {} return false; }
-    if (drafting) {
-      structureDraft = { id: m.structureDraftId, path: m.path, before, changes: JSON.stringify(m.changes),
+    if (drafting || historyDraft) {
+      structureDraft = { id: historyDraft ? m.historyDraftId : m.structureDraftId, history: historyDraft, pending: finishedDrags, path: m.path, before, changes: JSON.stringify(m.changes), confirm,
+        stillDrawn: () => edits.every(e => e.node.isConnected && e.node.getAttribute(e.attr) === e.to) &&
+          drawnStyles.every(([node, styles]) => node.isConnected && styles.every(([name, , to]) => (node.style.getPropertyValue(name) || '') === to)),
         restore: () => run(() => update('old', p.getTime(), p.isPlaying?.() === true)) };
       return true;
     }
     // Only a complete rebind advances the revision used for future edits and selections.
-    if (!temporary) {
-      if (m.path !== compositionPath) advanceScenePlacements(m.path, before, after);
-      for (const [node, selector, change] of placements) rememberScenePlacement(node, m.path, selector, change, after);
-      if (ownDrag) pending.verifiedVersion = after;
-      confirmCanvasVersion(m.path, after);
-    }
+    if (!temporary) confirm(after);
     return true;
   }
 `;

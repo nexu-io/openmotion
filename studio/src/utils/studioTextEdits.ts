@@ -245,7 +245,7 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
         }
         edits = plan.edits;
         return plan;
-      }, canvasGesture);
+      }, canvasGesture, () => projection);
       await presentAcceptedFiles(project, pending, edits, saved.versions);
     } catch (error) {
       // A prior timeline/animation projection may have painted into this session.

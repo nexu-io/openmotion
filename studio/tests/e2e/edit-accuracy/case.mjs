@@ -624,7 +624,7 @@ async function cropOutline(ctx, map) {
 function slowHistory(ms) {
   const send = window.fetch;
   window.fetch = (url, init) =>
-    /\/history\/step$/.test(String(url).split("?")[0])
+    /\/history\/step(?:-guarded)?$/.test(String(url).split("?")[0])
       ? send(url, init).then((r) => new Promise((ok) => setTimeout(() => ok(r), ms)))
       : send(url, init);
 }

@@ -93,8 +93,11 @@ export function beginStudioShownRestore(): () => void {
   const landed = new Promise<void>((resolve) => (end = resolve));
   shownRestores.add(landed);
   notifySaving();
-  void landed.then(() => { shownRestores.delete(landed); notifySaving(); });
-  return end;
+  return () => {
+    if (!shownRestores.delete(landed)) return;
+    end();
+    notifySaving();
+  };
 }
 
 export function isStudioEditSaving(): boolean {

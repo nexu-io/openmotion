@@ -33,6 +33,18 @@ Use the existing [editing contract](edit-core.md), project queue and isolated pr
 
 ## Acceptance
 
+### Undo and redo in a shared project
+
+For a recent geometry or timeline edit with known before/after contents, Studio can display the inverse on Undo and the forward change on Redo as soon as the user clicks. A pending local save still commits in order. The preview and timeline hold the provisional result while the server decides the history step. Other windows learn the durable result through the project event stream. The local cache is bounded and is invalidated by changes from other clients.
+
+If several local saves overlap and their combined inverse is still unknown, Undo binds to the newest queued action and waits for its receipt. If another client commits after the server accepts a step but before its HTTP response arrives, the event for the newer revision takes over the view. The delayed response cannot reinstate the older geometry. Clients connected to servers without guarded history support use their existing confirmed history flow.
+
+`POST /api/projects/:id/history/step-guarded` identifies both the current and destination project versions, each by ID and revision. The server checks both under the project lock. This also protects Redo when another editor branches and returns to the same starting version. A conflict rejects the step with HTTP 409. Studio discards the provisional change and reconciles with the authoritative state. Undo and redo continue to move the project's shared history cursor. Arbitrary source changes and previews without a verified in-place update retain the confirmed restore path.
+
+With a local two-origin dev-auth stack and the Welcome template, run `STUDIO_URL=http://127.0.0.1:4173 node studio/tests/e2e/responsive-cloud-undo.mjs` to measure click-to-paint with delayed responses. Run `STUDIO_URL=http://127.0.0.1:4173 node studio/tests/e2e/cloud-history-conflicts.mjs` to exercise concurrent MCP edits, rejected history steps, and a late acknowledgment in two windows.
+
+### Editing and recovery
+
 Use a disposable copy of Welcome in two Studio windows and an independent MCP client. Hold the first save response, move an image, resize it, then move a title. Run with the writer's SSE before and after its HTTP receipt. Check each operation in persisted history, all three final values in both windows and the reopened project, and the on-screen values while each response is released. Capture iframe identity and full-preview requests throughout.
 
 Repeat with the Agent changing an independent clip, changing the same file and deleting the selected element. Include an ambiguous network failure and a genuine version conflict. Finally replace the root runtime and verify the legitimate document-replacement path, playback position and failure reporting. Measure save acceptance, observer event receipt and first correct frame separately. Unit tests establish ordering decisions. The two-window run establishes interaction quality and actual network costs.

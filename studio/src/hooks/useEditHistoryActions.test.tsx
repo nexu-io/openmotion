@@ -129,6 +129,86 @@ describe("useEditHistoryActions", () => {
       expect(deps.syncHistoryPreviewAfterApply).toHaveBeenCalledWith({ paths: ["captions.srt"], files: undefined });
     } finally { saving.settle(); }
   });
+
+  it("shows a cloud undo while its save is pending and confirms using the actual versioned source delta", async () => {
+    const file = { ...PREDICTED.files['index.html'], versions: {previous: new Set(['B']), previousVersion:'B', restored:'A'} };
+    const files = { 'index.html': file };
+    const { deps, actions } = mount({ok:true, label:'Move', undoes:'e1', paths:['index.html'], files}, PREDICTED);
+    deps.editHistory.projectWide = true;
+    const gate = Promise.withResolvers<void>();
+    deps.waitForPendingDomEditSaves.mockImplementationOnce(() => gate.promise);
+    await act(async () => {
+      const undone = actions.undo();
+      expect(deps.showHistoryRestoreNow).toHaveBeenCalledWith(PREDICTED.files, true);
+      expect(deps.editHistory.undo).not.toHaveBeenCalled();
+      gate.resolve();
+      await undone;
+    });
+    expect(deps.editHistory.undo.mock.calls[0]![0].predictedId).toBe('e1');
+    expect(deps.putBack).not.toHaveBeenCalled();
+    expect(deps.syncHistoryPreviewAfterApply).toHaveBeenCalledWith({paths:['index.html'], files});
+  });
+
+  it("keeps an unavailable cloud press from stepping a peer edit that arrives while an unknown save settles", async () => {
+    const {deps, actions} = mount({ok:true, label:'Peer move'});
+    deps.editHistory.projectWide = true;
+    deps.editHistory.canUndo = false;
+    const save = beginStudioPendingEdit(null);
+    try {
+      await act(() => actions.undo());
+      expect(deps.editHistory.undo).not.toHaveBeenCalled();
+      expect(deps.waitForPendingDomEditSaves).not.toHaveBeenCalled();
+    } finally { save.settle(); }
+  });
+
+  it("binds one subscription and the newest pending intent at the key, before either save acknowledges", async () => {
+    const {deps,actions} = mount({ok:true,label:'Move'});
+    deps.editHistory.projectWide = true;
+    deps.editHistory.canUndo = false;
+    const stop = vi.fn();
+    const watchSuperseded = vi.fn(() => stop);
+    const pendingUndoId = vi.fn(() => 'second-drag');
+    Object.assign(deps.editHistory,{pendingUndoId,watchSuperseded});
+    const gate = Promise.withResolvers<void>();
+    deps.waitForPendingDomEditSaves.mockImplementationOnce(() => gate.promise);
+    await act(async () => {
+      const step = actions.undo();
+      expect(watchSuperseded).toHaveBeenCalledOnce();
+      expect(pendingUndoId).toHaveBeenCalledOnce();
+      expect(deps.showHistoryRestoreNow).not.toHaveBeenCalled();
+      pendingUndoId.mockReturnValue('later-drag');
+      gate.resolve();
+      await step;
+    });
+    const callbacks = deps.editHistory.undo.mock.calls[0]![0];
+    expect(callbacks.pendingUndoId).toBe('second-drag');
+    expect(callbacks.onSuperseded).toBeUndefined();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("releases presentation for a newer peer before the old HTTP reply and never redraws the previous move", async () => {
+    const files = PREDICTED.files;
+    const {deps,actions} = mount({ok:true, label:'Move', undoes:'e1', paths:['index.html'], files}, PREDICTED);
+    deps.editHistory.projectWide = true;
+    const retire = vi.fn();
+    Object.assign(deps.putBack,{supersede:retire});
+    const gate = Promise.withResolvers<void>();
+    deps.editHistory.undo.mockImplementationOnce(async ({onSuperseded}) => {
+      onSuperseded!(['index.html']);
+      await gate.promise;
+      return {ok:true, label:'Move', paths:['index.html']};
+    });
+    await act(async () => {
+      const step = actions.undo();
+      await vi.waitFor(() => expect(retire).toHaveBeenCalledOnce());
+      expect(isStudioEditSaving()).toBe(false);
+      expect(isPreviewChanging()).toBe(false);
+      gate.resolve();
+      await step;
+    });
+    expect(deps.putBack).not.toHaveBeenCalled();
+    expect(deps.syncHistoryPreviewAfterApply).not.toHaveBeenCalled();
+  });
   it("can still take back an edit saving before its history step is available", async () => {
     const { deps, actions } = mount({ ok: false, reason: "empty" });
     deps.editHistory.canUndo = false;

@@ -91,6 +91,16 @@ export function IsolatedCanvasOverlay() {
   useEffect(() => {
     function updateBounds(event: MessageEvent) {
       const active = drag.current;
+      if (event.data?.type === "selection-geometry" && event.data.historyRestore === true) {
+        const frame = previewIframeRef.current;
+        const target = event.data.selection;
+        if (active || !frame || !projectPreviewAdapter(frame, projectId)?.accepts(event) || !domEditSelection ||
+            target?.sourceFile !== domEditSelection.sourceFile || (domEditSelection.hfId
+              ? target.hfId !== domEditSelection.hfId : target.elementId !== domEditSelection.id)) return;
+        const bounds = relativeLayerBounds(target);
+        if (bounds) setDraft({ frame, bounds });
+        return;
+      }
       if ((!active?.corner && !active?.liveResizeBounds) || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
           event.data.gestureId !== active.gestureId || !active.adapter.accepts(event)) return;
       const bounds = relativeLayerBounds(event.data);
@@ -98,7 +108,7 @@ export function IsolatedCanvasOverlay() {
     }
     window.addEventListener("message", updateBounds);
     return () => window.removeEventListener("message", updateBounds);
-  }, []);
+  }, [domEditSelection, previewIframeRef, projectId]);
   useEffect(() => {
     if (!lastPick.current) setDraft(null);
   }, [domEditSelection]);

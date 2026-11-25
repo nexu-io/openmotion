@@ -41,6 +41,13 @@ function timelineFor(projectId: string, path: string) {
     usePlayerStore.getState().timelineProjectId === projectId ? active : null;
 }
 
+/** After a provisional history paint the next authoritative rows must include
+ * even timings whose new source value matches the pre-history baseline. */
+export function invalidateProjectedTimelineBase(projectId: string, path: string) {
+  const scope = timelineFor(projectId, path);
+  if (scope?.baseline) scope.baseline.writeRevision = -1;
+}
+
 /** Only a current, versioned source can unlock editing before the preview has a timeline.
  * A late read must never overwrite rows discovered by the runtime or a pending local edit. */
 function projectOpeningSource(projectId: string, path: string, content: string, version?: string | null, parsed?: Projection) {

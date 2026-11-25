@@ -125,7 +125,7 @@ async function run(mode) {
       await source.waitForSelector(selector, { visible: true, timeout: 8000 });
       await source.click(selector);
     }
-    await until(() => { healthy(); return report.requests.slice(start).find(r => r.path === '/history/step' && r.answered); }, Boolean, `${action}: no history/step response`, 8000);
+    await until(() => { healthy(); return report.requests.slice(start).find(r => /^\/history\/step(?:-guarded)?$/.test(r.path) && r.answered); }, Boolean, `${action}: no history step response`, 8000);
   };
   try {
     ({ browser } = await launchStudioChrome());

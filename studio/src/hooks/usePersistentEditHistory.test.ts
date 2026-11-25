@@ -14,6 +14,9 @@ import {
   type StudioApiAdapter,
 } from "@hyperframes/studio-server";
 import { consumeStudioWriteToken } from "../utils/studioFileVersion";
+import { enqueueProjectEdit } from "../utils/orderedProjectEdits";
+import { confirmedSource, forgetProjectSources, rememberSource } from "../utils/confirmedTextSources";
+import { acknowledgeFileEdit, isolatedEditVersion } from "../utils/isolatedEditVersions";
 import {
   beginStudioPendingEdit,
   paintBackNewestStudioPendingEdit,
@@ -168,6 +171,76 @@ it("cloud saves need no claim and a stale tab always steps the latest project ed
   expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
 });
 
+it("guards an ordered edit pressed before its receipt and reuses verified file bytes for undo and redo", async () => {
+  const { hook } = await studio();
+  cleanup.push(() => forgetProjectSources('demo'));
+  const path = 'index.html';
+  const edit = { id: 'entry', label: 'Move layer', versionId: 'v2', paths: [path], endedAt: 1000 };
+  const nav = (undone: boolean) => ({ supportsGuardedSteps: true, currentSeq: undone ? 1 : 2, revision: undone ? 'r1' : 'r2', currentVersionId: undone ? 'v1' : 'v2',
+    back: undone ? null : edit, forward: undone ? edit : null });
+  let saved = false;
+  let undone = true;
+  let race = false;
+  let loseReply = false;
+  let send!: () => void;
+  const receipt = new Promise<void>(resolve => { send = resolve; });
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method !== 'POST') return Response.json({ ...nav(undone), entries: [] });
+    const body = JSON.parse(String(init.body));
+    if (url.endsWith('/text-edits/batch')) {
+      await receipt;
+      saved = true;
+      undone = false;
+      const id = body.operations[0].id;
+      return Response.json({ committed: [{ id, writeToken: id, changedPaths: [path], versions: { [path]: 'file-B' },
+        versionId: 'v2', revision: 'r2', parentVersionId: 'v1', parentRevision: 'r1', historySeq: 2, coalesced: false }] });
+    }
+    expect(url).toMatch(/\/step-guarded$/);
+    const undo = body.direction === 'back';
+    expect(body).toEqual({ direction: undo ? 'back' : 'forward', expectedVersionId: undo ? 'v2' : 'v1',
+      expectedRevision: undo ? 'r2' : 'r1', expectedTargetVersionId: undo ? 'v1' : 'v2', expectedTargetRevision: undo ? 'r1' : 'r2' });
+    if (race) return Response.json({ error: 'Peer moved the cursor' }, { status: 409 });
+    undone = undo;
+    if (loseReply) throw new TypeError('Lost connection after the transaction committed');
+    const navigation = nav(undone);
+    return Response.json({ ok: true, revision: navigation.revision, versionId: navigation.currentVersionId,
+      stepLabel: edit.label, appliedFiles: [path], navigation });
+  });
+  vi.stubGlobal('fetch', fetch);
+  await act(() => hook().refresh());
+  const plan = { label: edit.label, edits: [{ path, version: 'file-A', before: 'A', after: 'B' }] };
+  const saving = enqueueProjectEdit('demo', path, async () => plan, false, async () => plan);
+  await Promise.resolve();
+  const pending = hook().predict('undo');
+  expect(pending?.files[path]).toMatchObject({ previous: 'B', restored: 'A' });
+  expect(saved).toBe(false);
+  send();
+  await saving;
+  expect(hook().predict('undo')?.id).toBe(pending!.id);
+  const readFile = vi.fn(async () => { throw new Error('unexpected file read'); });
+  const undo = await act(() => hook().undo({ readFile, predictedId: pending!.id }));
+  expect(undo).toMatchObject({ ok: true, undoes: pending!.id, files: { [path]: { previous: 'B', restored: 'A',
+    versions: { previousVersion: 'file-B', restored: 'file-A' } } } });
+  expect(confirmedSource('demo', path)).toEqual({ content: 'A', version: 'file-A' });
+  const redo = hook().predict('redo');
+  expect(redo?.files[path]).toMatchObject({ previous: 'A', restored: 'B' });
+  expect(await act(() => hook().redo({ readFile, predictedId: redo!.id }))).toMatchObject({ ok: true, undoes: redo!.id });
+  expect(confirmedSource('demo', path)).toEqual({ content: 'B', version: 'file-B' });
+  loseReply = true;
+  const recovered = await act(() => hook().undo({ readFile, predictedId: pending!.id }));
+  expect(recovered).toMatchObject({ ok: true, undoes: pending!.id, files: { [path]: { previous: 'B', restored: 'A' } } });
+  expect(confirmedSource('demo', path)).toEqual({ content: 'A', version: 'file-A' });
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith('/step-guarded'))).toHaveLength(3);
+  loseReply = false;
+  race = true;
+  expect(await act(() => hook().redo({ readFile, predictedId: redo!.id }))).toMatchObject({ ok: false, reason: 'content-mismatch' });
+  expect(hook().predict('undo')).toBeNull();
+  const requests = fetch.mock.calls.length;
+  expect(await act(() => hook().undo({ readFile, predictedId: pending!.id }))).toMatchObject({ ok: false, reason: 'content-mismatch' });
+  expect(fetch).toHaveBeenCalledTimes(requests);
+  expect(readFile).not.toHaveBeenCalled();
+});
+
 it("reads a multi-file history step concurrently without waiting once per file", async () => {
   const { dir, hook, save, readFile } = await studio({ initialFiles: { "other.html": "X" } });
   save("B"); writeFileSync(join(dir, "other.html"), "Y");
@@ -182,6 +255,110 @@ it("reads a multi-file history step concurrently without waiting once per file",
     finally { release(); }
     expect((await result).ok).toBe(true);
   });
+});
+
+it('keeps the peer redo destination captured at click even if the project returns to the same source cursor', async () => {
+  const { hook } = await studio();
+  const next = { id: 'redo-entry', label: 'Peer edit', endedAt: 3, paths: ['notes.txt'], versionId: 'first',
+    targetRevision: 'first-revision', targetVersionId: 'first' };
+  const navigation = { revision: 'base-r', currentVersionId: 'base', currentSeq: 1, back: null, forward: next, entries: [] };
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method !== 'POST') return Response.json(navigation);
+    expect(url).toMatch(/\/step-guarded$/);
+    expect(JSON.parse(String(init.body))).toEqual({ direction: 'forward', expectedVersionId: 'base', expectedRevision: 'base-r',
+      expectedTargetVersionId: 'first', expectedTargetRevision: 'first-revision' });
+    return Response.json({ error: 'Changed destination' }, { status: 409 });
+  });
+  vi.stubGlobal('fetch', fetch);
+  await act(() => hook().refresh());
+  expect(hook().predict('redo')).toBeNull();
+  const guard = hook().guard('redo');
+  navigation.forward = { ...next, versionId: 'second', targetVersionId: 'second', targetRevision: 'second-revision' };
+  await act(() => hook().refresh());
+  const readFile = vi.fn(async () => '');
+  expect(await act(() => hook().redo({ readFile, guard }))).toMatchObject({ ok: false, reason: 'content-mismatch' });
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+  expect(readFile).not.toHaveBeenCalled();
+});
+
+it('releases a provisional restore on the first peer event, before a late step response', async () => {
+  const { hook } = await studio();
+  cleanup.push(() => forgetProjectSources('demo'));
+  rememberSource('demo', 'index.html', { content: 'B', version: 'own-B' });
+  acknowledgeFileEdit('demo', 'index.html', 'own-A', 'own-B');
+  const edit = { id: 'one', label: 'Move', paths: ['index.html'], endedAt: 1000 };
+  const next = { currentSeq: 2, back: edit, forward: null, entries: [] };
+  let finish!: (response: Response) => void;
+  vi.stubGlobal('fetch', (_url: string, init?: RequestInit) => init?.method === 'POST'
+    ? new Promise<Response>(resolve => { finish = resolve; }) : Promise.resolve(Response.json(next)));
+  await act(() => hook().refresh());
+  const onSuperseded = vi.fn();
+  const readFile = vi.fn(async () => 'B');
+  await act(async () => {
+    const step = hook().undo({ readFile, onSuperseded });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    hook().noteOutsideChange('peer', ['index.html']);
+    hook().refreshAfterEvent('peer');
+    rememberSource('demo', 'index.html', { content: 'C', version: 'peer-C' });
+    expect(onSuperseded).toHaveBeenCalledExactlyOnceWith(['index.html']);
+    finish(Response.json({ ok: true, stepLabel: edit.label, appliedFiles: ['index.html'],
+      navigation: { currentSeq: 1, back: null, forward: edit } }));
+    expect(await step).toEqual({ ok: true, label: 'Move', paths: ['index.html'] });
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(isolatedEditVersion('demo', 'index.html', 'own-A')).toBe('own-A');
+    expect(confirmedSource('demo', 'index.html')).toEqual({ content: 'C', version: 'peer-C' });
+  });
+});
+
+it('undoes exactly the newest of two queued moves pressed before either receipt', async () => {
+  const { hook } = await studio();
+  cleanup.push(() => forgetProjectSources('demo'));
+  const path = 'index.html';
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method !== 'POST') return Response.json({ supportsGuardedSteps: true, currentSeq: 1, currentVersionId: 'v1', revision: 'r1', back: null, forward: null, entries: [] });
+    const body = JSON.parse(String(init.body));
+    if (url.endsWith('/batch')) {
+      await held;
+      expect(body.operations).toHaveLength(2);
+      return Response.json({ committed: body.operations.map(({ id }: {id: string}, i: number) => ({
+        id, writeToken: id, changedPaths: [path], versions: { [path]: `file${i + 2}` }, historySeq: i + 2, coalesced: false,
+        parentVersionId: `v${i + 1}`, parentRevision: `r${i + 1}`, versionId: `v${i + 2}`, revision: `r${i + 2}`,
+      })) });
+    }
+    expect(url).toMatch(/\/step-guarded$/);
+    expect(body).toEqual({ direction: 'back', expectedVersionId: 'v3', expectedRevision: 'r3', expectedTargetVersionId: 'v2', expectedTargetRevision: 'r2' });
+    return Response.json({ ok: true, stepLabel: 'Move again', appliedFiles: [path], versionId: 'v2', revision: 'r2',
+      navigation: { supportsGuardedSteps: true, currentVersionId: 'v2', revision: 'r2', currentSeq: 2, back: null, forward: null } });
+  });
+  vi.stubGlobal('fetch', fetch);
+  await act(() => hook().refresh());
+  const move = (before: string, after: string) => enqueueProjectEdit('demo', path, async () => ({
+    label: 'Move', edits: [{ path, version: 'file1', before, after }],
+  }));
+  const first = move('A', 'B');
+  const firstId = hook().pendingUndoId();
+  const second = move('B', 'C');
+  const secondId = hook().pendingUndoId();
+  expect(firstId && secondId).toBeTruthy();
+  expect(firstId).not.toBe(secondId);
+  expect(hook().predict('undo')).toBeNull();
+  const readFile = vi.fn(async () => 'unexpected');
+  await act(async () => {
+    const step = hook().undo({ pendingUndoId: secondId, readFile });
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([url]) => url.endsWith('/batch'))).toBe(true));
+    release();
+    await Promise.all([first, second]);
+    expect(await step).toMatchObject({ ok: true, files: { [path]: { previous: 'C', restored: 'B' } } });
+  });
+  const failing = enqueueProjectEdit('demo', path, async () => { throw new Error('Missing clip'); });
+  const failedId = hook().pendingUndoId();
+  const rejected = expect(failing).rejects.toThrow('Missing clip');
+  expect(await act(() => hook().undo({ pendingUndoId: failedId, readFile }))).toMatchObject({ ok: false, reason: 'content-mismatch' });
+  await rejected;
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith('/step-guarded'))).toHaveLength(1);
+  expect(readFile).not.toHaveBeenCalled();
 });
 
 it("disables a known conflicting undo before the user clicks it", async () => {

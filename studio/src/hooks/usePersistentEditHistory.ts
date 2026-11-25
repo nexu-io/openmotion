@@ -12,12 +12,19 @@ import { reportManualEdit, setTrackedProject, watchEditSurface } from "../motion
 import { studioEditLifecycle } from "../webmcp/writeCoordinator";
 import { observeStudioSavedAt } from "../utils/studioSaveState";
 import { confirmedSource, forgetSource } from "../utils/confirmedTextSources";
-import { retireFileEditChain } from "../utils/isolatedEditVersions";
+import { forgetFileEditChain, retireFileEditChain } from "../utils/isolatedEditVersions";
+import { CloudEditHistory, confirmCloudRestore, watchCloudEditHistory } from "../utils/cloudEditHistory";
+import type { HistoryStepGuard } from "../../../shared/ordered-text-edits";
+import { reconcileFileEdit } from "../utils/rebasedFileEdit";
 
 interface ApplyCallbacks {
   readFile: (path: string) => Promise<string>;
   serialize?: <T>(paths: readonly string[], task: () => Promise<T>) => Promise<T>;
   claimedAfter?: number;
+  predictedId?: string;
+  pendingUndoId?: string;
+  guard?: HistoryStepGuard;
+  onSuperseded?: (paths?: readonly string[]) => void;
 }
 
 export interface UsePersistentEditHistoryOptions {
@@ -33,16 +40,23 @@ interface ApplyResult {
   paths?: string[];
   undoes?: string;
   files?: RestoreFiles;
+  reconcilePaths?: string[];
 }
 
 interface NextStep {
   id: string;
+  versionId?: string;
+  targetVersionId?: string;
+  targetRevision?: string;
   label: string;
   endedAt: number;
   paths: string[];
 }
 
 interface HistoryView {
+  supportsGuardedSteps?: boolean;
+  currentVersionId?: string | null;
+  revision?: string;
   lastSavedAt?: number;
   currentSeq?: number; // Present on the cloud snapshot-based timeline.
   entries: Array<Pick<HistoryListItem, "id" | "undoes"> & { endedAt: number | string }>;
@@ -228,11 +242,15 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
   const [own] = useState(createOwnHistory);
+  const cloudHistory = useMemo(() => new CloudEditHistory(projectId ?? ""), [projectId]);
+  useEffect(() => projectId ? watchCloudEditHistory(projectId, cloudHistory) : undefined, [projectId, cloudHistory]);
   const [pageKeyScope] = useState(generateId);
   const claimKey = useCallback((key: string) => `${pageKeyScope}:${key}`, [pageKeyScope]);
 
   const historyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastStepToken = useRef<string | null>(null);
+  const uncertainSteps = useMemo(() => new Map<string, string[]>(), [projectId]);
+  const superseded = useRef<ApplyCallbacks['onSuperseded']>(undefined);
   const readSequence = useRef(0);
   const refresh = useCallback(async () => {
     if (!projectId || projectIdRef.current !== projectId) return;
@@ -241,18 +259,21 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
     clearTimeout(historyTimer.current);
     const sequence = ++readSequence.current;
     const seen = own.changes();
+    const clock = cloudHistory.clock;
     const cloud = getCachedCloudDisklessMode() || viewRef.current.currentSeq !== undefined;
     const response = await studioApiFetch(historyUrl(projectId, cloud ? "?view=navigation" : "")).catch(() => null);
     const next = response?.ok
       ? ((await response.json().catch(() => null)) as HistoryView | null)
       : EMPTY;
-    if (sequence !== readSequence.current || projectIdRef.current !== projectId) return;
+    if (sequence !== readSequence.current || projectIdRef.current !== projectId || clock !== cloudHistory.clock) return;
     if (!next) return console.error("The history's reply was unreadable.");
     observeStudioSavedAt(projectId, next.lastSavedAt ?? Math.max(0, ...next.entries.map(entry => timestamp(entry.endedAt))));
     viewRef.current = next;
     setView(next);
     own.offered(seen, next);
-  }, [projectId, own]);
+    cloudHistory.offered(next);
+    return next;
+  }, [projectId, own, cloudHistory]);
 
   useEffect(() => {
     viewRef.current = EMPTY;
@@ -278,11 +299,27 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
 
   // A single cloud commit can deliver both a file event and a history event.
   useEffect(() => () => clearTimeout(historyTimer.current), [projectId]);
-  const refreshAfterEvent = useCallback((writeToken?: string) => {
-    if (writeToken && writeToken === lastStepToken.current) return;
+  const scheduleRefresh = useCallback(() => {
     clearTimeout(historyTimer.current);
     historyTimer.current = setTimeout(() => void refresh(), 75);
   }, [refresh]);
+  const refreshAfterEvent = useCallback((writeToken?: string, changedPaths?: readonly string[]) => {
+    const uncertain = writeToken && uncertainSteps.get(writeToken);
+    if (uncertain && projectId) {
+      uncertainSteps.delete(writeToken!);
+      for (const path of uncertain) reconcileFileEdit(projectId, path);
+      scheduleRefresh();
+      return;
+    }
+    if (writeToken && writeToken === lastStepToken.current) return;
+    if (!cloudHistory.owns(writeToken)) {
+      cloudHistory.clear();
+      const release = superseded.current;
+      superseded.current = undefined;
+      release?.(changedPaths);
+    }
+    scheduleRefresh();
+  }, [cloudHistory, scheduleRefresh, uncertainSteps, projectId]);
 
   const recordEdit = useCallback(
     async ({ label, coalesceKey, coalesceMs, files, targets, created = [] }: RecordEditInput) => {
@@ -295,7 +332,7 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
       own.overtake();
       if (projectWide) {
         reportManualEdit({ projectId, label, entryId: null, coalesceKey, coalesceMs, agent });
-        refreshAfterEvent();
+        scheduleRefresh();
         return;
       }
       const reply = await post(historyUrl(projectId, "/claim"), {
@@ -318,8 +355,22 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
       heldClaimRef.current = claimed && coalesceKey ? { paths, at: Date.now() } : null;
       await refresh();
     },
-    [projectId, projectWide, refresh, refreshAfterEvent, own, claimKey],
+    [projectId, projectWide, refresh, scheduleRefresh, own, claimKey],
   );
+
+  const guard = useCallback((direction: "undo" | "redo"): HistoryStepGuard | undefined => {
+    const current = viewRef.current;
+    const next = direction === "undo" ? current.back : current.forward;
+    if (current.currentVersionId && current.revision && next?.targetVersionId && next.targetRevision) {
+      return { expectedVersionId: current.currentVersionId, expectedRevision: current.revision,
+        expectedTargetVersionId: next.targetVersionId, expectedTargetRevision: next.targetRevision };
+    }
+  }, []);
+
+  const watchSuperseded = useCallback((listener: NonNullable<ApplyCallbacks['onSuperseded']>) => {
+    superseded.current = listener;
+    return () => { if (superseded.current === listener) superseded.current = undefined; };
+  }, []);
 
   const step = useCallback(
     async (direction: "undo" | "redo", callbacks: ApplyCallbacks): Promise<ApplyResult> => {
@@ -332,7 +383,16 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
       if (sameStep(blockedRef.current[direction], next) && (!candidate || candidate === next?.id)) {
         return { ok: false, reason: "empty" };
       }
-      const stepPaths = candidate ? Object.keys(own.afterOf(candidate)) : next?.paths;
+      const expectedId = projectWide ? callbacks.predictedId : undefined;
+      const intentId = projectWide && direction === 'undo' ? callbacks.pendingUndoId : undefined;
+      if (intentId) {
+        await cloudHistory.waitingFor(intentId);
+        if (cloudHistory.needsIntentCursor(intentId)) await refresh();
+      }
+      const prediction = expectedId || intentId ? cloudHistory.confirmed(direction) : null;
+      if ((expectedId && prediction?.id !== expectedId) || (intentId && prediction?.intentId !== intentId)) return cantUndo(next?.paths);
+      const stepGuard = prediction?.guard ?? (projectWide ? callbacks.guard ?? guard(direction) : undefined);
+      const stepPaths = prediction ? Object.keys(prediction.files) : candidate ? Object.keys(own.afterOf(candidate)) : next?.paths;
       const paths = unionPaths(stepPaths, heldClaimRef.current?.paths);
       const pressedAt = own.claimCount();
       own.overtake();
@@ -342,37 +402,79 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
         const previewPaths = (files: string[]) => projectWide
           ? files.filter(path => computePreviewImpact([path]).affectsPreview)
           : files;
-        const previous = await readAll(previewPaths(paths), callbacks.readFile);
-        const before = new Map(projectWide ? paths.map(path => [path, confirmedSource(projectId, path)]) : []);
+        if (projectIdRef.current !== projectId || (prediction && cloudHistory.confirmed(direction)?.id !== prediction.id)) return cantUndo(paths);
+        const previous = prediction ? null : await readAll(previewPaths(paths), callbacks.readFile);
+        const before = new Map(projectWide && !prediction ? paths.map(path => [path, confirmedSource(projectId, path)]) : []);
         const headers = studioWriteHeaders();
-        lastStepToken.current = headers["X-Hyperframes-Write-Token"];
+        const token = headers["X-Hyperframes-Write-Token"];
+        lastStepToken.current = token;
+        if (projectWide) cloudHistory.mark(token);
         const beforeStep = readSequence.current;
+        const clock = ++cloudHistory.clock;
         const posted = await post(
-          historyUrl(projectId, target ? "/undo" : "/step"),
-          target ? { entryId: target } : { direction: direction === "undo" ? "back" : "forward" },
+          historyUrl(projectId, target ? "/undo" : stepGuard ? "/step-guarded" : "/step"),
+          target ? { entryId: target } : { direction: direction === "undo" ? "back" : "forward", ...stepGuard },
           headers,
         );
         heldClaimRef.current = null;
         const navigation = posted.ok
-          ? (posted.body as { navigation?: Pick<HistoryView, "currentSeq" | "back" | "forward"> }).navigation
+          ? (posted.body as { navigation?: Pick<HistoryView, "currentSeq" | "back" | "forward" | "currentVersionId" | "revision"> }).navigation
           : undefined;
-        if (navigation && projectIdRef.current === projectId) {
+        const overtaken = cloudHistory.clock !== clock || projectIdRef.current !== projectId;
+        const ambiguous = !posted.ok && (posted.status === 0 || posted.status >= 500 || (posted.status >= 200 && posted.status < 300));
+        if (navigation && !overtaken) {
           // An already-started GET may describe the cursor before this step.
-          if (readSequence.current !== beforeStep) refreshAfterEvent();
+          if (readSequence.current !== beforeStep) scheduleRefresh();
           ++readSequence.current;
           const nextView = { ...navigation, entries: [] };
           viewRef.current = nextView;
           setView(nextView);
+          cloudHistory.offered(nextView);
         } else if (projectWide) {
-          await refresh();
+          // The request can still commit after a lost response. Its late echo must then
+          // deliver authoritative file contents, even though we recognize the write token.
+          if (ambiguous) {
+            uncertainSteps.set(token, paths);
+            if (uncertainSteps.size > 32) uncertainSteps.delete(uncertainSteps.keys().next().value!);
+          } else if (!posted.ok) cloudHistory.clear();
+          const current = await refresh();
+          if (ambiguous && prediction && !overtaken && clock === cloudHistory.clock &&
+              current?.currentVersionId === prediction.guard.expectedTargetVersionId && current.revision === prediction.guard.expectedTargetRevision) {
+            const files = confirmCloudRestore(projectId, prediction.files, paths);
+            if (files) {
+              uncertainSteps.delete(token);
+              return { ok: true, paths, files, label: next?.label ?? (direction === 'undo' ? current.forward?.label : current.back?.label), undoes: expectedId };
+            }
+          }
         } else {
           void refresh();
         }
         // 404: this app keeps no history, so there is nothing to step.
         if (!posted.ok && posted.status === 404) return { ok: false, reason: "empty" };
-        if (!posted.ok) return { ok: false, reason: "failed", message: posted.error };
-        const reply = posted.body as HistoryResult | { ok: true; entry?: { label: string } | null; stepLabel?: string; appliedFiles: string[] };
+        if (!posted.ok && stepGuard && posted.status === 409) return cantUndo(paths);
+        if (!posted.ok) return { ok: false, reason: "failed", message: posted.error, ...(ambiguous && projectWide && { reconcilePaths: paths }) };
+        const reply = posted.body as HistoryResult | { ok: true; entry?: { label: string } | null; stepLabel?: string; appliedFiles: string[]; revision?: string; versionId?: string };
         if ("appliedFiles" in reply) {
+          const label = reply.stepLabel ?? next?.label ?? reply.entry?.label;
+          const changed = reply.appliedFiles;
+          const raced = navigation?.revision && (navigation.revision !== reply.revision || navigation.currentVersionId !== reply.versionId);
+          if (overtaken || raced) {
+            // The step did replace its source. Retire that chain even though the peer
+            // now owns the picture. A later read or local save owns its own version.
+            for (const path of changed) {
+              const replaced = prediction?.files[path]?.versions?.previousVersion ?? before.get(path)?.version;
+              if (!replaced) continue;
+              forgetFileEditChain(projectId, path, replaced);
+              if (confirmedSource(projectId, path)?.version === replaced) forgetSource(projectId, path);
+            }
+            return { ok: true, label, paths: changed };
+          }
+          if (prediction) {
+            const matches = navigation?.revision === reply.revision && navigation?.currentVersionId === reply.versionId &&
+              prediction.guard.expectedTargetRevision === reply.revision && prediction.guard.expectedTargetVersionId === reply.versionId;
+            const files = matches ? confirmCloudRestore(projectId, prediction.files, changed) : undefined;
+            return { ok: true, label, paths: changed, files, undoes: files ? prediction.id : undefined };
+          }
           // Snapshot history returns the destination entry. Its own diff can describe a different edit.
           // A step can revisit an immutable file version. Its old forward receipts must
           // not advance the restored frame back to the edit we just undid. The actual
@@ -384,16 +486,16 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
             return [path, pins] as const;
           }));
           const files = await restoredFiles(previewPaths(reply.appliedFiles), previous, callbacks.readFile);
+          if (clock !== cloudHistory.clock || projectIdRef.current !== projectId) return { ok: true, label, paths: changed };
           for (const [path, file] of Object.entries(files ?? {})) {
             const source = confirmedSource(projectId, path);
-            if (source?.content === file.restored) file.versions = { previous: pins.get(path)!, restored: source.version };
+            const base = before.get(path);
+            if (source?.content === file.restored) file.versions = {
+              previous: pins.get(path)!, previousVersion: base?.content === file.previous ? base.version : undefined,
+              restored: source.version,
+            };
           }
-          return {
-            ok: true,
-            label: reply.stepLabel ?? next?.label ?? reply.entry?.label,
-            paths: reply.appliedFiles,
-            files,
-          };
+          return { ok: true, label, paths: changed, files };
         }
         if (!reply.ok) {
           if (projectIdRef.current === projectId && next && (!target || target === next.id)) {
@@ -425,15 +527,22 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
         const target = own.targetFor(candidate, pressedAt);
         return target === false ? cantUndo(stepPaths) : attempt(target);
       };
-      return callbacks.serialize ? callbacks.serialize(paths, run) : run();
+      const stop = projectWide && callbacks.onSuperseded ? watchSuperseded(callbacks.onSuperseded) : undefined;
+      try {
+        return await (callbacks.serialize ? callbacks.serialize(paths, run) : run());
+      } finally {
+        stop?.();
+      }
     },
-    [projectId, projectWide, refresh, refreshAfterEvent, own],
+    [projectId, projectWide, refresh, scheduleRefresh, own, cloudHistory, guard, uncertainSteps, watchSuperseded],
   );
 
-  const noteOutsideChange = useCallback(() => {
+  const noteOutsideChange = useCallback((writeToken?: string, changedPaths?: readonly string[]) => {
+    if (writeToken && uncertainSteps.has(writeToken)) return refreshAfterEvent(writeToken);
+    if (writeToken && (writeToken === lastStepToken.current || cloudHistory.owns(writeToken))) return;
     own.overtake();
-    refreshAfterEvent();
-  }, [own, refreshAfterEvent]);
+    refreshAfterEvent(writeToken, changedPaths);
+  }, [own, cloudHistory, refreshAfterEvent, uncertainSteps]);
 
   const undo = useCallback((callbacks: ApplyCallbacks) => step("undo", callbacks), [step]);
   const redo = useCallback((callbacks: ApplyCallbacks) => step("redo", callbacks), [step]);
@@ -450,7 +559,7 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
   return {
     loaded,
     projectWide,
-    availableNow: (direction: "undo" | "redo") => Boolean(direction === "undo" ? viewRef.current.back : viewRef.current.forward),
+    availableNow: (direction: "undo" | "redo") => Boolean(direction === "undo" ? viewRef.current.back : viewRef.current.forward) || Boolean(projectWide && cloudHistory.predict(direction)),
     canUndo: Boolean(view.back) && !sameStep(blocked.undo, view.back),
     canRedo: Boolean(view.forward) && !sameStep(blocked.redo, view.forward),
     undoLabel: view.back?.label,
@@ -462,11 +571,12 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
     claimKey,
     undo,
     redo,
+    guard,
+    pendingUndoId: () => cloudHistory.pendingUndoId(),
+    watchSuperseded,
     refresh,
     predict: (direction: "undo" | "redo") =>
-      // Snapshot steps reuse version IDs in both directions. The local inverse-entry cache
-      // is only valid for servers that append a distinct undo entry.
-      projectWide || sameStep(blockedRef.current[direction], direction === "undo" ? view.back : view.forward)
+      projectWide ? cloudHistory.predict(direction) : sameStep(blockedRef.current[direction], direction === "undo" ? view.back : view.forward)
         ? null : own.predict(direction),
     claims: own.claimCount,
     noteOutsideChange,

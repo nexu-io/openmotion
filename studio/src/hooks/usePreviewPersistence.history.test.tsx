@@ -11,6 +11,9 @@ import {
 } from "../components/editor/manualEdits";
 import { mountReactHarness } from "./domSelectionTestHarness";
 import { usePreviewPersistence } from "./usePreviewPersistence";
+import { rememberPeerTimingDocument } from "../player/peerTimingPreview";
+import { hasPendingHistoryTimeline } from "../player/timelineRestorePending";
+import { rememberSource, forgetSource } from "../utils/confirmedTextSources";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -323,4 +326,34 @@ it("restores split/delete clip structure before the replacement preview has load
   expect(usePlayerStore.getState()).toMatchObject({ timelineReady: true, currentTime: 2 });
   // The old preview is deliberately still split, awaiting its asynchronous replacement.
   expect(iframe.contentDocument!.querySelectorAll("audio")).toHaveLength(2);
+});
+
+it("projects the quantized move into a cross-origin timeline immediately and preserves a later drag on refusal", () => {
+  const path = 'index.html', project = 'project-history-geometry';
+  const html = (t: number) => `<main data-composition-id="root" data-duration="12"><audio id="song" data-start="${t}" data-duration="4"></audio></main>`;
+  const iframe = document.body.appendChild(document.createElement('iframe'));
+  Object.defineProperty(iframe, 'src', {value:`https://preview.test/api/projects/${project}/preview?pt=grant`});
+  Object.defineProperty(iframe, 'contentDocument', {value:null});
+  vi.spyOn(iframe.contentWindow!, 'postMessage').mockImplementation(() => {});
+  const mounted = '"sha256:' + 'a'.repeat(64) + '"';
+  rememberPeerTimingDocument(iframe,'grant','test-document',undefined,{},false,{[path]:mounted});
+  rememberSource(project,path,{content:html(1), version:mounted});
+  const element = {id:'song', key:'index.html#song', sourceFile:path, domId:'song', tag:'audio', start:3.334, duration:4, track:0};
+  usePlayerStore.setState({timelineProjectId:project, elements:[element], duration:12, currentTime:8});
+  let hook!: ReturnType<typeof usePreviewPersistence>;
+  function Harness() {
+    hook = usePreviewPersistence({showToast:vi.fn(), readOptionalProjectFile:async () => '', writeProjectFile:vi.fn(), recordEdit:vi.fn(), previewIframeRef:{current:iframe}, activeCompPathRef:{current:path}, reloadPreview:vi.fn()});
+    return null;
+  }
+  mountReactHarness(<Harness />);
+  const files = {[path]:{previous:html(3.33),restored:html(1),versions:{previous:new Set([mounted]),restored:mounted}}};
+  const rollback = hook.showHistoryRestoreNow(files,true)!;
+  expect(usePlayerStore.getState().elements[0].start).toBe(1);
+  expect(hasPendingHistoryTimeline(iframe)).toBe(true);
+  usePlayerStore.getState().updateElement(element.key,{start:6});
+  rollback();
+  expect(usePlayerStore.getState().elements[0].start).toBe(6);
+  expect(usePlayerStore.getState().currentTime).toBe(8);
+  expect(hasPendingHistoryTimeline(iframe)).toBe(false);
+  forgetSource(project,path);
 });

@@ -87,7 +87,7 @@ export async function saveOrderedTimeline(
       }));
       const targets = new Set(accepted.map(edit => edit.path));
       return {edits: [...accepted, ...guards.filter(file => !targets.has(file.path))], dependencies: Object.fromEntries(await assets), label, undoGroup};
-    });
+    }, false, () => view.then(edits => ({ edits, undoGroup })));
     onReceipt?.(saved.versions);
     const files = snapshots(accepted);
     if (saved.changedPaths.length) await recordEdit({ label, files, coalesceKey, coalesceMs });

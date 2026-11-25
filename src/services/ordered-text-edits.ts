@@ -58,7 +58,9 @@ export async function commitOrderedTextEdits(
         )}),
       }, id);
       receipts.set(id, { id, versions: result.versionsByPath, changedPaths: result.changedPaths,
-        revision: result.revision, versionId: result.versionId, writeToken: result.writeToken });
+        revision: result.revision, versionId: result.versionId, writeToken: result.writeToken,
+        ...(result.parentVersionId !== undefined && result.previousRevision && { parentVersionId: result.parentVersionId,
+          parentRevision: result.previousRevision, historySeq: result.historySeq, coalesced: result.coalesced === true }) });
     } catch (error) {
       // Auth and transient failures retain their HTTP semantics. An uncertain transport
       // outcome is retried with the same operation IDs, including the committed prefix.

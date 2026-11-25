@@ -30,7 +30,7 @@ export interface UndoRestoreFile {
   previous: string;
   restored: string;
   /** Versioned cloud reads; only a verified in-place restore may rebind this document. */
-  versions?: { previous: ReadonlySet<string>; restored: string };
+  versions?: { previous: ReadonlySet<string>; previousVersion?: string; restored: string };
 }
 export type RestoreFiles = Record<string, UndoRestoreFile>;
 

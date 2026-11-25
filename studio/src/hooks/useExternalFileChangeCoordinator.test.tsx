@@ -1356,11 +1356,13 @@ describe("external file change coordinator", () => {
 
     it("does not treat a delayed self echo as the latest source after a peer event", async () => {
       const onAcceptedPersistedFileChange = vi.fn();
-      await mountCoordinator({ onAcceptedPersistedFileChange });
+      const onFileVersionNotice = vi.fn();
+      await mountCoordinator({ onAcceptedPersistedFileChange, onFileVersionNotice });
       markStudioWriteToken("delayed-self");
       await act(async () => handler?.(sseDelivery({ path: "index.html", fileVersions: { "index.html": "v3" }, writeToken: "another-tab" })));
       await act(async () => handler?.(sseDelivery({ path: "index.html", fileVersions: { "index.html": "v2" }, writeToken: "delayed-self" })));
       expect(onAcceptedPersistedFileChange).toHaveBeenLastCalledWith("index.html", null, undefined);
+      expect(onFileVersionNotice.mock.calls).toEqual([[undefined, ["index.html"]], ["delayed-self", ["index.html"]]]);
     });
 
     it("reloads once when one watcher event reaches two subscribers", async () => {

@@ -33,6 +33,12 @@ import { syncHistoryTimelineFromFiles } from "../player/lib/timelineHistoryResto
 import { holdHistoryTimelineUntilPreviewReplaced } from "../player/timelineRestorePending";
 import { studioFileRevision } from "../utils/studioFileVersion";
 import { mountedCanvasVersion, recordMountedCanvasRestore } from "../components/editor/isolatedSourceTarget";
+import { mountedPeerFileVersion, stagePeerHistoryGeometry } from "../player/peerTimingPreview";
+import { scheduleCommittedPreview } from "../player/committedPreview";
+import { confirmedSource } from "../utils/confirmedTextSources";
+import { createPreviewAdapter, previewDocumentIdentity } from "../player/lib/previewAdapter";
+import { invalidateProjectedTimelineBase } from "../player/lib/peerTimeline";
+import type { HistoryPaint } from "./useEditHistoryActions";
 
 /** The restore payload the undo/redo preview-sync consumes (from the history store). */
 interface HistoryPreviewRestore {
@@ -129,6 +135,7 @@ export function usePreviewPersistence({
   const [domEditSaveQueuePaused, setDomEditSaveQueuePaused] = useState<string | null>(null);
 
   const domTextCommitVersionRef = useRef(0);
+  const projectedHistory = useRef<{frame: HTMLIFrameElement; path: string; restored: string} | null>(null);
   const showToastRef = useRef(showToast);
   showToastRef.current = showToast;
   const domEditSaveQueueRef = useRef<ReturnType<typeof createDomEditSaveQueue> | null>(null);
@@ -225,6 +232,26 @@ export function usePreviewPersistence({
       const doc = iframe?.contentDocument;
       const activePath = activeCompPathRef.current;
       const projectId = usePlayerStore.getState().timelineProjectId;
+      if (!doc && iframe && projectId && createPreviewAdapter({iframe}).token) {
+        const staged = projectedHistory.current;
+        projectedHistory.current = null;
+        const changes = paths.filter(path => computePreviewImpact([path]).affectsPreview).map(path => {
+          const file = restore.files?.[path];
+          if (!file?.versions) return {path};
+          const {previousVersion, restored} = file.versions;
+          return {path, previous: previousVersion ? {version: previousVersion, content: file.previous} : undefined,
+            current: {version: restored, content: file.restored}};
+        });
+        const path = activePath ?? "index.html";
+        const restored = restore.files?.[path];
+        const current = confirmedSource(projectId, path);
+        const alreadyShown = staged?.frame === iframe && staged.path === path && staged.restored === restored?.restored;
+        if (restored && (!restored.versions || !current || current.version === restored.versions.restored)) {
+          if (syncHistoryTimelineFromFiles(activePath, restore.files, alreadyShown || hasStudioPendingEdits())) holdHistoryTimelineUntilPreviewReplaced(iframe);
+        }
+        scheduleCommittedPreview(iframe, projectId, changes, reloadPreview, {historyRestore:true});
+        return;
+      }
       const revision = studioFileRevision();
       const isCurrent = () => previewIframeRef.current === iframe && iframe?.contentDocument === doc &&
         activeCompPathRef.current === activePath && usePlayerStore.getState().timelineProjectId === projectId;
@@ -287,10 +314,46 @@ export function usePreviewPersistence({
   // A restore the server has not confirmed yet: in place now, or not at all. A GSAP script re-run is not
   // synchronous, and a pending save would land under it.
   const showHistoryRestoreNow = useCallback(
-    (files: RestoreFiles): (() => void) | null => {
+    (files: RestoreFiles, projectWide = false): HistoryPaint | null => {
+      const iframe = previewIframeRef.current;
+      if (projectWide) {
+        const project = usePlayerStore.getState().timelineProjectId;
+        if (!project || !iframe || readIframeDocument(iframe) || Object.keys(files).length !== 1) return null;
+        const [[path, file]] = Object.entries(files) as [string, RestoreFiles[string]][];
+        const known = confirmedSource(project, path);
+        const mounted = mountedPeerFileVersion(iframe, path);
+        if (!mounted || !(mounted === file.versions?.previousVersion || mounted === file.versions?.restored ||
+            known?.version === mounted && (known.content === file.previous || known.content === file.restored))) return null;
+        const activePath = activeCompPathRef.current;
+        const documentId = previewDocumentIdentity(iframe);
+        const mountedContent = mounted === file.versions?.restored ? file.restored : mounted === file.versions?.previousVersion ? file.previous : known!.content;
+        const discard = stagePeerHistoryGeometry(iframe, path, file.previous, file.restored, mounted, mountedContent);
+        const changed = syncHistoryTimelineFromFiles(activePath, files, true);
+        const release = changed ? holdHistoryTimelineUntilPreviewReplaced(iframe) : undefined;
+        const projection = changed ? {frame: iframe, path, restored: file.restored} : null;
+        projectedHistory.current = projection;
+        const rollback = () => {
+          if (projectedHistory.current === projection) projectedHistory.current = null;
+          discard?.();
+          release?.();
+          // The save being taken back may itself have failed. Its original rows
+          // already show the last confirmed revision in that case.
+          if (!file.versions?.previousVersion && confirmedSource(project, path)?.content === file.restored) return;
+          if (changed && iframe === previewIframeRef.current && previewDocumentIdentity(iframe) === documentId &&
+              activeCompPathRef.current === activePath && usePlayerStore.getState().timelineProjectId === project)
+            syncHistoryTimelineFromFiles(activePath, { [path]: {previous: file.restored, restored: file.previous} }, true);
+        };
+        rollback.supersede = () => {
+          discard?.supersede();
+          if (projectedHistory.current === projection) projectedHistory.current = null;
+          if (changed) invalidateProjectedTimelineBase(project, path);
+          // The incoming version retires the draft/manifest hold when it paints.
+          // Rolling them back now would expose the previous move for a frame.
+        };
+        return rollback;
+      }
       if (!domEditSaveQueueRef.current?.isIdle() || hasStudioPendingEdits() || heldPreviewDoc())
         return null;
-      const iframe = previewIframeRef.current;
       const now = () => usePlayerStore.getState().currentTime;
       const putBack = showRestoreInPlace(iframe, activeCompPathRef.current, files, now());
       if (!putBack) return null;

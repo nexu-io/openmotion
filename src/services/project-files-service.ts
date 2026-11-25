@@ -144,6 +144,7 @@ export interface CommitProjectFilesInput {
 
 export interface CommitProjectFilesResult {
   readonly previousRevision?: string;
+  readonly parentVersionId?: string | null;
   readonly projectId: string;
   readonly revision: string;
   readonly versionId: string | null;
@@ -1741,7 +1742,7 @@ export class ProjectFilesService {
       }
 
       const commitResult: CommitProjectFilesResult = {
-        ...(input.orderedEvents && { previousRevision: project.revision.trim() }),
+        ...(input.orderedEvents && { previousRevision: project.revision.trim(), parentVersionId: currentVersionId }),
         projectId: project.id,
         revision: nextRevision,
         versionId: nextVersionId,
