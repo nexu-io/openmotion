@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { compositionInsertionFailureMessage } from "../i18n/editorErrors";
+import { observeSourceRead } from "./confirmedTextSources";
 import { commitTimelineCompositionInsertion } from "./timelineCompositionInsert";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -11,6 +13,29 @@ function response(body: unknown, status = 200): Response {
 }
 
 describe("commitTimelineCompositionInsertion", () => {
+  it("explains an invalid duration on a cached composition before doing any writes", async () => {
+    const projectId = "cached-invalid-duration";
+    const supported = new Response(null, { headers: { "X-OpenMotion-Text-Edits": "1" } });
+    observeSourceRead(projectId, "index.html", supported, { content: '<main data-composition-id="main"></main>', version: "parent" });
+    observeSourceRead(projectId, "scene.html", supported, {
+      content: '<div data-composition-id="scene" data-duration="invalid"></div>', version: "child",
+    });
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const writeFile = vi.fn();
+    const recordEdit = vi.fn();
+
+    const error = await commitTimelineCompositionInsertion({
+      projectId, targetPath: "index.html", sourcePath: "scene.html", start: 1, track: 0,
+      writeFile, recordEdit, selectHost: vi.fn(), refresh: vi.fn(),
+    }).catch((cause: unknown) => cause);
+
+    expect(compositionInsertionFailureMessage(error)).toBe("Set a valid duration on the composition before adding it to the timeline.");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(recordEdit).not.toHaveBeenCalled();
+  });
+
   it("records one history entry, then selects and refreshes once", async () => {
     const fetchMock = vi
       .fn()

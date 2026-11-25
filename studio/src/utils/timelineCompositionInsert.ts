@@ -1,7 +1,7 @@
 import { confirmedSource, rememberSource, supportsProjectTextEdits, supportsOrderedTextEdits } from "./confirmedTextSources";
 import { acknowledgeFileEdit } from "./isolatedEditVersions";
 import { runOrderedProjectBarrier } from "./orderedProjectEdits";
-import { createStudioSaveHttpError } from "./studioSaveDiagnostics";
+import { createStudioSaveHttpError, StudioSaveHttpError } from "./studioSaveDiagnostics";
 import { serializeStudioFileMutation } from "./studioFileMutationCoordinator";
 import { cloudHistoryForWrite, type RecordEditInput, type StudioWriteHistory } from "./studioFileHistory";
 import { buildProjectApiPath } from "./projectRouting";
@@ -33,7 +33,7 @@ async function insertTimelineComposition(input: {
   if (parent && child && supportsProjectTextEdits(input.projectId)) {
     const { insertCompositionInMemory } = await import('../../../packages/edit-core/insert-composition');
     const result = insertCompositionInMemory({ ...input, desiredTrack: input.track, parentSource: parent.content, childSource: child.content });
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) throw new StudioSaveHttpError(result.error, result.status);
     const { commitTextEdits } = await import('./studioTextEdits');
     const path = input.targetPath;
     const edit = { path, version: parent.version, before: parent.content, after: result.html };
