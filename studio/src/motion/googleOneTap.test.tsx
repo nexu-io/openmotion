@@ -122,7 +122,8 @@ it('skips Google One Tap completely inside the Electron desktop app', async () =
   expect(document.getElementById(ONETAP_ANCHOR_ID)).toBeNull();
 });
 
-it('delays 2500ms, loads fixed GIS URL, positions desktop anchor for Black Friday banner, and completes in-place login', async () => {
+it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Friday banner, and completes in-place login', async () => {
+  expect(MOTION_ONETAP_DELAY_MS).toBe(2000);
   let initConfig: GoogleAccountsIdInitializeConfig | null = null;
   let promptListener: ((n: GooglePromptMomentNotification) => void) | undefined;
 
@@ -454,7 +455,7 @@ it('reports onetap_login_failed and invokes onError without clearing drafts when
     await Promise.resolve();
   });
 
-  expect(onError).toHaveBeenCalledWith('Your account is suspended.');
+  expect(onError).toHaveBeenCalledWith('Your account is suspended.', 'ACCOUNT_BANNED');
   const failed = tracked.find(item => item.event === 'onetap_login_failed');
   expect(failed?.properties).toMatchObject({
     surface: 'motion_web',
@@ -561,7 +562,7 @@ it('consumes cross-origin od_onetap_suppress=1 on first landing, cleans the URL,
   expect(fetchSpy).toHaveBeenCalledTimes(1);
 });
 
-it('shows an actionable in-place Retry button on initial challenge failure and preserves drafts and filters when clicked', async () => {
+it('degrades silently on pre-display challenge failure, shows localized failure alert + Go-to-Login CTA on post-click failure, and preserves drafts/filters (ERR-06/07)', async () => {
   let challengeSeq = 0;
   let capturedInit: GoogleAccountsIdInitializeConfig | null = null;
   window.google = {
@@ -577,20 +578,12 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
     },
   };
 
-  let signedInAccount = false;
+  let exchangeMode: 'invalid' | 'banned' = 'invalid';
   let accountSummaryFetches = 0;
-  const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+  const fetchSpy = vi.fn(async (url: string) => {
     if (String(url).includes('account/summary')) {
       accountSummaryFetches += 1;
-      if (!signedInAccount) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-      return Response.json({
-        authenticated: true,
-        authMode: 'oidc',
-        consoleUrl: 'https://open-design.ai/cloud',
-        user: { id: 'om_u_ui', appUserId: 'usr_ui_retry', email: 'ui@example.com', displayName: 'UI User' },
-      });
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
     if (url === '/auth/one-tap/challenge') {
       challengeSeq += 1;
@@ -608,32 +601,34 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
       });
     }
     if (url === '/auth/one-tap') {
-      const body = JSON.parse(String(init?.body)) as { challengeId: string };
-      expect(body.challengeId).toBe('otc_ui_retry_2');
-      signedInAccount = true;
-      return Response.json({
-        authenticated: true,
-        user: { id: 'om_u_ui', appUserId: 'usr_ui_retry', email: 'ui@example.com', displayName: 'UI User' },
-        activeWorkspaceId: 'ws_ui',
-        isNewUser: false,
-        planTier: 'free',
-      });
+      if (exchangeMode === 'banned') {
+        return Response.json(
+          { code: 'ACCOUNT_BANNED', message: 'This account has been banned.' },
+          { status: 403 },
+        );
+      }
+      return Response.json(
+        { code: 'INVALID_ID_TOKEN', message: 'Invalid Google ID token.' },
+        { status: 401 },
+      );
     }
     throw new Error(`Unexpected fetch: ${url}`);
   });
   vi.stubGlobal('fetch', fetchSpy);
 
-  function StudioRetryHarness() {
+  const loginNavigations: string[] = [];
+  function StudioErrorRecoveryHarness() {
     const toast = useToast();
     const [draft, setDraft] = useState('My unsaved storyboard brief');
     const [filter, setFilter] = useState('cinema');
     return (
-      <I18nProvider initialLocale="en">
+      <I18nProvider initialLocale="zh-CN">
         <WorkspaceGoogleOneTap
           bfBannerVisible={false}
           hostChrome={false}
           showToast={toast.showToast}
           dismissToast={toast.dismissToast}
+          navigateToLogin={url => loginNavigations.push(url)}
         />
         <StudioToastViewport {...toast} />
         <textarea
@@ -657,9 +652,8 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
   document.body.append(container);
   root = createRoot(container);
   act(() => {
-    root!.render(<StudioRetryHarness />);
+    root!.render(<StudioErrorRecoveryHarness />);
   });
-  // Allow useAccountSummary() initial guest fetch (/api/account/summary -> 401) to settle
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
@@ -667,7 +661,7 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
   });
   expect(accountSummaryFetches).toBeGreaterThanOrEqual(1);
 
-  // First challenge fails with 503 -> error alert appears with the real production Retry button
+  // 1. Pre-display challenge 503 MUST degrade silently without rendering any alert (ERR-06)
   await act(async () => {
     await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS);
     await Promise.resolve();
@@ -675,17 +669,14 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
     await Promise.resolve();
   });
   expect(challengeSeq).toBe(1);
-  const alertEl = document.body.querySelector('[role="alert"]');
-  expect(alertEl?.textContent).toContain('One Tap temporarily unavailable');
-  const retryBtn = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
-    btn => btn.textContent?.includes('Retry'),
-  );
-  expect(retryBtn).toBeTruthy();
+  expect(document.body.querySelector('[role="alert"]')).toBeNull();
 
-  // Click the actual production Retry button -> acquires fresh challenge #2 and completes sign-in
+  // 2. Trigger fresh prompt and simulate post-click ordinary verification failure -> localized copy + 「去登录」 CTA (ERR-06/07)
   await act(async () => {
-    retryBtn!.click();
-    await vi.advanceTimersByTimeAsync(0);
+    retryMotionOneTap();
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10);
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -693,21 +684,84 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
   expect(capturedInit).not.toBeNull();
 
   await act(async () => {
-    capturedInit!.callback({ credential: 'jwt_ui_ok', select_by: 'user' });
+    capturedInit!.callback({ credential: 'jwt_invalid', select_by: 'user' });
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
   });
+  const alertEl = document.body.querySelector('[role="alert"]');
+  expect(alertEl?.textContent).toContain('登录失败，请重试或选择其他方式登录');
+  const goLoginBtn = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
+    btn => btn.textContent?.includes('去登录'),
+  );
+  expect(goLoginBtn).toBeTruthy();
 
-  expect(accountSummaryFetches).toBeGreaterThanOrEqual(2);
-  expect(getMotionTrackingUserId()).toBe('usr_ui_retry');
-  // Draft and filter state stay 100% intact across failure and retry
+  await act(async () => {
+    goLoginBtn!.click();
+  });
+  expect(loginNavigations).toHaveLength(1);
+  expect(loginNavigations[0]).toMatch(/^\/auth\/login\?returnTo=/);
+
+  // 3. Post-click ACCOUNT_BANNED -> displays banned copy (ERR-06)
+  exchangeMode = 'banned';
+  await act(async () => {
+    capturedInit!.callback({ credential: 'jwt_banned', select_by: 'user' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+  });
+  expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('封禁');
+
+  // Draft and filter state stay 100% intact across failures
   expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Draft brief"]')?.value).toBe(
     'My unsaved storyboard brief',
   );
   expect(container.querySelector<HTMLSelectElement>('select[aria-label="Category filter"]')?.value).toBe(
     'cinema',
   );
+});
+
+it('restores One Tap eligibility immediately on manual page reload after in-page logout (SHOW-04)', async () => {
+  sessionStorage.setItem(ONETAP_SUPPRESSED_ONCE_KEY, '1');
+  const getEntriesSpy = vi
+    .spyOn(performance, 'getEntriesByType')
+    .mockReturnValue([{ type: 'reload' } as PerformanceEntry]);
+  window.google = {
+    accounts: {
+      id: {
+        initialize: vi.fn(),
+        prompt: vi.fn(),
+        disableAutoSelect: vi.fn(),
+        cancel: vi.fn(),
+      },
+    },
+  };
+  const fetchSpy = vi.fn(async (url: string) => {
+    if (url === '/auth/one-tap/challenge') {
+      return Response.json({
+        challengeId: 'otc_reload_ok',
+        nonce: 'nonce_reload_ok',
+        clientId: 'gid-reload',
+        expiresAt: '2026-11-24T12:00:00.000Z',
+      });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+  vi.stubGlobal('fetch', fetchSpy);
+
+  try {
+    mountOneTap();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(sessionStorage.getItem(ONETAP_SUPPRESSED_ONCE_KEY)).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledWith('/auth/one-tap/challenge', expect.objectContaining({ method: 'POST' }));
+  } finally {
+    getEntriesSpy.mockRestore();
+  }
 });
 
 it('parses real od-landing compact od_attr cookie keys (s/m/c/ct/tm/lp) and treats ref as organic referrer without forwarding as referralCode', () => {
@@ -797,7 +851,10 @@ it('supports cross-tab logout cancellation and in-place retry with a fresh chall
     await Promise.resolve();
     await Promise.resolve();
   });
-  expect(onError).toHaveBeenCalledWith('Temporary outage');
+  expect(onError).toHaveBeenCalledWith(
+    'Sign-in failed. Please try again or choose another sign-in method.',
+    'AUTH_UNAVAILABLE',
+  );
 
   // Trigger in-place retry -> fetches a fresh challenge (otc_retry_2) and succeeds
   act(() => {

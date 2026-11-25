@@ -38,8 +38,8 @@ import { GITHUB_REPOSITORY } from './githubRepository';
 import { setObservabilityContext } from '@openmotion/observability/browser';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
-import { useAccountSummary } from './AccountSettings';
-import { MotionGoogleOneTap, retryMotionOneTap } from './googleOneTap';
+import { buildLoginUrl, useAccountSummary } from './AccountSettings';
+import { MotionGoogleOneTap, type RegisteredLoginErrorCode } from './googleOneTap';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
@@ -656,31 +656,52 @@ export function WorkspaceGoogleOneTap({
   hostChrome,
   showToast,
   dismissToast,
+  navigateToLogin,
 }: {
   bfBannerVisible: boolean;
   hostChrome: boolean;
   showToast: ReturnType<typeof useToast>['showToast'];
   dismissToast: ReturnType<typeof useToast>['dismissToast'];
+  navigateToLogin?: (url: string) => void;
 }) {
   const { t } = useI18n();
   const { account, error, refresh } = useAccountSummary();
   const oneTapErrorToastIdRef = useRef<number | null>(null);
   const handleOneTapError = useCallback(
-    (errorMessage: string) => {
+    (_errorMessage: string, errorCode?: RegisteredLoginErrorCode) => {
+      if (oneTapErrorToastIdRef.current !== null) {
+        dismissToast(oneTapErrorToastIdRef.current);
+        oneTapErrorToastIdRef.current = null;
+      }
+      const displayMessage =
+        errorCode === 'ACCOUNT_BANNED'
+          ? t('This account has been suspended and cannot sign in.')
+          : errorCode === 'ACCOUNT_FROZEN'
+            ? t('This account is frozen or scheduled for deletion.')
+            : errorCode === 'LINK_CONFIRM_REQUIRED'
+              ? t('An account with this email already exists. Sign in with your existing method to verify and link your account.')
+              : errorCode === 'EMAIL_DOMAIN_BLOCKED'
+                ? t('This email domain is not eligible for quick sign-in. Please sign in with another method.')
+                : t('Sign-in failed. Please try again or choose another sign-in method.');
       oneTapErrorToastIdRef.current = showToast(
-        errorMessage,
+        displayMessage,
         'error',
         'feedback',
         {
-          key: 'onetap-retry',
-          label: t('Retry'),
+          key: 'onetap-go-login',
+          label: t('Go to sign in'),
           onClick: () => {
-            retryMotionOneTap();
+            const loginUrl = buildLoginUrl();
+            if (navigateToLogin) {
+              navigateToLogin(loginUrl);
+            } else {
+              window.location.assign(loginUrl);
+            }
           },
         },
       );
     },
-    [showToast, t],
+    [dismissToast, showToast, t, navigateToLogin],
   );
   const handleOneTapSuccess = useCallback(() => {
     if (oneTapErrorToastIdRef.current !== null) {

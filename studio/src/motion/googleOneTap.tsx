@@ -7,7 +7,7 @@ import { isMotionTrackingConsented, setMotionTrackingUserId } from './trackingId
 
 export const GOOGLE_GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client' as const;
 export const GOOGLE_GIS_LOAD_TIMEOUT_MS = 5000;
-export const MOTION_ONETAP_DELAY_MS = 2500;
+export const MOTION_ONETAP_DELAY_MS = 2000;
 export const ONETAP_EXCHANGE_TIMEOUT_MS = 15_000;
 export const ONETAP_SUPPRESSED_ONCE_KEY = 'od_onetap_suppressed_once' as const;
 export const ONETAP_SUPPRESS_QUERY_PARAM = 'od_onetap_suppress' as const;
@@ -36,7 +36,7 @@ const REGISTERED_LOGIN_ERROR_CODES = new Set([
   'UNKNOWN',
 ] as const);
 
-type RegisteredLoginErrorCode =
+export type RegisteredLoginErrorCode =
   | 'INVALID_ID_TOKEN'
   | 'CHALLENGE_INVALID'
   | 'ORIGIN_NOT_ALLOWED'
@@ -111,6 +111,7 @@ type StoredAttribution = {
 };
 
 let oneTapGeneration = 0;
+let suppressedAfterLogoutInPage = false;
 const activeCancelHooks = new Set<() => void>();
 
 function sanitizeTelemetryCode(raw: unknown): string | undefined {
@@ -186,6 +187,7 @@ function cancelLocalOneTapRuntime(): void {
  * cancellation across sibling browser tabs.
  */
 export function suppressOneTapAfterConfirmedLogout(): void {
+  suppressedAfterLogoutInPage = true;
   cancelLocalOneTapRuntime();
 
   try {
@@ -227,11 +229,28 @@ export function retryMotionOneTap(): void {
  */
 export function consumeOneTapLogoutSuppression(): boolean {
   let suppressed = false;
+  if (suppressedAfterLogoutInPage) {
+    suppressedAfterLogoutInPage = false;
+    suppressed = true;
+  }
 
   try {
     if (window.sessionStorage.getItem(ONETAP_SUPPRESSED_ONCE_KEY) === '1') {
+      let isManualReload = false;
+      try {
+        const navEntries =
+          typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function'
+            ? (performance.getEntriesByType('navigation') as Array<{ type?: string }>)
+            : [];
+        isManualReload = Boolean(navEntries[0] && navEntries[0].type === 'reload');
+      } catch {
+        isManualReload = false;
+      }
       window.sessionStorage.removeItem(ONETAP_SUPPRESSED_ONCE_KEY);
-      suppressed = true;
+      // On manual page reload after in-place logout, restore One Tap eligibility immediately (SHOW-04).
+      if (!isManualReload) {
+        suppressed = true;
+      }
     }
   } catch {
     // Ignore storage read errors.
@@ -624,7 +643,7 @@ export interface UseMotionGoogleOneTapOptions {
   bfBannerVisible: boolean;
   refreshAccount: () => Promise<void>;
   hostChrome?: boolean;
-  onError?: (message: string) => void;
+  onError?: (message: string, errorCode?: RegisteredLoginErrorCode) => void;
   onSuccess?: () => void;
   delayMs?: number;
   loadTimeoutMs?: number;
@@ -793,9 +812,8 @@ export function useMotionGoogleOneTap({
                 attempt_id: attemptId,
                 error_code: normalizeLoginErrorCode(errData?.code ?? 'AUTH_UNAVAILABLE'),
               });
-              onErrorRef.current?.(
-                errData?.message || errData?.error || 'Could not start Google One Tap right now.',
-              );
+              // Prompt was never shown and the user never clicked One Tap; degrade
+              // silently without showing a failure alert (ERR-01/06).
             }
             return;
           }
@@ -807,7 +825,6 @@ export function useMotionGoogleOneTap({
                 attempt_id: attemptId,
                 error_code: 'ONE_TAP_UNAVAILABLE',
               });
-              onErrorRef.current?.('Could not start Google One Tap right now.');
             }
             return;
           }
@@ -826,7 +843,6 @@ export function useMotionGoogleOneTap({
               attempt_id: attemptId,
               error_code: isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE',
             });
-            onErrorRef.current?.('Could not start Google One Tap right now. Please try again.');
           }
           return;
         }
@@ -914,12 +930,16 @@ export function useMotionGoogleOneTap({
                 if (isStale()) return;
                 const isTimeout =
                   err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+                const errorCode: RegisteredLoginErrorCode = isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE';
                 void trackMotion('onetap_login_failed', {
                   surface: 'motion_web',
                   attempt_id: attemptId,
-                  error_code: isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE',
+                  error_code: errorCode,
                 });
-                onErrorRef.current?.('Could not sign in right now. Please try again.');
+                onErrorRef.current?.(
+                  'Sign-in failed. Please try again or choose another sign-in method.',
+                  errorCode,
+                );
                 return;
               }
 
@@ -943,9 +963,11 @@ export function useMotionGoogleOneTap({
                   attempt_id: attemptId,
                   error_code: errorCode,
                 });
-                onErrorRef.current?.(
-                  data?.message || data?.error || 'Could not complete Google One Tap sign-in.',
-                );
+                const fallbackMessage =
+                  errorCode === 'ACCOUNT_BANNED'
+                    ? data?.message || 'This account has been suspended and cannot sign in.'
+                    : 'Sign-in failed. Please try again or choose another sign-in method.';
+                onErrorRef.current?.(fallbackMessage, errorCode);
                 return;
               }
 
@@ -1024,6 +1046,7 @@ export function MotionGoogleOneTap(props: UseMotionGoogleOneTapOptions) {
 
 export function resetOneTapStateForTests(): void {
   oneTapGeneration = 0;
+  suppressedAfterLogoutInPage = false;
   for (const cancel of [...activeCancelHooks]) {
     try {
       cancel();
