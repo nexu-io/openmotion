@@ -836,6 +836,55 @@ it("prefers explicit domId over a conflicting stale data-hf-id on a split timeli
   expect(duplicate?.getAttribute("data-start")).toBe(String(Math.round((right.start + right.duration) * 1000) / 1000));
 });
 
+it("rejects duplicating a deleted split half instead of falling back to its sibling via stale hfId", async () => {
+  const media = '<main data-composition-id="main" data-duration="20"><video id="film" src="film.mp4" data-start="1.5" data-duration="12.5" data-track-index="1"></video></main>';
+  const cut = applyAtomicCutsToHtml(media, [{
+    target: { id: "film" }, splitTime: 10.037, elementStart: 1.5, elementDuration: 12.5, track: 1,
+  }]);
+  const path = "index.html";
+  const elements = parseAuthoredTimeline(cut.after, path, "p")!.elements;
+  const left = elements.find(row => row.domId === "film")!;
+  const right = elements.find(row => row.domId === cut.rightHalfIds[0])!;
+  const corruptedRight = { ...right, hfId: left.hfId };
+  const savedDoc = new DOMParser().parseFromString(cut.after, "text/html");
+  savedDoc.getElementById(right.domId!)!.remove();
+  const view = mountClipboard(null, SUB, () => {}, cut.after);
+  view.files[path] = savedDoc.documentElement.outerHTML;
+  usePlayerStore.setState({
+    elements: [left, corruptedRight],
+    duration: 20,
+    selectedElementId: corruptedRight.key!,
+    selectedElementIds: new Set([corruptedRight.key!]),
+  });
+  expect(await view.clipboard().handleDuplicate()).toBe(false);
+  expect(view.writes).toEqual([]);
+  expect(view.recordEdit).not.toHaveBeenCalled();
+  expect(view.showToast).toHaveBeenCalledWith(expect.any(String), "error");
+});
+
+it("extends root composition duration at millisecond precision so split duplicates are not clamped", async () => {
+  const media = '<main data-composition-id="main" data-duration="15"><video id="film" src="film.mp4" data-start="1.5" data-duration="12.5" data-track-index="1"></video></main>';
+  const cut = applyAtomicCutsToHtml(media, [{
+    target: { id: "film" }, splitTime: 10.037, elementStart: 1.5, elementDuration: 12.5, track: 1,
+  }]);
+  const path = "index.html";
+  const elements = parseAuthoredTimeline(cut.after, path, "p")!.elements;
+  const right = elements.find(row => row.domId === cut.rightHalfIds[0])!;
+  expect(right.duration).toBe(3.963);
+  usePlayerStore.setState({
+    elements,
+    duration: 15,
+    selectedElementId: right.key!,
+    selectedElementIds: new Set([right.key!]),
+  });
+  const view = mountClipboard(null, SUB, () => {}, cut.after);
+  expect(await view.clipboard().handleDuplicate()).toBe(true);
+  const doc = new DOMParser().parseFromString(view.writes[0]!, "text/html");
+  expect(doc.querySelector('[data-composition-id="main"]')?.getAttribute("data-duration")).toBe("17.963");
+  const parsedDuplicate = parseAuthoredTimeline(view.writes[0]!, path, "p")!.elements.find(row => row.domId === `${right.domId}-2`)!;
+  expect(parsedDuplicate.duration).toBe(3.963);
+});
+
 it("still duplicates a live-only timeline clip generated at runtime without an authored data-hf-id", async () => {
   const view = mountClipboard();
   const doc = view.iframe.contentDocument!;

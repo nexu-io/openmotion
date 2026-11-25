@@ -53,7 +53,7 @@ function extendDuration(source: string, requiredEnd: number): string {
     tag.attributes.some((attr) => attr.name === 'data-composition-id'),
   );
   const attr = root?.attributes.find((attr) => attr.name === 'data-duration');
-  const end = Math.round(requiredEnd * 100) / 100;
+  const end = Math.round(requiredEnd * 1000) / 1000;
   return attr?.kind === 'value' && Number(attr.value) < end
     ? source.slice(0, attr.valueStart) + end + source.slice(attr.valueEnd)
     : source;

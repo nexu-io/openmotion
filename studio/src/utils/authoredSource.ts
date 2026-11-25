@@ -32,11 +32,11 @@ function findByAttribute(doc: Document, name: string, value: string): Element | 
 export type AuthoredIdentity = Pick<PatchTarget, "id" | "hfId">;
 
 /** Look up the stable identity in the owning source file, including composition templates.
- *  Explicit DOM id takes precedence over data-hf-id so a stale preview hf-id on a split row
- *  never resolves to the sibling half. */
+ *  When an explicit DOM id is present, never fall back via a stale data-hf-id to a sibling
+ *  element if that DOM id was removed from the saved source. */
 export function findAuthoredIdentity(doc: Document, { id, hfId }: AuthoredIdentity): Element | null {
-  return (id ? findByAttribute(doc, "id", id) : null) ??
-    (hfId ? findByAttribute(doc, "data-hf-id", hfId) : null);
+  if (id) return findByAttribute(doc, "id", id);
+  return hfId ? findByAttribute(doc, "data-hf-id", hfId) : null;
 }
 
 export function findAuthoredElement(doc: Document, live: Element): Element | null {
