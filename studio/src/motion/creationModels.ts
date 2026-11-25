@@ -2,9 +2,9 @@ import { capabilitySupportsModel, findCapability, type CapabilityDefinition } fr
 import { modelReferenceLimit, type Modality, type Model } from '../../../shared/gateway';
 import { imageFeatures } from '../../../shared/image-features';
 import { videoFeatures } from '../../../shared/video-features';
-import { isFeatureScene, sceneFeature, sceneVideoFeature, supportsScene, type StudioScene } from './creativeStudios';
+import { isFeatureScene, sceneFeature, sceneVideoFeature, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import type { loadGateway } from './gatewayClient';
-import { isOpenDesignProvider, menuRank, providerRank, providerReady, withOpenDesignModels } from './imageMenuModels';
+import { generationAccountPrompt, isOpenDesignProvider, menuRank, providerRank, providerReady, withOpenDesignModels } from './imageMenuModels';
 
 const studioSortRank = (model: Model) => {
   const rank = menuRank(model);
@@ -21,42 +21,45 @@ export function creationModels(
   gateway: Awaited<ReturnType<typeof loadGateway>> | undefined,
   modality: Modality,
   modelId?: string | null,
-  scene?: StudioScene,
-  openDesignOnly = false,
+  destination?: StudioDestination,
   referenceCount = 0,
   templateModelId?: string,
 ) {
   const providers = gateway?.status.providers ?? [];
+  const scene = destination?.scene;
   const feature = scene && sceneFeature(scene);
   const videoFeature = scene && sceneVideoFeature(scene);
   const activeCap = scene ? findCapability(feature ?? videoFeature ?? scene.id, gateway?.capabilities) : undefined;
   const strictCapabilityFilter = Boolean(activeCap && (activeCap.executor.kind === 'dedicated-model' || (scene && 'capabilityId' in scene)));
   const featureScene = isFeatureScene(scene);
-  const restrictToOpenDesign = openDesignOnly || featureScene;
+  const mediaStudio = destination?.studio.id === 'design' || destination?.studio.id === 'cinema';
+  const accountPrompt = mediaStudio ? generationAccountPrompt(providers) : undefined;
   // Non-feature Studio scenes follow the navigation menu model set; feature scenes accept any capability-matched OpenDesign model.
-  const listed = (gateway ? (scene ? withOpenDesignModels(gateway.models, providers) : gateway.models).filter(model => model.modality === modality
+  const listed = (gateway ? (scene ? withOpenDesignModels(gateway.models, providers, accountPrompt === 'upgrade') : gateway.models).filter(model => model.modality === modality
     && (!scene || featureScene || strictCapabilityFilter || menuRank(model) >= 0 || model.id === modelId)
     && (!scene || supportsScene(model, scene))
     && (!strictCapabilityFilter || !activeCap || capabilitySupportsModel(activeCap, model))
-    && (!restrictToOpenDesign || isOpenDesignProvider(model.provider))) : [])
+    && (!featureScene || isOpenDesignProvider(model.provider))) : [])
     .sort((a, b) => providerRank(a.provider) - providerRank(b.provider) || (scene ? studioSortRank(a) - studioSortRank(b) : 0));
   // When nothing takes every reference, keep the list so the page can explain the limit instead of offering setup.
   const fitting = referenceCount >= 2 && modality === 'image' ? listed.filter(model => modelReferenceLimit(model) >= referenceCount) : listed;
   const compatible = fitting.length ? fitting : listed;
-  const available = compatible.filter(model => providerReady(providers, model.provider));
+  const available = compatible.filter(model => providerReady(providers, model.provider) && !(accountPrompt && model.provider === 'account'));
   const pinned = modelId ? compatible.find(model => model.id === modelId) : undefined;
   const capRecommended = activeCap && (activeCap.executor.kind === 'prompt-preset' || activeCap.executor.kind === 'dedicated-model')
     ? activeCap.executor.recommendedModel
     : undefined;
   const recommendedId = capRecommended ?? (feature ? imageFeatures[feature].recommended : videoFeature ? videoFeatures[videoFeature].recommended : undefined);
   const recommended = (models: typeof listed) => recommendedId ? models.find(model => model.modelId === recommendedId) : undefined;
-  const preferred = pinned ?? (modelId && !restrictToOpenDesign ? undefined
+  const accountPreviews = accountPrompt ? compatible.filter(model => model.provider === 'account') : [];
+  const preferred = pinned ?? (modelId && !featureScene ? undefined
     : available.find(model => model.modelId === templateModelId) ?? recommended(available)
       ?? available.find(model => model.id === gateway?.status.routes[modality]) ?? available[0]
+      ?? accountPreviews.find(model => model.modelId === templateModelId) ?? recommended(accountPreviews) ?? accountPreviews[0]
       ?? (scene ? recommended(compatible) ?? compatible[0] : undefined));
   const selected = available.find(model => model.id === preferred?.id);
   const choices = scene ? compatible : available;
-  return { available, selected, choices, compatible, preferred };
+  return { available, selected, choices, compatible, preferred, accountPrompt };
 }
 
 /**

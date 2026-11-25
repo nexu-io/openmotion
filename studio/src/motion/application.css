@@ -1,7 +1,8 @@
 /* Application geometry; all presentation primitives come from the design system. */
 .om-application { --om-project-navigation-width: 200px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 46px minmax(0, 1fr); height: 100%; width: 100%; min-height: 0; overflow: hidden; }
-.om-application[data-has-bf-banner="true"] { grid-template-rows: auto 46px minmax(0, 1fr); }
-.om-app-header { position: relative; z-index: 30; container-type: inline-size; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
+.om-application[data-has-bf-banner="true"],
+.om-application[data-has-top-banner="true"] { grid-template-rows: auto 46px minmax(0, 1fr); }
+.om-app-header { position: relative; z-index: 30; container: app-header / inline-size; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
 .om-application > .motion-workspace { grid-column: 1; width: auto; height: auto; margin: 0 var(--motion-space-4) var(--motion-space-4); }
 .om-app-brand { display: flex; align-items: center; gap: var(--motion-space-8); flex: 0 0 auto; }
 .om-app-brand .motion-brand-lockup { height: var(--motion-space-16); }
@@ -206,6 +207,42 @@
 .om-account-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: var(--motion-space-16); }
 .om-account-metrics > .om-card { display: grid; gap: var(--motion-space-8); }
 .om-account-metrics p { margin-bottom: 0; }
+.om-plan-usage { display: grid; gap: 0; overflow: hidden; }
+.om-plan-usage-identity { min-width: 0; }
+.om-plan-usage-identity h2 { margin: 0; font-size: var(--motion-text-section); font-weight: var(--motion-weight-semibold); line-height: 32px; letter-spacing: -.4px; }
+.om-plan-usage-identity p { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; }
+.om-plan-usage-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.om-plan-usage-quota { display: grid; align-content: start; min-width: 0; }
+.om-plan-usage-quota .om-subtitle { margin: 0; }
+.om-plan-usage-quota > .om-settings-row { gap: var(--motion-space-8); }
+.om-plan-usage-figure { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--motion-space-8); }
+.om-plan-usage-figure strong { font-size: var(--motion-text-display-sm); font-weight: var(--motion-weight-semibold); line-height: 40px; font-variant-numeric: tabular-nums; }
+[data-motion-studio] .om-plan-usage :is(.om-plan-usage-console, .om-plan-usage-upgrade, .om-plan-usage-recharge) { font-size: var(--motion-text-body); font-weight: var(--motion-weight-medium); line-height: 20px; }
+/* Light: the OpenDesign console plan card (AMR seats overview). */
+[data-motion-studio] .om-plan-usage[data-look="console"] { padding: 12px 12px 0; }
+.om-plan-usage[data-look="console"] .om-plan-usage-head { gap: 24px; min-height: 112px; padding: 25px 24px; border-radius: 8px; background-image: linear-gradient(var(--motion-console-plan-veil), var(--motion-console-plan-veil)), var(--om-plan-art); background-position: center; background-repeat: no-repeat; background-size: cover; }
+.om-plan-usage[data-look="console"] .om-plan-usage-identity h2 { color: var(--motion-console-plan-ink); }
+.om-plan-usage[data-look="console"] .om-plan-usage-identity p { margin-top: 8px; color: var(--motion-console-plan-muted); font-size: 13px; line-height: 22px; }
+.om-plan-usage[data-look="console"] .om-plan-usage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-console { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 8px 16px; border: 1px solid var(--motion-console-plan-secondary-border); border-radius: 10px; background: var(--motion-console-plan-secondary-bg); color: var(--motion-console-plan-secondary-ink); }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-console:hover { background: var(--motion-console-plan-secondary-hover); }
+[data-motion-studio] .om-plan-usage[data-look="console"] :is(.om-plan-usage-upgrade, .om-plan-usage-recharge) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 8px 16px; border-radius: 10px; }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-upgrade { background: var(--motion-console-plan-upgrade); color: var(--motion-console-plan-upgrade-ink); }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-upgrade:hover { background: var(--motion-console-plan-upgrade-hover); }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-recharge { background: var(--motion-console-plan-action); color: var(--motion-console-plan-action-ink); }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-recharge:hover { background: var(--motion-console-plan-action-hover); }
+.om-plan-usage[data-look="console"] .om-plan-usage-quotas { display: grid; padding: 28px 24px; }
+.om-plan-usage[data-look="console"] .om-plan-usage-quota { gap: var(--motion-space-12); }
+/* Dark: the Studio plan card. */
+[data-motion-studio] .om-plan-usage[data-look="studio"] { padding: 0; }
+.om-plan-usage[data-look="studio"] .om-plan-usage-head { gap: var(--motion-space-16); margin: var(--motion-space-8); padding: var(--motion-space-20) var(--motion-space-24); border-radius: var(--motion-radius-lg); background: var(--motion-dark-card-bg); border: 1px solid var(--motion-border-subtle); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-identity { display: grid; gap: var(--motion-space-6); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-identity p { color: var(--motion-muted); }
+[data-motion-studio] .om-plan-usage[data-look="studio"] .om-plan-usage-console { border-color: color-mix(in srgb, var(--motion-text) 28%, var(--motion-panel)); background: color-mix(in srgb, var(--motion-text) 12%, var(--motion-panel)); color: var(--motion-text); }
+[data-motion-studio] .om-plan-usage[data-look="studio"] .om-plan-usage-console:hover { background: color-mix(in srgb, var(--motion-text) 20%, var(--motion-panel)); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-quotas { display: grid; padding: var(--motion-space-20) var(--motion-space-24); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-quota { gap: var(--motion-space-8); }
+.om-plan-usage[data-look="studio"] [data-quota="balance"] > .om-subtitle { font-weight: var(--motion-weight-medium); color: var(--motion-neutral-n5); }
 .om-account-code { display: block; margin-top: var(--motion-space-12); font-family: var(--motion-font-mono); font-size: var(--motion-text-heading); }
 .om-preference-row { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-24); padding-block: var(--motion-space-20); }
 .om-preference-row + .om-preference-row { border-top: 1px solid var(--motion-border-subtle); }
@@ -255,7 +292,7 @@
   .om-settings-page .om-card { padding: var(--motion-space-16); }
   .om-settings-row { flex-wrap: wrap; }
   .om-account-metrics { grid-template-columns: 1fr; }
-  .om-account-callout { flex-wrap: wrap; align-items: flex-start; gap: var(--motion-space-12); }
+    .om-account-callout { flex-wrap: wrap; align-items: flex-start; gap: var(--motion-space-12); }
   .om-account-callout-action { width: 100%; }
   .om-preference-row { flex-direction: column; align-items: flex-start; gap: var(--motion-space-12); }
   .om-model-row { gap: var(--motion-space-6); flex-wrap: wrap; }
@@ -326,7 +363,7 @@
 [data-motion-studio] .om-application[data-host-chrome="true"] > .motion-workspace { border-radius: 0; box-shadow: none; border: 0; }
 
 /* Measure the actual space between the brand and tools, including in library dialogs. */
-.om-creative-navigation { flex: 1 1 0; min-width: 0; container: creative-nav / inline-size; }
+.om-creative-navigation { flex: 1 1 0; min-width: 0; overflow-x: clip; container: creative-nav / inline-size; }
 .om-gallery-header .om-creative-navigation { flex-basis: min(32%, 400px); }
 .om-creative-strip { position: relative; display: flex; align-items: center; gap: var(--motion-space-4); padding-block: var(--motion-space-2); }
 .om-app-header .om-creative-strip { justify-content: center; }
@@ -348,11 +385,26 @@
   .om-explore-link > svg { display: block; }
   [data-motion-studio] .om-explore-link { width: var(--motion-control-sm); padding-inline: 0; justify-content: center; }
 }
-.om-nav-more-panel { width: min(460px, calc(100vw - var(--motion-space-24))); max-height: min(var(--available-height), 70dvh); overflow: auto; }
-.om-nav-more-tools { display: flex; flex-wrap: wrap; gap: var(--motion-space-4); padding-bottom: var(--motion-space-8); margin-bottom: var(--motion-space-8); border-bottom: 1px solid var(--motion-border); }
+.om-nav-more-icon { display: none; }
+.om-nav-more-label { display: inline; }
+.om-nav-more-panel { width: min(460px, calc(100vw - var(--motion-space-24))); max-height: min(var(--available-height, 76dvh), 70dvh); overflow: auto; overscroll-behavior: contain; }
+.om-nav-more-tools { display: flex; flex-wrap: wrap; gap: var(--motion-space-4); padding-bottom: var(--motion-space-8); margin-bottom: var(--motion-space-8); border-bottom: 1px solid var(--motion-border-subtle); }
 .om-nav-more-studios { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(208px, 100%), 1fr)); gap: var(--motion-space-4); }
 .om-nav-more-studios .om-nav-item { width: 100%; text-align: start; white-space: nowrap; }
 [data-theme="paper"] .om-nav-more-studios .om-nav-item { color: var(--motion-strong); }
+@container app-header (max-width: 560px) {
+  .om-app-header .om-creative-strip { justify-content: flex-start; }
+  .om-nav-more-icon { display: inline-flex; }
+  .om-nav-more-label { display: none; }
+  [data-motion-studio] .om-app-header .om-nav-more-trigger {
+    width: 30px;
+    height: 30px;
+    min-height: 30px;
+    padding: 0;
+    justify-content: center;
+    border-radius: var(--motion-radius-md);
+  }
+}
 .om-creative-split { display: flex; align-items: center; }
 [data-motion-studio] .om-creative-split > .om-nav-row-link { padding-inline-end: 0; }
 [data-motion-studio] .om-creative-split > .om-nav-row-action {
@@ -636,12 +688,26 @@
 .om-creative-option small { font-size: var(--motion-text-xs); }
 @container (max-width: 560px) {
   .om-app-header-links { display: none; }
-  .om-app-header-actions { gap: var(--motion-space-2); }
+  .om-app-header-actions { gap: var(--motion-space-6); }
+}
+@media (max-width: 1320px) {
+  .om-app-header { gap: var(--motion-space-12); }
+}
+@media (max-width: 980px) {
+  .om-app-header { gap: var(--motion-space-8); }
+}
+@media (max-width: 600px) {
+  .om-app-header { gap: var(--motion-space-6); padding-inline: var(--motion-space-8); }
+  .om-nav-more-panel { width: min(360px, calc(100vw - var(--motion-space-16))); max-height: min(var(--available-height, 78dvh), calc(100dvh - 64px)); }
+  .om-nav-more-tools .om-nav-item { min-height: var(--motion-space-32); }
+  .om-nav-more-studios { grid-template-columns: repeat(auto-fit, minmax(min(148px, 100%), 1fr)); }
+  .om-nav-more-studios .om-nav-item { min-height: 36px; }
 }
 @media (max-width: 420px) {
   .om-app-header { gap: var(--motion-space-4); padding-inline: var(--motion-space-6); }
   [data-motion-studio] .om-app-header .om-app-brand { padding-inline: var(--motion-space-4); }
-  .om-app-header-actions button.om-nav-item:not(.om-account-trigger) { width: var(--motion-space-32); justify-content: center; padding-inline: 0; }
+  .om-app-header-actions { gap: var(--motion-space-4); }
+  .om-app-header-actions button.om-nav-item:not(.om-account-trigger):not(.om-header-invite-pill) { width: var(--motion-space-32); justify-content: center; padding-inline: 0; }
 }
 @media (max-width: 560px) {
   .om-creative-model-list { max-height: 28dvh; }
@@ -672,7 +738,15 @@
 .om-account-offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--motion-space-6); margin: 0; font-size: var(--motion-text-sm); }
 .om-account-offer svg, .om-account-offer strong { color: var(--motion-accent); }
 .om-account-offer-callout { position: relative; min-width: 0; padding: var(--motion-space-8) var(--motion-space-12); }
-.om-account-offer-callout::before {
+.om-account-offer-callout[data-size="compact"] {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: var(--motion-space-4);
+  padding: var(--motion-space-2) var(--motion-space-6);
+  font-size: var(--motion-text-xs);
+  white-space: nowrap;
+}
+.om-account-offer-callout:not([data-size="compact"])::before {
   content: "";
   position: absolute;
   inset-block-start: 50%;

@@ -166,6 +166,29 @@
 .om-brand-detail .om-brand-swatches { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .om-brand-library .om-gallery-header .om-gallery-collection-tabs { flex-shrink: 0; }
+[data-motion-studio] .om-brand-library[data-workspace-gallery] {
+  background: var(--motion-workspace);
+  scrollbar-gutter: stable;
+}
+[data-motion-studio] .om-brand-library[data-workspace-gallery] .om-gallery-sticky-header {
+  background: var(--motion-workspace);
+}
+[data-motion-studio] .om-brand-library[data-workspace-gallery] .om-gallery-header {
+  min-height: 0;
+  padding: var(--motion-space-16) var(--om-library-pad-x) var(--motion-space-12);
+}
+[data-motion-studio] .om-brand-library[data-workspace-gallery] .om-gallery-page-label {
+  font-size: var(--motion-text-section);
+  font-weight: var(--motion-weight-semibold);
+  line-height: var(--motion-leading-tight);
+  letter-spacing: -0.02em;
+  color: var(--motion-strong);
+}
+[data-motion-studio] .om-brand-library[data-workspace-gallery] .om-gallery-toolbar,
+[data-motion-studio] .om-brand-library[data-workspace-gallery] .om-gallery-results,
+[data-motion-studio] .om-brand-library[data-workspace-gallery] .om-gallery-chips {
+  padding-inline: var(--om-library-pad-x);
+}
 /* Row-major CSS grid with fixed card geometry prevents multi-column rebalancing and jitter while artwork loads or paginates. */
 .om-brand-library .om-gallery-masonry {
   columns: auto;

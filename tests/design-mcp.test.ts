@@ -19,10 +19,10 @@ import { readWorkflowResource, workflowResources } from '../shared/workflow.ts';
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 
-test('MCP registry exposes 38 phase-1 tools including the 4 capability meta-tools, 12 game and 4 design tools and design workflow resources', async () => {
-  assert.equal(phase1Tools.length, 38);
+test('MCP registry exposes 39 phase-1 tools including the 4 capability meta-tools, 13 game and 4 design tools and design workflow resources', async () => {
+  assert.equal(phase1Tools.length, 39);
   const registry = createToolRegistry(phase1Tools, 'phase1');
-  assert.equal(registry.tools.length, 38);
+  assert.equal(registry.tools.length, 39);
   for (const name of DESIGN_TOOL_NAMES) {
     assert(registry.tools.some(t => t.name === name), `missing tool ${name}`);
   }
@@ -157,7 +157,7 @@ test('stdio MCP subprocess runs all 4 openmotion_design_* tools and openmotion-d
     assert.equal(init.serverInfo.version, pkgVersion);
 
     const listed = await send('tools/list');
-    assert.equal(listed.tools.length, 38);
+    assert.equal(listed.tools.length, 39);
     for (const name of DESIGN_TOOL_NAMES) assert.ok(listed.tools.some((tool: any) => tool.name === name), `missing ${name}`);
 
     const guide = await send('resources/read', { uri: 'openmotion://workflow/design/start' });
@@ -202,7 +202,13 @@ test('stdio MCP subprocess runs all 4 openmotion_design_* tools and openmotion-d
     const restored = await call('openmotion_design_edit', {
       action: 'restore_version', projectId: pid, requestId: 'stdio-r1', versionId: v1.id, expectedRevision: written.project.revision,
     });
-    assert.equal(restored.version.label, 'v3');
+    assert.equal(restored.changed, true);
+    assert.deepEqual(restored.version, v1);
+    assert.equal(restored.project.versionId, v1.id);
+    const restoredHistory = await call('openmotion_design_edit', { action: 'list_versions', projectId: pid });
+    assert.deepEqual(restoredHistory, { ...versions, currentVersionId: v1.id });
+    const restoredFile = await call('openmotion_design_edit', { action: 'read_file', projectId: pid, path: 'index.html' });
+    assert.equal(restoredFile.content, readRes.content);
 
     const exported = await call('openmotion_design_project', { action: 'export', projectId: pid, format: 'open-design' });
     assert.ok(exported.outputPath.endsWith('.zip'));

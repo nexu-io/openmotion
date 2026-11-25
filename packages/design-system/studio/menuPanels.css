@@ -67,7 +67,8 @@
   background-color: var(--motion-neutral-n11);
 }
 
-.om-media-form-popup .om-picker-provider-row:has(> .om-picker-setup) {
+.om-media-form-popup .om-picker-provider-row:has(> .om-picker-setup),
+.om-picker-popover .om-picker-provider-row:has(> .om-picker-setup) {
   border-radius: var(--motion-radius-xl);
 
   &:is(:hover, :has(> [aria-selected="true"], > :focus-visible, > [data-highlighted])) {

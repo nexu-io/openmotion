@@ -4310,3 +4310,1206 @@
     flex-wrap: wrap;
   }
 }
+
+/* --- Studio mode: one brief in, the whole kit out --- */
+.om-scenario-body[data-mode="studio"],
+.om-scenario-body[data-mode="studio"][data-pool-collapsed="true"] {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  grid-template-rows: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--motion-canvas);
+}
+
+.om-studio-view {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--motion-space-20);
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: var(--motion-space-20) var(--motion-space-20) var(--motion-space-32);
+  box-sizing: border-box;
+}
+
+.om-studio-input,
+.om-studio-outputs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-12);
+  min-width: 0;
+  padding: var(--motion-space-16);
+  background: var(--motion-panel);
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-xl);
+}
+
+.om-studio-input {
+  position: sticky;
+  top: var(--motion-space-16);
+}
+
+.om-studio-input h1,
+.om-studio-outputs h2 {
+  margin: 0;
+  color: var(--motion-strong);
+  font-size: var(--motion-text-heading);
+  font-weight: var(--motion-weight-semibold);
+  line-height: var(--motion-leading-tight);
+}
+
+.om-studio-input-hint {
+  margin: 0;
+  color: var(--motion-muted);
+  font-size: var(--motion-text-sm);
+  line-height: var(--motion-leading-body);
+}
+
+.om-studio-idea {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 112px;
+  padding: var(--motion-space-10) var(--motion-space-12);
+  resize: vertical;
+  line-height: var(--motion-leading-body);
+}
+
+:root[data-motion-ui][data-motion-studio] .om-studio-input :is(.om-studio-idea, .om-studio-fields input) {
+  background: var(--motion-bg);
+  border: 1px solid var(--motion-border);
+  border-radius: var(--motion-radius-md);
+  color: var(--motion-strong);
+}
+
+:root[data-motion-ui][data-motion-studio] .om-studio-input :is(.om-studio-idea, .om-studio-fields input):focus {
+  border-color: var(--motion-focus);
+  box-shadow: 0 0 0 2px var(--motion-accent-soft);
+}
+
+/* Fixed-height rows never shrink under the brief box when it is resized. */
+.om-studio-input > * {
+  flex-shrink: 0;
+}
+
+.om-studio-fields {
+  display: grid;
+  gap: var(--motion-space-8);
+}
+
+.om-studio-refs,
+.om-studio-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--motion-space-6);
+}
+
+.om-studio-presets > span {
+  color: var(--motion-dim);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-preset {
+  padding: var(--motion-space-2) var(--motion-space-8);
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-pill);
+  color: var(--motion-text);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-preset:hover {
+  background: var(--motion-hover);
+}
+
+.om-studio-make {
+  width: 100%;
+}
+
+.om-studio-handoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--motion-space-6);
+  padding: var(--motion-space-10) var(--motion-space-12);
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-accent-soft);
+  color: var(--motion-text);
+  font-size: var(--motion-text-sm);
+  line-height: var(--motion-leading-body);
+}
+
+.om-studio-handoff > span {
+  flex: 1 1 200px;
+}
+
+.om-studio-handoff[data-agent-task='failed'],
+.om-studio-handoff[data-agent-task='cancelled'] {
+  background: var(--motion-panel);
+}
+
+.om-studio-handoff-spin {
+  animation: om-studio-handoff-spin 1s linear infinite;
+}
+
+@keyframes om-studio-handoff-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .om-studio-handoff-spin { animation: none; }
+}
+
+.om-studio-outputs header {
+  display: flex;
+  align-items: center;
+  gap: var(--motion-space-10);
+}
+
+.om-studio-progress {
+  flex: 1;
+  color: var(--motion-muted);
+  font-size: var(--motion-text-sm);
+}
+
+.om-studio-output-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--motion-space-12);
+}
+
+.om-studio-output {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-8);
+  min-width: 0;
+  padding: var(--motion-space-8);
+  border: 1px solid transparent;
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-raised);
+  text-align: left;
+  transition: border-color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.om-studio-output:hover {
+  background: var(--motion-hover);
+}
+
+.om-studio-output-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-inset);
+  color: var(--motion-dim);
+}
+
+.om-studio-output-art > img,
+.om-studio-output-art > * {
+  width: 100%;
+  height: 100%;
+}
+
+.om-studio-output-art > img {
+  object-fit: cover;
+}
+
+/* Portrait people shots: crop from the upper part so the whole face stays in the card. */
+.om-studio-output-art .om-scenario-thumb img,
+.om-studio-output-art > img,
+.om-studio-output-item .om-scenario-thumb img,
+.om-studio-output-post-media img {
+  object-fit: cover;
+  object-position: 50% 18%;
+}
+
+.om-studio-output[data-output-state="waiting"] .om-studio-output-art > img {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+.om-studio-output-text {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--motion-space-4);
+  color: var(--motion-text);
+}
+
+.om-studio-output-example {
+  position: absolute;
+  top: var(--motion-space-6);
+  left: var(--motion-space-6);
+  width: auto;
+  height: auto;
+  padding: var(--motion-space-2) var(--motion-space-6);
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-panel);
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-output-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--motion-space-6);
+  min-width: 0;
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+}
+
+.om-studio-output-meta > strong {
+  flex: 1;
+  overflow: hidden;
+  font-weight: var(--motion-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.om-studio-output-state {
+  flex-shrink: 0;
+  padding: var(--motion-space-2) var(--motion-space-6);
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-inset);
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-output-state[data-output-state="making"] {
+  background: var(--motion-warning-soft);
+  color: var(--motion-warning);
+}
+
+.om-studio-output-state[data-output-state="ready"] {
+  background: var(--motion-accent-soft);
+  color: var(--motion-success);
+}
+
+.om-studio-output-state[data-output-state="failed"] {
+  background: var(--motion-danger-soft);
+  color: var(--motion-danger);
+}
+
+.om-studio-workflow-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-6);
+  align-self: flex-start;
+  color: var(--motion-muted);
+}
+
+@media (max-width: 899px) {
+  .om-studio-view {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--motion-space-16);
+  }
+
+  .om-studio-input {
+    position: static;
+  }
+}
+
+/* Studio product: an entry in the brief, and a Higgsfield-style dialog of product cards. */
+.om-studio-product-entry,
+.om-studio-product-selected {
+  display: flex;
+  align-items: center;
+  gap: var(--motion-space-12);
+  width: 100%;
+  padding: var(--motion-space-10);
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-raised);
+  text-align: left;
+}
+
+.om-studio-product-entry {
+  border-style: dashed;
+}
+
+.om-studio-product-entry:hover {
+  border-color: var(--motion-border-strong);
+  background: var(--motion-hover);
+}
+
+.om-studio-product-entry-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-inset);
+  color: var(--motion-strong);
+}
+
+.om-studio-product-cover {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-inset);
+  color: var(--motion-dim);
+}
+
+.om-studio-product-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.om-studio-product-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: var(--motion-space-2);
+}
+
+.om-studio-product-copy small {
+  color: var(--motion-dim);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-product-copy strong {
+  overflow: hidden;
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.om-studio-product-copy > span {
+  overflow: hidden;
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+  line-height: var(--motion-leading-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.om-studio-product-entry .om-studio-product-copy > span {
+  white-space: normal;
+}
+
+.om-studio-product-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-12);
+  width: min(960px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 64px));
+  padding: var(--motion-space-16);
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--motion-border);
+  border-radius: var(--motion-radius-step-20);
+  background: var(--motion-bg);
+  box-shadow: var(--motion-shadow-lg);
+}
+
+.om-studio-product-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: var(--motion-space-8);
+}
+
+.om-studio-product-dialog-head .om-subtitle {
+  flex: 1;
+  margin: 0;
+}
+
+.om-studio-product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-auto-rows: max-content;
+  gap: var(--motion-space-12);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--motion-space-12);
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-panel);
+}
+
+.om-studio-product-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-6);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--motion-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.om-studio-product-card-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-raised);
+  color: var(--motion-dim);
+}
+
+.om-studio-product-card-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.om-studio-product-card:hover .om-studio-product-card-art {
+  border-color: var(--motion-border-strong);
+}
+
+.om-studio-product-card[aria-pressed="true"] .om-studio-product-card-art {
+  border-color: var(--motion-accent);
+  box-shadow: 0 0 0 1px var(--motion-accent);
+}
+
+.om-studio-product-card-add .om-studio-product-card-art {
+  border-style: dashed;
+}
+
+.om-studio-product-card strong {
+  overflow: hidden;
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.om-studio-product-card-add strong {
+  text-align: center;
+}
+
+.om-studio-product-empty {
+  display: grid;
+  grid-column: 1 / -1;
+  justify-items: center;
+  gap: var(--motion-space-4);
+  padding: var(--motion-space-48) var(--motion-space-16);
+  color: var(--motion-muted);
+  font-size: var(--motion-text-sm);
+  text-align: center;
+}
+
+.om-studio-product-empty strong {
+  color: var(--motion-strong);
+}
+
+.om-studio-product-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--motion-space-16);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.om-studio-product-media {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-8);
+  min-width: 0;
+}
+
+.om-studio-product-drop {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  width: 100%;
+  max-height: 420px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px dashed var(--motion-border);
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-panel);
+  color: var(--motion-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.om-studio-product-drop[data-has-image="true"] {
+  border-style: solid;
+}
+
+.om-studio-product-drop:hover,
+.om-studio-product-drop[data-dragging="true"] {
+  border-color: var(--motion-accent);
+}
+
+.om-studio-product-drop img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.om-studio-product-drop-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--motion-space-6);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-product-drop-empty strong {
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+}
+
+.om-studio-product-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--motion-space-6);
+}
+
+.om-studio-product-strip-item,
+.om-studio-product-strip-add {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: var(--motion-radius-md);
+}
+
+.om-studio-product-strip-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.om-studio-product-strip-remove {
+  position: absolute;
+  top: var(--motion-space-2);
+  right: var(--motion-space-2);
+}
+
+.om-studio-product-strip-add {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--motion-border);
+  background: var(--motion-panel);
+  color: var(--motion-muted);
+  cursor: pointer;
+}
+
+.om-studio-product-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-12);
+  min-width: 0;
+}
+
+.om-studio-product-fields label {
+  display: grid;
+  gap: var(--motion-space-4);
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-product-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--motion-space-6);
+  margin-top: auto;
+}
+
+@media (max-width: 767px) {
+  .om-studio-product-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Outputs this time: every deliverable is on by default; untick to skip it for this run. */
+.om-studio-choose {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--motion-space-6);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.om-studio-choose legend {
+  margin-bottom: var(--motion-space-6);
+  padding: 0;
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+}
+
+.om-studio-choose-item {
+  display: flex;
+  align-items: center;
+  gap: var(--motion-space-6);
+  min-width: 0;
+  padding: var(--motion-space-6) var(--motion-space-8);
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-md);
+  color: var(--motion-text);
+  font-size: var(--motion-text-sm);
+  cursor: pointer;
+}
+
+.om-studio-choose-item:hover {
+  background: var(--motion-hover);
+}
+
+.om-studio-choose-item > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.om-studio-output[data-output-state="skipped"] {
+  opacity: 0.45;
+}
+
+.om-studio-output[data-output-state="skipped"] .om-studio-output-art > img {
+  filter: grayscale(1);
+}
+
+/* A deliverable card is a status tile; only a made output opens a preview. */
+div.om-studio-output {
+  cursor: default;
+}
+
+div.om-studio-output:hover {
+  border-color: transparent;
+}
+
+/* Deliverable tabs on top, the chosen deliverable's outputs below. */
+.om-studio-output[aria-selected="true"] {
+  border-color: var(--motion-accent);
+  box-shadow: 0 0 0 1px var(--motion-accent);
+}
+
+.om-studio-output-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-12);
+  min-height: 220px;
+  padding: var(--motion-space-14);
+  border: 0;
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-inset);
+}
+
+.om-studio-output-panel > header {
+  display: flex;
+  align-items: center;
+  gap: var(--motion-space-8);
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+}
+
+.om-studio-output-count {
+  margin-left: auto;
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-output-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--motion-space-10);
+  padding: var(--motion-space-8) 0;
+  color: var(--motion-muted);
+  font-size: var(--motion-text-sm);
+  text-align: center;
+}
+
+.om-studio-output-empty p {
+  margin: 0;
+}
+
+.om-studio-output-empty-art {
+  position: relative;
+  width: min(480px, 100%);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--motion-radius-md);
+}
+
+.om-studio-output-empty-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.7;
+}
+
+.om-studio-output-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--motion-space-10);
+}
+
+.om-studio-output-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-6);
+  min-width: 0;
+  padding: var(--motion-space-6);
+  border: 0;
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-raised);
+  color: var(--motion-text);
+  font-size: var(--motion-text-xs);
+  text-align: left;
+}
+
+.om-studio-output-item:hover {
+  background: var(--motion-hover);
+}
+
+.om-studio-output-item > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.om-studio-output-posts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  align-items: start;
+  gap: var(--motion-space-12);
+}
+
+/* Each post looks like it will on the platform: account row, media in the post's aspect, caption. */
+.om-studio-output-post {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-raised);
+  color: var(--motion-text);
+  font-size: var(--motion-text-sm);
+  line-height: var(--motion-leading-body);
+}
+
+.om-studio-output-post > header {
+  display: flex;
+  align-items: center;
+  gap: var(--motion-space-8);
+  padding: var(--motion-space-8) var(--motion-space-10);
+}
+
+.om-studio-output-post > header > span {
+  display: grid;
+  min-width: 0;
+}
+
+.om-studio-output-post > header strong {
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+}
+
+.om-studio-output-post > header small {
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-output-post-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-height: 420px;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 0;
+  background: var(--motion-inset);
+}
+
+.om-studio-output-post-media > *:first-child {
+  width: 100%;
+  height: 100%;
+}
+
+.om-studio-output-post-media img,
+.om-studio-output-post-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.om-studio-output-post-placeholder {
+  display: grid !important;
+  place-content: center;
+  justify-items: center;
+  gap: var(--motion-space-4);
+  padding: var(--motion-space-16);
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+  text-align: center;
+}
+
+.om-studio-output-post-more,
+.om-studio-output-post-aspect {
+  position: absolute;
+  padding: var(--motion-space-2) var(--motion-space-6);
+  border-radius: var(--motion-radius-pill);
+  background: var(--motion-panel);
+  color: var(--motion-text);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-output-post-more {
+  top: var(--motion-space-6);
+  right: var(--motion-space-6);
+}
+
+.om-studio-output-post-aspect {
+  bottom: var(--motion-space-6);
+  left: var(--motion-space-6);
+  color: var(--motion-muted);
+}
+
+.om-studio-output-post-body {
+  display: grid;
+  gap: var(--motion-space-6);
+  padding: var(--motion-space-10);
+}
+
+.om-studio-output-post-body h3,
+.om-studio-output-post-body p {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.om-studio-output-post-body h3 {
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+}
+
+.om-studio-output-post-body > span {
+  color: var(--motion-accent);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-output-script {
+  margin: 0;
+  padding: var(--motion-space-10);
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-raised);
+  color: var(--motion-text);
+  font-size: var(--motion-text-sm);
+  white-space: pre-wrap;
+}
+
+/* The deliverable tabs always stay one row; narrow screens scroll it sideways. */
+.om-studio-output-grid[role="tablist"] {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(150px, 1fr);
+  overflow-x: auto;
+}
+
+/* Medium widths: a narrower brief column, tighter gutters, and nothing wider than the page. */
+.om-studio-view > * {
+  min-width: 0;
+}
+
+.om-studio-output-panel,
+.om-studio-output-grid {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 1279px) {
+  .om-studio-view {
+    padding: var(--motion-space-14);
+  }
+
+  .om-studio-input,
+  .om-studio-outputs {
+    padding: var(--motion-space-14);
+  }
+
+  .om-studio-output-grid[role="tablist"] {
+    grid-auto-columns: minmax(132px, 1fr);
+  }
+
+  .om-studio-output-items {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .om-studio-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .om-studio-input {
+    position: static;
+  }
+}
+
+/* Brief | divider | kit: people drag the divider to share the width between the two columns. */
+.om-studio-view {
+  grid-template-columns: var(--om-studio-input-width, 400px) 16px minmax(0, 1fr);
+  column-gap: var(--motion-space-4);
+}
+
+.om-studio-view[data-resizing="true"] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.om-studio-resizer {
+  position: sticky;
+  top: var(--motion-space-16);
+  align-self: stretch;
+  min-height: 120px;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+/* A visible grip: a full-height guide line plus a dotted handle, like a split-view divider. */
+.om-studio-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--motion-border-subtle);
+  transition: background var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.om-studio-resizer-grip {
+  position: absolute;
+  top: clamp(48px, 50%, 280px);
+  left: 50%;
+  width: 12px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--motion-border);
+  border-radius: var(--motion-radius-pill);
+  background-color: var(--motion-raised);
+  background-image: radial-gradient(circle, var(--motion-muted) 1px, transparent 1.5px);
+  background-size: 5px 6px;
+  background-position: center;
+  box-shadow: var(--motion-shadow-xs);
+  transition: border-color var(--motion-duration-fast) var(--motion-ease-out), height var(--motion-duration-fast) var(--motion-ease-out), background-color var(--motion-duration-fast) var(--motion-ease-out);
+}
+
+.om-studio-resizer:hover::before,
+.om-studio-resizer[data-dragging="true"]::before,
+.om-studio-resizer:focus-visible::before {
+  background: var(--motion-accent);
+}
+
+.om-studio-resizer:hover .om-studio-resizer-grip,
+.om-studio-resizer[data-dragging="true"] .om-studio-resizer-grip,
+.om-studio-resizer:focus-visible .om-studio-resizer-grip {
+  height: 64px;
+  border-color: var(--motion-accent);
+  background-color: var(--motion-hover);
+}
+
+@media (max-width: 1023px) {
+  .om-studio-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .om-studio-resizer {
+    display: none;
+  }
+}
+
+/* Full outputs inline: a page you can scroll, a video you can play or put full screen. */
+.om-studio-output-page,
+.om-studio-output-video,
+.om-studio-output-audio {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-8);
+  margin: 0;
+  min-width: 0;
+}
+
+.om-studio-output-page figcaption,
+.om-studio-output-video figcaption,
+.om-studio-output-audio figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--motion-space-8);
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-output-page figcaption a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-4);
+  color: var(--motion-text);
+  text-decoration: none;
+}
+
+.om-studio-output-page figcaption a:hover {
+  color: var(--motion-strong);
+}
+
+.om-studio-output-page-frame {
+  position: relative;
+  width: 100%;
+  height: min(78vh, 900px);
+  overflow: hidden;
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-bg);
+}
+
+.om-studio-output-page-frame iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+}
+
+.om-studio-output-video video {
+  width: 100%;
+  max-height: 72vh;
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-inset);
+}
+
+.om-studio-output-audio audio {
+  width: 100%;
+}
+
+.om-studio-output-video figcaption button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-4);
+  white-space: nowrap;
+}
+
+/* A post with several images pages through them with dots. */
+.om-studio-output-post-pager {
+  display: flex;
+  justify-content: center;
+  gap: var(--motion-space-6);
+  padding-top: var(--motion-space-8);
+}
+
+.om-studio-output-post-dot {
+  width: 8px;
+  height: 8px;
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-border-strong);
+}
+
+.om-studio-output-post-dot[aria-pressed="true"] {
+  width: 18px;
+  background: var(--motion-accent);
+}
+
+/* Audio outputs get a cover: the run's key image under a waveform. */
+.om-studio-audio-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--motion-radius-md);
+  background: radial-gradient(120% 90% at 20% 10%, color-mix(in srgb, var(--motion-accent) 35%, transparent), transparent 60%), var(--motion-inset);
+}
+.om-studio-audio-cover[data-size="lg"] {
+  aspect-ratio: 16 / 5;
+  height: auto;
+}
+.om-studio-audio-cover > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+  filter: saturate(1.1);
+}
+.om-studio-audio-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, var(--motion-overlay) 0%, transparent 38%, transparent 52%, var(--motion-overlay) 100%);
+}
+.om-studio-audio-cover-icon {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--motion-panel);
+  color: var(--motion-strong);
+}
+.om-studio-audio-cover[data-size="lg"] .om-studio-audio-cover-icon {
+  top: 16px;
+  left: 16px;
+  width: 40px;
+  height: 40px;
+}
+.om-studio-audio-cover-wave {
+  position: absolute;
+  z-index: 1;
+  left: 10%;
+  right: 10%;
+  bottom: 14%;
+  height: 30%;
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.om-studio-audio-cover[data-size="lg"] .om-studio-audio-cover-wave {
+  left: 22%;
+  right: 22%;
+  height: 22%;
+}
+.om-studio-audio-cover-wave > i {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--motion-accent);
+}
+.om-studio-audio-cover-title {
+  position: absolute;
+  z-index: 1;
+  top: 22px;
+  left: 68px;
+  right: 16px;
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

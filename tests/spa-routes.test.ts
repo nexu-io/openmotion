@@ -35,6 +35,8 @@ test('whitelisted SPA routes match while backend, missing asset, and source path
     '/explore',
     '/explore/',
     '/explore/film',
+    '/projects',
+    '/projects/motion',
     '/create/text-to-image',
     '/motion',
     '/cinema',
@@ -100,6 +102,8 @@ test('whitelisted SPA routes match while backend, missing asset, and source path
 
 test('standalone SPA paths skip native Studio pre-launch while editor paths extract project IDs', () => {
   assert.equal(isStandaloneSpaPath('/explore'), true);
+  assert.equal(isStandaloneSpaPath('/projects'), true);
+  assert.equal(isStandaloneSpaPath('/projects/design'), true);
   assert.equal(isStandaloneSpaPath('/cinema/text-to-video'), true);
   assert.equal(isStandaloneSpaPath('/design/prototype'), true);
   assert.equal(isStandaloneSpaPath('/settings/providers', '?project=project'), true);
@@ -130,6 +134,8 @@ test('spaPathnameToSearch maps semantic SPA pathnames to workspace query paramet
   assert.equal(spaPathnameToSearch('/settings/providers'), '?page=settings&section=providers');
   assert.equal(spaPathnameToSearch('/cinema/text-to-video'), '?page=cinema&scene=text-to-video');
   assert.equal(spaPathnameToSearch('/design/projects/d-1'), '?page=design&scene=projects&designProject=d-1');
+  assert.equal(spaPathnameToSearch('/projects'), '?page=projects');
+  assert.equal(spaPathnameToSearch('/projects/design', '?scope=team'), '?scope=team&page=projects&type=design');
   assert.equal(spaPathnameToSearch('/mcp-setup/claude', '?setup=manual'), '?setup=manual&page=mcp&host=claude');
   assert.equal(spaPathnameToSearch('/model-hub/gemini-4'), '?page=model-hub&hub=gemini-4');
   assert.equal(spaPathnameToSearch('/models/hub/gemini-4'), '?page=model-hub&hub=gemini-4');

@@ -73,6 +73,7 @@ export const CAPABILITY_DOMAINS: readonly CapabilityDomain[] = [
       'openmotion_game_validate',
       'openmotion_game_set_status',
       'openmotion_game_publish',
+      'openmotion_game_wechat',
     ],
     resourceKinds: ['game-project'],
     directEntry: 'game',

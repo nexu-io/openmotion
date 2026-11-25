@@ -8,6 +8,7 @@ import { type StudioDestination } from './creativeStudios';
 import { studioExamples, sceneLayout, type SceneExample } from './sceneShowcase';
 import { skillPreviewSnapshot } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
+import { isXVideoUrl, xVideoDocument } from './xVideoEmbed';
 import sofaCutout from './scene-art/sofa-cutout.webp';
 import sofaEdit from './scene-art/sofa-edit.webp';
 import sofaRelight from './scene-art/sofa-relight.webp';
@@ -37,7 +38,8 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
   const [audioUrl, setAudioUrl] = useState('');
   const [requestedClip, setRequestedClip] = useState<string>();
   const archivedClip = example.clip?.startsWith(skillPreviewSnapshot);
-  const clip = useSkillPreview(example.clip, enabled && !failed && (!archivedClip || requestedClip === example.clip), setFailed);
+  const xHostedClip = Boolean(example.clip && isXVideoUrl(example.clip));
+  const clip = useSkillPreview(example.clip, enabled && !failed && !xHostedClip && (!archivedClip || requestedClip === example.clip), setFailed);
   useEffect(() => { if (!enabled) setRequestedClip(undefined); }, [enabled]);
   useEffect(() => {
     if (!example.audio || !enabled || failed) return;
@@ -92,7 +94,16 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
     ? { '--poster-aspect': String(example.posterAspect) } as CSSProperties
     : undefined;
   return <div ref={stage} className="om-scene-example-media" style={mediaStyle}>
-    {clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
+    {xHostedClip && example.clip && enabled ? (
+      <iframe
+        key={example.clip}
+        className="om-hub-lightbox-video"
+        srcDoc={xVideoDocument(example.clip, example.poster, true, autoplay)}
+        sandbox="allow-scripts"
+        allow="autoplay; fullscreen"
+        title={t(example.title)}
+      />
+    ) : clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" referrerPolicy="no-referrer" />}
     {enabled && !videoGuide && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
       disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
       {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
@@ -111,10 +122,34 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
   </div>;
 }
 
-export function StudioIdeas({ destination, onPrompt, active = true, modelName }: { destination: StudioDestination; onPrompt: (prompt: string) => void; active?: boolean; modelName?: string }) {
+export function StudioIdeas({ destination, onPrompt, active = true, modelName, featuredExample }: {
+  destination: StudioDestination;
+  onPrompt: (prompt: string) => void;
+  active?: boolean;
+  modelName?: string;
+  featuredExample?: { title: string; prompt: string; poster: string; clip?: string; posterAspect?: number };
+}) {
   const { t } = useI18n();
   const [selected, setSelected] = useState(0);
   const { scene } = destination;
+  if (featuredExample) {
+    const remixExample: SceneExample = {
+      title: featuredExample.title,
+      prompt: featuredExample.prompt,
+      poster: featuredExample.poster,
+      clip: featuredExample.clip,
+      posterAspect: featuredExample.posterAspect,
+    };
+    return <section className="om-scene-guide om-scene-hero" data-remix-guide="true">
+      <div className="om-scene-hero-stage">
+        <ExampleMedia key={remixExample.poster} example={remixExample} enabled={active} videoGuide={scene.modality === 'video'} />
+      </div>
+      <div className="om-guide-heading">
+        <h2 className="om-title">{remixExample.title}</h2>
+        <p className="om-muted">{remixExample.prompt}</p>
+      </div>
+    </section>;
+  }
   if (scene.id === 'image-edit') return (
     <SceneComparisonGuide src={sofaEdit} width={1506} height={1032}
       alt="An armchair before and after changing the room"
@@ -152,7 +187,7 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
     <div className="om-scene-hero-stage">
       {scene.id === 'speech'
         ? <blockquote className="om-speech-script"><RemixIcon name="voiceprint-line" size={28} /><p>{t(idea.prompt)}</p></blockquote>
-        : <ExampleMedia key={idea.title} example={idea} enabled={active} videoGuide={destination.studio.id === 'cinema'} />}
+        : <ExampleMedia key={idea.title} example={idea} enabled={active} videoGuide={destination.studio.id === 'cinema' && scene.modality === 'video'} />}
     </div>
     {options.length > 1 && <div className="om-scene-hero-examples" role="group" aria-label={t('Try an idea')}>{options.map((item, index) =>
       <Button variant="plain" key={item.title} aria-label={t(item.title)} aria-pressed={index === selected} onClick={() => setSelected(index)}>

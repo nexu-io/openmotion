@@ -3,7 +3,12 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { usePlayerStore } from '../player/store/playerStore';
+import { classifyBillingErrorCode } from '../../../shared/workspace-collab';
 import { gatewayRequest, generateAsset, loadGateway, type GatewayStatus, type Model, type GenerationJob, type Modality } from './gatewayClient';
+import { useOptionalWorkspaceCollab } from './WorkspaceCollabContext';
+import { useOptionalGrowthSurfaces } from './collab/GrowthSurfacesContext';
+import { emitArtifactDelivered } from './collab/artifactDeliveryBus';
+import { RemixIcon } from '../icons/RemixIcons';
 import type { MediaRequest } from './MediaGatewayContext';
 import { useMediaPopoverPosition } from './useMediaPopoverPosition';
 import { useArtifactViewActive } from './ArtifactViewState';
@@ -38,6 +43,8 @@ type Kind = 'image' | 'video' | 'music' | 'voice';
 export function MediaGenerator({ request, onClose, onSettings }: { request: MediaRequest; onClose: () => void; onSettings: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
+  const collab = useOptionalWorkspaceCollab();
+  const growth = useOptionalGrowthSurfaces();
   const editing = request.intent === 'edit' && request.selection?.modality === 'image';
   const [data, setData] = useState<{ status: GatewayStatus; models: Model[] } | null>(null);
   const [projectId, setProjectId] = useState('');
@@ -55,6 +62,7 @@ export function MediaGenerator({ request, onClose, onSettings }: { request: Medi
   const active = useArtifactViewActive();
   const popover = useMediaPopoverPosition(request.anchor, 640, active);
   const delivered = useRef(new Set<string>());
+  const handledBillingJobs = useRef(new Set<string>());
   const submission = useRef<{ hash: string; id: string } | null>(null);
   const mediaKind: Modality = kind === 'music' || kind === 'voice' ? 'audio' : kind;
   const activeProjectId = usePlayerStore(s => s.timelineProjectId);
@@ -85,14 +93,28 @@ export function MediaGenerator({ request, onClose, onSettings }: { request: Medi
         const value = await gatewayRequest<{ jobs: GenerationJob[] }>('generations?projectId=' + encodeURIComponent(projectId));
         if (active) {
           setJobs(previous => value.jobs.map(job => latestJob(previous.find(item => item.id === job.id), job)));
-          for (const job of value.jobs) if (job.state === 'completed' && job.idempotencyKey?.startsWith(request.id) && !delivered.current.has(job.id)) { delivered.current.add(job.id); request.onComplete?.(job); }
+          for (const job of value.jobs) {
+            if (job.state === 'completed' && job.idempotencyKey?.startsWith(request.id) && !delivered.current.has(job.id)) {
+              delivered.current.add(job.id);
+              request.onComplete?.(job);
+              emitArtifactDelivered({ kind: 'media', label: job.model.label, sourceId: job.id });
+            }
+            if (
+              job.state === 'failed'
+              && !handledBillingJobs.current.has(job.id)
+              && classifyBillingErrorCode(job.errorCode ?? job.error)
+            ) {
+              handledBillingJobs.current.add(job.id);
+              void collab?.handleBillingError(job.errorCode ?? job.error, { featureLabel: job.model.label });
+            }
+          }
         }
       } catch (e) { if (active) setError(e instanceof Error ? e.message : String(e)); }
       finally { pending = false; }
     };
     void refresh(); const timer = window.setInterval(() => void refresh(), 1500);
     return () => { active = false; clearInterval(timer); };
-  }, [projectId, request]);
+  }, [collab, projectId, request]);
   useEffect(() => {
     if (activeProjectId !== openingSession.current.projectId || activeSession !== openingSession.current.epoch) return;
     const previous = usePlayerStore.getState().rangeSelection;
@@ -109,6 +131,18 @@ export function MediaGenerator({ request, onClose, onSettings }: { request: Medi
     if (!model) return;
     setBusy(true); setError('');
     try {
+      const lifecycle = collab?.snapshot?.activeWorkspace?.lifecycleState;
+      if (
+        collab?.snapshot?.signedIn
+        && (model.provider === 'account' || model.provider === 'opendesign')
+        && (lifecycle === 'locked' || lifecycle === 'billing_past_due' || collab.snapshot.quota?.hasAvailableFunds === false)
+      ) {
+        const preflight = await collab.checkPreflightNow({ model: model.modelId });
+        if ((preflight && !preflight.funded) || lifecycle === 'locked') {
+          setBusy(false);
+          return;
+        }
+      }
       if (!Number.isFinite(start) || start < 0 || start > 36000 || !Number.isFinite(duration) || duration < 0.1 || duration > 600) throw new Error(t('Choose a start from 0–36000 seconds and a duration from 0.1–600 seconds'));
       const extra = JSON.parse(params);
       if (!extra || Array.isArray(extra) || typeof extra !== 'object') throw new Error(t('Advanced parameters must be a JSON object'));
@@ -188,12 +222,42 @@ export function MediaGenerator({ request, onClose, onSettings }: { request: Medi
     <label>{t('How many')}<select value={count} onChange={event => setCount(Number(event.target.value))}>{[1, 2, 3, 4].map(n => <option key={n}>{n}</option>)}</select></label></div>
     <div className="motion-media-columns motion-media-placement"><label>{t('Start (seconds)')}<input type="number" disabled={editing} min={0} max={36000} step={0.1} value={start} onChange={event => setStart(Math.max(0, Number(event.target.value)))} /></label><label>{t('Duration (seconds)')}<input type="number" disabled={editing} min={0.1} max={600} step={0.1} value={duration} onChange={event => setDuration(Math.max(0.1, Number(event.target.value)))} /></label></div>
     <details><summary>{t('Advanced parameters (JSON)')}</summary><textarea aria-label={t('Advanced parameters (JSON)')} value={params} rows={2} spellCheck={false} onChange={event => setParams(event.target.value)} /></details>
-    {error && <p role="alert" className="motion-media-error">{t(error)}</p>}
+    {error && (
+      <div role="alert" className="motion-media-error om-support-inline-error">
+        <span>{t(error)}</span>
+        {growth && (
+          <Button
+            variant="plain"
+            type="button"
+            className="om-support-inline-btn"
+            onClick={() => growth.openSupportDialog({ summary: t(error), source: 'Media generator' })}
+          >
+            <RemixIcon name="customer-service-2-line" size={13} />
+            <span>{t('Contact support')}</span>
+          </Button>
+        )}
+      </div>
+    )}
     <footer><span className="motion-media-muted">{model?.provider === 'codex' ? t('Uses your local Codex account') : t('Uses your provider account')}{request.target && ` · ${start.toFixed(1)}–${(start + duration).toFixed(1)}s`}</span><Button variant="plain" className="motion-media-primary" disabled={busy || !prompt.trim() || !projectId || !model || !available(model)} onClick={() => void submit()}>{busy ? t('Working…') : t('Generate')}</Button></footer>
     {data && (!model || !available(model)) && <Button variant="plain" className="motion-media-connect" onClick={onSettings}>{t('Connect a provider to generate this media')}</Button>}
     {visibleJobs.length > 0 && <div className="motion-generation-results" aria-live="polite">{visibleJobs.slice(0, 8).map(job => <article key={job.id}>
       <div className="motion-media-row"><span title={job.prompt}>{job.model.label} <small>{t(job.state)}</small></span>{['queued', 'running'].includes(job.state) && <Button variant="plain" disabled={cancelling.includes(job.id)} aria-busy={cancelling.includes(job.id)} onClick={() => void cancel(job)}>{t('Cancel')}</Button>}</div>
-      {job.error && <p className="motion-media-error">{t(job.error)}</p>}
+      {job.error && (
+        <div className="motion-media-error om-support-inline-error">
+          <span>{t(job.error)}</span>
+          {growth && (
+            <Button
+              variant="plain"
+              type="button"
+              className="om-support-inline-btn"
+              onClick={() => growth.openSupportDialog({ summary: t(job.error!), detail: `${job.modality} · ${job.id}`, source: 'Media generator' })}
+            >
+              <RemixIcon name="customer-service-2-line" size={13} />
+              <span>{t('Contact support')}</span>
+            </Button>
+          )}
+        </div>
+      )}
       {job.assets.map(asset => <div className="motion-generated-asset" key={asset.path}>
         {asset.available !== false && nativeProjectId && asset.mimeType.startsWith('image/') && <img alt={job.prompt} src={`/api/projects/${encodeURIComponent(nativeProjectId)}/preview/${asset.path}`} />}
         <span><strong>{asset.path.split('/').pop()}</strong><small>{t(asset.available === false ? 'File moved or removed · check the media library' : 'Saved to project assets')}</small></span>

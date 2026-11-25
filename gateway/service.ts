@@ -13,7 +13,7 @@ import { cloudModels } from './opendesign.ts';
 import { ProviderConnections, type GatewayConfig } from './connections.ts';
 import { isGatewayProvider, isMediaProvider, registeredProvider } from '../shared/provider-registry.ts';
 import { compatibleProvider } from './compatible.ts';
-import { OpenDesignAccount } from './account.ts';
+import { OpenDesignAccount, AccountRequestError } from './account.ts';
 import { accountMediaState } from './account-media.ts';
 import { AssetLibrary } from './asset-library.ts';
 import { requireLibraryMediaRuntime } from './asset-probe.ts';
@@ -38,6 +38,19 @@ const saveUnavailable = 'SAVE_NOT_AVAILABLE: retained outputs are missing, chang
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const uuid = (id: unknown): id is string => typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id);
 function alive(pid?: number) { try { if (!pid) return false; process.kill(pid, 0); return true; } catch { return false; } }
+function structuredGenerationErrorCode(error: unknown, result?: Record<string, unknown>): string | undefined {
+  if (error instanceof AccountRequestError && error.code) return error.code;
+  if (error instanceof ProviderError) {
+    if (error.status === 402) return 'insufficient_balance';
+    if (error.status === 429) return 'tier_limit_exceeded';
+  }
+  const remoteError = result?.error;
+  if (remoteError && typeof remoteError === 'object' && !Array.isArray(remoteError)) {
+    const code = (remoteError as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(code)) return code;
+  }
+  return undefined;
+}
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(file, 'utf8')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback; throw new Error('Model gateway data is unreadable'); }
@@ -639,7 +652,7 @@ export class ModelGateway {
               current.assets[index] = { path: file.path, mimeType: file.mimeType, bytes: file.bytes };
             }
           }
-          current.state = 'completed'; current.phase = 'completed'; current.savePending = false; delete current.error; current.updatedAt = Date.now();
+          current.state = 'completed'; current.phase = 'completed'; current.savePending = false; delete current.error; delete current.errorCode; current.updatedAt = Date.now();
           await this.saveResult(current);
           retained = false;
         });
@@ -653,6 +666,8 @@ export class ModelGateway {
         let message = controller.signal.aborted ? 'Generation stopped or timed out; no automatic retry was made' : error instanceof Error ? error.message : 'Generation failed';
         if (key) message = message.replaceAll(key, '[redacted]');
         if (resumableJob(current) && current.model.provider === 'opendesign') message += ' Check the original Cloud task with action=resume without paying again.';
+        const errorCode = structuredGenerationErrorCode(error, current.result);
+        if (errorCode) current.errorCode = errorCode; else delete current.errorCode;
         current.error = message.slice(0, 500); await this.saveResult(current);
       });
     } finally {

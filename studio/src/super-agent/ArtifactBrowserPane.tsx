@@ -60,6 +60,8 @@ import {
   type BrowserAnnotationSubmitPayload,
 } from './BrowserAnnotationOverlay';
 import { fileAttachmentIcon, resourceIcon } from './ResourcePickerDialog';
+import { GamePublishPanel } from './gamePublish/GamePublishPanel';
+import { gamePublishActions, useGamePublishSession } from './gamePublish/gamePublishStore';
 import {
   captureSuperAgentPreviewSnapshot,
   readSuperAgentFileContent,
@@ -146,11 +148,13 @@ function ManagedMediaElement({ kind, src }: { kind: 'video' | 'audio'; src: stri
   const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   useEffect(() => {
     const element = ref.current;
+    // Attach the source after the previous effect has released the player.
+    element?.setAttribute('src', src);
     return () => releaseMediaElement(element);
   }, [src, kind]);
   return kind === 'video'
-    ? <video ref={ref} controls playsInline src={src} />
-    : <audio ref={ref} controls src={src} />;
+    ? <video ref={ref} controls playsInline />
+    : <audio ref={ref} controls />;
 }
 
 function isInspectableGameFile(filePath: string): boolean {
@@ -1766,6 +1770,12 @@ export function ArtifactBrowserPane({
   const activeArtifact = showNewTab
     ? null
     : openTabs.find(item => item.id === activeTabId) ?? openTabs.at(-1) ?? null;
+  // Game publish wizard: one shared state per game, also read by the conversation cards.
+  const publishGameId = activeArtifact?.kind === 'game-project'
+    ? (activeArtifact.projectId || (activeArtifact.id.startsWith('game:') ? activeArtifact.id.slice('game:'.length) : ''))
+    : '';
+  const publishSession = useGamePublishSession(publishGameId ? activeArtifact?.id : null);
+  const publishPanelOpen = Boolean(publishGameId && publishSession?.open);
 
   const webState = activeArtifact?.kind === 'web' && webStateEntry?.artifactId === activeArtifact.id
     ? webStateEntry.state
@@ -2777,12 +2787,33 @@ export function ArtifactBrowserPane({
                     filePath={activeArtifact.entry}
                     title={activeArtifact.title}
                     triggerClassName="om-sa-share-trigger"
-                    autoOpen={activeArtifact.kind === 'game-project' && pendingDeployArtifactId === activeArtifact.id}
+                    autoOpen={pendingDeployArtifactId === activeArtifact.id}
                     onAutoOpenConsumed={onConsumeDeployRequest}
                     revisionKey={activeArtifact.revision ?? String(activeArtifact.updatedAt)}
                     onOpenAccount={onOpenAccountSettings}
                     onNotify={onNotify}
                   />
+                )}
+
+                {!showNewTab && activeArtifact?.kind === 'game-project' && publishGameId && (
+                  <Button
+                    variant="plain"
+                    type="button"
+                    className="om-sa-share-trigger om-sa-publish-trigger"
+                    data-active={publishPanelOpen || undefined}
+                    aria-pressed={publishPanelOpen}
+                    onClick={() => gamePublishActions.toggle({
+                      artifactId: activeArtifact.id,
+                      chatId,
+                      gameId: publishGameId,
+                      gameTitle: activeArtifact.title,
+                      // Same share target as the toolbar Share button; missing when the game cannot be shared.
+                      link: canCloudShare ? { targetId: gamePublishId, filePath: activeArtifact.entry, embedUrl: gameEmbedUrl, title: activeArtifact.title } : undefined,
+                    })}
+                  >
+                    <RemixIcon name="upload-2-line" size={14} />
+                    <span>{t('Publish')}</span>
+                  </Button>
                 )}
               </>
             );
@@ -3131,7 +3162,7 @@ export function ArtifactBrowserPane({
         {webLoading && <div className="om-sa-viewer-progress" role="progressbar" aria-label={t('Loading…')} />}
       </div>
 
-      <div className="om-sa-viewer-stage" data-console={consoleOpen && supportsAnnotate ? 'true' : undefined}>
+      <div className="om-sa-viewer-stage" data-console={consoleOpen && supportsAnnotate ? 'true' : undefined} data-publish-open={publishPanelOpen || undefined}>
         <div className="om-sa-viewer-stage-body">
           {pendingWebUrl && (showNewTab || !activeArtifact) ? (
           <div className="om-sa-web-skeleton om-sa-web-skeleton-enter" role="status" aria-label={t('Loading…')}>
@@ -3450,7 +3481,14 @@ export function ArtifactBrowserPane({
           </div>
         )}
         </div>
-        {consoleOpen && supportsAnnotate && (
+        {publishPanelOpen && activeArtifact && (
+          <GamePublishPanel
+            artifactId={activeArtifact.id}
+            coverUrl={`/motion-api/games/${encodeURIComponent(publishGameId)}/play/assets/cover.png`}
+            onNotify={onNotify}
+          />
+        )}
+        {consoleOpen && supportsAnnotate && !publishPanelOpen && (
           <PreviewConsoleDrawer
             entries={consoleEntries}
             errorCount={webErrorCount}

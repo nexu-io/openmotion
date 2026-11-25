@@ -2,7 +2,7 @@ import type { CreativeStudio } from '../../../shared/studio-catalog';
 import { ComingSoonGuide } from './ComingSoonGuide';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import threeDimensionalScene from './scene-art/studio-glass-sculpture.jpg';
+import threeDimensionalScene from './scene-art/studio-glass-sculpture.avif';
 
 /** Shared placeholder for Studio interfaces whose integration is still pending. */
 export function StudioComingSoon({ studio, onExploreSkills }: { studio: CreativeStudio; onExploreSkills?: () => void }) {

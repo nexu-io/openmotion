@@ -30,13 +30,59 @@ import {
   saveCapabilityOverrides,
   unregisterCapabilityScriptExecutor,
 } from '../gateway/capability-center.ts';
-import { classifySuperAgentTool, describeSuperAgentApproval, formatSuperAgentToolLabel, type SuperAgentResourceCatalog } from '../shared/super-agent.ts';
+import {
+  classifySuperAgentTool, describeSuperAgentApproval, formatSuperAgentToolLabel,
+  summarizeSuperAgentChat, superAgentIntentMeta, type SuperAgentChat, type SuperAgentResourceCatalog,
+} from '../shared/super-agent.ts';
+import { designScenarios } from '../shared/design-project.ts';
 import { execute } from '../hyperframes.ts';
 import { verificationBinaries } from '../scripts/verify-export.ts';
 import { AssetAgentRpc } from '../gateway/asset-chat.ts';
 import { buildSuperAgentHandoff } from '../shared/capability-hub.ts';
 import { fixture } from './fixtures.ts';
 import { transport } from './http.ts';
+
+test('Super Agent uses distinct task icons for design scenarios, media, and standalone modes', () => {
+  const chat: SuperAgentChat = {
+    id: 'task', title: 'Task', engine: 'codex', permissionMode: 'auto',
+    state: 'running', messages: [], artifacts: [], approvals: [], createdAt: 1, updatedAt: 1,
+  };
+  const icon = (overrides: Partial<SuperAgentChat>) => {
+    const summary = summarizeSuperAgentChat({ ...chat, ...overrides });
+    return superAgentIntentMeta(summary.intent, summary).icon;
+  };
+  const designIcons = designScenarios.map(scenario => {
+    const designIcon = icon({
+      intent: 'website',
+      artifacts: [{ id: 'project', kind: 'design-project', title: 'Project', scenario: scenario.id, createdAt: 1, updatedAt: 1 }],
+    });
+    assert.equal(designIcon, scenario.icon);
+    return designIcon;
+  });
+  const otherIcons = (['chat', 'coding', 'design', 'research', 'visualization', 'image', 'video', 'audio', 'game', 'brand'] as const)
+    .map(intent => icon({ intent }));
+  const generatedVideoIcon = icon({
+    intent: 'video',
+    artifacts: [{ id: 'video', kind: 'asset-video', title: 'Video', createdAt: 1, updatedAt: 1 }],
+  });
+  const icons = [...designIcons, ...otherIcons, generatedVideoIcon];
+  assert.equal(new Set(icons).size, icons.length);
+
+  const firstPrompt = { id: 'prompt', role: 'user', text: 'Make this', createdAt: 1 } as const;
+  assert.equal(icon({
+    intent: 'design',
+    messages: [{ ...firstPrompt, contextTags: [{ kind: 'mode', label: 'Design Studio', designScenario: 'document' }] }],
+  }), 'file-text-line');
+  assert.equal(icon({
+    intent: 'website',
+    messages: [{ ...firstPrompt, attachments: [{ id: 'template', kind: 'design-template', title: 'Template', scenario: 'web-clone' }] }],
+  }), 'global-line');
+  assert.equal(icon({
+    intent: 'slides',
+    artifacts: [{ id: 'report', kind: 'design-project', title: 'Report', scenario: 'document', createdAt: 1, updatedAt: 1 }],
+    messages: [{ ...firstPrompt, contextTags: [{ kind: 'mode', label: 'Research', icon: 'book-open-line' }] }],
+  }), 'book-open-line');
+});
 
 test('collectWorkspaceResources and buildResourceContextManifest aggregate workspace inputs and filter cleanly', () => fixture(async store => {
   await designProjectsFor(store.directory).create({
@@ -467,6 +513,101 @@ test('local Claude runtime enforces on-request approvals for paid generation thr
   assert.equal(generationExecuted, true);
   assert.equal(done.state, 'idle');
   await service.close();
+}));
+
+test('Super Agent limits saved Design comment mutations to the current message attachments', () => fixture(async store => {
+  const { readFile } = await import('node:fs/promises');
+  const origin = 'http://127.0.0.1:4173';
+  const phase1 = new Phase1Service(store, pluginRoot, {
+    origin: () => origin,
+    nativeUrl: () => undefined,
+    openProject: async () => {},
+    mutation: async fn => fn(),
+    cancel: async () => ({ id: 'x', state: 'cancelled' } as any),
+  });
+  const design = designProjectsFor(store.directory);
+  const project = await design.create({ scenario: 'deck', title: 'Review scope', requestId: 'review-scope' });
+  const addComment = (text: string, requestId: string) => design.createComment(project.id, {
+    text, requestId, expectedRevision: project.revision,
+    anchor: {
+      filePath: project.entry,
+      viewport: { id: 'desktop', width: 800, height: 450 },
+      region: { x: 10, y: 20, width: 100, height: 50 },
+    },
+  });
+  const { comment: attached } = await addComment('Edit this heading', 'selected-comment');
+  const { comment: other } = await addComment('Keep this second comment open', 'other-comment');
+  const otherTarget = { projectId: project.id, commentId: other.id };
+  let turn = 0;
+  const service = new SuperAgentConversations(store, {
+    resolveAgent: async () => '/fake/claude',
+    runClaude: async ({ mcpConfigPath, prompt }) => {
+      const config = JSON.parse(await readFile(mcpConfigPath, 'utf8'));
+      const server = config.mcpServers.openmotion;
+      let id = 0;
+      const call = async (args: Record<string, unknown>) => {
+        const res = await fetch(server.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...server.headers },
+          body: JSON.stringify({
+            jsonrpc: '2.0', id: ++id, method: 'tools/call',
+            params: { name: 'openmotion_design_comments', arguments: args },
+          }),
+        });
+        const body = await res.json() as { result: { isError: boolean; content: { text: string }[] } };
+        return body.result;
+      };
+      if (++turn === 1) {
+        assert.match(prompt, /saved Design comments attached to the current message/);
+        assert.equal((await call({ action: 'list', projectId: project.id })).isError, false);
+        const denied = await call({ ...otherTarget, action: ' update ', status: 'resolved' });
+        assert.equal(denied.isError, true);
+        assert.match(denied.content[0].text, /attached to the current message/);
+        assert.equal((await call({ ...otherTarget, action: 'delete' })).isError, true);
+        const wrongProject = await call({
+          action: 'update', status: 'resolved',
+          projectId: '11111111-1111-4111-8111-111111111111',
+          commentId: attached.id,
+        });
+        assert.equal(wrongProject.isError, true);
+        assert.match(wrongProject.content[0].text, /attached to the current message/);
+        assert.equal((await call({
+          action: 'update', status: 'resolved', expectedCommentRevision: attached.commentRevision,
+          projectId: project.id.toUpperCase(), commentId: attached.id.toUpperCase(),
+        })).isError, false);
+      } else {
+        assert.doesNotMatch(prompt, /saved Design comments attached to the current message/);
+        assert.equal((await call({ ...otherTarget, action: 'update', status: 'resolved' })).isError, false);
+      }
+    },
+  });
+  try {
+    const chat = await service.create({ engine: 'claude' });
+    const runtime = { origin, phase1: () => phase1 };
+    await service.start(chat.id, {
+      requestId: 'review-scoped',
+      text: 'Apply the attached comment.',
+      attachments: [{
+        id: 'saved-design-comment',
+        kind: 'browser-annotation',
+        title: attached.text,
+        annotation: {
+          mode: 'design-comment', pageUrl: project.previewUrl, projectId: project.id, commentId: attached.id,
+        },
+      }],
+    }, runtime);
+    const scopedTurn = await service.waitForChat(chat.id);
+    assert.equal(scopedTurn.state, 'idle', scopedTurn.error);
+    const states = async () => (await design.listComments(project.id)).comments.map(({ id, status }) => [id, status]);
+    assert.deepEqual(await states(), [[attached.id, 'resolved'], [other.id, 'open']]);
+
+    await service.start(chat.id, { requestId: 'review-unbound', text: 'Resolve the remaining comment.' }, runtime);
+    const unboundTurn = await service.waitForChat(chat.id);
+    assert.equal(unboundTurn.state, 'idle', unboundTurn.error);
+    assert.deepEqual(await states(), [[attached.id, 'resolved'], [other.id, 'resolved']]);
+  } finally {
+    await service.close();
+  }
 }));
 
 test('deleting a conversation during an in-flight tool call prevents recreating the chat file', () => fixture(async store => {
@@ -2779,6 +2920,60 @@ test('extractArtifactFromTool auto-presents created design and motion projects s
   await service.close();
 }));
 
+test('SuperAgentConversations starts a new Codex thread with the conversation when its tools changed since the thread began', () => fixture(async store => {
+  const requests: Array<{ method: string; params: any }> = [];
+  class ToolsCodexRpc {
+    private readonly onNotification: (msg: any) => void;
+    constructor(_bin: string, _cwd: string, onNotification: (msg: any) => void) { this.onNotification = onNotification; }
+    async request(method: string, params?: any) {
+      requests.push({ method, params });
+      if (method === 'initialize') return { capabilities: {} };
+      if (method === 'thread/start') return { thread: { id: `thr-${requests.filter(r => r.method === 'thread/start').length}` } };
+      if (method === 'thread/resume') return { thread: { id: params.threadId } };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          this.onNotification({ method: 'item/completed', params: { item: { id: `msg-${requests.length}`, type: 'agentMessage', text: 'ok' } } });
+          this.onNotification({ method: 'turn/completed', params: { turn: { id: `turn-${requests.length}`, status: 'completed' } } });
+        });
+        return { turn: { id: `turn-${requests.length}` } };
+      }
+      return {};
+    }
+    send() {}
+    close() {}
+    async closeAndWait() {}
+  }
+  const service = new SuperAgentConversations(store, { resolve: async () => '/usr/local/bin/codex', rpc: ToolsCodexRpc as unknown as typeof AssetAgentRpc });
+  const runtime = { origin: 'http://127.0.0.1:4120', phase1: () => ({} as Phase1Service) };
+  const chat = await service.create({ engine: 'codex', permissionMode: 'auto' });
+  const turn = async (requestId: string, text: string) => {
+    await service.start(chat.id, { requestId, text }, runtime);
+    let done = await service.waitForChat(chat.id);
+    for (let i = 0; i < 40 && done.state === 'running'; i++) { await new Promise(resolve => setTimeout(resolve, 25)); done = await service.get(chat.id); }
+  };
+  await turn('req-1', 'Make a stacking game');
+  const first = requests.find(r => r.method === 'thread/start')!;
+  assert.ok(first.params.dynamicTools.some((tool: any) => tool.name === 'openmotion_game_wechat'));
+  // A thread started before an upgrade: it does not have the tools this version offers.
+  const saved = await service.get(chat.id);
+  assert.equal(saved.threadId, 'thr-1');
+  await (service as any).persistChatState({ ...saved, threadTools: 'openmotion_game_get' });
+  requests.length = 0;
+  await turn('req-2', 'Publish it to WeChat');
+  assert.equal(requests.some(r => r.method === 'thread/resume'), false);
+  assert.ok(requests.some(r => r.method === 'thread/start'));
+  const carried = requests.find(r => r.method === 'turn/start')!.params.input[0].text;
+  assert.match(carried, /<openmotion-compacted-history>/);
+  assert.match(carried, /Make a stacking game/);
+  // Same tools afterwards: the new thread is resumed as usual.
+  requests.length = 0;
+  await turn('req-3', 'Next step');
+  assert.ok(requests.some(r => r.method === 'thread/resume'));
+  assert.equal(requests.some(r => r.method === 'thread/start'), false);
+  assert.doesNotMatch(requests.find(r => r.method === 'turn/start')!.params.input[0].text, /<openmotion-compacted-history>/);
+  await service.close();
+}));
+
 test('Codex subagent notifications do not prematurely abort or pollute root turns, and stop() reconciles building game status', () => fixture(async store => {
   for (const prompt of [SUPER_AGENT_INSTRUCTIONS, CLAUDE_SUPER_AGENT_INSTRUCTIONS]) {
     assert.ok(prompt.includes('openmotion_read_workflow'), 'Super Agent prompt must direct workflow reads through openmotion_read_workflow');
@@ -2997,3 +3192,176 @@ test('Codex subagent notifications do not prematurely abort or pollute root turn
     await service.close();
   }
 }));
+
+test('extractActionCardFromTool maps provider handoffs, low-balance failures, and web-publish auth errors', async () => {
+  const { extractActionCardFromTool } = await import('../gateway/super-agent.ts');
+  const { resolveMediaSetupEntry } = await import('../gateway/media-use.ts');
+
+  assert.deepEqual(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_signed_out' }, { previewUrl: 'http://localhost/settings/providers?provider=account' }, true),
+    {
+      id: 'action:sign_in:agent_media_signed_out',
+      kind: 'sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+    },
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_free' }, {}, true)?.kind,
+    'upgrade_free',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_go' }, {}, true)?.kind,
+    'upgrade_go',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_balance_low' }, {}, true)?.kind,
+    'top_up',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_key_rejected' }, {}, true)?.kind,
+    'configure_key',
+  );
+  // Generic provider preview without an actionable onboarding entry should not show a setup card
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers' }, {}, true),
+    undefined,
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'templates' }, {}, true),
+    undefined,
+  );
+
+  // Reactive Plus low-balance failure from failed OpenDesign account generation job (direct AND MCP structuredContent envelope)
+  assert.deepEqual(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'status' }, { job: { state: 'failed', model: { provider: 'account' }, error: 'Your OpenDesign balance is too low for this request. Top up, then try again.' } }, true),
+    {
+      id: 'action:top_up:agent_media_balance_low',
+      kind: 'top_up',
+      entry: 'agent_media_balance_low',
+      provider: 'account',
+    },
+  );
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'status', jobId: 'job-1' },
+      {
+        isError: false,
+        structuredContent: {
+          job: { state: 'failed', model: { provider: 'account' }, error: 'Your OpenDesign balance is too low for this request. Top up, then try again.' },
+        },
+        content: [{ type: 'text', text: '{"job":{"state":"failed"}}' }],
+      },
+      true,
+    ),
+    {
+      id: 'action:top_up:agent_media_balance_low',
+      kind: 'top_up',
+      entry: 'agent_media_balance_low',
+      provider: 'account',
+    },
+  );
+  // Negative case: BYOK provider insufficient_credits must NOT trigger an OpenDesign top-up card
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'fal:flux-pro' }, { error: 'insufficient_credits on fal account' }, false),
+    undefined,
+  );
+
+  // Plan restriction uses actual account context (Go -> upgrade_go, Free -> upgrade_free, Plus -> undefined)
+  const planErr = { isError: true, structuredContent: { error: { code: 'tier_model_not_entitled', message: 'Your OpenDesign plan does not include this model. Choose another model or upgrade your plan.' } } };
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:seedance' }, planErr, false, { accountPlan: 'go', accountMediaEntitlement: 'not-included' })?.kind,
+    'upgrade_go',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:seedance' }, planErr, false, { accountPlan: 'free', accountMediaEntitlement: 'not-included' })?.kind,
+    'upgrade_free',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:pro-only' }, planErr, false, { accountPlan: 'plus', accountMediaEntitlement: 'included' }),
+    undefined,
+  );
+
+  // Structured MCP content[] envelope for web_publish auth failure (publish only, not status)
+  const mcpAuthErr = {
+    isError: true,
+    content: [{ type: 'text', text: JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: 'OPENDESIGN_SIGN_IN_REQUIRED: Sign in with OpenDesign to publish' } }) }],
+  };
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'web_publish', webPublish: { command: 'publish', targetKind: 'game', targetId: 'game-abc' } },
+      mcpAuthErr,
+      false,
+    ),
+    {
+      id: 'action:web_publish_sign_in:game:game-abc',
+      kind: 'web_publish_sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+      targetKind: 'game',
+      targetId: 'game-abc',
+    },
+  );
+  assert.equal(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'web_publish', webPublish: { command: 'status', targetKind: 'game', targetId: 'game-abc' } },
+      mcpAuthErr,
+      false,
+    ),
+    undefined,
+  );
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_design_project',
+      { action: 'deploy', projectId: 'design-xyz' },
+      mcpAuthErr,
+      false,
+    ),
+    {
+      id: 'action:web_publish_sign_in:design:design-xyz',
+      kind: 'web_publish_sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+      targetKind: 'design',
+      targetId: 'design-xyz',
+    },
+  );
+
+  // Modality-scoped media setup resolution: Codex image-only does not suppress audio/video upgrade entry
+  const providers = [
+    { id: 'codex', available: true, configured: true, verification: 'unverified' as const },
+    { id: 'account', available: true, configured: true, verification: 'unverified' as const, mediaEntitlement: 'not-included' as const, plan: 'go' as const },
+  ];
+  const capabilities = [
+    { modality: 'image' as const, available: true, modelIds: ['codex:image-generation'] },
+    { modality: 'video' as const, available: false, modelIds: [] },
+    { modality: 'audio' as const, available: false, modelIds: [] },
+  ];
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'image', capabilities }), undefined);
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'audio', capabilities }), 'agent_media_upgrade_go');
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'video', capabilities }), 'agent_media_upgrade_go');
+
+  // Text-only provider (e.g. openai) must not suppress media setup when capabilities are supplied without modality
+  const textOnlyProviders = [
+    { id: 'openai', available: true, configured: true, verification: 'unverified' as const },
+    { id: 'account', available: false, configured: false, verification: 'unverified' as const },
+  ];
+  const emptyMediaCapabilities = [
+    { modality: 'image' as const, available: false, modelIds: [] },
+    { modality: 'video' as const, available: false, modelIds: [] },
+    { modality: 'audio' as const, available: false, modelIds: [] },
+  ];
+  assert.equal(resolveMediaSetupEntry(textOnlyProviders, { capabilities: emptyMediaCapabilities }), 'agent_media_signed_out');
+
+  // Guard against presenting /settings/providers as a web artifact (both absolute same-origin and relative forms)
+  const { isProviderSettingsWebArtifactUrl } = await import('../gateway/super-agent.ts');
+  const ownOrigin = 'http://127.0.0.1:4120';
+  assert.equal(isProviderSettingsWebArtifactUrl('http://127.0.0.1:4120/settings/providers?provider=account&entry_from=agent_media_signed_out', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('/settings/providers?entry_from=agent_media_signed_out', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('/settings/providers/', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('https://example.com/settings/providers', ownOrigin), false);
+  assert.equal(isProviderSettingsWebArtifactUrl('http://127.0.0.1:4120/games/demo', ownOrigin), false);
+});

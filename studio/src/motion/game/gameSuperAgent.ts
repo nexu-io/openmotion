@@ -109,11 +109,12 @@ export function buildGameHiddenInstructions(game: GameCard, instruction: string,
     // The draft instruction already carries the ad recipe; repeating the format here keeps it visible in Super Agent turns.
     game.playableAd ? 'format=playable ad (follow the openmotion-game playable-ad recipe: first-frame play with a hand tutorial, short levels, win/fail end cards with a store CTA, one self-contained HTML)' : '',
   ].filter(Boolean);
-  const assetNote = instruction.includes('openmotion_media_use') ? '' : ` ${gameAssetInstructions}`;
+  const assetNote = game.playableAd || instruction.includes('openmotion_media_use') ? '' : ` ${gameAssetInstructions}`;
+  const consentNote = game.playableAd ? '' : ' (except a single batched spend-consent check when priced media generation is planned)';
   return [
     instruction,
     extraNotes,
-    `Game Studio context: ${contextParts.join(', ')}. Proceed directly to building and testing without unnecessary questions (except a single batched spend-consent check when priced media generation is planned).${assetNote} Always finish by calling openmotion_present_artifact(kind="game-project", projectId="${game.id}") so the playable result opens in the Browser Artifact Viewer.`,
+    `Game Studio context: ${contextParts.join(', ')}. Proceed directly to building and testing without unnecessary questions${consentNote}.${assetNote} Always finish by calling openmotion_present_artifact(kind="game-project", projectId="${game.id}") so the playable result opens in the Browser Artifact Viewer.`,
   ].filter(Boolean).join('\n\n');
 }
 

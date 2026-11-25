@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { uuid } from '../../../tracking/core';
 import type { AccountSummary } from '../../../shared/provider-directory';
 import { I18nProvider, type Locale } from '../i18n/I18n';
 import { AccountSettings } from './AccountSettings';
@@ -23,8 +24,8 @@ async function open(account: Partial<AccountSummary>, locale: Locale = 'en', sec
   await act(async () => root!.render(<I18nProvider initialLocale={locale}><AccountSettings subscription={section === 'subscription'} openProviders={() => {}} /></I18nProvider>));
   return container;
 }
-const button = (container: HTMLElement, label: string) => [...container.querySelectorAll<HTMLElement>('.om-settings-actions .om-button')].find(item => item.textContent === label);
-const actions = (container: HTMLElement) => [...container.querySelectorAll('.om-settings-actions .om-button')].map(item => item.textContent);
+const button = (container: HTMLElement, label: string) => [...container.querySelectorAll<HTMLElement>('.om-settings-actions :is(button, a)')].find(item => item.textContent === label);
+const actions = (container: HTMLElement) => [...container.querySelectorAll('.om-settings-actions :is(button, a)')].map(item => item.textContent);
 
 it('leaves the activation page to the browser and leads with the link only when the browser did not open', async () => {
   let page = await open({ state: 'authorizing', authorizationUrl: activation, userCode: 'TEST-123', browserOpened: true });
@@ -51,7 +52,7 @@ it('says it is connecting until the link exists, then syncing with nothing left 
 });
 
 it('explains a missing sign-in component, offers Retry and a copyable command that installs it where the service looks', async () => {
-  const command = "npm install --prefix '/opt/openmotion/data/account/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10";
+  const command = "npm install --prefix '/opt/openmotion/data/account/runtime' --ignore-scripts @powerformer/vela-cli@0.1.11-test.0";
   const writeText = vi.fn(async () => {}); Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   const page = await open({ state: 'signed-out', errorCode: 'connector_unavailable', connectorInstall: { command },
     error: "OpenMotion couldn't find npm to set up the OpenDesign sign-in component. Run this command in a terminal, then select Retry:" }, 'zh-CN');
@@ -98,7 +99,7 @@ it('refreshes Go on checkout return and updates providers only after the plan ch
   await act(async () => window.dispatchEvent(new Event('focus')));
   expect(hooks.request).not.toHaveBeenCalled();
   await act(async () => button(page, 'Upgrade to Plus')!.click());
-  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', { hookId: 'settings_subscription', entryId: expect.any(String) });
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', { hookId: 'settings_subscription', entryId: expect.stringMatching(uuid) });
   hooks.account = { ...original as AccountSummary, plan: 'plus', balance: '4.00' };
   await act(async () => {
     window.dispatchEvent(new Event('focus'));
@@ -107,7 +108,7 @@ it('refreshes Go on checkout return and updates providers only after the plan ch
   const billingReads = () => hooks.request.mock.calls.filter(([route]) => route === 'settings/account?refresh=true').length;
   expect(billingReads()).toBe(1);
   expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
-  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('plus');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('Plus');
   expect(notifyProvidersChanged).toHaveBeenCalledTimes(1);
   await act(async () => window.dispatchEvent(new Event('focus')));
   expect(billingReads()).toBe(1);
@@ -120,8 +121,10 @@ it('explains that account models still work when the plan and balance cannot be 
 
 it('asks the local service to open the subscription page in the system browser, and opens it itself only as a fallback', async () => {
   const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
-  const manage = page.querySelector<HTMLButtonElement>('.om-settings-section button.om-button')!;
-  expect(manage.textContent).toBe('Manage subscription');
+  const manage = page.querySelector<HTMLButtonElement>('.om-plan-usage button.om-plan-usage-console')!;
+  expect(manage.textContent).toBe('Go to console');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('Plus');
+  expect(page.querySelector('.om-plan-usage [data-quota="balance"]')?.textContent).toContain('$12.00');
   expect(page.querySelector('.om-settings-section a')).toBeNull();
   const popup = vi.spyOn(window, 'open').mockReturnValue(null);
   const handoff = 'https://open-design.ai/cloud/login?intentId=intent-1';
@@ -147,6 +150,13 @@ it('asks the local service to open the subscription page in the system browser, 
   popup.mockRestore();
 });
 
+it('shows an unknown plan, not Free or an Upgrade, until the first billing read arrives', async () => {
+  const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' } }, 'en', 'subscription');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('—');
+  expect(page.querySelector('.om-plan-usage [data-quota="balance"]')?.textContent).toContain('—');
+  expect([...page.querySelectorAll('.om-plan-usage button')].map(item => item.textContent)).toEqual(['Go to console', 'Top up']);
+});
+
 it('replaces missing billing metrics with a dashboard link on 403 and restores them on retry', async () => {
   const page = await open({ state: 'signed-in', billingUnavailable: true, billingError: { status: 403 } }, 'zh-CN', 'subscription');
   expect(page.textContent).toContain('账单服务拒绝了本次查询');
@@ -154,44 +164,100 @@ it('replaces missing billing metrics with a dashboard link on 403 and restores t
   expect([...page.querySelectorAll('.om-settings-section button.om-button')].some(item => item.textContent === '管理订阅')).toBe(true);
   hooks.account = { state: 'signed-in', plan: 'pro', balance: '0.00', consoleUrl: 'https://open-design.ai/cloud' };
   await act(async () => page.querySelector<HTMLButtonElement>('button[aria-busy]')!.click());
-  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('$0.00');
+  expect(page.querySelector('.om-plan-usage')?.textContent).toContain('$0.00');
   expect(page.textContent).not.toContain('账单服务拒绝了本次查询');
 });
 
-it('keeps the account page focused on sign-in and account management', async () => {
+it.each(['free', 'go'])('offers an upgrade above the connected account for the %s plan and refreshes after checkout', async plan => {
   const page = await open({ state: 'signed-out' });
-  expect(actions(page)).toEqual(['Sign in with OpenDesign']);
-  expect(page.querySelector('.om-account-metrics, [data-guide="upgrade"]')).toBeNull();
-  await act(async () => button(page, 'Sign in with OpenDesign')!.click());
-  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'settings_signin', entryId: expect.any(String) });
+  const offer = () => page.querySelector<HTMLElement>('section[data-guide="upgrade"]');
+  expect(actions(page)).toEqual(['Sign in now']);
+  expect(offer()).toBeNull();
+  await act(async () => button(page, 'Sign in now')!.click());
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'settings_signin', entryId: expect.stringMatching(uuid) });
 
-  hooks.account = { state: 'signed-in', plan: 'go', balance: '12.00' };
+  hooks.account = { state: 'signed-in', plan, balance: '12.00' };
   await act(async () => window.dispatchEvent(new Event('motion:account-changed')));
-  expect(actions(page)).toEqual(['Sign out']);
+  expect(actions(page)).toEqual(['Upgrade to Plus', 'Sign out']);
   expect(page.querySelector('.om-account-metrics, .om-plan-guide')).toBeNull();
   expect(page.textContent).toContain('Model providers');
+  expect(offer()).not.toBeNull();
+  const connected = page.querySelector('.om-account-summary');
+  expect(page.querySelector('.om-account-identity')?.nextElementSibling).toBe(offer());
+  expect(offer()?.nextElementSibling).toBe(connected);
+  expect(connected?.nextElementSibling?.textContent).toContain('Model providers');
+  const upgrade = offer()!.querySelector('button')!;
+  expect(upgrade.textContent).toBe('Upgrade to Plus');
+  hooks.request.mockImplementation(async (route: string) => route === 'settings/account/subscription' ? { opened: true } : hooks.account);
+  await act(async () => upgrade.click());
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', { hookId: 'settings_subscription', entryId: expect.stringMatching(uuid) });
+  hooks.account = { state: 'signed-in', plan: 'plus' };
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  expect(offer()).toBeNull();
 });
 
-it.each(['account', 'subscription'] as const)('shows the same sign-in benefits on the %s page', async section => {
+it.each(['account', 'subscription'] as const)('shows the localized sign-in offer on the %s page', async section => {
   const page = await open({ state: 'signed-out' }, 'zh-CN', section);
-  expect(page.querySelector('.om-plan-guide h2')?.textContent).toBe('登录 OpenDesign，开始多模态生成');
-  expect(page.querySelector('.om-plan-guide .om-badge')?.textContent).toBe('Plus 及以上');
-  expect(page.querySelector('.om-plan-guide .om-button')?.textContent).toBe('使用 OpenDesign 登录');
-  expect([...page.querySelectorAll('.om-account-capabilities li')].map(item => item.textContent)).toEqual(['图片', '视频', '配音', '音乐']);
-  expect(page.querySelector('.om-plan-guide p')?.textContent).toBe('登录后升级到 Plus，即可在 OpenMotion 里直接生成图片、视频、配音和音乐，不用配置 API 密钥。');
-  expect(page.querySelector('.om-account-offer')?.textContent).toBe('多模态 $14/月起');
+  const guide = page.querySelector<HTMLElement>('[data-guide="sign-in"]')!;
+  expect(guide.querySelector('h2')?.textContent).toBe('登录后精选模型7天无限用');
+  expect(guide.querySelector('h2 span')?.textContent).toBe('7天无限用');
+  expect(guide.querySelector('h2 + span')?.textContent).toBe('年度 Pro / Max 专享');
+  expect(actions(guide)).toEqual(['立即登录']);
+  expect(guide.querySelector('p')?.textContent).toBe('GPT Image 2.0｜Nano Banana 2｜Seedream 5.0｜Seedream 5.5');
+  expect([...guide.querySelectorAll('p [data-brand="true"]')].map(icon => icon.getAttribute('data-provider')))
+    .toEqual(['openai', 'nano-banana', 'bytedance', 'bytedance']);
+  expect(guide.querySelector('ul, .om-account-offer')).toBeNull();
   expect(page.querySelectorAll('.om-account-metrics .om-card')).toHaveLength(section === 'subscription' ? 2 : 0);
   expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
+});
+
+it('starts login from the signed-out subscription offer and switches to upgrade after Free sign-in', async () => {
+  const page = await open({ state: 'signed-out' }, 'en', 'subscription');
+  const guide = page.querySelector<HTMLElement>('[data-guide="sign-in"]')!;
+  expect(guide.querySelector('h2')?.textContent).toBe('Sign in for 7 days of unlimited use on select models');
+  expect(guide.querySelector('h2 + span')?.textContent).toBe('Annual Pro & Max');
+  expect(guide.querySelector('ul, .om-account-offer')).toBeNull();
+  expect(actions(guide)).toEqual(['Sign in now']);
+  expect(page.querySelectorAll('.om-account-metrics .om-card')).toHaveLength(2);
+
+  hooks.account = { state: 'authorizing', authorizationUrl: activation };
+  await act(async () => button(guide, 'Sign in now')!.click());
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'settings_signin', entryId: expect.stringMatching(uuid) });
+  expect(page.querySelector('[data-guide]')).toBeNull();
+  expect(button(page, 'Cancel')).toBeTruthy();
+
+  hooks.account = { state: 'signed-in', plan: 'free' };
+  await act(async () => window.dispatchEvent(new Event('motion:account-changed')));
+  const upgrade = page.querySelector<HTMLElement>('[data-guide="upgrade"]')!;
+  expect(upgrade.className).toBe(guide.className);
+  expect(upgrade.querySelector('ul')?.getAttribute('aria-label')).toBe('Subscription offers');
+  expect(actions(upgrade)).toEqual(['Upgrade to Plus']);
+});
+
+it.each(['account', 'subscription'] as const)('shows the localized seven-day upgrade offer on the %s page', async section => {
+  const page = await open({ state: 'signed-in', plan: 'free' }, 'zh-CN', section);
+  const guide = page.querySelector<HTMLElement>('[data-guide="upgrade"]')!;
+  expect(guide.querySelector('h2')?.textContent).toBe('精选模型7天无限用');
+  expect(guide.querySelector('h2 span')?.textContent).toBe('7天无限用');
+  expect(actions(guide)).toEqual(['立即升级']);
 });
 
 it('offers Free and Go accounts an upgrade through the registered entry source, and nothing to paid plans', async () => {
   for (const plan of ['free', 'go']) {
     const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan, balance: '0.00' }, 'en', 'subscription');
-    const [upgrade, manage] = page.querySelectorAll<HTMLButtonElement>('[data-guide="upgrade"] button');
-    expect(page.querySelector('.om-plan-name')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
-    expect(upgrade.textContent).toContain('Upgrade to Plus'); expect(upgrade.hasAttribute('data-primary')).toBe(true);
-    expect(manage.textContent).toContain('Manage subscription');
-    expect(page.querySelector('.om-settings-section .om-button')).toBeNull();
+    const guide = page.querySelector<HTMLElement>('[data-guide="upgrade"]')!;
+    expect(guide.querySelector('h2')?.textContent).toBe('7 days of unlimited use on select models');
+    expect(guide.querySelector('h2 + span')?.textContent).toBe('Annual Pro & Max');
+    expect(guide.querySelector('p')?.textContent).toBe('GPT Image 2.0｜Nano Banana 2｜Seedream 5.0｜Seedream 5.5');
+    const modelIcons = guide.querySelectorAll('p [data-brand="true"]');
+    expect([...modelIcons].map(icon => icon.getAttribute('data-provider'))).toEqual(['openai', 'nano-banana', 'bytedance', 'bytedance']);
+    expect(guide.textContent).not.toContain('Current plan');
+    expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
+    expect(actions(guide)).toEqual(['Upgrade to Plus']);
+    expect([...guide.querySelectorAll('li')].map(item => item.textContent)).toEqual([
+      'Go Max annual from $100/mo', 'Claude / GPT up to 20% off',
+    ]);
+    expect([...page.querySelectorAll('.om-plan-usage button')].map(item => item.textContent)).toEqual(['Go to console', 'Top up']);
     expect(page.querySelector('.om-account-summary')).toBeNull();
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');

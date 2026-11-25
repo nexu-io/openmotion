@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { createTracker, deviceContext, validProperties } from '../tracking/core.ts';
 import { createNodeTracking, createPosthogSender, loadIdentity } from '../tracking/node.ts';
 import { omEvents, studioEvents } from '../tracking/events.ts';
-import { assetActions, toolFailureFields, toolInputFields } from '../tracking/tool-fields.ts';
+import { assetActions, gameResultStatusIsLifecycle, gameToolFields, toolFailureFields, toolInputFields } from '../tracking/tool-fields.ts';
 import { closeTracking, createAppTracking, saveTrackingPreference, trackingError } from '../shared/tracking.ts';
 import { Phase1Service } from '../phase1.ts';
 import { cancelExport, renderNext, technicalCheckResult, trackExportTerminal } from '../server.ts';
@@ -696,3 +696,29 @@ test('MCP export failures keep action and service validation details on the orig
     tracking.close();
   }
 }));
+
+test('game tool calls carry game_id and lifecycle game_status without content', () => {
+  const uuidId = '0b6e8c1e-6f7e-4a52-9f35-2b1a3c4d5e6f';
+  assert.deepEqual(gameToolFields('motion_get_project', { id: uuidId }, { id: uuidId, status: 'ready' }), {});
+  assert.deepEqual(gameToolFields('motion_game_write_files', { id: uuidId, files: [{ path: 'a.js', content: 'SECRET' }] }), { game_id: uuidId });
+  assert.deepEqual(gameToolFields('motion_game_create', { prompt: 'PRIVATE brief' }, { game: { id: uuidId, status: 'draft', title: 'T' }, agentInstruction: 'x' }),
+    { game_id: uuidId, game_status: 'draft' });
+  assert.deepEqual(gameToolFields('motion_game_set_status', { id: 'neon-runner', status: 'failed' }, { id: 'neon-runner', status: 'failed' }),
+    { game_id: 'neon-runner', game_status: 'failed' });
+  assert.deepEqual(gameToolFields('motion_game_publish', { id: uuidId }, { game: { id: uuidId, status: 'published' }, playUrl: 'http://x' }),
+    { game_id: uuidId, game_status: 'published' });
+  // Trailer results carry a job status, not the game lifecycle.
+  assert.deepEqual(gameToolFields('motion_game_trailer', { id: uuidId, action: 'status' }, { status: 'failed' }), { game_id: uuidId });
+  assert.deepEqual(gameToolFields('motion_game_get', { id: 'bad id/../x' }), {});
+  assert.deepEqual(gameToolFields('motion_game_get', { id: uuidId }, { id: uuidId, status: 'weird' }), { game_id: uuidId });
+  assert.equal(gameResultStatusIsLifecycle('motion_game_set_status'), true);
+  assert.equal(gameResultStatusIsLifecycle('motion_game_trailer'), false);
+  assert.equal(gameResultStatusIsLifecycle('motion_edit_project'), false);
+  const finished = omEvents.mcp_tool_finished.fields as Record<string, unknown>;
+  assert.equal(finished.game_id, 'code');
+  assert.deepEqual(finished.game_status, ['draft', 'building', 'ready', 'published', 'failed']);
+  assert.equal(validProperties(omEvents, 'mcp_tool_finished', { tool_name: 'motion_game_publish', call_id: uuidId, accepted: true, outcome: 'success', duration_ms: 5,
+    game_id: uuidId, game_status: 'published' }), true);
+  assert.equal(validProperties(omEvents, 'mcp_tool_finished', { tool_name: 'motion_game_publish', call_id: uuidId, accepted: true, outcome: 'success', duration_ms: 5,
+    game_id: uuidId, game_status: 'shipped' }), false);
+});

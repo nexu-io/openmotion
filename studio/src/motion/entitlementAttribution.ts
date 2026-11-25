@@ -7,7 +7,8 @@ import type { Fields } from './reporting';
 import { notifyProvidersChanged } from './useProviderDirectory';
 
 type AttributionKind = 'sign_in' | 'subscription';
-type PendingAttribution = { hookId: EntitlementHookId; entryId: string; expiresAt: number };
+export type EntryAttribution = { hookId: EntitlementHookId; entryId: string };
+type PendingAttribution = EntryAttribution & { expiresAt: number };
 const PENDING_TTL_MS = 5 * 60 * 1000;
 const pendingByKind = new Map<AttributionKind, PendingAttribution>();
 
@@ -16,7 +17,7 @@ export function setPendingAttribution(kind: AttributionKind, hookId: Entitlement
   pendingByKind.set(kind, { hookId, entryId, expiresAt: Date.now() + PENDING_TTL_MS });
 }
 
-export function consumePendingAttribution(kind: AttributionKind, fallbackHookId: EntitlementHookId): { hookId: EntitlementHookId; entryId: string } {
+export function consumePendingAttribution(kind: AttributionKind, fallbackHookId: EntitlementHookId): EntryAttribution {
   const entry = pendingByKind.get(kind);
   pendingByKind.delete(kind);
   if (entry && entry.expiresAt > Date.now()) return { hookId: entry.hookId, entryId: entry.entryId };

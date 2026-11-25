@@ -15,6 +15,11 @@ import { gatewayRequest } from '../motion/gatewayClient';
 import { notifyProvidersChanged } from '../motion/useProviderDirectory';
 import { newTrackingId, send } from '../motion/reporting';
 import { Popover } from './ui/Popover';
+import { Select } from './ui/Select';
+import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
+import { CommentSyncBanner } from '../motion/collab/CommentSyncBanner';
+import { SocialShareCard } from '../motion/collab/SocialShareCard';
+import type { ProjectVisibility } from '../../../shared/workspace-collab';
 import { WebPublishApiError, webPublishClient } from './webPublishClient';
 import './webPublishPopover.css';
 
@@ -99,6 +104,7 @@ export function WebPublishPopover({
   onOpenAccount,
 }: WebPublishPopoverProps) {
   const { t } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
   const [open, setOpenState] = useState(false);
   // Opening the popover is the share intent; the operations below report their observed results.
   const openRef = useRef(false);
@@ -120,11 +126,13 @@ export function WebPublishPopover({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [prepublishEnabled, setPrepublishEnabled] = useState(true);
-  const deployAfterSignInRef = useRef(false);
+  const currentTargetKey = `${targetKind}:${targetId}:${filePath ?? ''}`;
+  const deployAfterSignInTargetRef = useRef<string | null>(null);
   const prevAccountStateRef = useRef<AccountSummary['state'] | undefined>(undefined);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    deployAfterSignInTargetRef.current = null;
     setOpen(false);
     setStatus(null);
     setError(null);
@@ -203,6 +211,7 @@ export function WebPublishPopover({
 
       const published = await webPublishClient.publish(targetKind, targetId, {
         filePath,
+        workspaceId: collab?.snapshot?.activeWorkspace?.workspaceId,
         sourcePath,
         embedUrl,
         deployMode: op,
@@ -241,9 +250,9 @@ export function WebPublishPopover({
     } finally {
       setActiveOp(null);
     }
-  }, [activeOp, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
+  }, [activeOp, collab, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
 
-  // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes.
+  // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes for this exact target.
   useEffect(() => {
     const nextState = account?.state;
     const prevState = prevAccountStateRef.current;
@@ -251,19 +260,20 @@ export function WebPublishPopover({
     if (nextState === 'signed-in' && prevState && prevState !== 'signed-in') {
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
-      if (deployAfterSignInRef.current) {
-        deployAfterSignInRef.current = false;
+      if (deployAfterSignInTargetRef.current === currentTargetKey) {
+        deployAfterSignInTargetRef.current = null;
         void runMutation('publish', true);
       } else if (open) {
         void refreshStatus(false);
       }
     }
-  }, [account?.state, open, refreshStatus, runMutation]);
+  }, [account?.state, currentTargetKey, open, refreshStatus, runMutation]);
 
   const handleAccountAction = async (action: 'login' | 'cancel') => {
     setAuthBusy(true);
     setError(null);
-    deployAfterSignInRef.current = action === 'login';
+    const targetAtSignIn = currentTargetKey;
+    deployAfterSignInTargetRef.current = action === 'login' ? targetAtSignIn : null;
     const entryId = action === 'login' ? newTrackingId() : undefined;
     if (action === 'login' && entryId) {
       send('ui_click', { page_name: 'creative_studio', area: 'web_publish', element: 'sign_in', publish_target: targetKind, hook_id: publishHookId, entry_id: entryId });
@@ -276,12 +286,12 @@ export function WebPublishPopover({
       setAccount(next);
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
-      if (action === 'login' && next.state === 'signed-in') {
-        deployAfterSignInRef.current = false;
+      if (action === 'login' && next.state === 'signed-in' && deployAfterSignInTargetRef.current === targetAtSignIn) {
+        deployAfterSignInTargetRef.current = null;
         void runMutation('publish', true);
       }
     } catch (err) {
-      deployAfterSignInRef.current = false;
+      if (deployAfterSignInTargetRef.current === targetAtSignIn) deployAfterSignInTargetRef.current = null;
       if (action === 'login') reportPublish('sign_in', 'failure', { error_kind: 'other', ...(entryId ? { hook_id: publishHookId, entry_id: entryId } : {}) });
       setError(err instanceof Error ? err.message : t('Could not connect OpenDesign account'));
     } finally {
@@ -467,6 +477,7 @@ export function WebPublishPopover({
                     <span>{t(activeOp === 'publish' ? 'Deploying update…' : 'Update live link')}</span>
                   </Button>
                 )}
+                <SocialShareCard title={title} shareUrl={pub.url} onNotify={onNotify} />
               </>
             ) : isStopped ? (
               <>
@@ -552,6 +563,7 @@ export function WebPublishPopover({
                 <RemixIcon name={copied ? 'check-line' : 'link'} size={15} />
                 <span>{t(copied ? 'Share link copied' : 'Copy share link')}</span>
               </Button>
+              <SocialShareCard title={title} shareUrl={pub.url} onNotify={onNotify} />
             </>
           )}
 
@@ -642,6 +654,99 @@ export function WebPublishPopover({
           </span>
         </div>
       )}
+
+      {signedIn && (() => {
+        const snap = collab?.snapshot;
+        const activeWs = snap?.activeWorkspace;
+        const projectWsId = snap?.projectMeta[targetId]?.workspaceId;
+        const projectTeamWs = projectWsId
+          ? snap?.workspaces.find(w => w.workspaceId === projectWsId && w.workspaceType === 'team') ?? null
+          : null;
+        const activeTeamWs =
+          activeWs?.workspaceType === 'team'
+            ? activeWs
+            : snap?.workspaces.find(w => w.workspaceType === 'team' && w.memberStatus === 'active' && w.lifecycleState === 'active') ?? null;
+        if (!collab || (!projectTeamWs && !activeTeamWs)) return null;
+        const resolvedKind = targetKind === 'design' || targetKind === 'game' ? targetKind : 'motion';
+        const resolvedTitle = title || status?.title || targetId;
+        if (!projectTeamWs && activeTeamWs) {
+          return (
+            <div className="om-web-publish-collab-section" data-testid="share-workspace-collab">
+              <div className="om-web-publish-row-text">
+                <strong>{t('Workspace access')}</strong>
+                <span>{t('Personal · Only you. Share to {team} so teammates can view and comment.', { team: activeTeamWs.workspaceName })}</span>
+              </div>
+              <div className="om-web-publish-collab-row">
+                <Button
+                  variant="plain"
+                  type="button"
+                  className="om-collab-tonal-btn"
+                  onClick={() => {
+                    setOpen(false);
+                    collab.requestMoveToTeam({ id: targetId, title: resolvedTitle, kind: resolvedKind });
+                  }}
+                >
+                  <RemixIcon name="group-line" size={13} />
+                  <span>{t('Share to team')}</span>
+                </Button>
+                <Button
+                  variant="plain"
+                  type="button"
+                  className="om-collab-tonal-btn"
+                  onClick={() => {
+                    setOpen(false);
+                    collab.openProjectSharing({ projectId: targetId, kind: resolvedKind, title: resolvedTitle });
+                  }}
+                >
+                  <span>{t('Manage…')}</span>
+                </Button>
+              </div>
+              <CommentSyncBanner projectId={targetId} compact />
+            </div>
+          );
+        }
+        const teamWs = projectTeamWs!;
+        const visibility: ProjectVisibility = snap?.projectMeta[targetId]?.visibility ?? 'workspace';
+        return (
+          <div className="om-web-publish-collab-section" data-testid="share-workspace-collab">
+            <div className="om-web-publish-row-text">
+              <strong>{t('Workspace access')}</strong>
+              <span>{t('Control whether teammates in {team} can view and collaborate.', { team: teamWs.workspaceName })}</span>
+            </div>
+            <div className="om-web-publish-collab-row">
+              <Select
+                label={t('Workspace access')}
+                value={visibility}
+                options={[
+                  { value: 'workspace', label: t('Workspace members ({team})', { team: teamWs.workspaceName }) },
+                  { value: 'private', label: t('Only you') },
+                ]}
+                onCommit={next => {
+                  void collab.setProjectVisibility(targetId, next as ProjectVisibility).catch(err => {
+                    collab.notify(
+                      err instanceof Error ? err.message : t('Could not update visibility'),
+                      'error',
+                    );
+                  });
+                }}
+              />
+              <Button
+                variant="plain"
+                type="button"
+                className="om-collab-tonal-btn"
+                onClick={() => {
+                  setOpen(false);
+                  collab.openProjectSharing({ projectId: targetId, kind: resolvedKind, title: resolvedTitle });
+                }}
+              >
+                <RemixIcon name="group-line" size={13} />
+                <span>{t('Manage…')}</span>
+              </Button>
+            </div>
+            <CommentSyncBanner projectId={targetId} compact />
+          </div>
+        );
+      })()}
     </Popover>
   );
 }

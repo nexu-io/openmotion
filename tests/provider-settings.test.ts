@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import { fixture } from './fixtures.ts';
 import { gatewayFor, ModelGateway } from '../gateway/service.ts';
 import { ProviderConnections, connectionBaseUrl } from '../gateway/connections.ts';
@@ -49,8 +50,8 @@ function imageTransport(directory: string) {
 
 async function until(check: () => Promise<boolean>) { for (let n = 0; n < 500; n++) { if (await check()) return; await delay(20); } throw new Error('Fixture timed out'); }
 async function finish(store: any, id: string) { const g = gatewayFor(store); await g.tick(); await Promise.all([...g.active.values()].map(task => task.done)); return g.getJob(id); }
-async function signIn(account: OpenDesignAccount) {
-  await account.login(); await until(async () => Boolean((await account.summary()).authorizationUrl));
+async function signIn(account: OpenDesignAccount, entryId?: string) {
+  await account.login({ entryId }); await until(async () => Boolean((await account.summary()).authorizationUrl));
   await writeFile(path.join(account.home, 'authorize'), 'yes');
   await until(async () => (await account.summary()).state === 'signed-in');
 }
@@ -415,6 +416,24 @@ test('source installations use the connector locked with their dependencies inst
   });
 });
 
+test('the installed video and audio commands validate Motion attribution before submission', async t => {
+  const packaged = createRequire(import.meta.url)('@powerformer/vela-cli').resolveVelaCliBin() as string | null;
+  if (!packaged) return t.skip('The connector has no binary for this platform');
+  await fixture(async store => {
+    const home = path.join(store.directory, 'cli-attribution');
+    await mkdir(home);
+    await writeFile(path.join(home, 'config.json'), JSON.stringify({ profiles: { prod: { controlKey: 'fixture-key' } } }), { mode: 0o600 });
+    // Keep this probe offline even if a future CLI ignores the attribution fields.
+    const env = { AMR_HOME: home, VELA_PROFILE: 'prod', VELA_SOURCE_PRODUCT: 'openmotion',
+      VELA_OPENMOTION_JOB_ID: 'invalid-job', HTTPS_PROXY: 'http://127.0.0.1:1' };
+    for (const command of [['video', 'gen'], ['audio', 'speech', '--voice', 'fixture'], ['audio', 'music']]) {
+      const args = [...command, '--model', 'fixture', '--prompt', 'fixture', '--no-wait', '--json'];
+      await assert.rejects(promisify(execFile)(packaged, args, { env, timeout: 5000 }),
+        { stderr: /OpenMotion attribution requires.*UUID/ });
+    }
+  });
+});
+
 test('the connector installer finds npm beside Homebrew and other Node layouts, then on PATH', { skip: process.platform === 'win32' }, async t => {
   // A Homebrew Node reports its resolved Cellar binary; npm lives under libexec there, not under lib.
   assert.deepEqual(npmCliCandidates('/opt/homebrew/Cellar/node/24.1.0/bin/node', 'darwin', {}), [
@@ -435,8 +454,8 @@ test('the connector installer finds npm beside Homebrew and other Node layouts, 
 });
 
 test('the manual connector command quotes the private directory for the shell, and its failure telemetry is valid', t => fixture(async store => {
-  assert.equal(manualInstallCommand("/Users/o'neil/$HOME/runtime", 'darwin'), `npm install --prefix '/Users/o'\\''neil/$HOME/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10`);
-  assert.equal(manualInstallCommand('C:\\Users\\me\\runtime', 'win32'), 'npm install --prefix "C:\\Users\\me\\runtime" --ignore-scripts @powerformer/vela-cli@0.1.10');
+  assert.equal(manualInstallCommand("/Users/o'neil/$HOME/runtime", 'darwin'), `npm install --prefix '/Users/o'\\''neil/$HOME/runtime' --ignore-scripts @powerformer/vela-cli@0.1.11-test.0`);
+  assert.equal(manualInstallCommand('C:\\Users\\me\\runtime', 'win32'), 'npm install --prefix "C:\\Users\\me\\runtime" --ignore-scripts @powerformer/vela-cli@0.1.11-test.0');
   const records: SignInRecord[] = [];
   const account = new OpenDesignAccount(store.directory, { binary: path.join(store.directory, 'missing-connector'), log: () => {}, track: record => records.push(record) });
   t.after(() => account.close());
@@ -457,7 +476,7 @@ if (mode === 'offline') { console.error('npm error code ECONNREFUSED'); process.
 const pkg = path.join(prefix, 'node_modules/@powerformer/vela-cli'); mkdirSync(pkg, { recursive: true });
 writeFileSync(path.join(prefix, 'package.json'), '{}');
 writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: '@powerformer/vela-cli', main: 'index.js' }));
-writeFileSync(path.join(pkg, 'vela'), '#!/bin/sh\\necho ' + (mode === 'wrong' ? '0.0.9' : '0.1.10') + '\\n'); chmodSync(path.join(pkg, 'vela'), 0o755);
+writeFileSync(path.join(pkg, 'vela'), '#!/bin/sh\\necho ' + (mode === 'wrong' ? '0.0.9' : '0.1.11-test.0') + '\\n'); chmodSync(path.join(pkg, 'vela'), 0o755);
 writeFileSync(path.join(pkg, 'index.js'), 'exports.resolveVelaCliBin = () => __dirname + "/vela";');`);
     const install = async (name: string, mode: string, findNpm: () => Promise<string | undefined> = async () => npm) => {
       process.env.FAKE_NPM = mode;
@@ -596,7 +615,8 @@ test('completed sign-in delivers its source through the shared sender and respec
   t.after(() => tracking.close());
   const account = new OpenDesignAccount(store.directory, { binary, track: record => { tracking.track('account_sign_in_result', record); } });
   t.after(() => account.close());
-  await signIn(account);
+  const clickedEntry = randomUUID();
+  await signIn(account, clickedEntry);
   assert.equal(await tracking.flush(), 'accepted');
   const batch = batches[0].batch;
   assert.equal(batch.length, 1); assert.equal(batch[0].event, 'account_sign_in_result');
@@ -605,6 +625,7 @@ test('completed sign-in delivers its source through the shared sender and respec
   assert.equal(fields.source_product, 'openmotion'); assert.equal(fields.source_detail, 'openmotion_editor_login');
   assert.equal(fields.amr_user_id, 'fixture-user-id');
   assert.equal(fields.installation_id, installationId); assert.equal(fields.distinct_id, installationId); assert.equal(fields.utm_source, 'creator');
+  assert.equal(fields.entry_id, clickedEntry);
   assert.notEqual(fields.entry_id, fields.attempt_id);
   assert.doesNotMatch(JSON.stringify(batches), /fixture@example|synthetic-private|TEST-123|open-design\.ai/);
   enabled = false;
@@ -639,7 +660,7 @@ test('finished sign-in reports the confirmed account only on success, without cr
   assert.deepEqual(records.map(record => record.outcome), ['success', 'cancelled', 'failure']);
   const [success, cancelled, failure] = records;
   const { attempt_id: _id, entry_id, entry_occurred_at, duration_ms, prepare_ms, link_ms, approved_ms, ...fixed } = success;
-  assert.deepEqual(fixed, { outcome: 'success', connector_version: '0.1.10', resumed: false, last_stage: 'credential_persist_result', last_result: 'success',
+  assert.deepEqual(fixed, { outcome: 'success', connector_version: '0.1.11-test.0', resumed: false, last_stage: 'credential_persist_result', last_result: 'success',
     source_product: 'openmotion', source_detail: 'openmotion_editor_login', amr_user_id: 'fixture-user-id',
     browser_opened: true, receipt: 'accepted', exit_code: 0 });
   assert.match(entry_id!, /^[0-9a-f-]{36}$/); assert.notEqual(entry_id, success.attempt_id);
@@ -754,18 +775,22 @@ test('the subscription page opens in the system browser through a one-time accou
   });
   const opened: string[] = [];
   const launch = async (url: string) => { opened.push(url); };
-  assert.deepEqual(await account.openSubscription(launch), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
+  const clickedEntry = randomUUID();
+  assert.deepEqual(await account.openSubscription(launch, { entryId: clickedEntry }), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
   assert.deepEqual(opened, ['https://open-design.ai/cloud/login?intentId=intent_1-a']);
   const target = new URL(targets[0], 'https://open-design.ai'), params = target.searchParams;
   assert.equal(target.pathname, '/dashboard');
   assert.deepEqual([...params.keys()].sort(), ['billing', 'od_entry_at', 'od_entry_id', 'od_entry_source', 'od_origin']);
   assert.equal(params.get('billing'), 'plan'); assert.equal(params.get('od_origin'), 'openmotion');
   assert.equal(params.get('od_entry_source'), 'openmotion_manage_subscription');
+  assert.equal(params.get('od_entry_id'), clickedEntry);
   assert.match(params.get('od_entry_id')!, /^[0-9a-f-]{36}$/); assert.equal(new Date(params.get('od_entry_at')!).toISOString(), params.get('od_entry_at'));
   // Each open carries a fresh entry; a refused or malformed intent still opens the plain page.
   for (const refusal of [() => Response.json({ error: 'unauthorized' }, { status: 401 }), () => Response.json({ intentId: '../evil' }), () => { throw new TypeError('offline'); }]) {
     response = refusal;
-    const result = await account.openSubscription(launch);
+    const fallbackEntry = randomUUID();
+    const result = await account.openSubscription(launch, { entryId: fallbackEntry });
+    assert.equal(new URL(result.url).searchParams.get('od_entry_id'), fallbackEntry);
     assert.equal(new URL(result.url).origin + new URL(result.url).pathname, 'https://open-design.ai/cloud/dashboard');
     assert.equal(new URL(result.url).searchParams.get('od_origin'), 'openmotion'); assert.equal(result.opened, true);
   }

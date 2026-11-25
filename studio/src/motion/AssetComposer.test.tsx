@@ -3,12 +3,17 @@ import { findMediaStudio, findTechniqueStudio } from '../../../shared/studio-cat
 import { act, useState, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { trackMotion } from './tracking';
+import { loadReportingTransport } from './reporting';
+import { validProperties, uuid } from '../../../tracking/core';
+import { studioEvents } from '../../../tracking/events';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
 import type { Model } from '../../../shared/gateway';
 const { generate, loadGateway, gatewayRequest, chrome, translate } = vi.hoisted(() => ({
   generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(), translate: vi.fn((text: string, _values?: Record<string, unknown>) => text),
   chrome: { openModelSettings: vi.fn(), openProviderSettings: vi.fn(), openAccountSettings: vi.fn(), openSubscriptionSettings: vi.fn() },
 }));
+vi.mock('./tracking', () => ({ trackMotion: vi.fn(async () => 'queued') }));
 vi.mock('./assetClient', () => ({ assetRequest: generate }));
 vi.mock('./gatewayClient', () => ({ loadGateway, gatewayRequest, invalidateGatewayCache: vi.fn() }));
 vi.mock('./AssetConversation', () => ({ AssetConversation: () => null }));
@@ -23,7 +28,7 @@ const props: ComponentProps<typeof AssetComposer> = {
   history: { tasks: [], loading: false, onRetry: vi.fn(), onSelect: vi.fn() }, selectingTask: false,
   onNew: vi.fn(), onChatChanged: vi.fn(), onChatStarted: vi.fn(), onCancel: vi.fn(), onView: vi.fn(), onReference: vi.fn(), onCreated: created, onError: vi.fn(), onClose: vi.fn(),
 };
-beforeEach(() => { vi.clearAllMocks(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+beforeEach(async () => { await loadReportingTransport(); vi.clearAllMocks(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 it('temporarily hides the Agent tab and keeps direct generation available when viewing a conversation', async () => {
   await act(async () => root.render(<AssetComposer {...props} mode="agent" />));
@@ -742,6 +747,12 @@ const featureModels = () => {
     accountGpt: { ...base, id: 'account:gpt-image-2.6-sunburst', provider: 'account', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst' } as Model,
   };
 };
+// These models support reference images and transparent output, but their providers are outside this scene.
+const otherCutoutModels: Model[] = [
+  { provider: 'codex', modelId: 'image-generation', label: 'Codex Image' },
+  { provider: 'fal', modelId: 'cutout', label: 'Cutout' },
+].map(entry => ({ ...featureModels().sunburst, ...entry, id: entry.provider + ':' + entry.modelId,
+  nativeOptions: { background: ['transparent'] } }));
 async function renderFeature(scene: 'remove-background' | 'relight' | 'image-blend', draft: Partial<AssetDraft>) {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const models = Object.values(featureModels());
@@ -765,6 +776,294 @@ it('removes an image reference only when its remove button is activated', async 
   expect(props.setDraft).toHaveBeenCalledTimes(1);
   const [update] = vi.mocked(props.setDraft).mock.calls[0];
   expect(typeof update === 'function' ? update({ ...props.draft, references }).references : update.references).toEqual([references[1]]);
+});
+
+it.each(['free', 'plus', 'unavailable'])('resolves the %s plan on a direct visit with a restored sign-in', async plan => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { useMediaCatalog } = await import('./useMediaCatalog');
+  const { accountGpt } = featureModels();
+  let billingRead = false;
+  gatewayRequest.mockImplementation(async (route: string) => {
+    expect(route).toBe('settings/account?refresh=true');
+    billingRead = true;
+    if (plan === 'unavailable') throw new Error('offline');
+    return { state: 'signed-in', plan };
+  });
+  loadGateway.mockImplementation(async () => ({
+    models: plan === 'plus' && billingRead ? [accountGpt] : [],
+    status: { routes: {}, providers: [
+      { id: 'opendesign', label: 'OpenDesign Cloud', configured: false, available: false },
+      { id: 'account', label: 'OpenDesign', available: true,
+        mediaEntitlement: !billingRead || plan === 'unavailable' ? 'unknown' : plan === 'free' ? 'not-included' : 'included' },
+    ] },
+  }));
+  function Panel() {
+    const catalog = useMediaCatalog(true, true);
+    return <AssetComposer {...props} draft={{ modality: 'image', prompt: '', references: [] }}
+      studio={{ catalog, chooseModel: vi.fn(), remember: vi.fn(), destination: mediaEditorDestination('remove-background') }} />;
+  }
+  await act(async () => root.render(<Panel />));
+  expect(gatewayRequest).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[aria-label="Provider"] .om-picker-trigger-label')?.textContent)
+    .toBe(plan === 'unavailable' ? 'OpenDesign Cloud' : 'OpenDesign');
+  expect(Boolean(container.querySelector('[data-generation-offer="upgrade"]'))).toBe(plan === 'free');
+});
+
+it.each(['free', 'plus'])('keeps the background removal draft through sign-in and resolves the %s plan in place', async plan => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { useMediaCatalog } = await import('./useMediaCatalog');
+  const { accountGpt } = featureModels();
+  let signedIn = false, authorizing = false, billingRead = false;
+  gatewayRequest.mockImplementation(async (route: string) => {
+    if (route === 'settings/account/login') authorizing = true;
+    if (route === 'settings/account?refresh=true') billingRead = true;
+    return { state: signedIn ? 'signed-in' : authorizing ? 'authorizing' : 'signed-out', ...(signedIn && billingRead ? { plan } : {}) };
+  });
+  loadGateway.mockImplementation(async () => ({
+    models: [...otherCutoutModels, ...(signedIn && plan === 'plus' ? [accountGpt] : [])],
+    status: { routes: { image: otherCutoutModels[0].id }, providers: [
+      ...otherCutoutModels.map(model => ({ id: model.provider, label: model.provider, available: true })),
+      { id: 'opendesign', label: 'OpenDesign Cloud', available: false, configured: false },
+      { id: 'account', label: 'OpenDesign', available: signedIn, mediaEntitlement: signedIn && billingRead ? plan === 'plus' ? 'included' : 'not-included' : undefined },
+    ] },
+  }));
+  function Harness() {
+    const catalog = useMediaCatalog(true);
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', prompt: 'Keep the mug', references: [reference('mug')] });
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} studio={{ catalog, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('remove-background') }} />;
+  }
+  await act(async () => root.render(<Harness />));
+  const provider = container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!;
+  expect(provider.querySelector('.om-picker-trigger-label')?.textContent).toBe('OpenDesign');
+  expect(provider.querySelector('.om-badge')?.textContent).toBe('Signed out');
+  await act(async () => provider.click());
+  expect(optionNames()).toEqual(['OpenDesign', 'OpenDesign Cloud']);
+  await act(async () => provider.click());
+  expect(container.querySelector('[aria-label="Generation model"] .om-account-offer')?.textContent).toBe('Plus and above');
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  expect(submit().disabled).toBe(true);
+  const card = container.querySelector('[data-generation-offer="sign_in"]')!;
+  expect(card.querySelector('h3')?.textContent).toBe('7 days of unlimited flagship image generation');
+  expect(card.querySelector('p')?.textContent).toBe('Annual Pro & Max');
+  expect(provider.closest('.om-generation-picker')?.nextElementSibling).toBe(card);
+  expect(card.nextElementSibling?.querySelector('button[aria-label="Generation model"]')).toBeTruthy();
+  expect([...card.querySelectorAll('button')].map(button => button.textContent)).toEqual(['Sign in now']);
+  const login = card.querySelector<HTMLButtonElement>('button')!;
+  expect(login.hasAttribute('data-primary')).toBe(false);
+  await act(async () => login.click());
+  const cardClicks = vi.mocked(trackMotion).mock.calls.filter(([event, fields]) => event === 'ui_click' && (fields as Record<string, unknown>).element === 'sign_in');
+  expect(cardClicks).toHaveLength(1);
+  const packet = cardClicks[0][1];
+  expect(packet).toMatchObject({ page_name: 'creative_studio', area: 'asset_create', offer_kind: 'sign_in', studio_id: 'design', scene_id: 'remove-background',
+    offer_visit_id: expect.stringMatching(uuid), entry_id: expect.stringMatching(uuid) });
+  expect(validProperties(studioEvents, 'ui_click', packet)).toBe(true);
+  expect(gatewayRequest).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'studio_generate', entryId: (packet as Record<string, unknown>).entry_id });
+  expect(chrome.openAccountSettings).not.toHaveBeenCalled();
+  expect(container.textContent).toContain('Complete sign-in in your browser');
+  signedIn = true;
+  await act(async () => { window.dispatchEvent(new Event('motion:account-changed')); });
+  expect(billingRead).toBe(true);
+  expect(container.querySelector('[aria-label="Provider"]')?.textContent).toBe('OpenDesign');
+  expect(container.querySelector('[data-generation-offer="upgrade"] button')?.textContent === 'Upgrade').toBe(plan === 'free');
+  expect(submit().disabled).toBe(plan === 'free');
+  expect(container.querySelector<HTMLTextAreaElement>('.om-media-prompt')?.value).toBe('Keep the mug');
+  expect(container.querySelector('.om-scene-source-file')?.textContent).toContain('mug');
+  expect(generate).not.toHaveBeenCalled();
+});
+
+it.each([
+  'text-to-image', 'image-edit', 'remove-background', 'relight', 'image-blend',
+  'text-to-video', 'image-to-video', 'video-camera-control', 'video-multi-shot',
+] as const)('keeps the provider and model choices for %s when showing account guides', async sceneId => {
+  const { mediaEditorDestination, needsImage } = await import('./creativeStudios');
+  const destination = mediaEditorDestination(sceneId);
+  const { modality } = destination.scene;
+  const cloudVideo: Model = { provider: 'opendesign', modelId: 'wan-2.7', id: 'opendesign:wan-2.7',
+    label: 'Wan 2.7', source: 'live', modality: 'video', mode: 'text-to-video', maxInputImages: 1 };
+  const models = [...otherCutoutModels, featureModels().sunburst, cloudVideo];
+  const hasCodex = sceneId === 'text-to-image' || sceneId === 'image-edit';
+  const draft: AssetDraft = { modality, prompt: 'A sunlit forest', references: sceneId === 'image-blend' ? [reference('forest'), reference('lake')] : needsImage(destination.scene) ? [reference('forest')] : [] };
+  const picker = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  const click = (button: HTMLElement) => act(async () => button.click());
+  const render = (state: 'guest' | 'locked' | 'cloud', model?: string) => act(async () => root.render(<AssetComposer {...props} draft={draft} studio={{
+    catalog: { catalog: { models, status: { routes: {}, providers: [
+      { id: 'account', label: 'OpenDesign', available: state === 'locked', mediaEntitlement: state === 'locked' ? 'not-included' : undefined },
+      { id: 'opendesign', label: 'OpenDesign Cloud', available: state === 'cloud', configured: state === 'cloud' },
+      { id: 'codex', label: 'Codex', available: true }, { id: 'fal', label: 'fal.ai', available: true },
+    ] } }, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(), destination: { ...destination, model: model ?? null },
+  }} />));
+  gatewayRequest.mockResolvedValue({ state: 'signed-out' });
+  for (const state of ['guest', 'locked'] as const) {
+    await render(state);
+    if (hasCodex) {
+      expect(picker('Provider').textContent).toBe('Codex');
+      expect(picker('Generation model').textContent).toContain('Codex Image');
+      expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+      expect(container.querySelector('[data-generation-offer]')).toBeNull();
+      await render(state, featureModels().accountGpt.id);
+    }
+    expect(container.querySelector('.om-creation-prompt-footer, .om-creation-save-note, .om-creation-billing')).toBeNull();
+    expect(picker('Provider').querySelector('.om-picker-trigger-label')?.textContent).toBe('OpenDesign');
+    expect(picker('Generation model').textContent).toContain(state === 'guest' ? 'Plus and above' : 'Requires upgrade to Plus');
+    expect(container.querySelector('[data-generation-offer] button')?.textContent).toBe(state === 'guest' ? 'Sign in now' : 'Upgrade');
+    const offer = container.querySelector(`[data-generation-offer="${state === 'guest' ? 'sign_in' : 'upgrade'}"]`)!;
+    expect(offer.querySelector('h3')?.textContent)
+      .toBe(modality === 'image' ? '7 days of unlimited flagship image generation' : 'Black Friday: up to 50% off your first year');
+    const imageDetails = state === 'guest' ? 'Annual Pro & Max' : 'Annual Pro & Max · Up to 50% off';
+    expect(offer.querySelector('p')?.textContent).toBe(modality === 'image' ? imageDetails : 'Enjoy this offer with Plus or higher');
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
+    await click(picker('Provider'));
+    expect(optionNames()).toEqual(['OpenDesign', 'OpenDesign Cloud', ...(hasCodex ? ['Codex'] : [])]);
+    await click(picker('Provider'));
+    await click(picker('Generation model'));
+    const names = optionNames();
+    expect(names).toContain(modality === 'video' ? 'Wan 2.7' : 'GPT Image 2.6 Sunburst');
+    expect(names.includes('Seedream 5.5')).toBe(modality === 'image' && sceneId !== 'remove-background' && sceneId !== 'image-blend');
+    expect(names.includes('Seedance 2.5')).toBe(modality === 'video');
+    await click(picker('Generation model'));
+  }
+  if (hasCodex) {
+    await render('locked', otherCutoutModels[0].id);
+    expect(picker('Provider').textContent).toBe('Codex');
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+    expect(container.querySelector('[data-generation-offer="upgrade"]')).toBeNull();
+  }
+  await render('cloud');
+  expect(picker('Provider').textContent).toBe('OpenDesign Cloud');
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+  expect(container.querySelector('.om-account-offer')).toBeNull();
+});
+
+it('keeps both provider setup actions in guest background removal and uses an existing Cloud key while signed out', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { sunburst } = featureModels();
+  gatewayRequest.mockResolvedValue({ state: 'signed-out' });
+  const chooseModel = vi.fn();
+  const render = (hasKey: boolean) => act(async () => root.render(<AssetComposer {...props}
+    draft={{ modality: 'image', prompt: '', references: [reference('mug')] }} studio={{
+      catalog: { catalog: { models: hasKey ? [sunburst] : [], status: { routes: {}, providers: [
+        { id: 'account', label: 'OpenDesign', available: false },
+        { id: 'opendesign', label: 'OpenDesign Cloud', configured: hasKey, available: hasKey },
+      ] } }, failed: false, retry: vi.fn() }, chooseModel, remember: vi.fn(), destination: mediaEditorDestination('remove-background'),
+    }} />));
+  await render(false);
+  const openProviders = () => act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
+  const setupButton = (provider: string) => [...document.querySelectorAll('.om-picker-provider-row')]
+    .find(row => row.querySelector('strong')?.textContent === provider)!.querySelector<HTMLButtonElement>('.om-picker-setup')!;
+  await openProviders();
+  const signIn = setupButton('OpenDesign');
+  expect(signIn.textContent).toBe('Sign in');
+  await act(async () => signIn.click());
+  expect(chrome.openAccountSettings).toHaveBeenCalledExactlyOnceWith();
+  await openProviders();
+  const cloudSetup = setupButton('OpenDesign Cloud');
+  expect(cloudSetup.textContent).toBe('Setup');
+  await act(async () => cloudSetup.click());
+  expect(chooseModel).not.toHaveBeenCalled();
+  expect(chrome.openProviderSettings).toHaveBeenCalledExactlyOnceWith('opendesign');
+  expect(gatewayRequest).not.toHaveBeenCalledWith('settings/account/login', 'POST', {});
+  await render(true);
+  expect(container.querySelector('[aria-label="Provider"]')?.textContent).toBe('OpenDesign Cloud');
+  expect(container.querySelector('.om-account-offer, .om-provider-setup, [data-generation-offer="sign_in"]')).toBeNull();
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
+});
+
+it.each(['free', 'go'])('previews locked account models and lets a %s account switch background removal providers', async plan => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { sunburst } = featureModels();
+  const cloudReady = plan === 'go';
+  const catalog = { models: [sunburst, ...otherCutoutModels], status: { routes: { image: sunburst.id }, providers: [
+    { id: 'account', label: 'OpenDesign', available: true, mediaEntitlement: 'not-included' as const, plan },
+    { id: 'opendesign', label: 'OpenDesign Cloud', available: cloudReady }, { id: 'fal', label: 'fal.ai', available: true },
+    { id: 'codex', label: 'Codex', available: true },
+  ] } };
+  function Harness() {
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', prompt: '', references: [reference('product')] });
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('remove-background'),
+    }} />;
+  }
+  await act(async () => root.render(<Harness />));
+  const picker = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  const click = (el: HTMLElement) => act(async () => el.click());
+  const choose = (name: string) => click([...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(el => el.querySelector('strong')?.textContent === name)!);
+  if (cloudReady) {
+    expect(picker('Provider').textContent).toBe('OpenDesign Cloud');
+    expect(submit().disabled).toBe(false);
+    expect(container.querySelector('[data-generation-offer]')).toBeNull();
+    await click(picker('Provider'));
+    await choose('OpenDesign');
+  }
+  expect(picker('Provider').textContent).toBe('OpenDesign');
+  const badge = 'Requires upgrade to Plus';
+  expect(picker('Generation model').querySelector('.om-account-offer-callout')?.textContent).toBe(badge);
+  expect(picker('Generation model').querySelector('[data-remix-icon="sparkling-fill"]')).not.toBeNull();
+  await click(picker('Generation model'));
+  expect(optionNames()).toContain('GPT Image 2.6 Flare');
+  expect([...document.querySelectorAll('[role="option"]')].every(el => el.querySelector('.om-account-offer-callout')?.textContent === badge)).toBe(true);
+  await choose('GPT Image 2.6 Flare');
+  const offer = container.querySelector('section[data-generation-offer="upgrade"]')!;
+  expect(offer.querySelector('h3')?.textContent).toBe('7 days of unlimited flagship image generation');
+  expect(offer.querySelector('p')?.textContent).toBe('Annual Pro & Max · Up to 50% off');
+  expect(submit().disabled).toBe(true);
+  gatewayRequest.mockResolvedValue({ opened: true });
+  const upgrade = offer.querySelector<HTMLButtonElement>('button')!;
+  expect(upgrade.textContent).toBe('Upgrade');
+  expect(upgrade.querySelector('[data-remix-icon="arrow-right-up-line"]')).not.toBeNull();
+  await click(upgrade);
+  const cardClicks = vi.mocked(trackMotion).mock.calls.filter(([event, fields]) => event === 'ui_click' && (fields as Record<string, unknown>).element === 'view_plans');
+  expect(cardClicks).toHaveLength(1);
+  const packet = cardClicks[0][1];
+  expect(packet).toMatchObject({ page_name: 'creative_studio', area: 'asset_create', offer_kind: 'upgrade', studio_id: 'design', scene_id: 'remove-background',
+    offer_visit_id: expect.stringMatching(uuid), entry_id: expect.stringMatching(uuid) });
+  expect(validProperties(studioEvents, 'ui_click', packet)).toBe(true);
+  expect(gatewayRequest).toHaveBeenCalledWith('settings/account/subscription', 'POST', { hookId: 'studio_free_gate', entryId: (packet as Record<string, unknown>).entry_id });
+
+  await click(picker('Provider'));
+  expect(optionNames()).toEqual(['OpenDesign', 'OpenDesign Cloud']);
+  await choose('OpenDesign Cloud');
+  expect(picker('Generation model').textContent).not.toContain(badge);
+  expect(submit().disabled).toBe(!cloudReady);
+  if (!cloudReady) {
+    await click(container.querySelector<HTMLButtonElement>('.om-provider-setup button')!);
+    expect(chrome.openProviderSettings).toHaveBeenCalledWith('opendesign');
+    expect(generate).not.toHaveBeenCalled();
+    return;
+  }
+  generate.mockResolvedValue({ job: { id: 'cutout' } });
+  await click(submit());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    model: sunburst.id, parameters: expect.objectContaining({ background: 'transparent' }), references: [reference('product').reference],
+  }));
+});
+
+it('keeps the default background removal model on the account after returning from an upgrade', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { sunburst, accountGpt } = featureModels();
+  function Harness({ upgraded }: { upgraded: boolean }) {
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', prompt: '', references: [reference('product')] });
+    const catalog = { models: upgraded ? [sunburst, accountGpt] : [sunburst], status: { routes: { image: sunburst.id }, providers: [
+      { id: 'opendesign', label: 'OpenDesign Cloud', available: upgraded },
+      { id: 'account', label: 'OpenDesign', available: true, mediaEntitlement: upgraded ? 'included' as const : 'not-included' as const },
+    ] } };
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('remove-background'),
+    }} />;
+  }
+  await act(async () => root.render(<Harness upgraded={false} />));
+  gatewayRequest.mockResolvedValue({ opened: true });
+  await act(async () => container.querySelector<HTMLButtonElement>('section[data-generation-offer="upgrade"] button')!.click());
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  expect(gatewayRequest).toHaveBeenCalledWith('settings/account?refresh=true');
+  await act(async () => root.render(<Harness upgraded />));
+  expect(container.querySelector('[aria-label="Provider"]')?.textContent).toBe('OpenDesign');
+  expect(container.textContent).not.toContain('Requires upgrade to Plus');
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+  expect(generate).not.toHaveBeenCalled();
 });
 
 it('removes a background with GPT Image 2.6 on either OpenDesign route, an optional prompt and a fixed transparent background', async () => {
@@ -1010,6 +1309,27 @@ it('exposes the native audio toggle on Text to video and preserves user control 
   await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
   const request = generate.mock.calls[0][0];
   expect(request.prompt).toBe('Rain in a neon alley');
+});
+
+it.each(['guest', 'free'] as const)('opens an image or video model shortcut on its account guide for a %s user', async state => {
+  const { ImageMegaMenu } = await import('./ImageMegaMenu');
+  const { VideoMegaMenu } = await import('./VideoMegaMenu');
+  const catalog = { models: [], status: { routes: {}, providers: [
+    { id: 'account', label: 'OpenDesign', available: state === 'free', mediaEntitlement: state === 'free' ? 'not-included' as const : undefined },
+    { id: 'opendesign', label: 'OpenDesign Cloud', available: false },
+  ] } };
+  const navigate = vi.fn();
+  for (const [Menu, label, modelId] of [
+    [ImageMegaMenu, 'GPT Image 2.6 Flare', 'gpt-image-2.6-flare'],
+    [VideoMegaMenu, 'Wan 2.7', 'wan-2.7'],
+  ] as const) {
+    await act(async () => root.render(<Menu catalog={catalog} destination={null} onNavigate={navigate} />));
+    const option = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Models"] button')]
+      .find(button => button.textContent?.includes(label))!;
+    expect(option.disabled).toBe(false);
+    await act(async () => option.click());
+    expect(navigate).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'account:' + modelId }));
+  }
 });
 
 it('renders VideoMegaMenu with open video scenes, Omni reference, Soon items, and OpenDesign video models', async () => {

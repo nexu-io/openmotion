@@ -66,7 +66,7 @@ export type GenerationJob = { id: string; projectId?: string; library?: LibraryG
   /** Original account image transfer; signed URLs and credentials are never persisted. */
   download?: { assetId: string; receivedBytes: number; totalBytes: number };
   createdAt: number; updatedAt: number; startedAt?: number; workerPid?: number;
-  phase: string; error?: string; remoteId?: string; assets: GeneratedAsset[] };
+  phase: string; error?: string; errorCode?: string; remoteId?: string; assets: GeneratedAsset[] };
 
 /** Effective adapter input contract, shared by service validation and existing Studio controls. */
 export function modelReferenceLimit(model: Model): number {

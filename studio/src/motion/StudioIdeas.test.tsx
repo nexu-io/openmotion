@@ -36,3 +36,25 @@ it('shows one comparison image and no example switcher in the Image edit guide',
   expect(container.querySelectorAll('.om-scene-comparison img')).toHaveLength(1);
   expect(container.querySelector('.om-scene-hero-examples')).toBeNull();
 });
+
+it('renders X-hosted remix video templates in a referrer-safe iframe without a redundant remix button', async () => {
+  const clip = 'https://video.twimg.com/amplify_video/12345/vid/avc1/1280x720/sample.mp4';
+  await act(async () => root.render(
+    <StudioIdeas
+      destination={mediaEditorDestination('text-to-video')}
+      onPrompt={vi.fn()}
+      featuredExample={{
+        title: 'Bridge Twin Supercar Drift',
+        prompt: 'Twin supercars drifting in sync across a twilight suspension bridge.',
+        poster: 'https://pbs.twimg.com/amplify_video_thumb/12345/img/poster.jpg',
+        clip,
+        posterAspect: 16 / 9,
+      }}
+    />,
+  ));
+  const iframe = container.querySelector<HTMLIFrameElement>('iframe.om-hub-lightbox-video')!;
+  expect(iframe).not.toBeNull();
+  expect(iframe.getAttribute('srcdoc')).toContain('no-referrer');
+  expect(iframe.getAttribute('srcdoc')).toContain(clip);
+  expect(container.querySelector('.om-canvas-idea-prompt')).toBeNull();
+});
