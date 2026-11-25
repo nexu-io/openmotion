@@ -67,7 +67,7 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
           label: t(item.name),
           icon: item.icon
             ? <PlatformIcon platform={item.icon} />
-            : <span className="om-platform-icon om-gp-badge" style={{ background: item.color, color: '#fff' /* third-party brand badge */ }} aria-hidden="true">{item.badge}</span>,
+            : <span className="om-platform-icon om-gp-badge" aria-hidden="true">{item.badge}</span>,
         })),
       ]}
       onChange={id => {

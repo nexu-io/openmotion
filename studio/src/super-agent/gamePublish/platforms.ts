@@ -49,7 +49,6 @@ export interface GamePublishPlatform {
   /** Short effort summary shown on the platform tile. */
   effort: string;
   badge: string;
-  color: string;
   /** Platform artwork from the design system (packages/design-system/platform-icons.js); otherwise the badge is shown. */
   icon?: keyof typeof platformIcons;
   /** Local developer tool the user confirms before the steps (see devTools.ts). */
@@ -76,7 +75,6 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'WeChat Mini Game',
     effort: 'The Agent guides you step by step · port, preview and upload here',
     badge: '微',
-    color: '#07c160',
     icon: 'wechat-minigame',
     devTool: 'wechat-devtools',
     // Guided by the Agent in the conversation (skills/openmotion-game/references/wechat-minigame-port.md);
@@ -93,7 +91,6 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Douyin Mini Game',
     effort: '3 steps in Douyin tools · not automated yet',
     badge: '抖',
-    color: '#fe2c55',
     devTool: 'douyin-devtools',
     steps: [
       {
@@ -131,7 +128,6 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'QQ Mini Game',
     effort: '3 steps in QQ tools · not automated yet',
     badge: 'Q',
-    color: '#12b7f5',
     devTool: 'qq-devtools',
     steps: [
       {
@@ -169,7 +165,6 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Xiaohongshu Mini Tool',
     effort: 'Download the package · upload in Builder Hub',
     badge: '书',
-    color: '#ff2442',
     steps: [
       {
         kind: 'package',
@@ -203,7 +198,6 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Douyin Interactive Space',
     effort: 'Invite code · download the package · upload yourself',
     badge: '抖',
-    color: '#161823',
     steps: [
       {
         kind: 'package',
@@ -239,7 +233,6 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'itch.io',
     effort: 'Download the zip · upload on itch.io',
     badge: 'it',
-    color: '#fa5c5c',
     steps: [
       {
         kind: 'package',
@@ -270,11 +263,10 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Telegram Mini App',
     effort: 'Uses the OpenDesign link · set up in BotFather',
     badge: 'TG',
-    color: '#2aabee',
     steps: [
       {
         kind: 'link',
-        short: 'Link',
+        short: 'Game link',
         title: 'Get the game link',
         why: 'A Telegram Mini App opens a web address. The OpenDesign game link is used for it.',
         todo: ['Publish the OpenDesign link'],
@@ -298,7 +290,6 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Playable ad export',
     effort: 'No account needed · download and upload yourself',
     badge: 'Ad',
-    color: '#a26bff',
     steps: [
       {
         short: 'Network',
@@ -362,5 +353,5 @@ export const WECHAT_STEPS: ReadonlyArray<{ key: WechatStepKey; name: string; lat
   { key: 'category', name: 'Service category', later: true, byUser: true },
   { key: 'review', name: 'Review', later: true, byUser: true },
   { key: 'filing', name: 'Filing (owner only)', later: true, byUser: true },
-  { key: 'release', name: 'Release', later: true, byUser: true },
+  { key: 'release', name: 'Release on WeChat', later: true, byUser: true },
 ];
