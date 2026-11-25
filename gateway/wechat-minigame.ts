@@ -18,11 +18,15 @@ type PublishState = {
   preview?: { createdAt: string };
   upload?: { state: 'done' | 'failed' | 'unknown'; version: string; desc: string; at: string; error?: string };
   uploadedVersion?: string;
+  /** WeChat refused the saved key (wrong file, or a key for another AppID). Cleared by a later success; a key saved after it also clears it. */
+  keyRejected?: { at: string };
   updatedAt: string;
 };
 const confirmSteps: ConfirmStep[] = ['account', 'testers', 'category', 'review', 'filing', 'release'];
 const stepKeys: StepKey[] = ['account', 'appid', 'key', 'ip', 'port', 'preview', 'upload', 'testers', 'category', 'review', 'filing', 'release'];
 const gameBusy = new Set<string>();
+/** WeChat's answers when the key does not match the AppID or cannot be read (signature/decoding failures). */
+const keyRejection = /signature|private ?key|PEM|decod|asn1|bad key|key.*(invalid|mismatch)|(invalid|mismatch).*key|签名|密钥|私钥/i;
 const unknownUpload = /did not answer in time|ETIMEDOUT|ECONNRESET|socket hang up|exited without a result|Invalid WeChat worker result/i;
 /**
  * A newly uploaded package is a development version again: the trial-version choice, review and release confirmed
@@ -132,7 +136,9 @@ export class WechatMinigame {
     try { smokeTest = JSON.parse(await readFile(path.join(project.projectDir, 'port-report.json'), 'utf8')).smokeTest; }
     catch { /* Missing or malformed reports do not establish a verified port. */ }
     const portReady = project.hasGameJs && project.hasGameJson && project.totalBytes <= project.mainPackageLimitBytes && smokeTest === 'passed';
-    const hasKey = Boolean(state.appid && await this.keyInfo(state.appid));
+    const keyEntry = state.appid ? await this.keyInfo(state.appid) : undefined;
+    const hasKey = Boolean(keyEntry);
+    const keyRejected = Boolean(hasKey && state.keyRejected && keyEntry!.mtime.getTime() <= Date.parse(state.keyRejected.at));
     const steps = stepKeys.map(key => {
       let status: 'done' | 'todo' | 'blocked' | 'unknown' = 'todo';
       let at: string | undefined, detail: string | undefined;
@@ -155,7 +161,7 @@ export class WechatMinigame {
     const version = state.uploadedVersion?.split('.');
     const nextVersion = version ? `${version[0]}.${version[1]}.${BigInt(version[2]) + 1n}` : '1.0.0';
     return {
-      gameId: id, appid: state.appid ?? null, hasKey,
+      gameId: id, appid: state.appid ?? null, hasKey, keyRejected,
       project: { exists: project.exists, hasGameJs: project.hasGameJs, hasGameJson: project.hasGameJson,
         totalBytes: project.totalBytes, mainPackageLimitBytes: project.mainPackageLimitBytes, portReady },
       steps, current: steps.find(step => !step.later && step.status !== 'done')?.key ?? steps.find(step => step.later && step.status !== 'done')?.key ?? null,
@@ -190,7 +196,7 @@ export class WechatMinigame {
         const appid = appId(input.appid);
         if (appid !== state.appid) {
           state.appid = appid;
-          delete state.ipCheck; delete state.preview; delete state.upload; delete state.uploadedVersion;
+          delete state.ipCheck; delete state.preview; delete state.upload; delete state.uploadedVersion; delete state.keyRejected;
           // A different AppID is a different Mini Game: steps confirmed for the old one (testers, review, filing…) do not carry over.
           // The account itself stays confirmed, since the user has one.
           state.confirmed = state.confirmed.account ? { account: state.confirmed.account } : {};
@@ -209,12 +215,23 @@ export class WechatMinigame {
         result = { outcome: state.upload.state, version: state.upload.version };
       } else {
         if (!state.appid) throw new PublishError(400, 'APPID_REQUIRED', 'Set the game AppID first');
+        // A refused key is recorded before the error goes back, so the page can offer to replace the key file.
+        const keyRefused = async (error: unknown) => {
+          if (error instanceof PublishError && error.code === 'WECHAT_CI_ERROR' && keyRejection.test(error.message)) {
+            state.keyRejected = { at: new Date().toISOString() };
+            state.updatedAt = state.keyRejected.at;
+            await this.writePublishFile(input.id, 'wechat.json', JSON.stringify(state, null, 2) + '\n');
+          }
+          return error;
+        };
         if (input.action === 'ip_check') {
-          const checked = await this.ipCheck({ appid: state.appid });
+          const checked = await this.ipCheck({ appid: state.appid }).catch(async error => { throw await keyRefused(error); });
+          delete state.keyRejected;
           state.ipCheck = { allowed: checked.allowed, ...('ip' in checked ? { ip: checked.ip } : {}), checkedAt: checked.checkedAt };
           result = { allowed: checked.allowed, ...('ip' in checked ? { ip: checked.ip } : {}) };
         } else if (input.action === 'preview') {
-          const preview = await this.publish('preview', { appid: state.appid, gameId: input.id });
+          const preview = await this.publish('preview', { appid: state.appid, gameId: input.id }).catch(async error => { throw await keyRefused(error); });
+          delete state.keyRejected;
           const data = preview as { qrcode: string; createdAt: string };
           await this.writePublishFile(input.id, 'wechat-preview.png', Buffer.from(data.qrcode.split(',')[1], 'base64'));
           state.preview = { createdAt: data.createdAt };
@@ -226,12 +243,14 @@ export class WechatMinigame {
           try {
             await this.publish('upload', { appid: state.appid, gameId: input.id, version, desc });
             state.upload = { state: 'done', version, desc, at: new Date().toISOString() };
+            delete state.keyRejected;
             newVersionUploaded(state, version);
             result = { outcome: 'done', version };
           } catch (error) {
             if (error instanceof PublishError && error.code === 'BUSY') throw error;
             const message = error instanceof PublishError ? error.message : 'WeChat local operation failed';
             const outcome = unknownUpload.test(message) ? 'unknown' : 'failed';
+            if (outcome === 'failed' && keyRejection.test(message)) state.keyRejected = { at: new Date().toISOString() };
             state.upload = { state: outcome, version, desc, at: new Date().toISOString(), error: message };
             result = outcome === 'unknown'
               ? { outcome, version, checkWhere: 'Mini Program console → Management → Version management → Development versions' }

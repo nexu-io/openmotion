@@ -111,8 +111,8 @@ export function WechatInlineControls({ session }: { session: GamePublishSession 
   const status = wechat?.status;
   if (!status) return null;
   const showKey = status.current === 'key' && Boolean(status.appid);
-  // A saved key can still be the wrong one (WeChat rejects it at the IP check, preview or upload): keep a way to replace it.
-  const canReplaceKey = Boolean(status.appid && status.hasKey) && ['ip', 'preview', 'upload'].includes(status.current ?? '');
+  // Only after WeChat refused the saved key (wrong file, or a key for another AppID); otherwise there is nothing to replace.
+  const canReplaceKey = Boolean(status.appid && status.hasKey && status.keyRejected);
   const showQr = Boolean(status.preview) && (status.current === 'preview' || status.current === 'upload');
   if (!showKey && !showQr && !canReplaceKey) return null;
   return (
@@ -130,7 +130,8 @@ export function WechatInlineControls({ session }: { session: GamePublishSession 
               if (file) await gamePublishActions.saveWechatKey(session.artifactId, await file.text());
             }}
           />
-          <Button variant="plain" type="button" className={showKey ? 'om-gp-secondary' : 'om-gp-text-button'} disabled={wechat?.keySaving} onClick={() => fileRef.current?.click()}>
+          {canReplaceKey && !showKey && <span className="om-gp-error">{t('WeChat did not accept the saved key. Choose the .key file for this AppID again.')}</span>}
+          <Button variant="plain" type="button" className="om-gp-secondary" disabled={wechat?.keySaving} onClick={() => fileRef.current?.click()}>
             <RemixIcon name="upload-2-line" size={14} />
             <span>{wechat?.keySaving ? t('Saving…') : showKey ? t('Choose the .key file') : t('Use a different .key file')}</span>
           </Button>

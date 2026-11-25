@@ -42,6 +42,8 @@ export interface WechatPublishStatus {
   gameId: string;
   appid: string | null;
   hasKey: boolean;
+  /** WeChat refused the saved key since it was saved: the page offers to replace the key file. */
+  keyRejected?: boolean;
   steps: Array<{ key: WechatStepKey; status: 'done' | 'todo' | 'blocked' | 'unknown'; later: boolean; at?: string; detail?: string }>;
   current: WechatStepKey | null;
   preview: { createdAt: string; qrcodeUrl: string } | null;

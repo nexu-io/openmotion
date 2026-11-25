@@ -154,6 +154,32 @@ test('blocked IP is persisted with the address WeChat saw and becomes done on a 
   assert.equal((await action(service, 'ip_check')).steps.find(step => step.key === 'ip')?.status, 'done');
 }));
 
+test('a key WeChat refuses is flagged until a new key is saved or a call succeeds; other failures are not', () => fixture(async workspace => {
+  let answer: string | undefined = 'invalid signature';
+  const service = await configured(workspace, fakeCi({ preview: async (options: any) => {
+    if (answer) throw new Error(answer);
+    await writeFile(options.qrcodeOutputDest, Buffer.from([137, 80, 78, 71]));
+  } }));
+  assert.equal((await service.status('demo')).keyRejected, false);
+  await assert.rejects(action(service, 'ip_check'), { code: 'WECHAT_CI_ERROR' });
+  assert.equal((await service.status('demo')).keyRejected, true);
+  assert.ok(Date.parse((await stateFile(workspace)).keyRejected.at));
+  // Saving a key again clears the flag without another WeChat call.
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await request(service, 'PUT', '/credentials', { appid, privateKey: key });
+  assert.equal((await service.status('demo')).keyRejected, false);
+  // A refusal at preview flags it again; the next success clears it.
+  await assert.rejects(action(service, 'preview'), { code: 'WECHAT_CI_ERROR' });
+  assert.equal((await service.status('demo')).keyRejected, true);
+  answer = undefined;
+  assert.equal((await action(service, 'preview')).keyRejected, false);
+  assert.equal((await stateFile(workspace)).keyRejected, undefined);
+  // An unrelated WeChat error does not suggest replacing the key.
+  answer = 'system busy, try later';
+  await assert.rejects(action(service, 'preview'), { code: 'WECHAT_CI_ERROR' });
+  assert.equal((await service.status('demo')).keyRejected, false);
+}));
+
 test('port readiness requires files, package size and a passed smoke test report', () => fixture(async workspace => {
   const dir = await project(workspace), service = serviceFor(workspace);
   assert.equal((await service.status('demo')).project.portReady, false);
