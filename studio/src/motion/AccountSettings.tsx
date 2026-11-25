@@ -243,6 +243,7 @@ export function isInsufficientBalanceError(error: string | null | undefined): bo
 
 let cachedAccountSummary: CloudAccountSummary | null = null;
 let accountSummaryVersion = 0;
+let authBoundaryVersion = 0;
 let inflightAccountSummary: { promise: Promise<{ error: boolean }>; billing: boolean; version: number } | null = null;
 let selfDispatchedAccountChangeEvent: Event | null = null;
 let lastAccountChangeEvent: Event | null = null;
@@ -263,6 +264,7 @@ export function invalidateAccountSummaryCache(): void {
 
 /** Publish signed-out state immediately at logout so a failing post-logout refresh cannot leave prior account data visible. */
 export function publishSignedOutAccountSummary(): void {
+  authBoundaryVersion++;
   invalidateAccountSummaryCache();
   publishAccountSummary({
     state: 'signed-out',
@@ -283,6 +285,7 @@ function dispatchSelfAccountChanged(): void {
 
 /** Test hook: clear cached account summary between isolated component tests. */
 export function resetAccountSummaryCacheForTest(): void {
+  authBoundaryVersion++;
   invalidateAccountSummaryCache();
   selfDispatchedAccountChangeEvent = null;
   lastAccountChangeEvent = null;
@@ -344,6 +347,7 @@ export function useAccountSummary(options?: { eager?: boolean }) {
   const eager = options?.eager ?? true;
   const [account, updateAccountState] = useState<CloudAccountSummary | null>(() => cachedAccountSummary);
   const updateAccount = useCallback((value: CloudAccountSummary) => {
+    if (value.state === 'signed-out') authBoundaryVersion++;
     invalidateAccountSummaryCache();
     publishAccountSummary(value);
   }, []);
@@ -379,6 +383,7 @@ export function useAccountSummary(options?: { eager?: boolean }) {
       if (event === selfDispatchedAccountChangeEvent) return;
       if (lastAccountChangeEvent !== event) {
         lastAccountChangeEvent = event;
+        authBoundaryVersion++;
         invalidateAccountSummaryCache();
       }
       void refresh();
@@ -508,12 +513,18 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       || !workspaces.some(ws => ws.id === workspaceId)) return;
     switchInFlight.current = true;
     setSwitchingWorkspace(true);
+    const boundaryAtStart = authBoundaryVersion;
     try {
       const switched = await gatewayRequest<{ ok?: boolean; activeWorkspace?: CloudWorkspaceSummary }>(
         'account/workspaces/switch',
         'POST',
         { workspaceId },
       );
+      // If sign-out or another account boundary happened while the switch was in flight,
+      // discard the delayed switch response so it cannot restore signed-in state or private SWR.
+      if (boundaryAtStart !== authBoundaryVersion || cachedAccountSummary?.state !== 'signed-in') {
+        return;
+      }
       const nextWorkspace = switched?.activeWorkspace ?? workspaces.find(ws => ws.id === workspaceId) ?? null;
       // Server cookie is already switched: bind SWR to the target workspace, publish the
       // switched activeWorkspace with prior workspace billing/model fields cleared, and
@@ -541,6 +552,9 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       }
       dispatchSelfAccountChanged();
       const refreshResult = await loadSharedAccountSummary(true, { force: true });
+      if (boundaryAtStart !== authBoundaryVersion || cachedAccountSummary?.state !== 'signed-in') {
+        return;
+      }
       if (refreshResult.error && switchedSummary && cachedAccountSummary === switchedSummary) {
         state.setAccount({ ...switchedSummary, billingUnavailable: true });
       }

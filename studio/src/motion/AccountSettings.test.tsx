@@ -3,8 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { I18nProvider, type Locale } from '../i18n/I18n';
-import { AccountSettings, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
-import { getPrivateSwrIdentity } from './swrCache';
+import { AccountSettings, publishSignedOutAccountSummary, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
+import { clearPrivateSwrCache, getPrivateSwrIdentity } from './swrCache';
 import { notifyProvidersChanged } from './useProviderDirectory';
 
 const hooks = vi.hoisted(() => ({
@@ -241,6 +241,44 @@ it('publishes switched activeWorkspace immediately and clears prior workspace bi
     ['account/workspaces/switch', 'POST', { workspaceId: studioA.id }],
   ]);
   expect(trigger.textContent).toBe('Studio A');
+});
+
+it('discards a delayed workspace switch response if sign-out completed while the switch was in flight', async () => {
+  const page = await open(cookieAccount);
+  const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  const [target] = await workspaceOptions(trigger);
+
+  const switchResponse = Promise.withResolvers<Record<string, unknown>>();
+  const originalImpl = hooks.request.getMockImplementation()!;
+  hooks.request.mockImplementation((path: string, method = 'GET', body?: Record<string, unknown>) => {
+    if (path === 'account/workspaces/switch') return switchResponse.promise;
+    if (path === 'account/summary') {
+      const err = new Error('Service unavailable') as Error & { status?: number };
+      err.status = 503;
+      return Promise.reject(err);
+    }
+    return originalImpl(path, method, body);
+  });
+
+  await act(async () => { target.click(); });
+
+  // User signs out via header while POST account/workspaces/switch is still pending.
+  await act(async () => {
+    clearPrivateSwrCache();
+    publishSignedOutAccountSummary();
+    window.dispatchEvent(new Event('motion:account-changed'));
+    await Promise.resolve();
+  });
+  expect(getPrivateSwrIdentity()).toBeNull();
+
+  // Delayed switch response arrives AFTER logout: must NOT restore signed-in state or private SWR identity.
+  await act(async () => {
+    switchResponse.resolve({ ok: true, activeWorkspace: studioB });
+    await Promise.resolve();
+  });
+  expect(getPrivateSwrIdentity()).toBeNull();
+  expect(hooks.request).not.toHaveBeenCalledWith('account/summary?refresh=true');
+  expect(document.querySelector('.hf-toast-viewport [role="status"]')).toBeNull();
 });
 
 it('keeps the current workspace and enables another choice after a rejected switch', async () => {
