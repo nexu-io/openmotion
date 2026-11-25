@@ -137,7 +137,10 @@ export async function prepareMediaCleanup(inputs: Inputs, read: (file: TreeFile)
 
 /** Conditional immutable writes and public byte verification; never overwrite an existing key. */
 export async function publishMedia(lock: MediaLock, source: Buffer | (() => Promise<Buffer>), options: { endpoint: string; bucket: string; run?: (args: string[]) => Promise<void>; fetcher?: typeof fetch }) {
-  const verifySource = (bytes: Buffer) => { assert.equal(bytes.length, lock.bytes); assert.equal(mediaDigest(bytes), lock.sha256); };
+  const verifySource = (bytes: Buffer) => {
+    assert.equal(bytes.length, lock.bytes, `Media size mismatch: ${lock.path}`);
+    assert.equal(mediaDigest(bytes), lock.sha256, `Media SHA-256 mismatch: ${lock.path}`);
+  };
   if (Buffer.isBuffer(source)) verifySource(source);
   const endpoint = new URL(options.endpoint);
   assert(endpoint.protocol === 'https:' && endpoint.hostname.endsWith('.r2.cloudflarestorage.com') && endpoint.pathname === '/' && !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash && !endpoint.port, 'Require the configured R2 HTTPS endpoint');

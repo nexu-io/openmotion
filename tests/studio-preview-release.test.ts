@@ -30,7 +30,8 @@ test('preview updates publish the image’s exact hash, reuse objects on retry a
       objects.set(args[args.indexOf('--key') + 1], await readFile(args[args.indexOf('--body') + 1]));
     },
   };
-  await assert.rejects(publishStudioPreviews(root, storage));
+  await assert.rejects(publishStudioPreviews(root, storage),
+    (error: Error) => error.message.startsWith(`Media size mismatch: ${pointerLock.path}`));
   assert.equal(puts, 0, 'an unhydrated LFS pointer must not be uploaded');
   await writeFile(file, bytes);
   assert.deepEqual(studioPreviewAssets(root).get('hero.mp4')!.lock, pointerLock);

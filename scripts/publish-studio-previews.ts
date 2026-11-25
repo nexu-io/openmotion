@@ -16,23 +16,19 @@ export async function publishStudioPreviews(root: string, storage: Parameters<ty
   const assets = [...studioPreviewAssets(root).values()];
   const unique = new Map(assets.map(asset => [asset.lock.url, asset]));
   const pending = unique.values();
-  const archives = new Map<string, Promise<void>>();
-  function ensureArchive(revision: string) {
-    let ready = archives.get(revision);
-    if (!ready) {
-      ready = run('git', ['cat-file', '-e', `${revision}^{commit}`], { cwd: root })
-        .catch(() => run('git', ['fetch', '--no-tags', '--depth=1', 'origin', revision], { cwd: root }))
-        .then(() => {});
-      archives.set(revision, ready);
-    }
-    return ready;
+  let archivesReady: Promise<unknown> | undefined;
+  function ensureArchives() {
+    // Only one fetch may update .git/shallow, even when both snapshot types are missing.
+    return archivesReady ??= Promise.all([posters, animations].map(revision =>
+      run('git', ['cat-file', '-e', `${revision}^{commit}`], { cwd: root })
+    )).catch(() => run('git', ['fetch', '--no-tags', '--depth=1', 'origin', posters, animations], { cwd: root }));
   }
   async function worker() {
     for (const { lock, source } of pending) {
       await publishMedia(lock, async () => {
         if (source) return readFile(source);
         const revision = lock.path.endsWith('.webp') ? posters : animations;
-        await ensureArchive(revision);
+        await ensureArchives();
         const { stdout } = await run('git', ['show', `${revision}:${lock.path}`], { cwd: root, encoding: 'buffer', maxBuffer: maxMediaBytes });
         return stdout;
       }, storage);
