@@ -9,7 +9,7 @@ import tarfile
 
 MIB = 1024 * 1024
 WARNING_GROWTH = MIB
-MAX_BYTES = 52 * MIB  # 26 initial templates (+2.3 MiB, PR #768) plus 3 full-3D web templates (vice-beach-golf-club, kazehane, shanghai-vice; 47.94 MiB measured).
+MAX_BYTES = 64 * MIB  # 26 initial templates + 3 full-3D web templates (#1056) + 7 playable templates (#1004; ~59 MiB compressed).
 
 
 def package_files(path):

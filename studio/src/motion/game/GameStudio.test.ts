@@ -22,19 +22,28 @@ describe('trailerProjectHref', () => {
   });
 });
 
-describe('gameCatalog multi-file detection & internal tags', () => {
-  it('detects sibling scripts, stylesheets, and chunked assets while keeping self-contained HTML inline', () => {
+describe('gameCatalog multi-file detection and internal tags', () => {
+  it('requires the local game service for sibling assets, src bundles, and relative script/style files', () => {
+    expect(needsGameService('<script src="src/system.bundle.js"></script>')).toBe(true);
+    expect(needsGameService('<link rel="stylesheet" href="style.css">')).toBe(true);
+    expect(needsGameService('<script>fetch("./assets/app.part0.js")</script>')).toBe(true);
     expect(needsGameService('<script>fetch("./app.part0.js")</script>')).toBe(true);
-    expect(needsGameService('<link rel="stylesheet" href="./styles.css">')).toBe(true);
-    expect(needsGameService('<script src="./src/system.bundle.js"></script>')).toBe(true);
-    expect(needsGameService('<!doctype html><script>console.log("solo")</script>')).toBe(false);
+    expect(needsGameService('<!doctype html><script>console.log("inline")</script>')).toBe(false);
   });
 
-  it('preserves internal top赚钱 tags on the 3 new 3D web templates', () => {
-    for (const id of ['vice-beach-golf-club', 'kazehane', 'shanghai-vice']) {
-      const card = bundledGames.find((g) => g.id === id);
-      expect(card, `expected bundled template ${id}`).toBeDefined();
-      expect(card?.tags).toContain('top赚钱');
-    }
+  it('preserves internal top赚钱 tags on bundled templates for downstream category grouping', () => {
+    const tagged = bundledGames.filter(game => game.tags?.includes('top赚钱')).map(game => game.id).sort();
+    expect(tagged).toEqual([
+      'ball-match',
+      'block-blast',
+      'catch-piggy',
+      'kazehane',
+      'mahjong-pairs',
+      'screw-puzzle',
+      'shanghai-vice',
+      'tile-stack',
+      'vice-beach-golf-club',
+      'vice-beach-motor-club',
+    ]);
   });
 });
