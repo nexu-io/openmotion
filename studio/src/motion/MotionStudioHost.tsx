@@ -82,8 +82,8 @@ export function MotionEditorFrame({ children }: { children: ReactNode }) {
       ...projectScaleFields(player.timelineReady ? player.elements.length : undefined), ...openTemplateFields() });
   }, []);
   // Cloud server-side exports run asynchronously on worker-render against an immutable frozen
-  // snapshot, so keep MCP handoff, autosave, and project switching available unless an in-tab
-  // browser-local WebCodecs render or a local-disk native render is active.
+  // snapshot, so keep autosave and project switching available unless an in-tab browser-local
+  // WebCodecs render or a local-disk native render is active.
   const renderBlocksWorkspace =
     renderQueue.isRendering && (!cloudDiskless || hasActiveBrowserLocalRender(renderQueue.jobs));
   const blocked = renderBlocksWorkspace || historyOperation.busy || Boolean(writeBlockedReason);

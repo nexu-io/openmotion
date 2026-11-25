@@ -204,7 +204,7 @@ it('prevents project replacement during a native render', async () => {
   openSidebar();
   expect(document.querySelector<HTMLButtonElement>('.motion-session')!.disabled).toBe(true);
   expect(document.querySelector<HTMLButtonElement>('[aria-label="新建项目"]')!.disabled).toBe(true);
-  expect(container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!.disabled).toBe(false);
   expect(container.querySelector<HTMLButtonElement>('[data-testid="header-export"]')!.disabled).toBe(false);
   act(() => container.querySelector<HTMLButtonElement>('[data-testid="header-export"]')!.click());
   await expectExportPanelReady();
@@ -212,14 +212,17 @@ it('prevents project replacement during a native render', async () => {
   expect(container.textContent).toContain('正在渲染…');
 });
 
-it('keeps MCP handoff and project switching enabled during cloud server-side exports', () => {
+it('keeps project switching and MCP accessible during cloud server-side exports', () => {
   const meta = document.createElement('meta');
   meta.name = 'openmotion-runtime';
   meta.content = 'cloud-diskless';
   document.head.append(meta);
   setCachedCloudDisklessMode(null);
   state.renderQueue.isRendering = true;
-  state.renderQueue.jobs = [{ id: 'cloud-export-1', status: 'rendering' }];
+  state.renderQueue.jobs = [
+    { id: 'finished-browser-export', status: 'complete', browserLocal: true },
+    { id: 'cloud-export-1', status: 'rendering' },
+  ];
   render();
   openSidebar();
   const mcpButton = container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!;
@@ -231,7 +234,7 @@ it('keeps MCP handoff and project switching enabled during cloud server-side exp
   expect(mcpButton.getAttribute('aria-expanded')).toBe('true');
 });
 
-it('keeps MCP handoff and project switching blocked during browser-local exports in cloud mode', () => {
+it('keeps project switching blocked during browser-local exports in cloud mode', () => {
   const meta = document.createElement('meta');
   meta.name = 'openmotion-runtime';
   meta.content = 'cloud-diskless';
@@ -241,9 +244,9 @@ it('keeps MCP handoff and project switching blocked during browser-local exports
   state.renderQueue.jobs = [{ id: 'browser-export-1', status: 'rendering', browserLocal: true }];
   render();
   openSidebar();
-  expect(container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!.disabled).toBe(true);
   expect(document.querySelector<HTMLButtonElement>('.motion-session')!.disabled).toBe(true);
   expect(document.querySelector<HTMLButtonElement>('[aria-label="新建项目"]')!.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('.motion-project-agent-trigger')!.disabled).toBe(false);
 });
 
 it('prevents switching projects or issuing competing header undo while a version operation is running', () => {

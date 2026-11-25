@@ -583,6 +583,16 @@ export function parseRenderProgressLine(line: string): { progress?: number; stag
   return null;
 }
 
+function renderStagePhaseKey(stage: string): string {
+  const trimmed = stage.trim();
+  if (/^Capturing frame\b/i.test(trimmed)) return 'capture';
+  if (/^Encoding frame\b/i.test(trimmed)) return 'encode';
+  if (/^Starting browsers\b/i.test(trimmed)) return 'start_browsers';
+  if (/^Extracting video frames\b/i.test(trimmed)) return 'extract_video';
+  if (/^Assembling final video\b/i.test(trimmed)) return 'assemble';
+  return trimmed.toLowerCase();
+}
+
 export interface RenderCaptureTuning {
   workers: number;
   disableLowMemoryMode: boolean;
@@ -611,7 +621,7 @@ export function parseCgroupCpuLimit(
       const quota = Number.parseFloat(parts[0]);
       const period = Number.parseFloat(parts[1]);
       if (Number.isFinite(quota) && Number.isFinite(period) && quota > 0 && period > 0) {
-        return Math.max(1, quota / period);
+        return quota / period;
       }
     }
   }
@@ -619,7 +629,7 @@ export function parseCgroupCpuLimit(
     const quota = Number.parseFloat(v1Quota.trim());
     const period = Number.parseFloat(v1Period.trim());
     if (Number.isFinite(quota) && Number.isFinite(period) && quota > 0 && period > 0) {
-      return Math.max(1, quota / period);
+      return quota / period;
     }
   }
   return null;
@@ -649,7 +659,7 @@ function detectContainerCpuLimit(): number {
           readOptionalProcFile(CGROUP_V1_CPU_QUOTA_PATH),
           readOptionalProcFile(CGROUP_V1_CPU_PERIOD_PATH),
         );
-  return cgroupCpus !== null ? Math.max(1, Math.min(hostCpus, cgroupCpus)) : hostCpus;
+  return cgroupCpus !== null ? Math.max(0.1, Math.min(hostCpus, cgroupCpus)) : hostCpus;
 }
 
 function detectContainerMemoryLimitMb(): number {
@@ -688,12 +698,11 @@ export function resolveRenderCaptureTuning(options: {
   captureWorkers?: 'auto' | number | string;
   concurrency?: number;
   sourceEnv?: NodeJS.ProcessEnv;
-  settings?: Record<string, unknown>;
   cpuLimit?: number;
   memoryLimitMb?: number;
 } = {}): RenderCaptureTuning {
   const sourceEnv = options.sourceEnv ?? process.env;
-  const cpuLimit = Math.max(1, options.cpuLimit ?? detectContainerCpuLimit());
+  const cpuLimit = Math.max(0.1, options.cpuLimit ?? detectContainerCpuLimit());
   const memoryLimitMb = Math.max(256, options.memoryLimitMb ?? detectContainerMemoryLimitMb());
   const jobConcurrency = Math.max(1, Math.floor(options.concurrency ?? 1));
 
@@ -721,14 +730,13 @@ export function resolveRenderCaptureTuning(options: {
     source = 'auto';
   }
 
-  const gpuRequested =
-    options.settings?.gpu === true ||
-    sourceEnv.PRODUCER_BROWSER_GPU_MODE?.trim().toLowerCase() === 'hardware';
+  // Only operator-controlled container env may opt into hardware Chrome GPU probing.
+  const hardwareBrowserGpu = sourceEnv.PRODUCER_BROWSER_GPU_MODE?.trim().toLowerCase() === 'hardware';
 
   return {
     workers,
     disableLowMemoryMode: workers > 1,
-    disableBrowserGpu: !gpuRequested,
+    disableBrowserGpu: !hardwareBrowserGpu,
     cpuLimit,
     memoryLimitMb,
     source,
@@ -1080,7 +1088,6 @@ export async function processExportRenderJob(
       captureWorkers: deps.captureWorkers,
       concurrency: deps.concurrency,
       sourceEnv: deps.sourceEnv,
-      settings: payload.settings,
     });
     deps.logger.info('Resolved export render capture tuning', {
       jobId,
@@ -1106,10 +1113,21 @@ export async function processExportRenderJob(
     let lastDbPersistAt = 0;
     let lastScaledProgress = 15;
     let lastStage = 'rendering';
+    let lastStagePhase = renderStagePhaseKey(lastStage);
     let lastPersistedProgress = 15;
     let lastPersistedStage = 'rendering';
     let renderActive = true;
     let pendingDbPersist: Promise<void> | null = null;
+    let redisPublishChain: Promise<void> = Promise.resolve();
+
+    const enqueueRedisProgressPublish = (stage: string, progress: number) => {
+      redisPublishChain = redisPublishChain
+        .then(() => {
+          if (abortController.signal.aborted) return;
+          return publishProgress('running', stage, progress);
+        })
+        .catch(() => undefined);
+    };
 
     const persistRenderProgress = (stage: string, progress: number) => {
       if (!renderActive || pendingDbPersist) return;
@@ -1156,15 +1174,20 @@ export async function processExportRenderJob(
           const nextStage = parsed.stage ?? lastStage;
           if (scaledProgress === lastScaledProgress && nextStage === lastStage) return;
 
+          const nextPhase = renderStagePhaseKey(nextStage);
+          const phaseChanged = nextPhase !== lastStagePhase;
           const nowMs = Date.now();
-          if (lastPublishAt !== 0 && nowMs - lastPublishAt < PROGRESS_PUBLISH_MIN_INTERVAL_MS) return;
+          if (!phaseChanged && lastPublishAt !== 0 && nowMs - lastPublishAt < PROGRESS_PUBLISH_MIN_INTERVAL_MS) {
+            return;
+          }
           lastPublishAt = nowMs;
           lastScaledProgress = scaledProgress;
           lastStage = nextStage;
-          void publishProgress('running', nextStage, scaledProgress);
+          lastStagePhase = nextPhase;
+          enqueueRedisProgressPublish(nextStage, scaledProgress);
 
           if (
-            (lastDbPersistAt === 0 || nowMs - lastDbPersistAt >= PROGRESS_DB_PERSIST_MIN_INTERVAL_MS) &&
+            (phaseChanged || lastDbPersistAt === 0 || nowMs - lastDbPersistAt >= PROGRESS_DB_PERSIST_MIN_INTERVAL_MS) &&
             (scaledProgress > lastPersistedProgress || nextStage !== lastPersistedStage)
           ) {
             persistRenderProgress(nextStage, scaledProgress);
@@ -1173,9 +1196,7 @@ export async function processExportRenderJob(
       });
     } finally {
       renderActive = false;
-      if (pendingDbPersist) {
-        await pendingDbPersist;
-      }
+      await Promise.allSettled([redisPublishChain, pendingDbPersist]);
     }
 
     const renderLogContent = `${renderResult.stdout}\n${renderResult.stderr}`.trim() + '\n';

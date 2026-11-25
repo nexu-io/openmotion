@@ -203,6 +203,7 @@ RUN printf '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:f
 ENV NODE_ENV=production \
     WORKER_ROLE=render \
     RENDER_CONCURRENCY=1 \
+    RENDER_CAPTURE_WORKERS=auto \
     HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium \
     HYPERFRAMES_FFMPEG_PATH=/usr/bin/ffmpeg \
     HYPERFRAMES_FFPROBE_PATH=/usr/bin/ffprobe \
