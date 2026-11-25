@@ -166,7 +166,7 @@ describe("useRazorSplit — sub-comp coordinate rebasing", () => {
     expect(childReq.elementStart).toBe(0); // 2 - 2
   });
 
-  it("refuses splitting a standalone canvas layer and informs the user instead of cloning a blank half", async () => {
+  it("refuses splitting standalone or wrapped canvas layers and informs the user instead of cloning a blank half", async () => {
     const canvasEl: TimelineElement = {
       id: "hyper-canvas",
       tag: "canvas",
@@ -177,24 +177,32 @@ describe("useRazorSplit — sub-comp coordinate rebasing", () => {
       hfId: "hf-yeey",
       sourceFile: SUBCOMP_FILE,
     };
-    usePlayerStore.setState({ elements: [canvasEl], selectedElementId: "hyper-canvas" });
+    const wrappedCanvasEl: TimelineElement = {
+      id: "magic-world",
+      tag: "div",
+      containsCanvas: true,
+      start: 0,
+      duration: 36.6,
+      track: 0,
+      domId: "magic-world",
+      hfId: "hf-z4ka",
+      sourceFile: SUBCOMP_FILE,
+    };
+    usePlayerStore.setState({ elements: [canvasEl, wrappedCanvasEl], selectedElementId: "magic-world" });
 
     await act(async () => {
       await harness.singleRef.current!(canvasEl, 14.3);
-      await harness.playheadRef.current!(14.3);
+      await harness.singleRef.current!(wrappedCanvasEl, 4.1);
+      await harness.playheadRef.current!(4.1);
+      await harness.allRef.current!(4.1);
     });
 
+    const expected = {
+      message: "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.",
+      tone: "info",
+    };
     expect(harness.splitRequests).toHaveLength(0);
-    expect(harness.toasts).toEqual([
-      {
-        message: "Canvas layers cannot be split directly. Split the parent composition instead.",
-        tone: "info",
-      },
-      {
-        message: "Canvas layers cannot be split directly. Split the parent composition instead.",
-        tone: "info",
-      },
-    ]);
+    expect(harness.toasts).toEqual([expected, expected, expected, expected]);
   });
 });
 

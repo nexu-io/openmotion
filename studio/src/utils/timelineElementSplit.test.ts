@@ -95,11 +95,31 @@ describe("canSplitElementAt", () => {
     expect(canSplitElementAt(element({ playbackRate: Number.NaN }), 3)).toBe(false);
   });
 
-  it("rejects standalone script-driven canvas layers so splitting does not clone a blank right half", () => {
+  it("rejects standalone and wrapped script-driven canvas layers while allowing sub-composition hosts", () => {
     expect(canSplitElementAt(element({ tag: "canvas", domId: "hyper-canvas" }), 3)).toBe(false);
     expect(
-      selectSplittableElements([element({ tag: "canvas", domId: "hyper-canvas" })], 3),
+      canSplitElementAt(element({ tag: "div", domId: "magic-world", containsCanvas: true }), 3),
+    ).toBe(false);
+    expect(
+      selectSplittableElements(
+        [
+          element({ tag: "canvas", domId: "hyper-canvas" }),
+          element({ tag: "div", domId: "magic-world", containsCanvas: true }),
+        ],
+        3,
+      ),
     ).toEqual([]);
+    expect(
+      canSplitElementAt(
+        element({
+          tag: "div",
+          kind: "composition",
+          compositionSrc: "compositions/gallery.html",
+          containsCanvas: true,
+        }),
+        3,
+      ),
+    ).toBe(true);
   });
 });
 

@@ -25,7 +25,11 @@ import {
 import { walkCompositionDescendants } from '@hyperframes/parsers/hf-ids';
 import { extractGsapScriptBlock } from './gsap-block.ts';
 import { assertSafeElementDeletion } from './delete-dependencies.ts';
-import { applyAtomicCutsToHtml } from './split.ts';
+import {
+  applyAtomicCutsToHtml,
+  CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
+  isUnsplittableCanvasElement,
+} from './split.ts';
 import type { TimelineCommand } from './timeline-schema.ts';
 export type { TimelineCommand } from './timeline-schema.ts';
 
@@ -246,8 +250,8 @@ function applySelectionCommand(
   if (command.kind === 'splitClips') {
     const cuts = command.hfIds.map((id) => {
       const el = target(id);
-      if (el.localName === 'canvas') {
-        throw new Error('Canvas layers cannot be split directly. Split the parent composition instead.');
+      if (isUnsplittableCanvasElement(el)) {
+        throw new Error(CANVAS_SPLIT_UNSUPPORTED_MESSAGE);
       }
       const innerMedia =
         el.hasAttribute('data-start') || el.hasAttribute('data-duration')

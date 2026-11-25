@@ -69,6 +69,8 @@ export interface TimelineElement {
   masterChain?: string;
   /** Path from data-composition-src — identifies sub-composition elements */
   compositionSrc?: string;
+  /** True when this clip is or wraps a procedural <canvas> (outside an external sub-composition). */
+  containsCanvas?: boolean;
   /** Set by data-timeline-locked on the host element — disables move and trim in Studio. */
   timelineLocked?: boolean;
   /** Set by data-hidden on the host element — hides the clip in preview and render. */

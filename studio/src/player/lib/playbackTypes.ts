@@ -50,6 +50,7 @@ export interface ClipManifestClip extends RuntimeTimelineClipIdentity {
     muted: boolean;
     hasAudioAttr?: string | null;
     volume?: number;
+    containsCanvas?: boolean;
   };
   zIndex?: number;
   stackingContextId?: string | null;

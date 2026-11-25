@@ -1,6 +1,29 @@
 import { findTargetElement, nextUniqueId, parseSourceDocument, relinkSplitHalvesInHtml, splitElementInHtml, type SourceMutationTarget } from '@hyperframes/studio-server/source-mutation';
 import { applyGsapMutationsInMemory } from './gsap-mutations.ts';
 
+export const CANVAS_SPLIT_UNSUPPORTED_MESSAGE =
+  'Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.';
+
+/**
+ * Procedural `<canvas>` elements (and non-sub-composition wrappers around them)
+ * cannot be split by DOM cloning because the drawing script remains bound to a
+ * single canvas, leaving the cloned right half empty/black.
+ */
+export function isUnsplittableCanvasElement(el: Element): boolean {
+  if (el.hasAttribute('data-composition-src') || el.hasAttribute('data-composition-file')) {
+    return false;
+  }
+  return el.localName === 'canvas' || Boolean(el.querySelector('canvas'));
+}
+
+export function assertSplittableElementInHtml(html: string, target: SourceMutationTarget): void {
+  const { document } = parseSourceDocument(html);
+  const el = findTargetElement(document, target);
+  if (el && isUnsplittableCanvasElement(el)) {
+    throw new Error(CANVAS_SPLIT_UNSUPPORTED_MESSAGE);
+  }
+}
+
 export interface AtomicCutTarget {
   target: SourceMutationTarget;
   originalId?: string;
@@ -30,6 +53,9 @@ export function applyAtomicCutsToHtml(
     const { document } = parseSourceDocument(html);
     const el = findTargetElement(document, cut.target);
     if (!el) continue;
+    if (isUnsplittableCanvasElement(el)) {
+      throw new Error(CANVAS_SPLIT_UNSUPPORTED_MESSAGE);
+    }
 
     const originalId = cut.originalId || el.getAttribute('id') || undefined;
     const baseNewId = originalId ? `${originalId}-split` : 'clip-split';

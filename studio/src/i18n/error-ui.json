@@ -72,7 +72,7 @@
     "Switching projects. Please try again shortly.": "正在切换项目，请稍后重试。",
     "Page not found": "页面不存在",
     "The page you are looking for does not exist or is no longer available.": "你访问的页面不存在，或已下线。",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas 图层暂不支持直接分割，请在上层合成中分割该片段。"
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Canvas 图层暂不支持直接分割。可以裁切片段时长，或让 Agent 修改场景脚本。"
   },
   "ja": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "このレイヤーには位置のアニメーションが複数あります。変更するものを選んでください。",
@@ -147,7 +147,7 @@
     "Switching projects. Please try again shortly.": "プロジェクトを切り替え中です。しばらくしてからもう一度お試しください。",
     "Page not found": "ページが見つかりません",
     "The page you are looking for does not exist or is no longer available.": "お探しのページは存在しないか、現在利用できません。",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas レイヤーは直接分割できません。親コンポジション側で分割してください。"
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Canvas レイヤーは直接分割できません。クリップをトリムするか、Agent にシーン編集を依頼してください。"
   },
   "ko": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "이 레이어에는 위치 애니메이션이 여러 개 있습니다. 수정할 애니메이션을 선택하세요.",
@@ -222,7 +222,7 @@
     "Switching projects. Please try again shortly.": "프로젝트를 전환하는 중입니다. 잠시 후 다시 시도하세요.",
     "Page not found": "페이지를 찾을 수 없습니다",
     "The page you are looking for does not exist or is no longer available.": "찾으시는 페이지가 존재하지 않거나 더 이상 이용할 수 없습니다.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas 레이어는 직접 분할할 수 없습니다. 상위 컴포지션에서 분할해 주세요."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Canvas 레이어는 직접 분할할 수 없습니다. 클립 길이를 조정하거나 Agent에게 장면 편집을 요청해 주세요."
   },
   "de": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Diese Ebene hat mehrere Positionsanimationen. Wähle die Animation aus, die du ändern möchtest.",
@@ -297,7 +297,7 @@
     "Switching projects. Please try again shortly.": "Projekt wird gewechselt. Bitte versuchen Sie es gleich noch einmal.",
     "Page not found": "Seite nicht gefunden",
     "The page you are looking for does not exist or is no longer available.": "Die gesuchte Seite existiert nicht oder ist nicht mehr verfügbar.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas-Ebenen können nicht direkt geteilt werden. Teile stattdessen die übergeordnete Komposition."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Canvas-Ebenen können nicht direkt geteilt werden. Kürze den Clip oder bitte deinen Agenten, die Szene zu bearbeiten."
   },
   "fr": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Ce calque a plusieurs animations de position. Sélectionnez celle que vous souhaitez modifier.",
@@ -372,7 +372,7 @@
     "Switching projects. Please try again shortly.": "Changement de projet en cours. Veuillez réessayer dans un instant.",
     "Page not found": "Page introuvable",
     "The page you are looking for does not exist or is no longer available.": "La page que vous recherchez n’existe pas ou n’est plus disponible.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Les calques Canvas ne peuvent pas être scindés directement. Scindez plutôt la composition parente."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Les calques Canvas ne peuvent pas être scindés directement. Raccourcissez le clip ou demandez à votre Agent de modifier la scène."
   },
   "es": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Esta capa tiene varias animaciones de posición. Selecciona la que quieras modificar.",
@@ -447,7 +447,7 @@
     "Switching projects. Please try again shortly.": "Cambiando de proyecto. Inténtalo de nuevo en unos momentos.",
     "Page not found": "Página no encontrada",
     "The page you are looking for does not exist or is no longer available.": "La página que buscas no existe o ya no está disponible.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Las capas Canvas no se pueden dividir directamente. Divide la composición principal en su lugar."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Las capas Canvas no se pueden dividir directamente. Recorta el clip o pide a tu Agent que edite la escena."
   },
   "pt-BR": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Esta camada tem várias animações de posição. Selecione a que deseja alterar.",
@@ -522,7 +522,7 @@
     "Switching projects. Please try again shortly.": "Alternando projetos. Tente novamente em instantes.",
     "Page not found": "Página não encontrada",
     "The page you are looking for does not exist or is no longer available.": "A página que você procura não existe ou não está mais disponível.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Camadas Canvas não podem ser divididas diretamente. Divida a composição principal em vez disso."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Camadas Canvas não podem ser divididas diretamente. Apare o clipe ou peça ao seu Agent para editar a cena."
   },
   "it": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Questo livello ha più animazioni di posizione. Seleziona quella da modificare.",
@@ -597,7 +597,7 @@
     "Switching projects. Please try again shortly.": "Cambio progetto in corso. Riprova tra un momento.",
     "Page not found": "Pagina non trovata",
     "The page you are looking for does not exist or is no longer available.": "La pagina che stai cercando non esiste o non è più disponibile.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "I livelli Canvas non possono essere divisi direttamente. Dividi invece la composizione principale."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "I livelli Canvas non possono essere divisi direttamente. Taglia la durata della clip o chiedi al tuo Agent di modificare la scena."
   },
   "ru": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "У этого слоя несколько анимаций положения. Выберите ту, которую хотите изменить.",
@@ -672,7 +672,7 @@
     "Switching projects. Please try again shortly.": "Переключение проекта. Повторите попытку чуть позже.",
     "Page not found": "Страница не найдена",
     "The page you are looking for does not exist or is no longer available.": "Запрошенная страница не существует или больше недоступна.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Слои Canvas нельзя разделить напрямую. Разделите вместо этого родительскую композицию."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Слои Canvas нельзя разделить напрямую. Обрежьте клип или попросите Agent изменить сцену."
   },
   "tr": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Bu katmanda birden fazla konum animasyonu var. Değiştirmek istediğinizi seçin.",
@@ -747,6 +747,6 @@
     "Switching projects. Please try again shortly.": "Proje değiştiriliyor. Lütfen birazdan tekrar deneyin.",
     "Page not found": "Sayfa bulunamadı",
     "The page you are looking for does not exist or is no longer available.": "Aradığınız sayfa mevcut değil veya artık kullanılamıyor.",
-    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas katmanları doğrudan bölünemez. Bunun yerine üst kompozisyonu bölün."
+    "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.": "Canvas katmanları doğrudan bölünemez. Klibi kırpın veya sahneyi düzenlemesi için Agent'ınızdan isteyin."
   }
 }

@@ -32,10 +32,13 @@ export const PREVIEW_TIMELINE_MANIFEST = `
       const media = node.matches('audio,video,img,[data-composition-id],[data-composition-src],[data-composition-file]')
         ? node : node.querySelector('audio,video,img');
       const volume = Number.parseFloat(node.getAttribute('data-volume') ?? media?.getAttribute('data-volume'));
+      const isExternalSubComp = node.matches('[data-composition-src],[data-composition-file]');
+      const containsCanvas = !isExternalSubComp && (node.localName === 'canvas' || Boolean(node.querySelector('canvas')));
       return { ...clip, authored: { domId, hfId, sourceFile,
         hidden: node.hasAttribute('data-hidden'), timelineLocked: node.hasAttribute('data-timeline-locked'),
         muted: node.hasAttribute('muted') || !!media?.hasAttribute('muted'),
-        hasAudioAttr: node.getAttribute('data-has-audio'), volume: Number.isFinite(volume) ? volume : undefined } };
+        hasAudioAttr: node.getAttribute('data-has-audio'), volume: Number.isFinite(volume) ? volume : undefined,
+        ...(containsCanvas ? { containsCanvas: true } : {}) } };
     });
   }
 `;

@@ -21,17 +21,19 @@ export function isSplitTimeWithinBounds(
 }
 
 export const CANVAS_SPLIT_UNSUPPORTED_MESSAGE =
-  "Canvas layers cannot be split directly. Split the parent composition instead.";
+  "Canvas layers cannot be split directly. Trim the clip or ask your Agent to edit the scene.";
 
 /**
- * Procedural `<canvas>` layers are typically bound by ID or direct DOM reference
- * to custom scripts; cloning a second `<canvas id="...-split">` leaves the right
- * half blank/black in both preview and thumbnails. Split the parent composition instead.
+ * Procedural `<canvas>` layers (and non-sub-composition wrappers around them)
+ * are typically bound by ID or direct DOM reference to custom scripts; cloning
+ * a second `<canvas>` leaves the right half empty/black in both preview and
+ * thumbnails.
  */
 export function isUnsplittableCanvasElement(
-  el: Pick<TimelineElement, "tag" | "compositionSrc">,
+  el: Pick<TimelineElement, "tag" | "compositionSrc" | "containsCanvas">,
 ): boolean {
-  return el.tag.toLowerCase() === "canvas" && !el.compositionSrc;
+  if (el.compositionSrc) return false;
+  return el.tag.toLowerCase() === "canvas" || Boolean(el.containsCanvas);
 }
 
 export function canSplitElement(el: TimelineElement): boolean {

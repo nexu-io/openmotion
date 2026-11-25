@@ -19,6 +19,8 @@ import {
 } from '../context.ts';
 import {
   applyAtomicCutsToHtml,
+  assertSplittableElementInHtml,
+  CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
   collectProjectHtmlIds,
   duplicateElementInHtml,
   ensureStudioFontFaceCss,
@@ -482,6 +484,16 @@ export function createStudioFileMutationsRoutes(
     const current = await deps.files.readTextFile(auth, projectId, filePath);
     if (!current) return c.json({ error: 'Target file not found', path: filePath }, 404);
 
+    try {
+      assertSplittableElementInHtml(current.content, body.target);
+    } catch (error) {
+      throw new CloudError(
+        'INVALID_ARGUMENT',
+        error instanceof Error ? error.message : CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
+        { status: 400, applied: false },
+      );
+    }
+
     const splitRes = splitElementInHtml(
       current.content,
       body.target,
@@ -578,7 +590,15 @@ export function createStudioFileMutationsRoutes(
       }
       // A legacy anonymous clip gets its deterministic hf-id during preview bundling.
       const basis = targets.some(cut => cut.target.hfId && !cut.target.id) ? stampHfIdsInPlace(before) : before;
-      const cutRes = applyAtomicCutsToHtml(basis, targets, takenIds);
+      let cutRes: ReturnType<typeof applyAtomicCutsToHtml>;
+      try {
+        cutRes = applyAtomicCutsToHtml(basis, targets, takenIds);
+      } catch (error) {
+        if (error instanceof Error && error.message === CANVAS_SPLIT_UNSUPPORTED_MESSAGE) {
+          return c.json({ ok: false, outcome: 'failed', error: error.message }, 400);
+        }
+        throw error;
+      }
       if (cutRes.splitCount !== targets.length) {
         return c.json({ ok: false, outcome: 'conflict', error: `Split target changed: ${safePath}` }, 409);
       }

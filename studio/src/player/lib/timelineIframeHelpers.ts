@@ -470,6 +470,11 @@ function buildMissingCompositionEntry(params: {
     src: optionalNonEmpty(element.getAttribute("src"))
       ? new URL(element.getAttribute("src")!, element.baseURI).href
       : undefined,
+    ...(!compositionSrc &&
+    !element.hasAttribute("data-composition-file") &&
+    (element.tagName.toLowerCase() === "canvas" || Boolean(element.querySelector("canvas")))
+      ? { containsCanvas: true }
+      : {}),
   };
   return attachCompositionSource(entry, element, compositionSrc);
 }

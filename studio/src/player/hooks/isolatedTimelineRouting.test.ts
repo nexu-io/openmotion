@@ -42,16 +42,24 @@ it("keeps authored identity across runtime notifications and only accepts it fro
   expect(process).not.toHaveBeenCalled();
   expect(child.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "handshake", timelineOnly: true }), origin);
   const payload = { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, type: "timeline-state", projectId: "p",
-    clips: [{ ...clip, authored: { sourceFile: "parts/scene.html", hfId: "source-voice", hidden: true, timelineLocked: true, muted: true, volume: 0.42 } }],
+    clips: [
+      { ...clip, authored: { sourceFile: "parts/scene.html", hfId: "source-voice", hidden: true, timelineLocked: true, muted: true, volume: 0.42 } },
+      { id: "magic-world", kind: "element", tagName: "div", start: 0, duration: 36.6, track: 0,
+        authored: { sourceFile: "compositions/catalog-scene.html", domId: "magic-world", hfId: "hf-z4ka", hidden: false, timelineLocked: false, muted: false, containsCanvas: true } },
+    ],
     durationInFrames: 60 };
   send({ ...payload, token: "older" });
   expect(process).not.toHaveBeenCalled();
   send({ ...payload, token: "active" });
   const clips = process.mock.calls[0]![0].clips;
   expect(isCurrentIsolatedManifest(iframe, clips)).toBe(true);
-  expect(buildTimelineElementsFromClips(clips, null)[0]).toMatchObject({
+  const built = buildTimelineElementsFromClips(clips, null);
+  expect(built[0]).toMatchObject({
     sourceFile: "parts/scene.html", hfId: "source-voice", selector: '[data-hf-id="source-voice"]',
     timelineLocked: true, hidden: true, muted: true, volume: 0.42,
+  });
+  expect(built[1]).toMatchObject({
+    domId: "magic-world", hfId: "hf-z4ka", tag: "div", containsCanvas: true,
   });
   iframe.src = origin + "/api/projects/p/preview?pt=replacement";
   expect(isCurrentIsolatedManifest(iframe, clips)).toBe(false);

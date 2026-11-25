@@ -118,13 +118,25 @@ test('moving and trimming an untimed root canvas clip inherits the composition d
   assert.equal(trimmed.querySelector('#hyper-canvas')?.getAttribute('data-duration'), '20');
 });
 
-test('splitting a script-driven canvas element directly is rejected', () => {
-  const html =
+test('splitting a script-driven canvas element or canvas wrapper directly is rejected', () => {
+  const bareCanvas =
     '<div data-composition-id="hyper-world" data-duration="47.2"><canvas id="hyper-canvas" data-hf-id="hf-yeey" data-start="0" data-duration="47.2"></canvas></div>';
   assert.throws(
-    () => apply(html, { kind: 'splitClips', hfIds: ['hf-yeey'], at: 15 }),
+    () => apply(bareCanvas, { kind: 'splitClips', hfIds: ['hf-yeey'], at: 15 }),
     /Canvas layers cannot be split directly/,
   );
+
+  const canvasWrapper =
+    '<div data-composition-id="lark-magic-share" data-duration="36.6"><div id="magic-world" data-hf-id="hf-z4ka" class="clip" data-start="0" data-duration="36.6"><canvas id="magic-canvas" data-hf-id="hf-y5hb" width="1280" height="720"></canvas></div></div>';
+  assert.throws(
+    () => apply(canvasWrapper, { kind: 'splitClips', hfIds: ['hf-z4ka'], at: 4.1 }),
+    /Canvas layers cannot be split directly/,
+  );
+
+  const subCompHost =
+    '<div data-composition-id="main" data-duration="10"><div id="welcome-gallery" data-hf-id="hf-gal" data-composition-id="welcome-gallery" data-composition-src="compositions/gallery.html" data-start="0" data-duration="10"></div></div>';
+  const splitSubComp = root(apply(subCompHost, { kind: 'splitClips', hfIds: ['hf-gal'], at: 5 }));
+  assert.ok(splitSubComp.querySelector('#welcome-gallery-split'));
 });
 
 test('a headless lane move updates paint order and time atomically, refusing a locked paint target', () => {
