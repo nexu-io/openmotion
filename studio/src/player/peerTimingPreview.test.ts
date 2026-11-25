@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
-import { diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, refreshPeerScenes, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
+import { diffMountedPreview, diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, refreshPeerScenes, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
 
 const source = '<!doctype html><main data-composition-id="root" data-duration="15"><audio id="a" data-start="2" data-duration="3"></audio><script>window.run(1)</script></main>';
 
@@ -74,6 +74,18 @@ describe("peer timing classification", () => {
     const partial = '<main data-composition-id="scene"><p id="title" data-hf-id="existing">Hi</p></main>';
     const stamped = ensureHfIds(partial).replace('id="title"', 'id="title" style="font-size: 52px"');
     expect(await diffScriptedPreviewStyles(partial, stamped)).toMatchObject([{ hfId: "existing", id: "title" }]);
+  });
+
+  it("hot-resizes the CSS box of a mounted canvas on its first stamped edit", async () => {
+    const before = '<template><div data-composition-id="scene"><canvas id="picture" width="1200" height="675"></canvas></div></template>';
+    const after = ensureHfIds(before).replace('id="picture"', 'id="picture" style="width: 1100px; height: 600px"');
+    const box = { mounted: true };
+    expect(await diffMountedPreview(before, after, box)).toMatchObject([
+      { id: "picture", tag: "canvas", styles: [["width", "", "1100px"], ["height", "", "600px"]] },
+    ]);
+    expect(await diffMountedPreview(before, after)).toBeNull();
+    expect(await diffMountedPreview(before, after.replace('width="1200"', 'width="1100"'), box)).toBeNull();
+    expect(await diffMountedPreview(before, after.replace("1100px", "95%"), box)).toBeNull();
   });
 
   it("includes the containing-block change on the first drag of a static layer", () => {

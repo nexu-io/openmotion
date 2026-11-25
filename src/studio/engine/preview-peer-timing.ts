@@ -25,7 +25,7 @@ export const PREVIEW_PEER_TIMING = `
     const match = /^"(sha256|patch):([a-f0-9]{64})"$/.exec(tag);
     return match ? (match[1] === 'patch' ? tag : match[2]) : null;
   }
-  function stagePresentation(node, change, effects, local, pending, authored, cssBox) {
+  function stagePresentation(node, change, effects, local, pending, authored, canUpdateBox) {
     if (change.captureOriginalTranslate !== undefined) {
       const move = Array.isArray(change.styles) && change.styles.find(style => Array.isArray(style) && style[0] === 'translate');
       if (typeof change.captureOriginalTranslate !== 'boolean' || !(timingDocumentId || authored) || !move) return false;
@@ -42,7 +42,7 @@ export const PREVIEW_PEER_TIMING = `
     if (!change.styles && !change.text) return true;
     if (!presentationTags.has(node.localName) && !(node.localName === 'canvas' && isPositionEdit([change])) &&
         !(pending?.ordered && pending.element === node && mediaBox(change)) &&
-        !(['canvas','img','video'].includes(node.localName) && (cssBox || paintOnly(change)))) return false;
+        !(['canvas','img','video'].includes(node.localName) && (canUpdateBox || paintOnly(change)))) return false;
     if (change.styles) {
       if (!Array.isArray(change.styles) || !change.styles.length || change.styles.length > presentationStyles.size) return false;
       for (const [name, from, to] of change.styles) {
@@ -101,7 +101,7 @@ export const PREVIEW_PEER_TIMING = `
     const base = ownDrag ? pending.confirmedVersion || pending.sha256 : sourceVersions[m.path];
     const measured = ownDrag && pending.ordered && Array.isArray(m.changes) && m.changes.length === 1 && mediaBox(m.changes[0]);
     const nestedBox = m.type === 'peer-presentation' && settings.smallMountedSources?.includes(m.path) &&
-      Array.isArray(m.changes) && m.changes.length > 0 && m.changes.every(change => pixelBox(change) && presentationTags.has(change.tag));
+      Array.isArray(m.changes) && m.changes.length > 0 && m.changes.every(change => pixelBox(change));
     const cssBox = (timingDocumentId || settings.liveEdits?.cssLayoutOffset === true) && m.type === 'peer-presentation' &&
       Array.isArray(m.changes) && m.changes.length > 0 && m.changes.every(change => pixelBox(change, true));
     const position = measured || nestedBox || cssBox || settings.liveEdits?.position === true && m.type === 'peer-presentation' &&
@@ -205,7 +205,7 @@ export const PREVIEW_PEER_TIMING = `
         const livePosition = getComputedStyle(node).position;
         if (livePosition !== 'static' && livePosition !== 'relative') return false;
       }
-      if (!stagePresentation(node, change, effects, local, pending, authored, cssBox)) return false;
+      if (!stagePresentation(node, change, effects, local, pending, authored, nestedBox || cssBox)) return false;
       if (position && !temporary) placements.push([node, selector, change]);
       for (const [name, from, to] of change.attributes) {
         if (!previewAttributes.has(name) || [from, to].some(value => !canPatchPreviewAttribute(name, value, node.localName))) return false;
