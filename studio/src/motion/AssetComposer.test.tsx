@@ -845,7 +845,7 @@ it.each(['free', 'plus'])('keeps the background removal draft through sign-in an
   expect(submit().disabled).toBe(true);
   const card = container.querySelector('[data-generation-offer="sign_in"]')!;
   expect(card.querySelector('h3')?.textContent).toBe('7 days of unlimited flagship image generation');
-  expect(card.querySelector('p')?.textContent).toBe('Available with Plus or higher');
+  expect(card.querySelector('p')?.textContent).toBe('Annual Pro & Max');
   expect(provider.closest('.om-generation-picker')?.nextElementSibling).toBe(card);
   expect(card.nextElementSibling?.querySelector('button[aria-label="Generation model"]')).toBeTruthy();
   expect([...card.querySelectorAll('button')].map(button => button.textContent)).toEqual(['Sign in now']);
@@ -910,7 +910,7 @@ it.each([
     const offer = container.querySelector(`[data-generation-offer="${state === 'guest' ? 'sign_in' : 'upgrade'}"]`)!;
     expect(offer.querySelector('h3')?.textContent)
       .toBe(modality === 'image' ? '7 days of unlimited flagship image generation' : 'Black Friday: up to 50% off your first year');
-    const imageDetails = state === 'guest' ? 'Available with Plus or higher' : 'Black Friday: the year’s best deals, up to 50% off';
+    const imageDetails = state === 'guest' ? 'Annual Pro & Max' : 'Annual Pro & Max · Up to 50% off';
     expect(offer.querySelector('p')?.textContent).toBe(modality === 'image' ? imageDetails : 'Enjoy this offer with Plus or higher');
     expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
     await click(picker('Provider'));
@@ -1007,7 +1007,7 @@ it.each(['free', 'go'])('previews locked account models and lets a %s account sw
   await choose('GPT Image 2.6 Flare');
   const offer = container.querySelector('section[data-generation-offer="upgrade"]')!;
   expect(offer.querySelector('h3')?.textContent).toBe('7 days of unlimited flagship image generation');
-  expect(offer.querySelector('p')?.textContent).toBe('Black Friday: the year’s best deals, up to 50% off');
+  expect(offer.querySelector('p')?.textContent).toBe('Annual Pro & Max · Up to 50% off');
   expect(submit().disabled).toBe(true);
   gatewayRequest.mockResolvedValue({ opened: true });
   const upgrade = offer.querySelector<HTMLButtonElement>('button')!;

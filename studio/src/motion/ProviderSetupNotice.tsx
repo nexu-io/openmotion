@@ -27,7 +27,7 @@ export function ProviderSetupNotice({ message, children }: {
 function generationOfferCopy({ scene }: StudioDestination, kind: OfferKind) {
   if (scene.modality === 'image') return {
     title: '7 days of unlimited flagship image generation',
-    details: kind === 'upgrade' ? 'Black Friday: the year’s best deals, up to 50% off' : 'Available with Plus or higher',
+    details: kind === 'upgrade' ? 'Annual Pro & Max · Up to 50% off' : 'Annual Pro & Max',
   };
   return {
     title: 'Black Friday: up to 50% off your first year',
