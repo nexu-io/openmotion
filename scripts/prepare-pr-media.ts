@@ -136,8 +136,9 @@ export async function prepareMediaCleanup(inputs: Inputs, read: (file: TreeFile)
 }
 
 /** Conditional immutable writes and public byte verification; never overwrite an existing key. */
-export async function publishMedia(lock: MediaLock, bytes: Buffer, options: { endpoint: string; bucket: string; run?: (args: string[]) => Promise<void>; fetcher?: typeof fetch }) {
-  assert.equal(bytes.length, lock.bytes); assert.equal(mediaDigest(bytes), lock.sha256);
+export async function publishMedia(lock: MediaLock, source: Buffer | (() => Promise<Buffer>), options: { endpoint: string; bucket: string; run?: (args: string[]) => Promise<void>; fetcher?: typeof fetch }) {
+  const verifySource = (bytes: Buffer) => { assert.equal(bytes.length, lock.bytes); assert.equal(mediaDigest(bytes), lock.sha256); };
+  if (Buffer.isBuffer(source)) verifySource(source);
   const endpoint = new URL(options.endpoint);
   assert(endpoint.protocol === 'https:' && endpoint.hostname.endsWith('.r2.cloudflarestorage.com') && endpoint.pathname === '/' && !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash && !endpoint.port, 'Require the configured R2 HTTPS endpoint');
   assert(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(options.bucket), 'Invalid media bucket');
@@ -148,6 +149,8 @@ export async function publishMedia(lock: MediaLock, bytes: Buffer, options: { en
     assert.equal(response.status, 200, 'Cannot determine whether immutable media already exists');
     await downloadMedia(lock, fetcher); return;
   }
+  const bytes = Buffer.isBuffer(source) ? source : await source();
+  if (!Buffer.isBuffer(source)) verifySource(bytes);
   const directory = await mkdtemp(path.join(tmpdir(), 'openmotion-media-upload-'));
   try {
     const file = path.join(directory, 'media'); await writeFile(file, bytes);

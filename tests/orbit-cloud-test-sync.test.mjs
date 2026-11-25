@@ -576,6 +576,11 @@ test("release and container image workflows wire CI + 4-image gate, manifests, a
 		);
 	}
 	const promoteJob = extractJobBlock(releaseWorkflow, "promote");
+	const mediaGate = promoteJob.indexOf('run: node scripts/publish-studio-previews.ts');
+	assert.ok(mediaGate >= 0);
+	for (const promotion of ['node .github/scripts/orbit-publish-cloud-test.mjs', 'bash .github/scripts/promote-cloud-test.sh']) {
+		assert.ok(promoteJob.indexOf(promotion) > mediaGate, 'media must be ready before ' + promotion);
+	}
 	assert.match(promoteJob, PROMOTE_ENV_PATTERN);
 	assert.match(promoteJob, /\n    needs:\s*\[checks,\s*images\]/);
 
@@ -662,6 +667,7 @@ test("parseDeployPushPaths and matchesWorkflowPath match runtime/workflow inputs
 	);
 	const patterns = parseDeployPushPaths(releaseWorkflow);
 	for (const matchedFile of [
+		"repository-media.json",
 		"deploy/Dockerfile",
 		"src/entrypoints/api.ts",
 		"packages/design-system/index.ts",

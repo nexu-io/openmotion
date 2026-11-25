@@ -1,4 +1,3 @@
-import repositoryMedia from '../../../repository-media.json';
 import babylonJsPoster from './scene-art/babylon-js.webp';
 import bubbleFieldPoster from './scene-art/bubble-field.webp';
 import chalkBlueprintPoster from './scene-art/chalk-blueprint.webp';
@@ -13,8 +12,10 @@ import saleCountdownPoster from './scene-art/sale-countdown.webp';
 import splashFloatProductPoster from './scene-art/splash-float-product.webp';
 import talkingHeadRecreationPoster from './scene-art/talking-head-recreation.webp';
 
-const previewDirectory = 'studio/src/motion/skill-covers/';
-const hostedPreviews = new Map(repositoryMedia.files.filter(file => file.path.startsWith(previewDirectory)).map(file => [file.path, file.url]));
+declare const __STUDIO_PREVIEW_BASE__: string;
+declare const __STUDIO_PREVIEW_HASHES__: Record<string, string>;
+const hostedPreviews = new Map(Object.entries(__STUDIO_PREVIEW_HASHES__).map(([name, hash]) =>
+  [name, __STUDIO_PREVIEW_BASE__ + hash + name.slice(name.lastIndexOf('.'))] as const));
 // Explore and showcase posters are bundled via Vite into /editor-assets/*.webp so
 // first-screen discovery art loads alongside the application.
 const bundledPosters: Record<string, string> = {
@@ -37,11 +38,11 @@ const hostedClips = new Set(hostedPreviews.values());
 export const isHostedSkillMedia = (url?: string) => Boolean(url && hostedClips.has(url));
 
 export function archivedSkillPoster(name: string) {
-  return bundledPosters[name] ?? hostedPreviews.get(`${previewDirectory}${name}.webp`);
+  return hostedPreviews.get(`${name}.webp`) ?? bundledPosters[name];
 }
 
 export function archivedSkillCover(name: string, format: 'mp4' | 'webm' | 'gif' = 'mp4') {
-  const animation = hostedPreviews.get(`${previewDirectory}${name}.${format}`);
+  const animation = hostedPreviews.get(`${name}.${format}`);
   const poster = archivedSkillPoster(name);
   return format === 'gif' ? { gif: animation, poster } : { video: animation, poster };
 }

@@ -8,6 +8,8 @@ on:
       - deploy/Dockerfile
       - package.json
       - package-lock.json
+      - repository-media.json
+      - .gitattributes
       - src/**
       - shared/**
       - gateway/**
@@ -60,7 +62,7 @@ jobs:
     needs: [checks, images]
     if: github.repository == 'nexu-io/openmotion' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -70,6 +72,20 @@ jobs:
           pattern: test-digest-*
           merge-multiple: true
           path: ${{ runner.temp }}/digests
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+      - name: Fetch versioned Studio preview sources
+        run: git lfs pull --include='studio/preview-media/**' --exclude=''
+      - name: Publish and verify Studio preview media before promotion
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          MOTION_R2_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL }}
+          MOTION_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET }}
+        run: node scripts/publish-studio-previews.ts
       - name: Publish tested image digests to Orbit
         id: orbit
         if: vars.ORBIT_OPENMOTION_PULL == 'true'
