@@ -49,8 +49,8 @@ function imageTransport(directory: string) {
 
 async function until(check: () => Promise<boolean>) { for (let n = 0; n < 500; n++) { if (await check()) return; await delay(20); } throw new Error('Fixture timed out'); }
 async function finish(store: any, id: string) { const g = gatewayFor(store); await g.tick(); await Promise.all([...g.active.values()].map(task => task.done)); return g.getJob(id); }
-async function signIn(account: OpenDesignAccount) {
-  await account.login(); await until(async () => Boolean((await account.summary()).authorizationUrl));
+async function signIn(account: OpenDesignAccount, entryId?: string) {
+  await account.login({ entryId }); await until(async () => Boolean((await account.summary()).authorizationUrl));
   await writeFile(path.join(account.home, 'authorize'), 'yes');
   await until(async () => (await account.summary()).state === 'signed-in');
 }
@@ -596,7 +596,8 @@ test('completed sign-in delivers its source through the shared sender and respec
   t.after(() => tracking.close());
   const account = new OpenDesignAccount(store.directory, { binary, track: record => { tracking.track('account_sign_in_result', record); } });
   t.after(() => account.close());
-  await signIn(account);
+  const clickedEntry = randomUUID();
+  await signIn(account, clickedEntry);
   assert.equal(await tracking.flush(), 'accepted');
   const batch = batches[0].batch;
   assert.equal(batch.length, 1); assert.equal(batch[0].event, 'account_sign_in_result');
@@ -605,6 +606,7 @@ test('completed sign-in delivers its source through the shared sender and respec
   assert.equal(fields.source_product, 'openmotion'); assert.equal(fields.source_detail, 'openmotion_editor_login');
   assert.equal(fields.amr_user_id, 'fixture-user-id');
   assert.equal(fields.installation_id, installationId); assert.equal(fields.distinct_id, installationId); assert.equal(fields.utm_source, 'creator');
+  assert.equal(fields.entry_id, clickedEntry);
   assert.notEqual(fields.entry_id, fields.attempt_id);
   assert.doesNotMatch(JSON.stringify(batches), /fixture@example|synthetic-private|TEST-123|open-design\.ai/);
   enabled = false;
@@ -754,18 +756,22 @@ test('the subscription page opens in the system browser through a one-time accou
   });
   const opened: string[] = [];
   const launch = async (url: string) => { opened.push(url); };
-  assert.deepEqual(await account.openSubscription(launch), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
+  const clickedEntry = randomUUID();
+  assert.deepEqual(await account.openSubscription(launch, { entryId: clickedEntry }), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
   assert.deepEqual(opened, ['https://open-design.ai/cloud/login?intentId=intent_1-a']);
   const target = new URL(targets[0], 'https://open-design.ai'), params = target.searchParams;
   assert.equal(target.pathname, '/dashboard');
   assert.deepEqual([...params.keys()].sort(), ['billing', 'od_entry_at', 'od_entry_id', 'od_entry_source', 'od_origin']);
   assert.equal(params.get('billing'), 'plan'); assert.equal(params.get('od_origin'), 'openmotion');
   assert.equal(params.get('od_entry_source'), 'openmotion_manage_subscription');
+  assert.equal(params.get('od_entry_id'), clickedEntry);
   assert.match(params.get('od_entry_id')!, /^[0-9a-f-]{36}$/); assert.equal(new Date(params.get('od_entry_at')!).toISOString(), params.get('od_entry_at'));
   // Each open carries a fresh entry; a refused or malformed intent still opens the plain page.
   for (const refusal of [() => Response.json({ error: 'unauthorized' }, { status: 401 }), () => Response.json({ intentId: '../evil' }), () => { throw new TypeError('offline'); }]) {
     response = refusal;
-    const result = await account.openSubscription(launch);
+    const fallbackEntry = randomUUID();
+    const result = await account.openSubscription(launch, { entryId: fallbackEntry });
+    assert.equal(new URL(result.url).searchParams.get('od_entry_id'), fallbackEntry);
     assert.equal(new URL(result.url).origin + new URL(result.url).pathname, 'https://open-design.ai/cloud/dashboard');
     assert.equal(new URL(result.url).searchParams.get('od_origin'), 'openmotion'); assert.equal(result.opened, true);
   }

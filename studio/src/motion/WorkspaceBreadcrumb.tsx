@@ -5,6 +5,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { restoreWorkspaceSource, type WorkspaceSource } from '../utils/workspaceHistory';
 import { settingsSectionLabel } from './settingsMeta';
 import { readWorkspacePage } from './workspacePageRouting';
+import { findModelHub } from './modelHubs';
 
 function sourceLabel(href: string): string {
   const url = new URL(href);
@@ -18,7 +19,8 @@ function sourceLabel(href: string): string {
   if (page.scenarioHub) return 'Workflows';
   if (page.studio) return page.studio.scene.label;
   if (page.designScene) return 'Design Studio';
-  if (page.modelOverview || page.modelHub) return 'Model details';
+  if (page.modelHub) return findModelHub(page.modelHub)?.latestModel ?? 'Model details';
+  if (page.modelOverview) return 'Model details';
   if (page.specialty) return page.specialty.title;
   if (page.motion) return 'Motion Studio';
   if (page.skills) return 'Skills';

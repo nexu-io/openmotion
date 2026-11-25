@@ -41,6 +41,7 @@ export async function designTokens(checkOnly = false) {
     ['brand/loading-mark.svg', '../../library/skills/openmotion-sale-promo/assets/brand/loading-mark.svg'],
     ['fonts/NOTICES.txt', '../../web/design-system/fonts/NOTICES.txt'],
     ['fonts/Albert-Sans-OFL.txt', '../../web/design-system/fonts/Albert-Sans-OFL.txt'],
+    ['fonts/Instrument-Serif-OFL.txt', '../../web/design-system/fonts/Instrument-Serif-OFL.txt'],
     ['fonts/IBM-Plex-Mono-OFL.txt', '../../web/design-system/fonts/IBM-Plex-Mono-OFL.txt'],
   ];
   for (const [source, target] of mirrors) {

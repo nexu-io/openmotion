@@ -34,7 +34,7 @@ import { GITHUB_REPOSITORY } from './githubRepository';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
-import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
+import { dismissBannerToday, shouldShowBlackFridayBanner, useExploreCampaign, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -235,9 +235,10 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [page.templateCollection, page.skill]);
   const [narrow, setNarrow] = useState(() => window.innerWidth < 768);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
-  // Shown inside the campaign window unless dismissed today; re-checked each minute for the end and the next day.
   const [bfBannerShown, setBfBannerShown] = useMinuteCondition(shouldShowBlackFridayBanner);
-  const bfBannerVisible = !hostChrome && bfBannerShown;
+  const exploreCampaign = useExploreCampaign(lastExplore.current);
+  const exploreShowsHero = exploreCampaign.showHero && page.explore && !templatesPage && !settings;
+  const bfBannerVisible = !hostChrome && bfBannerShown && !exploreShowsHero;
   const closeBfBanner = useCallback(() => { dismissBannerToday(); setBfBannerShown(false); }, [setBfBannerShown]);
   const expireBfBanner = useCallback(() => setBfBannerShown(false), [setBfBannerShown]);
   const [projectQuery, setProjectQuery] = useState('');
@@ -591,6 +592,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         templatesPage={templatesPage}
         connectionsOpen={connectionsOpen}
         lastExplore={lastExplore.current}
+        exploreCampaign={exploreCampaign}
         motionEditorDisabled={motionEditorDisabled}
         motionTemplatesOpen={motionTemplatesOpen}
         standaloneMcp={standaloneMcp}

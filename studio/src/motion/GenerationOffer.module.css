@@ -1,0 +1,224 @@
+.card,
+.subscriptionCard {
+  --offer-art: url('./bf-upgrade-background.webp');
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-neutral-n11) var(--offer-art) center / cover no-repeat;
+  color: var(--motion-neutral-n0);
+}
+
+.card {
+  container: multimodal-offer / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(48%);
+  align-items: center;
+  align-content: center;
+  gap: var(--motion-space-8) var(--motion-space-12);
+  min-block-size: calc(var(--motion-space-64) + var(--motion-space-24));
+  padding-block: var(--motion-space-12);
+  padding-inline: min(6%, var(--motion-space-20)) min(5%, var(--motion-space-16));
+}
+
+.card h3 {
+  grid-area: 1 / 1;
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  font-size: var(--motion-text-heading);
+  font-weight: var(--motion-weight-bold);
+  line-height: var(--motion-leading-tight);
+}
+
+.card p {
+  grid-area: 2 / 1;
+  min-inline-size: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--motion-neutral-n4);
+  font-size: var(--motion-text-step-10);
+  font-weight: var(--motion-weight-regular);
+  line-height: var(--motion-leading-body);
+}
+
+:is(.card, .upgradeAction) > :is(button, a) {
+  grid-area: 1 / 2 / span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--motion-space-8);
+  justify-self: end;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  min-block-size: calc(var(--motion-control) + var(--motion-space-2));
+  padding: var(--motion-space-8) var(--motion-space-10);
+  border: 0;
+  border-radius: var(--motion-radius-step-7);
+  background: var(--motion-neutral-n11);
+  color: var(--motion-neutral-n0);
+  font-size: var(--motion-text-xs);
+  font-weight: var(--motion-weight-semibold);
+  line-height: var(--motion-leading-body);
+  white-space: normal;
+  text-align: start;
+  text-decoration: none;
+}
+.card > .signInButton { padding-inline: var(--motion-space-12); }
+:is(.card, .upgradeAction) > :is(button, a):hover { background: var(--motion-neutral-n10); }
+:is(.card, .upgradeAction) > :is(button, a):focus-visible { outline: 2px solid var(--motion-neutral-n0); outline-offset: 2px; }
+
+@container multimodal-offer (max-width: 18rem) {
+  .card > :is(button, a) {
+    gap: var(--motion-space-4);
+    padding-inline: var(--motion-space-6);
+  }
+}
+
+@container multimodal-offer (max-width: 14.5rem) {
+  .card p { grid-column: 1 / -1; }
+  .card > :is(button, a) { grid-row: 1; }
+}
+
+.subscriptionCard {
+  container: subscription-offer / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(45%);
+  align-content: center;
+  gap: var(--motion-space-12) var(--motion-space-16);
+  padding: var(--motion-space-32) clamp(var(--motion-space-20), 5%, var(--motion-space-32));
+  background-image: linear-gradient(90deg, var(--motion-black-friday-night) 4%, transparent 90%), var(--offer-art);
+}
+
+.subscriptionCard[data-guide='sign-in'] {
+  row-gap: var(--motion-space-20);
+}
+
+.subscriptionHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-self: center;
+  gap: var(--motion-space-4) var(--motion-space-8);
+}
+
+.subscriptionHeading h2 {
+  margin: 0;
+  font-size: var(--motion-text-section);
+  letter-spacing: 0.025em;
+  font-weight: var(--motion-weight-semibold);
+  line-height: var(--motion-leading-tight);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: none) {
+  .unlimitedText {
+    background-image: var(--motion-black-friday-headline-gradient);
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+.benefits {
+  grid-area: 2 / 1;
+  display: grid;
+  justify-items: start;
+  gap: var(--motion-space-12);
+}
+
+.modelSummary {
+  margin: 0;
+  color: var(--motion-neutral-n4);
+  line-height: var(--motion-leading-body);
+  font-size: var(--motion-text-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--motion-space-6) 0;
+}
+
+.modelItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-4);
+  white-space: nowrap;
+}
+
+.dealTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--motion-space-6);
+  max-inline-size: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dealTag {
+  box-sizing: border-box;
+  max-inline-size: 100%;
+  padding: var(--motion-space-6) var(--motion-space-10);
+  border: 1px solid var(--motion-neutral-n10);
+  border-radius: var(--motion-radius-step-7);
+  background: var(--motion-neutral-n11);
+  color: var(--motion-neutral-n4);
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+  line-height: var(--motion-leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.subscriptionHeading .dealTag {
+  padding: var(--motion-space-4) var(--motion-space-8);
+  border-color: color-mix(in srgb, var(--motion-neutral-n10) 70%, transparent);
+  background-color: color-mix(in srgb, var(--motion-neutral-n11) 76%, transparent);
+  background-clip: padding-box;
+  font-size: var(--motion-text-xs);
+}
+
+.dealTag strong {
+  color: var(--motion-black-friday-peach);
+  font-weight: var(--motion-weight-bold);
+}
+
+.subscriptionCard .modelSummary :global(.om-provider-avatar) {
+  width: var(--motion-space-14);
+  height: var(--motion-space-14);
+  border: 0;
+  border-radius: var(--motion-radius-sm);
+}
+
+.upgradeAction {
+  grid-area: 1 / 2 / span 2;
+  place-self: center end;
+}
+
+.subscriptionCard .upgradeAction > :is(button, a) {
+  min-block-size: var(--motion-space-44);
+  justify-content: center;
+  gap: var(--motion-space-6);
+  padding-inline: var(--motion-space-16);
+  font-size: var(--motion-text-body);
+}
+
+.subscriptionCard .upgradeAction > button svg {
+  width: var(--motion-icon);
+  height: var(--motion-icon);
+}
+
+@container subscription-offer (width > 32rem) {
+  .subscriptionCard[data-guide='sign-in'] .unlimitedText:lang(en) {
+    display: inline-block;
+  }
+}
+
+@container subscription-offer (max-width: 32rem) {
+  .benefits { grid-column: 1 / -1; }
+  .modelSummary { column-gap: var(--motion-space-12); }
+  .modelSeparator { display: none; }
+  .upgradeAction { grid-row: 1; }
+  .subscriptionCard .upgradeAction > :is(button, a) {
+    padding-inline: var(--motion-space-10);
+  }
+}

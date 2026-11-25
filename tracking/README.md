@@ -115,6 +115,13 @@ most once per minute and `worker_heartbeat` with bounded counts. Confirmed
 correctness incidents and recovery evidence use `incident_confirmed` and
 `recovery_recorded`; ordinary task failures are not incidents.
 
+## Sign-in and upgrade cards
+
+The [entry report and event definitions](generation-offer-funnels.md) cover the
+image and video generation cards and the cards in Account and Subscription & usage settings.
+The report links qualified exposure, button activation and confirmed sign-in or paid subscription
+by generation scene or settings section.
+
 ## Identity, properties and privacy
 
 `account_sign_in_result` reports each finished OpenDesign connector attempt with

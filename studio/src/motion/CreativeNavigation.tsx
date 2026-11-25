@@ -93,7 +93,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
   const [popupHost, setPopupHost] = useState<HTMLElement>();
   const navId = useId();
   const rail = useRef<HTMLElement>(null);
-  const catalog = useMediaCatalog(open === 'image' || open === 'video' || open === 'audio');
+  const catalog = useMediaCatalog(open === 'image' || open === 'video' || open === 'audio', open === 'image' || open === 'video');
   const trackPage = trackingPage;
   const track = (element: Parameters<typeof reportCreativeClick>[2], target: CreativeTarget) => reportCreativeClick(trackPage, 'creative_nav', element, target);
 

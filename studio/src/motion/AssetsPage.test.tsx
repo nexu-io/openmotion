@@ -587,6 +587,7 @@ it('prepares a first-frame draft from a guide and an uploaded image without subm
   expect(video.src).toMatch(/^blob:/);
   expect(video.muted).toBe(true);
   expect(video.controls).toBe(true);
+  expect(video.loop).toBe(true);
   expect(play).toHaveBeenCalledTimes(1);
   await act(async () => setGuideVisibility(false));
   expect(pause).toHaveBeenCalledTimes(1);
@@ -937,8 +938,7 @@ it('keeps the empty studio canvas model aligned with composer selection on Codex
     { models: [seedream, sunburst], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } } as never,
     'image',
     seedream.id,
-    studioScenes.find(scene => scene.id === 'image-blend')!,
-    false,
+    sceneDestination(studioScenes.find(scene => scene.id === 'image-blend')!),
     2,
   );
   expect(multiRefResult.selected?.id).toBe(sunburst.id);

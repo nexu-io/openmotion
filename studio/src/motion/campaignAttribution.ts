@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { ExploreFilters } from './workspacePageRouting';
 
 /**
  * Black Friday campaign links from OpenMotion to the OpenDesign Pricing page.
@@ -18,6 +19,42 @@ export const BLACK_FRIDAY_STARTS_AT = Date.parse('2026-11-21T18:00:00+08:00');
 export const BLACK_FRIDAY_ENDS_AT = Date.parse('2026-12-05T00:00:00+08:00');
 export function blackFridayActive(now = Date.now()) {
   return now >= BLACK_FRIDAY_STARTS_AT && now < BLACK_FRIDAY_ENDS_AT;
+}
+
+/**
+ * Explore Black Friday hero takeover window: launches 2026-11-25 20:00 Beijing time and ends right after
+ * 2026-12-04 23:59:59 Beijing time (2026-12-05 00:00:00+08:00), restoring the previous Explore layout afterwards.
+ */
+export const BLACK_FRIDAY_HERO_STARTS_AT = Date.parse('2026-11-25T20:00:00+08:00');
+export const BLACK_FRIDAY_HERO_ENDS_AT = BLACK_FRIDAY_ENDS_AT;
+export function blackFridayHeroActive(now = Date.now()) {
+  return now >= BLACK_FRIDAY_HERO_STARTS_AT && now < BLACK_FRIDAY_HERO_ENDS_AT;
+}
+
+export const COUNTDOWN_CYCLE_SECONDS = 12 * 60 * 60; // 12h rolling cycle anchored at 2026-11-21 18:00 +08:00
+
+export function readBlackFridayCountdown(now = Date.now()) {
+  const remainingMs = Math.max(0, BLACK_FRIDAY_ENDS_AT - now);
+  if (remainingMs <= 0) {
+    return { hours: '00', minutes: '00', seconds: '00', datetime: 'PT00H00M00S' };
+  }
+  const elapsedSec = Math.floor((now - BLACK_FRIDAY_STARTS_AT) / 1000);
+  const inCycleSec = ((elapsedSec % COUNTDOWN_CYCLE_SECONDS) + COUNTDOWN_CYCLE_SECONDS) % COUNTDOWN_CYCLE_SECONDS;
+  const cycleRemaining = COUNTDOWN_CYCLE_SECONDS - 1 - inCycleSec;
+  const untilEndSec = Math.floor((remainingMs - 1) / 1000);
+  const remaining = Math.min(cycleRemaining, untilEndSec);
+  const hours = Math.floor(remaining / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+  const seconds = remaining % 60;
+  const hh = String(hours).padStart(2, '0');
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+  return {
+    hours: hh,
+    minutes: mm,
+    seconds: ss,
+    datetime: `PT${hh}H${mm}M${ss}S`,
+  };
 }
 
 // A dismissed banner stays hidden for the rest of that local calendar day and returns the next day.
@@ -54,6 +91,13 @@ export function useMinuteCondition(read: () => boolean) {
 }
 const readBlackFridayActive = () => blackFridayActive();
 export const useBlackFridayActive = () => useMinuteCondition(readBlackFridayActive)[0];
+const readBlackFridayHeroActive = () => blackFridayHeroActive();
+export function useExploreCampaign(filters: ExploreFilters) {
+  const [active, setActive] = useMinuteCondition(readBlackFridayHeroActive);
+  const expire = useCallback(() => setActive(false), [setActive]);
+  return { showHero: active && !filters.community && !filters.medium, expire };
+}
+export type ExploreCampaign = ReturnType<typeof useExploreCampaign>;
 export const shouldShowBlackFridayBanner = () => blackFridayActive() && !bannerDismissedToday();
 
 /** Where the click happened: the top campaign banner or the header Pricing entry. */

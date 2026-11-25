@@ -61,6 +61,7 @@ const modelHub = { hub_id: 'slug', hub_video_id: 'slug', signed_in: 'boolean' } 
 const game = { game_id: 'code', game_source: ['template', 'community', 'mine'], game_genre: 'slug', game_status: ['draft', 'building', 'ready', 'published', 'failed'],
   game_orientation: ['landscape', 'portrait'], multiplayer: 'boolean' } as const;
 const webPublishTargets = ['design', 'game', 'motion', 'html'] as const;
+const generationOffer = { offer_kind: ['sign_in', 'upgrade'], offer_visit_id: 'uuid' } as const;
 // A site campaign or login/upgrade touchpoint shown in the application chrome or studio surfaces.
 // hook_id identifies which product touchpoint triggered the flow; entry_id joins the click to sign-in, Pricing visit and payment.
 export const entitlementHookIds = [
@@ -230,7 +231,7 @@ export const omEvents = {
     ...skill, ...brand, brand_collection: brandCollection, ...mcp, entry_from: entryFrom, ...referenceEntry, ...referenceSource,
     doc_id: ['mcp_tools', 'skills', 'agent_adapters', 'docs_home', 'repository'], section_id: 'slug', faq_index: 'integer',
     search_scope: paletteScope, palette_item_kind: paletteItemKind, palette_action: paletteAction, resource_id: 'slug',
-    ...workspacePages, ...creative, ...modelHub, ...campaign,
+    ...workspacePages, ...creative, ...modelHub, ...campaign, ...generationOffer,
     ...game, game_option_kind: ['genre', 'style', 'setting', 'orientation', 'playable_ad', 'multiplayer'], game_view: ['preview', 'code', 'trailer'], publish_target: webPublishTargets },
     required: ['page_name', 'area', 'element'] },
   // Studio UI exports run in the editor's own render pipeline, not the worker that owns export_result.
@@ -259,8 +260,8 @@ export const omEvents = {
     required: ['outcome', 'entry_point', 'requested_count', 'added_count', 'failed_count'] },
   // A surface that became visible: the library, a template card, one template's detail, or the instruction to copy.
   // A card counts once it is at least half visible for a second, once per result set.
-  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner', 'command_palette', 'template_zero_result_skills', 'entitlement_modal', 'entitlement_gate', 'game_detail', 'game_handoff'],
-    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'palette', 'skill_fallback', 'modal', 'gate_card', 'handoff'], ...campaign, placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
+  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner', 'command_palette', 'template_zero_result_skills', 'asset_create', 'account', 'entitlement_modal', 'entitlement_gate', 'game_detail', 'game_handoff'],
+    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'palette', 'skill_fallback', 'modal', 'gate_card', 'handoff'], ...generationOffer, settings_section: settingsSection, scene_id: creative.scene_id, ...campaign, placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
     ...skill, ...brand, ...referenceEntry, brand_state: brandState, recovery_reason: ['no_results', 'unsuitable', 'catalog_empty'],
     studio_id: creative.studio_id, ...game, publish_target: webPublishTargets },
     required: ['page_name', 'area', 'element'] },

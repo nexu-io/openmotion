@@ -1,57 +1,32 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import * as tracking from './pageTracking';
+import type { StudioDestination } from './creativeStudios';
+import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import { Tooltip } from "../components/ui/Tooltip";
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { AccountSummary } from '../../../shared/provider-directory';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
+import { useSubscriptionOpener, type SubscriptionAction } from './useSubscriptionOpener';
 import { gatewayRequest } from './gatewayClient';
 import { GITHUB_REPOSITORY } from './githubRepository';
 import { notifyProvidersChanged } from './useProviderDirectory';
+import { createOfferVisit, reportOfferClick, useOfferImpression, type OfferVisit } from './offerTracking';
+import { AccountOfferBadge } from './AccountOfferBadge';
+import { MultimodalUpgradeButton } from './MultimodalOfferCard';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
-import { consumePendingAttribution, evaluateEntitlementRefresh, readAccountPlan } from './entitlementAttribution';
-import { SettingsError, SettingsLoading } from './settingsPrimitives';
+import { ModelAvatar, SettingsError, SettingsLoading } from './settingsPrimitives';
+import offerStyles from './GenerationOffer.module.css';
+import { consumePendingAttribution, evaluateEntitlementRefresh, readAccountPlan, type EntryAttribution } from './entitlementAttribution';
 import { useShownStudioTheme } from '../utils/studioTheme';
 // Same watercolor as the OpenDesign console plan card (AMR seats-plan-background), so both surfaces match.
 import planCardBackground from './scene-art/plan-card-background.webp';
 
-type GuideArea = 'account' | 'provider_detail';
+type GuideArea = 'account' | 'provider_detail' | StudioDestination;
 type ShowToast = ReturnType<typeof useToast>['showToast'];
-// The local service opens the subscription page in the system browser, where sign-in happened, with a fresh entry
-// and a one-time account intent. When no browser could be launched, Studio tries the returned link itself; the
-// request has used up the click by then, so a blocked popup leaves a link that opens it on the next click.
-// Every entry (Manage subscription, Upgrade, Go to console, Top up) opens that same OpenDesign console page; the
-// `ui_click` element tells them apart.
-type SubscriptionElement = 'manage_subscription' | 'view_plans' | 'open_console' | 'recharge';
-function useSubscriptionOpener(area: GuideArea, showToast: ShowToast, markCheckoutReturn: (hookId: ReturnType<typeof consumePendingAttribution>['hookId'], entryId: string) => () => void) {
-  const { t } = useI18n(), [subscriptionUrl, setSubscriptionUrl] = useState<string>();
-  const pendingAttribution = useRef<{ hookId: ReturnType<typeof consumePendingAttribution>['hookId']; entryId: string } | undefined>(undefined);
-  async function openSubscription(element: SubscriptionElement) {
-    const attribution = consumePendingAttribution('subscription', 'settings_subscription');
-    pendingAttribution.current = attribution;
-    tracking.reportSettingsClick(area, element, { hook_id: attribution.hookId, entry_id: attribution.entryId });
-    setSubscriptionUrl(undefined);
-    const cancelCheckoutReturn = markCheckoutReturn(attribution.hookId, attribution.entryId);
-    try {
-      const { url, opened } = await gatewayRequest<{ url: string; opened: boolean }>('settings/account/subscription', 'POST', attribution);
-      if (opened) return;
-      const page = window.open(url, '_blank');
-      if (page) page.opener = null;
-      else { cancelCheckoutReturn(); setSubscriptionUrl(url); }
-    } catch {
-      cancelCheckoutReturn();
-      showToast(t("Couldn't open your browser. Try again."), 'error');
-    }
-  }
-  const button = (element: 'manage_subscription' | 'view_plans', primary = false) => <Button variant="ghost" className="om-button h-auto" data-primary={primary || undefined} onClick={() => void openSubscription(element)}>
-    {element === 'view_plans' && <RemixIcon name="sparkling-line" size={16} />}{t(element === 'view_plans' ? 'Upgrade to Plus' : 'Manage subscription')}<RemixIcon name="external-link-line" size={15} /></Button>;
-  const link = subscriptionUrl && <a className="om-button" data-primary href={subscriptionUrl} target="_blank" rel="noreferrer" onClick={() => { const current = pendingAttribution.current ?? { hookId: 'settings_subscription' as const, entryId: tracking.newTrackingId() }; markCheckoutReturn(current.hookId, current.entryId); setSubscriptionUrl(undefined); }}>{t('Continue in browser')}<RemixIcon name="external-link-line" size={15} /></a>;
-  return { button, link, open: openSubscription };
-}
-
 /**
  * Account menu「Console」: opens the OpenDesign console dashboard in the browser the account signed in with. Resolves
  * false when neither the system browser nor a popup opened, so the caller can fall back to Subscription & usage.
@@ -80,10 +55,10 @@ function GuideCapabilities() {
 
 function GuideOffer({ callout = false }: { callout?: boolean }) {
   const { t } = useI18n(), offer = activeAccountOffer();
-  return offer && <p className={callout ? 'om-account-offer om-account-offer-callout' : 'om-account-offer'}><RemixIcon name="sparkling-fill" size={15} /><strong>{t(offer.title)}</strong>{offer.detail && <span>{t(offer.detail)}</span>}</p>;
+  return offer && <AccountOfferBadge appearance={callout ? 'callout' : 'inline'} label={t(offer.title)} detail={offer.detail && t(offer.detail)} />;
 }
 
-/** Signed-out guide shared by the account page and the OpenDesign provider: what signing in unlocks. */
+/** Sign-in benefits shown in the OpenDesign provider settings. */
 export function SignInGuide({ action }: { action: ReactNode }) {
   const { t } = useI18n();
   useEffect(() => { tracking.reportEntitlementGateView('settings', 'settings_signin'); }, []);
@@ -95,8 +70,51 @@ export function SignInGuide({ action }: { action: ReactNode }) {
   </section>;
 }
 
-/** Free / Go guide shared by the account page and the OpenDesign provider: what upgrading to Plus unlocks. */
-export function UpgradeGuide({ plan, subscription }: { plan: 'free' | 'go'; subscription: ReturnType<typeof useSubscriptionOpener> }) {
+type UpgradeGuideProps = { plan: 'free' | 'go'; subscription: ReturnType<typeof useSubscriptionOpener> };
+
+const subscriptionImageModels = [
+  { id: 'gpt-image-2', name: 'GPT image 2.0' },
+  { id: 'nano-banana-2', name: 'Nano banana 2' },
+  { id: 'seedream-5.0', name: 'Seedream5.0' },
+  { id: 'seedream-5.5', name: 'Seedream5.5' },
+] as const;
+
+function SubscriptionGuide({ kind, visit, children }: { kind: 'sign-in' | 'upgrade'; visit: OfferVisit; children: ReactNode }) {
+  const { t } = useI18n();
+  const headingId = useId();
+  const signedOut = kind === 'sign-in';
+  const offerKind = signedOut ? 'sign_in' : 'upgrade';
+  const card = useOfferImpression(visit, offerKind);
+  const title = signedOut ? t('Sign in for {offer} on select models') : t('{offer} on select models');
+  const [before, after] = title.split('{offer}');
+  return <section ref={card} data-generation-offer={offerKind} className={offerStyles.subscriptionCard} data-guide={kind} aria-labelledby={headingId}>
+    <div className={offerStyles.subscriptionHeading}>
+      <h2 id={headingId}>{before}<span className={offerStyles.unlimitedText}>{t('7 days of unlimited use')}</span>{after}</h2>
+      {signedOut && <span className={offerStyles.dealTag}>
+        {t('Plus and above').split(/(Plus)/).map(part => part === 'Plus' ? <strong key={part}>{part}</strong> : part)}
+      </span>}
+    </div>
+    <div className={offerStyles.benefits}>
+      <p className={offerStyles.modelSummary}>
+        {subscriptionImageModels.map(({ id, name }, index) => (
+          <span className={offerStyles.modelItem} key={id}>
+            <ModelAvatar modelId={id} name={name} />{name}
+            {index < subscriptionImageModels.length - 1 && <span className={offerStyles.modelSeparator} aria-hidden="true">｜</span>}
+          </span>
+        ))}
+      </p>
+      {kind === 'upgrade' && <ul className={offerStyles.dealTags} aria-label={t('Subscription offers')}>
+        <li className={offerStyles.dealTag}>{t('Go Max annual from')} <strong>{t('$100/mo')}</strong></li>
+        <li className={offerStyles.dealTag}>Claude / GPT <strong>{t('up to 20% off')}</strong></li>
+      </ul>}
+    </div>
+    <div className={`om-settings-actions ${offerStyles.upgradeAction}`}>
+      {children}
+    </div>
+  </section>;
+}
+
+export function UpgradeGuide({ plan, subscription }: UpgradeGuideProps) {
   const { t } = useI18n();
   useEffect(() => { tracking.reportEntitlementGateView('settings', 'settings_subscription'); }, []);
   return <section className="om-card om-plan-guide" data-guide="upgrade">
@@ -147,11 +165,7 @@ export function useAccountSignIn(area: GuideArea, showToast: ShowToast, provider
   const { t } = useI18n(), state = useAccountSummary(), [busy, setBusy] = useState(false), previous = useRef<string | undefined>(undefined);
   const { account, refresh } = state;
   const accountState = account?.state;
-  const pendingCheckout = useRef<{ token: symbol; hookId: ReturnType<typeof consumePendingAttribution>['hookId']; entryId: string } | undefined>(undefined);
-  const subscription = useSubscriptionOpener(area, showToast, (hookId, entryId) => {
-    const checkout = pendingCheckout.current = { token: Symbol(), hookId, entryId };
-    return () => { if (pendingCheckout.current?.token === checkout.token) pendingCheckout.current = undefined; };
-  });
+  const inGenerator = typeof area !== 'string';
   const refreshBilling = useCallback(async (checkout?: { hookId: ReturnType<typeof consumePendingAttribution>['hookId']; entryId: string }) => {
     const prevPlan = readAccountPlan(account);
     const updated = await refresh(true);
@@ -160,39 +174,36 @@ export function useAccountSignIn(area: GuideArea, showToast: ShowToast, provider
       || Boolean(updated.billingUnavailable) !== Boolean(account?.billingUnavailable)));
     if (stateOrBillingChanged) notifyProvidersChanged();
     if (checkout) {
-      tracking.reportEntitlementRefresh('settings', checkout.hookId, checkout.entryId, billingOk ? 'success' : 'failure', planChanged);
+      tracking.reportEntitlementRefresh(inGenerator ? 'creative_studio' : 'settings', checkout.hookId, checkout.entryId, billingOk ? 'success' : 'failure', planChanged);
     }
-  }, [account, refresh]);
-  useEffect(() => {
-    const onReturn = () => {
-      if (!pendingCheckout.current || document.visibilityState !== 'visible') return;
-      const { hookId, entryId } = pendingCheckout.current;
-      pendingCheckout.current = undefined;
-      void refreshBilling({ hookId, entryId });
-    };
-    window.addEventListener('focus', onReturn);
-    document.addEventListener('visibilitychange', onReturn);
-    return () => {
-      window.removeEventListener('focus', onReturn);
-      document.removeEventListener('visibilitychange', onReturn);
-    };
-  }, [refreshBilling]);
+  }, [account, refresh, inGenerator]);
+  const trackAction = (element: Parameters<typeof tracking.reportSettingsClick>[1], includeProvider = false, attribution?: EntryAttribution) => {
+    if (inGenerator) reportCreativeClick('creative_studio', 'asset_create', element, destinationTarget(area));
+    else tracking.reportSettingsClick(area, element, { ...(includeProvider && provider ? { provider } : {}), ...(attribution && { hook_id: attribution.hookId, entry_id: attribution.entryId }) });
+  };
+  const subscription = useSubscriptionOpener((element, attribution) => trackAction(element, false, attribution), message => showToast(message, 'error'), refreshBilling);
   // Order matters: the event below triggers a plain refresh, so the billing refresh must be issued after it to win.
   useEffect(() => {
     if (previous.current === 'authorizing' && accountState === 'signed-in') {
-      notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); showToast(t('Signed in to OpenDesign'), 'info');
+      if (!inGenerator) notifyProvidersChanged();
+      window.dispatchEvent(new Event('motion:account-changed')); showToast(t('Signed in to OpenDesign'), 'info');
     }
     previous.current = accountState;
-  }, [accountState, t, showToast]);
-  useEffect(() => { if (accountState === 'signed-in') void state.refresh(true); }, [accountState, state.refresh]);
-  async function action(name: AccountAction) {
-    const attribution = name === 'login' ? consumePendingAttribution('sign_in', 'settings_signin') : undefined;
-    tracking.reportSettingsClick(area, name === 'login' ? 'sign_in' : name === 'logout' ? 'sign_out' : 'cancel_sign_in',
-      { ...(provider ? { provider } : {}), ...(attribution ? { hook_id: attribution.hookId, entry_id: attribution.entryId } : {}) });
+  }, [accountState, inGenerator, t, showToast]);
+  useEffect(() => {
+    if (accountState !== 'signed-in') return;
+    const billing = refresh(true);
+    // The composer replaces its sign-in card when the catalog reloads. Resolve the plan first.
+    if (inGenerator) void billing.then(notifyProvidersChanged);
+  }, [accountState, inGenerator, refresh]);
+  async function action(name: AccountAction, cardAttribution?: EntryAttribution) {
+    const attribution = name === 'login' ? cardAttribution ?? consumePendingAttribution('sign_in', inGenerator ? 'studio_generate' : 'settings_signin') : undefined;
+    if (!cardAttribution) trackAction(name === 'login' ? 'sign_in' : name === 'logout' ? 'sign_out' : 'cancel_sign_in', true, attribution);
     setBusy(true);
     try {
-      const payload = attribution ? { hookId: attribution.hookId, entryId: attribution.entryId } : {};
-      state.setAccount(await gatewayRequest<AccountSummary>('settings/account/' + name, 'POST', payload)); notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed'));
+      state.setAccount(await gatewayRequest<AccountSummary>('settings/account/' + name, 'POST', attribution ?? {}));
+      if (!inGenerator) notifyProvidersChanged();
+      window.dispatchEvent(new Event('motion:account-changed'));
     }
     catch (error) { showToast(error instanceof Error ? error.message : t('Could not update account'), 'error'); }
     finally { setBusy(false); }
@@ -201,7 +212,10 @@ export function useAccountSignIn(area: GuideArea, showToast: ShowToast, provider
 }
 
 /** Signed out: the multimodal sign-in guide. Otherwise the sign-in status card: browser authorization, expiry, failure, connected. */
-export function AccountStatus({ account, busy, action, showToast }: { account: AccountSummary; busy: boolean; action: (name: AccountAction) => void | Promise<void>; showToast: ShowToast }) {
+export function AccountStatus({ account, busy, action, showToast, renderSignIn }: {
+  account: AccountSummary; busy: boolean; action: (name: AccountAction) => void | Promise<void>; showToast: ShowToast;
+  renderSignIn?: () => ReactNode;
+}) {
   const { t } = useI18n();
   const signedIn = account.state === 'signed-in', pending = account.state === 'authorizing', expired = account.state === 'reauth-required';
   const syncing = pending && account.syncing, failure = !pending && !signedIn ? account.errorCode : undefined;
@@ -219,7 +233,7 @@ export function AccountStatus({ account, busy, action, showToast }: { account: A
   }
   // The connector opens the activation page itself; the link is the fallback, and leads only when opening failed.
   const browserLink = account.authorizationUrl && !syncing && <a className="om-button" data-primary={account.browserOpened === false || undefined} href={account.authorizationUrl} target="_blank" rel="noreferrer">{t(account.browserOpened === false ? 'Continue in browser' : "Didn't open? Click here")}<RemixIcon name="external-link-line" size={15} /></a>;
-  if (!signedIn && !pending && !expired && !failure) return <SignInGuide action={signIn} />;
+  if (!signedIn && !pending && !expired && !failure) return renderSignIn ? renderSignIn() : <SignInGuide action={signIn} />;
   return <section className="om-card om-account-summary"><div><h2 className="om-subtitle">{t(signedIn ? 'Connected to OpenDesign' : syncing ? 'Finishing sign-in' : pending ? 'Complete sign-in in your browser' : expired ? 'OpenDesign sign-in expired' : 'Sign in to OpenDesign')}</h2><p className="om-muted">{t(signedIn ? 'Account models and your own providers can be selected side by side.' : expired ? 'Sign in again to keep using your account models, subscription and usage.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>
     {pending && <p className="om-muted" role="status">{t(syncing ? 'Authorized. Syncing your account…' : account.authorizationUrl ? 'Waiting for browser authorization…' : 'Connecting to OpenDesign. Please wait…')}{account.userCode && !syncing && <strong className="om-account-code">{account.userCode}</strong>}</p>}
     {account.error && <p className="om-muted" role="alert">{t(account.error)}</p>}
@@ -234,7 +248,7 @@ function formatUsd(value: string | null | undefined) {
 }
 
 /** Plan card and pay-as-you-go credits, laid out like the OpenDesign console dashboard. */
-function PlanUsagePanel({ account, upgradable, open }: { account: AccountSummary; upgradable: boolean; open: (element: SubscriptionElement) => void }) {
+function PlanUsagePanel({ account, upgradable, open }: { account: AccountSummary; upgradable: boolean; open: (element: SubscriptionAction) => void }) {
   const { t } = useI18n();
   // Light mode matches the OpenDesign console plan card; dark mode keeps the Studio card.
   const console = useShownStudioTheme() === 'light';
@@ -277,6 +291,7 @@ function PlanUsagePanel({ account, upgradable, open }: { account: AccountSummary
 
 export function AccountSettings({ subscription = false, openProviders }: { subscription?: boolean; openProviders: () => void }) {
   const { t } = useI18n(), toast = useToast(), { state, busy, action, subscription: subscriptionOpener, refreshBilling } = useAccountSignIn('account', toast.showToast);
+  const visit = useMemo(() => createOfferVisit({ settingsSection: subscription ? 'subscription' : 'account' }), [subscription]);
   const [refreshing, setRefreshing] = useState(false);
   const signedIn = state.account?.state === 'signed-in';
   async function refreshUsage() {
@@ -295,11 +310,18 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
         <h1 className="om-title">{subscription ? t('Subscription & usage') : named ? name : email || t('Your OpenDesign account')}</h1>
         <p className="om-muted">{(subscription || named) && email ? email : t('Your creative workspace, connected.')}</p>
       </div>
-      {(!subscription || !signedIn) && <AccountStatus account={account} busy={busy} action={action} showToast={toast.showToast} />}
+      {plan && <SubscriptionGuide kind="upgrade" visit={visit}>
+        <MultimodalUpgradeButton visit={visit} subscription={subscriptionOpener} label={t('Upgrade to Plus', undefined, 'subscription offer')} />
+      </SubscriptionGuide>}
+      {(!subscription || !signedIn) && <AccountStatus account={account} busy={busy} action={action} showToast={toast.showToast}
+        renderSignIn={() => <SubscriptionGuide kind="sign-in" visit={visit}>
+          <Button variant="plain" title={t('Sign in with OpenDesign')} disabled={busy} onClick={() => void action('login', reportOfferClick(visit, 'sign_in'))}>
+            {t('Sign in now')}<RemixIcon name="arrow-right-up-line" size={12} />
+          </Button>
+        </SubscriptionGuide>} />}
       {subscription ? <>
-        {plan && <UpgradeGuide plan={plan} subscription={subscriptionOpener} />}
         <section className="om-settings-section"><div className="om-settings-row"><h2 className="om-subtitle">{t('Subscription & usage')}</h2>{signedIn && <Tooltip label={t('Refresh account')} wrap><IconButton variant="ghost" className="motion-icon-button" aria-label={t('Refresh account')} disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshUsage()} icon={<RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={17} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} />} /></Tooltip>}</div>
-          {signedIn && !account.billingUnavailable && <PlanUsagePanel account={account} upgradable={!plan && Boolean(account.plan) && account.plan?.toLowerCase() !== 'max'} open={element => void subscriptionOpener.open(element)} />}
+          {signedIn && !account.billingUnavailable && <PlanUsagePanel account={account} upgradable={!plan && Boolean(account.plan) && account.plan?.toLowerCase() !== 'max'} open={element => void subscriptionOpener.openSubscription(element)} />}
           {!signedIn && <div className="om-account-metrics"><div className="om-card"><span className="om-muted">{t('Current plan')}</span><h3 className="om-title">{signedIn && account.plan ? account.plan === 'free' ? t('Free plan') : account.plan : '—'}</h3><p className="om-muted">{t(signedIn ? 'Managed by OpenDesign' : 'Sign in to view your plan')}</p></div><div className="om-card"><span className="om-muted">{t('Available balance')}</span><h3 className="om-title">{signedIn && account.balance != null ? `$${account.balance}` : '—'}</h3><p className="om-muted">{t(signedIn ? 'Account credits in USD' : 'Sign in to view usage')}</p></div></div>}
           {signedIn && account.billingUnavailable && <div className="om-settings-row"><p className="om-muted">{t(account.billingError?.status === 403 ? "The billing service declined this request. Open Manage subscription to check your plan in OpenDesign." : "Couldn't load your plan and balance. Account models are unaffected and can be used as usual.")}</p><Button variant="ghost" className="om-button h-auto" disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshUsage()}><RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={15} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} />{t('Refresh')}</Button></div>}
           {signedIn && account.billingUnavailable && subscriptionOpener.button('manage_subscription')}{signedIn && subscriptionOpener.link}

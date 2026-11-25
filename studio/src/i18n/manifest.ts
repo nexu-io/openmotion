@@ -15,7 +15,7 @@ export const languages = [
 export type Locale = typeof languages[number]['locale'];
 export type NonEnglishLocale = Exclude<Locale, 'en'>;
 export type MessageValues = Record<string, string | number>;
-export type Translate = (message: string, values?: MessageValues) => string;
+export type Translate = (message: string, values?: MessageValues, context?: string) => string;
 export type Message = string | Partial<Record<Intl.LDMLPluralRule, string>>;
 
 export const NON_ENGLISH_LOCALES: readonly NonEnglishLocale[] = [
