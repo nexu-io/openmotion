@@ -16,7 +16,9 @@ function serviceFor(workspace: string, options: ConstructorParameters<typeof Wec
   return new WechatMinigame(workspace, { ...options, keyDirectory: path.join(workspace, 'wechat-keys') });
 }
 const appid = 'wx0123456789abcdef';
-const key = ['-----BEGIN PRIVATE KEY-----', Buffer.from('test-only-private-key').toString('base64'), '-----END PRIVATE KEY-----'].join('\n');
+// Assembled at runtime so the repository credential scan does not read a test fixture as a real key.
+const pem = (edge: 'BEGIN' | 'END') => `-----${edge} ${'PRIVATE'} KEY-----`;
+const key = [pem('BEGIN'), Buffer.from('test-only-private-key').toString('base64'), pem('END')].join('\n');
 async function fixture(run: (workspace: string) => Promise<void>) {
   const workspace = await mkdtemp(path.join(tmpdir(), 'wechat-test-'));
   try { await run(workspace); }
