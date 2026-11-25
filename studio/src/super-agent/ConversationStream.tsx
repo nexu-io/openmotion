@@ -8,6 +8,9 @@ import type { GameCard } from '../../../shared/game-contract';
 import type { GatewayStatus, Model } from '../../../shared/gateway';
 import type { LocalAgent } from '../../../shared/local-agents';
 import {
+  classifyBillingErrorCode,
+} from '../../../shared/workspace-collab';
+import {
   modeToSuperAgentIntent,
   superAgentChatPresentation,
   superAgentIntentMeta,
@@ -65,6 +68,8 @@ import { gatewayRequest } from '../motion/gatewayClient';
 import { inspectBridgeAgent, notifyRuntimesChanged } from '../motion/useAgentRuntimes';
 import { notifyAgentsChanged } from '../motion/useLocalAgents';
 import { WorkspaceBack } from '../motion/WorkspaceBack';
+import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
+import { UpgradeCard } from '../motion/collab/UpgradeCard';
 import { AgentModelPicker } from './AgentModelPicker';
 import { compactDirLabel } from './ChangedFilesTree';
 import { ApprovalCard, ExecutionTimeline } from './ExecutionTimeline';
@@ -397,6 +402,7 @@ export function ConversationStream({
   onError: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
   const [text, setText] = useState('');
   const [segments, setSegments] = useState<SuperAgentPromptSegment[]>([]);
   const [inlineMentions, setInlineMentions] = useState<SuperAgentResourceAttachment[]>([]);
@@ -512,9 +518,22 @@ export function ConversationStream({
     mediaProvidersRef.current = cat.providers ?? [];
   }, []);
 
+  const handledBillingErrorRef = useRef<string | null>(null);
   useEffect(() => {
     setBrowsingEngine(selection.engine);
   }, [selection.engine]);
+
+  useEffect(() => {
+    if (!chat?.error || !collab) {
+      handledBillingErrorRef.current = null;
+      return;
+    }
+    if (!classifyBillingErrorCode(chat.error)) return;
+    const errorKey = `${chat.id}:${chat.updatedAt}:${chat.error}`;
+    if (handledBillingErrorRef.current === errorKey) return;
+    handledBillingErrorRef.current = errorKey;
+    void collab.handleBillingError(chat.error);
+  }, [chat?.error, chat?.id, chat?.updatedAt, collab]);
 
   const appliedDraftSeedRef = useRef<number | null>(null);
   const pendingHiddenInstructionsRef = useRef<string | undefined>(undefined);
@@ -1076,6 +1095,18 @@ export function ConversationStream({
     if (!canSubmit || submittingRef.current) return;
     submittingRef.current = true;
     try {
+      const activeLifecycle = collab?.snapshot?.activeWorkspace?.lifecycleState;
+      if (
+        collab?.snapshot?.signedIn
+        && (activeLifecycle === 'locked'
+          || activeLifecycle === 'billing_past_due'
+          || collab.snapshot.quota?.hasAvailableFunds === false)
+      ) {
+        const preflight = await collab.checkPreflightNow();
+        if ((preflight && !preflight.funded) || activeLifecycle === 'locked') {
+          return;
+        }
+      }
       if (pendingSampleUploadRef.current) {
         await pendingSampleUploadRef.current;
       }
@@ -1793,6 +1824,7 @@ export function ConversationStream({
       </div>
 
       <div className="om-sa-composer-wrap">
+        <UpgradeCard />
         {hasPendingApproval && (
           <div className="om-sa-approval-dock" role="region" aria-label={t('Approval needed')}>
             {pendingApprovals.map(approval => (

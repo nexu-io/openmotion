@@ -2,6 +2,9 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import {
+  classifyBillingErrorCode,
+} from '../../../shared/workspace-collab';
+import {
   describeSuperAgentApproval,
   gameValidationPassed,
   type SuperAgentActionCard,
@@ -20,6 +23,8 @@ import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n, type Translate } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { WorkingIndicator } from '../motion/AssetCreationVisuals';
+import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
+import { useOptionalGrowthSurfaces } from '../motion/collab/GrowthSurfacesContext';
 import { readDirectGameBrief } from '../motion/game/gameSuperAgent';
 import { ArtifactDeliverableCard } from './ArtifactDeliverableCard';
 import { FilesChangedCard, UnifiedDiffView } from './ChangedFilesTree';
@@ -1127,6 +1132,9 @@ export function ExecutionTimeline({
   onContinue?: () => void;
 }) {
   const { t } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
+  const growth = useOptionalGrowthSurfaces();
+  const billingKind = classifyBillingErrorCode(chat.error);
   const turns = useMemo(() => groupMessagesIntoTurns(chat), [chat]);
   const lastTurn = turns[turns.length - 1];
   const showInterruptedCard = !busy && !sending && !chat.error && (
@@ -1342,6 +1350,34 @@ export function ExecutionTimeline({
             <strong>{t('Conversation paused')}</strong>
             <p className="om-muted">{chat.error}</p>
           </div>
+          {billingKind && collab && (
+            <Button
+              variant="plain"
+              type="button"
+              className="om-collab-tonal-btn"
+              onClick={() => void collab.handleBillingError(chat.error, { onRetry: onContinue })}
+            >
+              <RemixIcon
+                name={
+                  billingKind === 'insufficient_balance'
+                    ? 'flashlight-line'
+                    : billingKind === 'tier_limit_exceeded'
+                      ? 'time-line'
+                      : 'sparkling-fill'
+                }
+                size={14}
+              />
+              <span>
+                {t(
+                  billingKind === 'insufficient_balance'
+                    ? 'Resolve billing'
+                    : billingKind === 'tier_limit_exceeded'
+                      ? 'View concurrency'
+                      : 'View plans',
+                )}
+              </span>
+            </Button>
+          )}
           {onContinue && (
             <Button
               variant="plain"
@@ -1351,6 +1387,22 @@ export function ExecutionTimeline({
             >
               <RemixIcon name="play-fill" size={14} />
               <span>{t('Continue')}</span>
+            </Button>
+          )}
+          {growth && (
+            <Button
+              variant="plain"
+              type="button"
+              className="om-collab-tonal-btn om-support-trigger-btn"
+              onClick={() =>
+                growth.openSupportDialog({
+                  summary: chat.error ?? undefined,
+                  source: 'Super Agent',
+                })
+              }
+            >
+              <RemixIcon name="customer-service-2-line" size={14} />
+              <span>{t('Contact support')}</span>
             </Button>
           )}
         </div>

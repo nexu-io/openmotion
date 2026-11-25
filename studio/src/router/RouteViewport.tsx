@@ -31,6 +31,7 @@ import {
   LazyModelHub,
   LazyModelOverview,
   LazyMotionStudioPage,
+  LazyProjectsPage,
   LazyScenarioHub,
   LazyScenarioWorkspace,
   LazySettingsCenter,
@@ -92,6 +93,8 @@ export type RouteViewportProps = {
   openScenario: (scenario: ScenarioId, runId?: string, fromPage?: boolean) => void;
   openMotionEditor: (selection: 'first' | 'last') => Promise<void>;
   openMotionProject: (id: string) => Promise<boolean>;
+  onCreateMotionProject?: () => void;
+  onImportMotionZip?: () => void;
   returnToExplore: () => void;
   selectAssetRoute: (assetId: string | null, assetVersion: string | null) => void;
 };
@@ -136,6 +139,8 @@ export function RouteViewport({
   openScenario,
   openMotionEditor,
   openMotionProject,
+  onCreateMotionProject,
+  onImportMotionZip,
   returnToExplore,
   selectAssetRoute,
 }: RouteViewportProps) {
@@ -226,6 +231,49 @@ export function RouteViewport({
           />
         </RouteSurface>
       </KeepAliveSlot>
+
+      {page.projects && !templatesPage && !settings && (
+        <div className="om-assets-host om-route-surface" style={{ padding: 0 }}>
+          <RouteSurface>
+            <LazyProjectsPage
+              active={!connectionsOpen}
+              scope={page.projectScope}
+              projectType={page.projectType}
+              manageProject={page.manageProject}
+              onFilterChange={patch => navigatePage(patch, true)}
+              onOpenMotionProject={id => openMotionProject(id)}
+              onOpenDesignProject={id =>
+                navigatePage(
+                  { designScene: 'projects', designProject: id, templates: false, ...lastExplore },
+                  false,
+                  'from-page',
+                )
+              }
+              onOpenGameProject={gameId => {
+                const gameStudio = creativeStudios.find(
+                  (s): s is TechniqueStudio => s.surface === 'techniques' && s.id === 'game',
+                );
+                if (gameStudio) {
+                  navigatePage(
+                    { specialty: gameStudio, gameId, skill: null, templates: false, ...lastExplore },
+                    false,
+                    'from-page',
+                  );
+                }
+              }}
+              onCreateMotionProject={onCreateMotionProject}
+              onCreateGameProject={() => {
+                navigatePage(
+                  { superAgent: true, superAgentChat: null, superAgentMode: 'game', templates: false },
+                  false,
+                  'from-page',
+                );
+              }}
+              onImportMotionZip={onImportMotionZip}
+            />
+          </RouteSurface>
+        </div>
+      )}
 
       {page.scenarioHub && !templatesPage && !settings && (
         <div className="om-explore-host om-route-surface">
@@ -476,6 +524,39 @@ export function RouteViewport({
             routeId={page.assetId}
             routeVersion={page.assetVersion}
             onAssetRoute={selectAssetRoute}
+            onOpenMotionProject={id => { void openMotionProject(id); }}
+            onOpenDesignProject={id =>
+              navigatePage(
+                { designScene: 'projects', designProject: id, templates: false, ...lastExplore },
+                false,
+                'from-page',
+              )
+            }
+            onOpenGameProject={gameId => {
+              const gameStudio = creativeStudios.find(
+                (s): s is TechniqueStudio => s.surface === 'techniques' && s.id === 'game',
+              );
+              if (gameStudio) {
+                navigatePage(
+                  { specialty: gameStudio, gameId, skill: null, templates: false, ...lastExplore },
+                  false,
+                  'from-page',
+                );
+              }
+            }}
+            onOpenBrandKit={kitId =>
+              navigatePage(
+                { settings: 'brand-kit', brandKit: kitId && !kitId.startsWith('catalog:') ? kitId : null, templates: false },
+              )
+            }
+            onOpenSuperAgentChat={chatId =>
+              navigatePage(
+                { superAgent: true, superAgentChat: chatId, superAgentMode: null, templates: false },
+                false,
+                'from-page',
+              )
+            }
+            onOpenScenario={(scenarioId, runId) => openScenario(scenarioId as ScenarioId, runId)}
           />
         </RouteSurface>
       </KeepAliveSlot>

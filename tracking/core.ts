@@ -1,6 +1,6 @@
 import { validHostContext } from './host.ts';
 import type { HostContext } from './host.ts';
-export type Rule = 'project_id' | 'uuid' | 'code' | 'slug' | 'text' | 'timestamp' | 'boolean' | 'integer' | readonly string[] | { readonly min: number; readonly max: number };
+export type Rule = 'project_id' | 'uuid' | 'code' | 'slug' | 'text' | 'feedback_text' | 'timestamp' | 'boolean' | 'integer' | readonly string[] | { readonly min: number; readonly max: number };
 export type Registry = Record<string, { fields: Record<string, Rule>; required: readonly string[] }>;
 export type Fields = Record<string, string | number | boolean>;
 type RuleValue<R> = R extends readonly string[] ? R[number] : R extends 'boolean' ? boolean : R extends 'integer' | { readonly min: number; readonly max: number } ? number : string;
@@ -22,12 +22,15 @@ export const slug = /^(?=.{1,64}$)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
 // The only free-text rule: a settled search-box value, trimmed, 1–100 characters, no control characters.
 // Register it on a field only when the product decision to collect that text is explicit.
 export const text = (value: string) => value.length >= 1 && value.length <= 100 && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
+// Bounded optional survey response text: trimmed, 1–240 characters, no control characters.
+export const feedbackText = (value: string) => value.length >= 1 && value.length <= 240 && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
 export function validField(rule: Rule, value: unknown): value is string | number | boolean {
   if (Array.isArray(rule)) return typeof value === 'string' && rule.includes(value);
   if (typeof rule === 'object' && 'min' in rule) return typeof value === 'number' && Number.isFinite(value) && value >= rule.min && value <= rule.max;
   if (rule === 'boolean') return typeof value === 'boolean';
   if (rule === 'integer') return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 86_400_000;
   if (rule === 'text') return typeof value === 'string' && text(value);
+  if (rule === 'feedback_text') return typeof value === 'string' && feedbackText(value);
   if (rule === 'timestamp') return typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value));
   if (rule === 'project_id') return typeof value === 'string' && (value === 'project' || uuid.test(value));
   return typeof value === 'string' && (rule === 'uuid' ? uuid : rule === 'slug' ? slug : code).test(value);

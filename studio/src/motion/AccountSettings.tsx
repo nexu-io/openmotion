@@ -19,6 +19,8 @@ import { AccountOfferBadge } from './AccountOfferBadge';
 import { MultimodalUpgradeButton } from './MultimodalOfferCard';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { ModelAvatar, SettingsError, SettingsLoading } from './settingsPrimitives';
+import { WorkspaceSettingsSection } from './collab/WorkspaceSettingsSection';
+import { ReferralEntryCard } from './collab/ReferralEntryCard';
 import offerStyles from './GenerationOffer.module.css';
 import { consumePendingAttribution, evaluateEntitlementRefresh, readAccountPlan, type EntryAttribution } from './entitlementAttribution';
 import { useShownStudioTheme } from '../utils/studioTheme';
@@ -326,13 +328,19 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
           {signedIn && account.billingUnavailable && <div className="om-settings-row"><p className="om-muted">{t(account.billingError?.status === 403 ? "The billing service declined this request. Open Manage subscription to check your plan in OpenDesign." : "Couldn't load your plan and balance. Account models are unaffected and can be used as usual.")}</p><Button variant="ghost" className="om-button h-auto" disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshUsage()}><RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={15} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} />{t('Refresh')}</Button></div>}
           {signedIn && account.billingUnavailable && subscriptionOpener.button('manage_subscription')}{signedIn && subscriptionOpener.link}
         </section>
-      </> : <section className="om-card om-settings-row">
-        <div className="om-account-models-copy">
-          <h2 className="om-subtitle">{t('Your models, your choice')}</h2>
-          <p className="om-muted" data-quiet>{t('Use account models or connect your own API keys. Choose a default for each capability.')}</p>
-        </div>
-        <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>{t('Model providers')}<RemixIcon name="arrow-right-line" size={15} /></Button>
-      </section>}
+        {signedIn && <WorkspaceSettingsSection />}
+        {signedIn && <ReferralEntryCard />}
+      </> : <>
+        {signedIn && <WorkspaceSettingsSection />}
+        {signedIn && <ReferralEntryCard />}
+        <section className="om-card om-settings-row">
+          <div className="om-account-models-copy">
+            <h2 className="om-subtitle">{t('Your models, your choice')}</h2>
+            <p className="om-muted" data-quiet>{t('Use account models or connect your own API keys. Choose a default for each capability.')}</p>
+          </div>
+          <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>{t('Model providers')}<RemixIcon name="arrow-right-line" size={15} /></Button>
+        </section>
+      </>}
     </>}
     <StudioToastViewport {...toast} />
   </div>;

@@ -17,6 +17,7 @@ import { beginStudioIo } from "../../telemetry/ioRecovery";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { durationBucket, exportRejection, exportSettings, openTemplateFields, projectScaleFields, projectFields,
   reportExportRequest, reportExportResult, type ExportOrigin } from "../../motion/editorTracking";
+import { emitArtifactDelivered } from "../../motion/collab/artifactDeliveryBus";
 
 export interface RenderJob {
   id: string;
@@ -543,6 +544,9 @@ export function useRenderQueue(
       const settings = sessionJobs.current.get(job.id);
       if (!settings || promptedJobIds.current.has(job.id)) continue;
       promptedJobIds.current.add(job.id);
+      if (job.status === "complete") {
+        emitArtifactDelivered({ kind: "export", label: job.filename || projectId || undefined, sourceId: job.id });
+      }
       requestStudioFeedback({
         reason: job.status === "complete" ? "render_complete" : "render_failed",
         detail: job.error,

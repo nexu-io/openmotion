@@ -22,7 +22,9 @@ import { brandCoverRevision } from "../../../shared/brand-catalog";
 import { buildSuperAgentHandoff } from "../../../shared/capability-hub";
 import { useOptionalWorkspaceChrome } from "./WorkspaceChromeContext";
 import { BrandCatalogGallery } from "./BrandCatalogGallery";
+import { LibraryHubNav } from "./LibraryHubNav";
 import { SettingsDialog } from "./settingsPrimitives";
+import { WorkspaceScopeNotice } from "./collab/WorkspaceScopeNotice";
 import { BrandKitDetail } from "./BrandKitDetail";
 import { GallerySearchField, GallerySortMenu } from "./GalleryFilters";
 import {
@@ -327,6 +329,11 @@ export function BrandKitPage({
   const content = <>
     <StudioToastViewport {...toast} />
     {selectedId !== "new" && <>
+      {inWorkspace && !selected && (
+        <div className="om-library-hub-band">
+          <LibraryHubNav activeTab="brand-kits" />
+        </div>
+      )}
       <header className="om-gallery-sticky-header">
         <div className="om-gallery-header">
           <div className="om-gallery-wordmark">{!inWorkspace && <BrandLogo compact />}<span className="om-gallery-page-label">{t('Brand Kit')}</span></div>
@@ -345,6 +352,7 @@ export function BrandKitPage({
         {collection === "official" ? <BrandCatalogGallery scrollRoot={root} onImport={importCatalog} onCreate={openCreate} busy={busy} previewsEnabled={previewsEnabled && !detailId} query={query} onQueryChange={setQuery} /> : <>
           <div className="om-gallery-toolbar"><div className="om-gallery-categories"><Button variant="plain" aria-pressed>{t('All')}</Button></div><div className="om-gallery-controls"><GallerySortMenu value={sort} options={[["newest", "Newest first"], ["oldest", "Oldest first"], ["name", "Name A–Z"]]} onChange={setSort} /></div></div>
           <div className="om-gallery-results">
+            <WorkspaceScopeNotice surface="brand-kits" />
             <div className="om-gallery-masonry" aria-busy={!kits && !error} aria-label={!kits && !error ? t('Loading Brand Kits') : undefined}>
               <GalleryIntro eyebrow={t('My brand kits')} title={t('Bring your brand into motion.')} count={t('{count} brand kits', { count: filtered.length })} disabled={busy || !filtered.some(kit => kit.state === 'ready')} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={brandKitContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: openCreate }} />
               {!kits && !error && Array.from({ length: 8 }, (_, key) => <div className="om-gallery-skeleton" key={key} aria-hidden="true"><Skeleton className="om-brand-loading" /></div>)}

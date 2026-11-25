@@ -1,7 +1,8 @@
 /* Application geometry; all presentation primitives come from the design system. */
 .om-application { --om-project-navigation-width: 200px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 46px minmax(0, 1fr); height: 100%; width: 100%; min-height: 0; overflow: hidden; }
-.om-application[data-has-bf-banner="true"] { grid-template-rows: auto 46px minmax(0, 1fr); }
-.om-app-header { position: relative; z-index: 30; container-type: inline-size; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
+.om-application[data-has-bf-banner="true"],
+.om-application[data-has-top-banner="true"] { grid-template-rows: auto 46px minmax(0, 1fr); }
+.om-app-header { position: relative; z-index: 30; container: app-header / inline-size; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
 .om-application > .motion-workspace { grid-column: 1; width: auto; height: auto; margin: 0 var(--motion-space-4) var(--motion-space-4); }
 .om-app-brand { display: flex; align-items: center; gap: var(--motion-space-8); flex: 0 0 auto; }
 .om-app-brand .motion-brand-lockup { height: var(--motion-space-16); }
@@ -363,7 +364,7 @@
 [data-motion-studio] .om-application[data-host-chrome="true"] > .motion-workspace { border-radius: 0; box-shadow: none; border: 0; }
 
 /* Measure the actual space between the brand and tools, including in library dialogs. */
-.om-creative-navigation { flex: 1 1 0; min-width: 0; container: creative-nav / inline-size; }
+.om-creative-navigation { flex: 1 1 0; min-width: 0; overflow-x: clip; container: creative-nav / inline-size; }
 .om-gallery-header .om-creative-navigation { flex-basis: min(32%, 400px); }
 .om-creative-strip { position: relative; display: flex; align-items: center; gap: var(--motion-space-4); padding-block: var(--motion-space-2); }
 .om-app-header .om-creative-strip { justify-content: center; }
@@ -385,11 +386,26 @@
   .om-explore-link > svg { display: block; }
   [data-motion-studio] .om-explore-link { width: var(--motion-control-sm); padding-inline: 0; justify-content: center; }
 }
-.om-nav-more-panel { width: min(460px, calc(100vw - var(--motion-space-24))); max-height: min(var(--available-height), 70dvh); overflow: auto; }
-.om-nav-more-tools { display: flex; flex-wrap: wrap; gap: var(--motion-space-4); padding-bottom: var(--motion-space-8); margin-bottom: var(--motion-space-8); border-bottom: 1px solid var(--motion-border); }
+.om-nav-more-icon { display: none; }
+.om-nav-more-label { display: inline; }
+.om-nav-more-panel { width: min(460px, calc(100vw - var(--motion-space-24))); max-height: min(var(--available-height, 76dvh), 70dvh); overflow: auto; overscroll-behavior: contain; }
+.om-nav-more-tools { display: flex; flex-wrap: wrap; gap: var(--motion-space-4); padding-bottom: var(--motion-space-8); margin-bottom: var(--motion-space-8); border-bottom: 1px solid var(--motion-border-subtle); }
 .om-nav-more-studios { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(208px, 100%), 1fr)); gap: var(--motion-space-4); }
 .om-nav-more-studios .om-nav-item { width: 100%; text-align: start; white-space: nowrap; }
 [data-theme="paper"] .om-nav-more-studios .om-nav-item { color: var(--motion-strong); }
+@container app-header (max-width: 560px) {
+  .om-app-header .om-creative-strip { justify-content: flex-start; }
+  .om-nav-more-icon { display: inline-flex; }
+  .om-nav-more-label { display: none; }
+  [data-motion-studio] .om-app-header .om-nav-more-trigger {
+    width: 30px;
+    height: 30px;
+    min-height: 30px;
+    padding: 0;
+    justify-content: center;
+    border-radius: var(--motion-radius-md);
+  }
+}
 .om-creative-split { display: flex; align-items: center; }
 [data-motion-studio] .om-creative-split > .om-nav-row-link { padding-inline-end: 0; }
 [data-motion-studio] .om-creative-split > .om-nav-row-action {
@@ -673,12 +689,26 @@
 .om-creative-option small { font-size: var(--motion-text-xs); }
 @container (max-width: 560px) {
   .om-app-header-links { display: none; }
-  .om-app-header-actions { gap: var(--motion-space-2); }
+  .om-app-header-actions { gap: var(--motion-space-6); }
+}
+@media (max-width: 1320px) {
+  .om-app-header { gap: var(--motion-space-12); }
+}
+@media (max-width: 980px) {
+  .om-app-header { gap: var(--motion-space-8); }
+}
+@media (max-width: 600px) {
+  .om-app-header { gap: var(--motion-space-6); padding-inline: var(--motion-space-8); }
+  .om-nav-more-panel { width: min(360px, calc(100vw - var(--motion-space-16))); max-height: min(var(--available-height, 78dvh), calc(100dvh - 64px)); }
+  .om-nav-more-tools .om-nav-item { min-height: var(--motion-space-32); }
+  .om-nav-more-studios { grid-template-columns: repeat(auto-fit, minmax(min(148px, 100%), 1fr)); }
+  .om-nav-more-studios .om-nav-item { min-height: 36px; }
 }
 @media (max-width: 420px) {
   .om-app-header { gap: var(--motion-space-4); padding-inline: var(--motion-space-6); }
   [data-motion-studio] .om-app-header .om-app-brand { padding-inline: var(--motion-space-4); }
-  .om-app-header-actions button.om-nav-item:not(.om-account-trigger) { width: var(--motion-space-32); justify-content: center; padding-inline: 0; }
+  .om-app-header-actions { gap: var(--motion-space-4); }
+  .om-app-header-actions button.om-nav-item:not(.om-account-trigger):not(.om-header-invite-pill) { width: var(--motion-space-32); justify-content: center; padding-inline: 0; }
 }
 @media (max-width: 560px) {
   .om-creative-model-list { max-height: 28dvh; }
