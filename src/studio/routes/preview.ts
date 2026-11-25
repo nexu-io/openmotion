@@ -22,10 +22,10 @@ import {
   PRESIGNED_REDIRECT_HEADERS,
   formatFileVersion,
 } from '../etag.ts';
-import { PREVIEW_BRIDGE_ASSET_RE, PREVIEW_BRIDGE_PATH, PREVIEW_BRIDGE_SCRIPT, PREVIEW_BRIDGE_VERSION } from '../engine/preview-bridge.ts';
+import { PREVIEW_BRIDGE_SCRIPT, PREVIEW_BRIDGE_VERSION } from '../engine/preview-bridge.ts';
+import { createPreviewBridgeAssets } from './preview-bridge-assets.ts';
 import { PreviewBuildBusy, PreviewDocumentCache } from '../engine/preview-document-cache.ts';
 import { previewSceneFragment } from '../engine/preview-scene-fragment.ts';
-import { createLogger } from '../../infra/logger.ts';
 import { assertTenantScopedKey } from '../../infra/storage.ts';
 import { singleByteRange } from '../../infra/byte-range.ts';
 import { normalizeSafeProjectPath, resolveBlobStorageKey } from '../../services/project-files-service.ts';
@@ -183,54 +183,8 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
 
   const cache = new PreviewDocumentCache();
   const gsapBaseUrl = '/api/vendor/gsap/';
-  const bridgeKey = (version: string) => 'system/preview-bridge/' + version + '.js';
-  const javascript = 'application/javascript; charset=utf-8';
-  const bridgeBytes = new TextEncoder().encode(PREVIEW_BRIDGE_SCRIPT);
-  const logger = createLogger();
-  let publication: Promise<unknown> | undefined;
-  let retryPublicationAt = 0;
-
-  function publishBridge() {
-    if (publication || Date.now() < retryPublicationAt) return;
-    // This pod always serves its own bytes directly. Keep a copy for other builds.
-    publication = deps.storage.putBlobIfAbsent(bridgeKey(PREVIEW_BRIDGE_VERSION), Buffer.from(PREVIEW_BRIDGE_SCRIPT), javascript)
-      .catch(() => {
-        publication = undefined;
-        retryPublicationAt = Date.now() + 30_000;
-        logger.warn('Could not archive the preview bridge for other API versions', { version: PREVIEW_BRIDGE_VERSION });
-      });
-  }
-
-  app.get(PREVIEW_BRIDGE_PATH, c => {
-    // Older documents used a query-based URL that some CDNs cache by pathname.
-    c.header('Cache-Control', 'no-store');
-    c.header('CDN-Cache-Control', 'no-store');
-    c.header('Content-Type', javascript);
-    return c.body(PREVIEW_BRIDGE_SCRIPT);
-  });
-
-  app.get('/api/preview-bridge/:file', async c => {
-    c.header('Cache-Control', 'no-store');
-    c.header('CDN-Cache-Control', 'no-store');
-    const version = PREVIEW_BRIDGE_ASSET_RE.exec(c.req.path)?.[1];
-    if (!version) return c.notFound();
-    let body = bridgeBytes;
-    if (version !== PREVIEW_BRIDGE_VERSION) {
-      const key = bridgeKey(version);
-      try {
-        if (!await deps.storage.headObject(key)) return c.notFound();
-        const bytes = await deps.storage.getObjectBuffer(key, 1024 * 1024);
-        if (createHash('sha256').update(bytes).digest('hex') !== version) return c.text('Bridge version unavailable', 503);
-        body = new Uint8Array(bytes);
-      } catch {
-        return c.text('Bridge version unavailable', 503);
-      }
-    }
-    c.header('Content-Type', javascript);
-    c.header('CDN-Cache-Control', undefined);
-    c.header('Cache-Control', 'public, max-age=31536000, immutable');
-    return c.body(body);
-  });
+  const bridge = createPreviewBridgeAssets(deps.storage, PREVIEW_BRIDGE_SCRIPT);
+  app.route('/', bridge.routes);
 
   const loadBrowserExportBundle = createBrowserExportBundleLoader(deps.runtimeRoot);
 
@@ -287,7 +241,6 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     const variables = parseVariablesQuery(c.req.query('variables'));
     const assetBase = c.get('previewAssetBase');
     const origin = assetBase && new URL(assetBase).origin;
-    if (origin) publishBridge();
     const localBase = `/api/projects/${encodeURIComponent(projectId)}/preview/`;
     const variant = createHash('sha256').update(JSON.stringify([
       auth.workspaceId, projectId, compPath, origin, capture, variables, origin ? PREVIEW_BRIDGE_VERSION : null,
@@ -297,14 +250,15 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     });
     const validator = c.req.header('if-none-match');
     const expectedTag = tag(project.revision);
-    if (validator === expectedTag && await deps.files.hasFile(auth, projectId, sceneFile ?? compPath ?? 'index.html')) {
-      c.header('Cache-Control', 'private, no-cache');
-      c.header('Vary', 'Cookie, Authorization');
-      c.header('ETag', expectedTag);
-      return c.body(null, 304);
-    }
-
+    const revalidated = validator === expectedTag && await deps.files.hasFile(auth, projectId, sceneFile ?? compPath ?? 'index.html');
     try {
+      if (origin && !sceneFile) await bridge.ensurePublished();
+      if (revalidated) {
+        c.header('Cache-Control', 'private, no-cache');
+        c.header('Vary', 'Cookie, Authorization');
+        c.header('ETag', expectedTag);
+        return c.body(null, 304);
+      }
       const doc = await cache.get(variant + project.revision, project.revision, async () => {
         const virtual = await deps.files.loadVirtualProject(auth, projectId);
         // Use a stable, grant-free base for this project and build variant. Scene
@@ -352,6 +306,7 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
       if (error instanceof PreviewBuildBusy) {
         const retryAfterSeconds = 1;
         c.header('Cache-Control', 'no-store');
+        c.header('CDN-Cache-Control', 'no-store');
         c.header('Retry-After', String(retryAfterSeconds));
         if (assetBase) return c.html(createPreviewBuildBusyHtml(projectId, retryAfterSeconds), 503);
         return c.json({ error: 'Preview builders are busy.' }, 503);

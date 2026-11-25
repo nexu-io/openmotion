@@ -131,6 +131,7 @@ export interface StoragePort {
     body: Buffer | Uint8Array | Readable | string,
     contentType: string,
     contentLength?: number,
+    signal?: AbortSignal,
   ): Promise<void>;
   putBlobIfAbsent(key: string, body: Buffer, contentType: string): Promise<{ uploaded: boolean }>;
   putBlobIfAbsentStream?(

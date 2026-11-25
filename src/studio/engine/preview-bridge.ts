@@ -54,7 +54,9 @@ export const PREVIEW_SOURCE_IDENTITY = `
   }
 `;
 
+// Rotate the content address once for clients holding a cached 404 from before shared publication.
 export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
+  /* Shared preview bridge archive v1. */
   var settings=JSON.parse(document.currentScript.getAttribute('data-openmotion-preview'));
   var projectId=settings.projectId, compositionPath=settings.compositionPath, sourceVersions=settings.sourceVersions;`, `
   ${PREVIEW_SOURCE_IDENTITY}

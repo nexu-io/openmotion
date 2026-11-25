@@ -9,6 +9,7 @@ import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { projectChannel } from '../../src/infra/redis.ts';
 import { PreviewBuildBusy, PreviewDocumentCache } from '../../src/studio/engine/preview-document-cache.ts';
+import { createPreviewBridgeAssets } from '../../src/studio/routes/preview-bridge-assets.ts';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -633,7 +634,7 @@ function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; pro
   const workRounds = new WorkRoundsService(db);
   const archives = new ProjectArchiveService({ db, storage, workspace, files });
 
-  const studioApp = createDisklessStudioApp({
+  const createStudioApp = () => createDisklessStudioApp({
     db,
     storage,
     hotTextCache,
@@ -676,7 +677,8 @@ function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; pro
     files,
     history,
     workspace,
-    studioApp,
+    studioApp: createStudioApp(),
+    createStudioApp,
     projectsApp,
     sessionsApp,
     archivesApp,
@@ -2085,6 +2087,103 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal((await app.request(sceneUrl('missing.html'))).status, 404);
     assert.equal((await app.request(sceneUrl('poster.png'))).status, 400);
     assert.equal((await app.request(sceneUrl(paths[0]!) + '&capture=1')).status, 400);
+  });
+
+  it('gates isolated documents and revalidation on bridge publication across API versions', async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const env = createStudioTestEnv();
+    const { projectId } = await env.workspace.createProject(env.auth);
+    const path = `/api/projects/${projectId}/preview`;
+    function isolatedPod(studioApp = env.studioApp) {
+      const app = new Hono<{ Variables: StudioVariables }>();
+      app.use('*', async (c, next) => { c.set('previewAssetBase', 'https://preview.test/base/'); await next(); });
+      return app.route('/', studioApp);
+    }
+    const first = await isolatedPod().request(path);
+    assert.equal(first.status, 200);
+    const tag = first.headers.get('etag')!;
+    const selector = 'script[data-openmotion-preview]';
+    const bridge = parseHTMLContent(await first.text()).querySelector(selector)!;
+    const url = new URL(bridge.getAttribute('src')!);
+    const key = 'system/preview-bridge/' + url.pathname.split('/').pop();
+    await env.storage.deleteObject(key);
+
+    // Another running API version can only serve this document's script from storage.
+    const olderPod = createPreviewBridgeAssets(env.storage, '// earlier build').routes;
+    function assertNoStore(response: Response, status: number) {
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('cdn-cache-control'), 'no-store');
+    }
+    assertNoStore(await olderPod.request(url), 404);
+
+    const pod = isolatedPod(env.createStudioApp());
+    const storage: StoragePort = env.storage;
+    const putObject = storage.putObject.bind(storage);
+    const write = t.mock.method(storage, 'putObject');
+    const stalled = Promise.withResolvers<void>();
+    const deadline = new AbortController();
+    const timeout = t.mock.method(AbortSignal, 'timeout', () => deadline.signal);
+    write.mock.mockImplementationOnce(async (_key, _body, _type, _length, signal) => {
+      assert.ok(signal);
+      stalled.resolve();
+      await new Promise<void>((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const loads = t.mock.method(env.files, 'loadVirtualProject');
+    const conditional = { headers: { 'If-None-Match': tag } };
+    const documents = Promise.all([pod.request(path, conditional), pod.request(path + '/comp/index.html')]);
+    await stalled.promise;
+    assert.equal(write.mock.callCount(), 1);
+    assert.equal(loads.mock.callCount(), 0);
+    assert.deepEqual(timeout.mock.calls[0]!.arguments, [3000]);
+    deadline.abort();
+    timeout.mock.restore();
+    for (const response of await documents) {
+      assertNoStore(response, 503);
+      assert.equal(response.headers.get('retry-after'), '1');
+      const html = await response.text();
+      assert.match(html, /preview-build-busy/);
+      assert.ok(!html.includes(url.pathname));
+    }
+    assertNoStore(await pod.request(path), 503);
+    assert.equal(write.mock.callCount(), 1);
+
+    t.mock.timers.tick(1000);
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    write.mock.mockImplementationOnce(async (...args) => {
+      started.resolve();
+      await release.promise;
+      await putObject(...args);
+    });
+    const retry = Promise.all([pod.request(path, conditional), pod.request(path)]);
+    await started.promise;
+    assertNoStore(await olderPod.request(url), 404);
+    assert.equal(loads.mock.callCount(), 0);
+    release.resolve();
+    const [revalidated, full] = await retry;
+    assert.equal(revalidated.status, 304);
+    assert.equal(full.status, 200);
+    const published = parseHTMLContent(await full.text()).querySelector(selector)!;
+    assert.equal(published.getAttribute('src'), url.href);
+    assert.equal(write.mock.callCount(), 2);
+    assert.equal((await pod.request(path)).status, 200);
+    assert.equal(write.mock.callCount(), 2);
+
+    const read = t.mock.method(storage, 'getObjectBuffer');
+    read.mock.mockImplementationOnce(async () => { throw new Error('temporary storage failure'); });
+    assertNoStore(await olderPod.request(url), 503);
+    read.mock.mockImplementationOnce(async () => Buffer.from('different bytes'));
+    assertNoStore(await olderPod.request(url), 503);
+    for (const reader of [pod, olderPod]) {
+      const response = await reader.request(url);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+      assert.equal(response.headers.get('cdn-cache-control'), null);
+      const sha = sha256Hex(await response.text());
+      assert.equal(url.pathname, `/api/preview-bridge/${sha}.js`);
+      assert.equal(published.getAttribute('integrity'), 'sha256-' + Buffer.from(sha, 'hex').toString('base64'));
+    }
   });
 
   it('signals retryable overload to an isolated document through the authenticated bridge', async t => {

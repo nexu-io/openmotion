@@ -378,6 +378,7 @@ export class StorageService implements StoragePort {
     body: Buffer | Uint8Array | Readable | string,
     contentType: string,
     contentLength?: number,
+    signal?: AbortSignal,
   ): Promise<void> {
     await this.internalClient.send(
       new PutObjectCommand({
@@ -387,6 +388,7 @@ export class StorageService implements StoragePort {
         ContentType: contentType,
         ...(contentLength !== undefined ? { ContentLength: contentLength } : {}),
       }),
+      { abortSignal: signal },
     );
   }
 
