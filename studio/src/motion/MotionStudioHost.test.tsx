@@ -97,6 +97,12 @@ function render(historyBusy = false, children?: React.ReactNode) {
     handleCaptureFrameClick={vi.fn()} refreshCaptureFrameTime={vi.fn()} inspectorButtonActive={false}
     inspectorPanelActive={false} onExport={state.export} />{children}</MotionEditorFrame></MotionStudioHost>));
 }
+async function expectExportPanelReady() {
+  const dialog = document.querySelector('[data-testid="export-dialog"]');
+  expect(dialog).not.toBeNull();
+  await act(() => vi.dynamicImportSettled());
+  expect(dialog?.textContent).toContain('Export settings and jobs');
+}
 function openSidebar() {
   act(() => container.querySelector<HTMLButtonElement>('.motion-project-navigation-trigger button')!.click());
 }
@@ -157,7 +163,7 @@ it('keeps project switching, templates, history actions and native export in the
   expect(state.setTab).not.toHaveBeenCalled();
   expect(state.setCollapsed).not.toHaveBeenCalled();
   expect(state.export).not.toHaveBeenCalled();
-  expect(document.querySelector('[data-testid="export-dialog"]')?.textContent).toContain('Export settings and jobs');
+  await expectExportPanelReady();
   act(() => document.querySelector<HTMLButtonElement>('[data-testid="export-dialog"] [aria-label="关闭"]')!.click());
   act(() => project.click());
   expect(state.open).toHaveBeenCalledWith('projects', 'second');
@@ -179,7 +185,7 @@ it('keeps the project title visible without a generic status while the workspace
   expect(container.querySelector('.motion-save-state')).toBeNull();
 });
 
-it('prevents project replacement during a native render', () => {
+it('prevents project replacement during a native render', async () => {
   state.renderQueue.isRendering = true;
   render();
   openSidebar();
@@ -187,7 +193,7 @@ it('prevents project replacement during a native render', () => {
   expect(document.querySelector<HTMLButtonElement>('[aria-label="新建项目"]')!.disabled).toBe(true);
   expect(container.querySelector<HTMLButtonElement>('[data-testid="header-export"]')!.disabled).toBe(false);
   act(() => container.querySelector<HTMLButtonElement>('[data-testid="header-export"]')!.click());
-  expect(document.querySelector('[data-testid="export-dialog"]')?.textContent).toContain('Export settings and jobs');
+  await expectExportPanelReady();
   expect(state.export).not.toHaveBeenCalled();
   expect(container.textContent).toContain('正在渲染…');
 });

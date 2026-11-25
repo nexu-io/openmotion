@@ -45,6 +45,10 @@ let root: Root, container: HTMLDivElement, fetcher: ReturnType<typeof vi.fn>;
 const page = () => readWorkspacePage(location.search, location.hash, location.pathname);
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === label || node.textContent?.trim() === label)!;
 const click = async (label: string) => { expect(button(label), label).toBeTruthy(); await act(async () => button(label).click()); };
+async function openWorkspaceMenu(label: string) {
+  await click(label);
+  await act(() => vi.dynamicImportSettled());
+}
 async function accountAction(label: string) {
   await click('Account menu');
   const item = [...document.querySelectorAll<HTMLElement>('.om-account-menu [role="menuitem"]')].find(node => node.querySelector('.om-menu-label')?.textContent === label);
@@ -793,8 +797,7 @@ it('shows audio feature cards, selectable models and spotlight in the Audio hove
     return fallback(input, init);
   });
   await mount();
-  await click('Audio · Scenes');
-  await act(async () => { await vi.dynamicImportSettled(); });
+  await openWorkspaceMenu('Audio · Scenes');
   const menu = document.querySelector('.om-creative-menu.om-creative-menu-audio')!;
   expect(menu).toBeTruthy();
   expect(menu.querySelector('[role="img"][aria-label="Narrator"]')).toBeTruthy();
@@ -810,7 +813,7 @@ it('opens a Video feature scene from Explore under Video without a legacy Cinema
   await mount();
   await click('Explore');
   expect(page().explore).toBe(true);
-  await click('Video · Scenes');
+  await openWorkspaceMenu('Video · Scenes');
   await click('Multi-shot');
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot', modality: 'video' }, landing: true });
   expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Multi-shot');
@@ -1440,7 +1443,7 @@ it('browses Cinema templates and opens editable generation drafts without submit
 });
 
 it('carries a community template brief and an audio example into the matching studio without submitting generation', async () => {
-  await mount(); await click('Search workspace'); await click('Product films');
+  await mount(); await openWorkspaceMenu('Search workspace'); await click('Product films');
   expect(page().community).toBe('product-films');
   const collectionUrl = location.href;
   await click('Use this prompt');
@@ -1497,7 +1500,7 @@ it('recovers community templates and opens the library from the community headin
 });
 
 it('keeps Agent Skills available while the 3D studio is pending and preserves the community feed', async () => {
-  await mount(); await click('Search workspace'); await click('3D motion');
+  await mount(); await openWorkspaceMenu('Search workspace'); await click('3D motion');
   const feed = container.querySelector<HTMLElement>('.om-explore')!;
   feed.scrollTop = 326;
   await act(async () => feed.querySelector<HTMLButtonElement>('.om-scene-tile')!.click());
@@ -1526,7 +1529,7 @@ it('lists each primary destination once in order, with the Image mega menu and t
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node =>
     [node.getAttribute('aria-label'), document.getElementById(node.getAttribute('aria-describedby')!)?.textContent]);
   expect(badges).toEqual([['Workflows', 'New'], ['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
-  await click('Image · Scenes');
+  await openWorkspaceMenu('Image · Scenes');
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
   const entryCards = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-entries > button')];
@@ -1560,7 +1563,7 @@ it('lists each primary destination once in order, with the Image mega menu and t
   await act(async () => entryCards[0].click());
   expect(page().studio).toMatchObject({ studio: { id: 'design' }, scene: { id: 'text-to-image' }, landing: true, model: null });
   expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
-  await click('Video · Scenes');
+  await openWorkspaceMenu('Video · Scenes');
   const videoMenu = document.querySelector('.om-creative-menu-video')!;
   expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Create video', 'Image to video', 'Camera control', 'Start & end frames']);
   // Top cards are never duplicated inside the Video Features list, and Omni reference merges image+video references.
@@ -1580,13 +1583,13 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(videoHeader.querySelector('nav button[aria-current="page"]')?.textContent).toBe('Multi-shot');
   expect(videoHeader.querySelectorAll('.om-video-scene-tab > svg')).toHaveLength(4);
   // Character reference and the live feature rows open their own landing pages without a pinned model.
-  await click('Image · Scenes');
+  await openWorkspaceMenu('Image · Scenes');
   const character = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-entries > button')].find(node => node.querySelector('strong')?.textContent === 'Character reference')!;
   await act(async () => character.click());
   expect(page().studio).toMatchObject({ scene: { id: 'character' }, landing: true, model: null });
   expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Character reference');
   for (const [label, scene] of [['Remove background', 'remove-background'], ['Relight', 'relight']]) {
-    await click('Image · Scenes');
+    await openWorkspaceMenu('Image · Scenes');
     const row = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-row')].find(node => node.textContent === label)!;
     await act(async () => row.click());
     expect(page().studio, label).toMatchObject({ scene: { id: scene }, landing: true, model: null });
@@ -1798,7 +1801,7 @@ it('retains the active model and scene on same-modality entry and switches modal
   expect(page().studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'speech' }, model: 'voice:narrator' });
   await click('Cinema Studio'); await click('Create video');
   expect(page().studio).toMatchObject({ landing: true, scene: { id: 'text-to-video' } });
-  await click('Video · Scenes'); await click('Multi-shot');
+  await openWorkspaceMenu('Video · Scenes'); await click('Multi-shot');
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot' } });
   await click('Video');
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot' }, model: null });
@@ -1807,8 +1810,8 @@ it('retains the active model and scene on same-modality entry and switches modal
 });
 
 it('opens image editing from its scene shortcut and returns to the same Explore collection', async () => {
-  await mount(); await click('Search workspace'); await click('Product films');
-  await click('Image · Scenes');
+  await mount(); await openWorkspaceMenu('Search workspace'); await click('Product films');
+  await openWorkspaceMenu('Image · Scenes');
   const edit = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu button')].find(node => node.querySelector('strong')?.textContent === 'Edit image')!;
   await act(async () => edit.click());
   expect(page()).toMatchObject({ community: 'product-films', studio: { landing: true, scene: { id: 'image-edit' } } });
