@@ -184,6 +184,17 @@ describe('MockModelGateway Deterministic Valid PNG/MP4/WAV Generation', () => {
 });
 
 describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero BYOK)', () => {
+  it('sends speech speed in ElevenLabs voice settings and preserves other voice settings', async () => {
+    const gateway = new OpenDesignModelGateway({ apiUrl: 'https://amr.example.test', linkUrl: 'https://link.example.test',
+      fetcher: async (_url, init) => {
+        const payload = JSON.parse(String(init?.body));
+        assert.deepEqual(payload.parameters, { text: 'Hello', voice_settings: { stability: 0.5, speed: 1.2 } });
+        return Response.json({ task_id: 'speech-task' });
+      },
+    });
+    await gateway.submitTask({ workspaceId: 'workspace' }, { jobId: 'speech-job', modality: 'audio', mode: 'text-to-speech',
+      modelId: 'elevenlabs-v3', prompt: 'Hello', parameters: { speed: 1.2, voice_settings: { stability: 0.5 } }, inputs: [] });
+  });
   it('sends S2S Bearer, x-vela-workspace-id, Idempotency-Key and strips Authorization on presigned PUT and video redirect', async () => {
     const calls: Array<{ url: string; method: string; headers: Record<string, string>; body?: string }> = [];
     const sampleMp4 = generateDeterministicMp4('s2s-video');

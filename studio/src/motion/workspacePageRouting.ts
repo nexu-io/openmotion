@@ -251,6 +251,8 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   } else if (page.settings) {
     url.pathname = `/settings/${encodeURIComponent(page.settings)}`;
     if (page.settings === 'providers' && page.provider) url.searchParams.set('provider', page.provider);
+  } else if (page.templates && /^\/templates\/?$/.test(originalPathname)) {
+    url.pathname = '/templates';
   } else if (retainedProject) {
     const encodedProject = encodeURIComponent(retainedProject);
     url.pathname = `/editor/${encodedProject}`;
@@ -267,7 +269,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     if (page.medium) url.searchParams.set('medium', page.medium);
   }
   if (page.templates) {
-    url.searchParams.set('templates', '1');
+    if (url.pathname !== '/templates') url.searchParams.set('templates', '1');
     if (page.creators) {
       url.searchParams.set('view', 'creators');
       if (page.creator) url.searchParams.set('creator', page.creator);

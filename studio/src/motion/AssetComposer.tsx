@@ -213,7 +213,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   };
   const invalidReferences = draft.references.length > maximumReferences || Boolean(scene && needsImage(scene) && !draft.references.length);
   const shotPreferences = draft.shotPreferences ?? (studio?.destination.studio.id === 'shorts' ? { aspect: '9:16' } : undefined);
-  const parameterModel = selected;
+  const parameterModel = studio?.guestPreview ? preferred : selected;
   const parameterKey = parameterModel ? `${scene?.id ?? 'direct'}:${parameterModel.id}` : '';
   const studioDefaultValues = (model?: typeof parameterModel): Record<string, unknown> | undefined => {
     if (!model || model.defaults?.quality !== undefined || !isOpenDesignProvider(model.provider) || !/^gpt-image-2\.6-/.test(model.modelId)) return undefined;
@@ -318,7 +318,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     setDraft(current => ({ ...current, model, parameters: undefined }));
     if (studio) studio.chooseModel(model);
   };
-  const modelPicker = gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
+  const modelPicker = studio?.guestPreview ? <GenerationModelPickers models={compatible} preferred={preferred} modelHeading={studioModelHeading} disabled={!compatible.length} onChoose={chooseModel} /> : gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
     ? <CreationModelPicker models={compatible} providers={gateway.status.providers} selected={preferred} appearance={imageWorkspace ? 'boxed' : 'standard'}
       providerHeading={providerHeading} modelHeading={studioModelHeading} disabled={busy} onChoose={chooseModel} popupClassName={imagePopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
     : <GenerationModelPickers models={choices} preferred={preferred} modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} />) : <>
@@ -333,7 +333,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
             ? cloudFeatureUnavailableNotice
             : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
-  const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
+  const cloudGuestSubmit = studio?.guestPreview || (cloudWeb && account?.state === 'signed-out');
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
   const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
   const resolvedParameters = (() => {
@@ -504,7 +504,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       </section>}
       {!scene && <div className="om-creation-scene"><span className="om-badge"><RemixIcon name={selected?.mode === 'text-to-speech' ? 'voiceprint-line' : kind.icon} size={14} />{t(selected?.mode === 'text-to-speech' ? 'Text to speech' : draft.modality === 'audio' ? 'Music & sound' : draft.modality === 'video' ? draft.references.length ? 'Image to video' : 'Create video' : draft.references.length && selected?.supportsImageReference ? 'Edit image' : 'Create image')}</span><span className="om-eyebrow">{t('Settings follow your model')}</span></div>}
       {promptField}
-      {!imageWorkspace && <><div className="om-creation-model">{modelPicker}</div>{setup}{modelNotice}</>}
+      {!imageWorkspace && <><div className="om-creation-model">{modelPicker}</div>{setup}{!studio?.guestPreview && modelNotice}</>}
       {inputImageRatio && <p className="om-muted" role="status">{t('Aspect ratio follows the first frame.')} {t('Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.')}</p>}
 
       {!imageWorkspace && generationSettings}
@@ -514,7 +514,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
         {generationSettings}
         <div className="om-creation-model">{modelPicker}</div>
         {setup}
-        {modelNotice}
+        {!studio?.guestPreview && modelNotice}
       </div>
       <div className="om-image-submit">{entitlementGate}{generate}</div>
     </>}

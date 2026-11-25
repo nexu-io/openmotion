@@ -15,6 +15,8 @@ import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { formatTime } from '../player/lib/time';
 import type { useAssetBrowser } from './AssetBrowser';
+import { AssetsGuestEmptyState } from './EntitlementTouchpointCards';
+import { openEntitlementModal } from './entitlementModalBus';
 import type { AssetDraft } from './AssetComposer';
 import type { StudioCreation } from './CreativeWorkspace';
 import { emptyParameters, type ParameterDraft } from './GenerationParameters';
@@ -443,6 +445,8 @@ export function SoundStudioWorkspace({
   onDownload: () => void;
 }) {
   const { t, formatDate } = useI18n();
+  const guestLibrary = browser.authRequired || studio.guestPreview;
+  const requestLibrarySignIn = () => openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
   const activeTab: SoundTabId = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
   const tabDef = findSoundTab(activeTab) ?? SOUND_TABS[0];
   const isSoonTab = tabDef.status === 'soon';
@@ -1166,7 +1170,8 @@ export function SoundStudioWorkspace({
             setDragActive(false);
             if (!isSoonTab && event.dataTransfer.files.length) {
               event.preventDefault();
-              onDropFiles(Array.from(event.dataTransfer.files));
+              if (guestLibrary) requestLibrarySignIn();
+              else onDropFiles(Array.from(event.dataTransfer.files));
             }
           }}
         >
@@ -1241,7 +1246,7 @@ export function SoundStudioWorkspace({
                     variant="ghost"
                     className="om-button h-auto"
                     disabled={uploading}
-                    onClick={onUploadClick}
+                    onClick={guestLibrary ? requestLibrarySignIn : onUploadClick}
                   >
                     <RemixIcon name="upload-2-line" size={15} />
                     <span>{t(uploading ? 'Uploading…' : 'Upload')}</span>
@@ -1251,7 +1256,7 @@ export function SoundStudioWorkspace({
 
               <main className="om-sound-content">
                 <section className="om-sound-section om-sound-library-section" aria-label={t('Audio library')}>
-                  {browser.error && streamEntries.length === 0 ? (
+                  {guestLibrary ? <AssetsGuestEmptyState /> : browser.error && streamEntries.length === 0 ? (
                     <div className="om-empty om-sound-state-box">
                       <RemixIcon name="error-warning-line" size={28} />
                       <p>{t('Could not load assets')}</p>
@@ -1493,7 +1498,7 @@ export function SoundStudioWorkspace({
                       variant="plain"
                       className="om-sound-drop-cue"
                       disabled={uploading}
-                      onClick={onUploadClick}
+                      onClick={guestLibrary ? requestLibrarySignIn : onUploadClick}
                     >
                       <RemixIcon name="upload-2-line" size={15} />
                       <span>{t('Drop audio files here')}</span>
