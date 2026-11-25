@@ -123,7 +123,7 @@ function openTimelineSource(source: string, command: TimelineCommand) {
     const after = wrappedFragment ? document.body.innerHTML : document.toString();
     return after === original ? source : after;
   };
-  return { source, all, clips, original, root, target, trackByElement, serialize, wrappedFragment };
+  return { source, all, clips, original, root, target, trackByElement, serialize };
 }
 
 type TimelineSource = ReturnType<typeof openTimelineSource>;
@@ -492,8 +492,7 @@ function applyTimingCommand(ctx: TimelineSource, command: Extract<TimelineComman
   const shifted = retimeClipTweensInScript(block.scriptText, retimes, block.root).script;
   const script = syncPositionHoldsBeforeKeyframes(shifted, block.scriptText);
   if (script === block.scriptText) return after;
-  const rewritten = block.replaceScript(script);
-  return ctx.wrappedFragment ? block.document.body.innerHTML : rewritten;
+  return block.replaceScript(script);
 }
 
 export function applyTimelineCommand(
