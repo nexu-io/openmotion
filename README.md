@@ -27,7 +27,7 @@
   <a href="https://www.youtube.com/channel/UChtshixMhvtgBWzoD9R_Qfg"><img src="docs/readme/badges/youtube.svg" alt="OpenDesign on YouTube" /></a>
 </p>
 
-<p align="center"><a href="#quick-start">Install</a> · <a href="#agent-wall">Agents</a> · <a href="#showcase">Use cases &amp; remakes</a> · <a href="#features">Why OpenMotion</a> · <a href="#technical-guide">Setup & architecture</a> · <a href="#community">Community</a></p>
+<p align="center"><a href="#desktop-app">Desktop app</a> · <a href="#quick-start">Install</a> · <a href="#agent-wall">Agents</a> · <a href="#showcase">Use cases &amp; remakes</a> · <a href="#features">Why OpenMotion</a> · <a href="#technical-guide">Setup & architecture</a> · <a href="#community">Community</a></p>
 
 <div align="center">
 
@@ -45,6 +45,21 @@ OpenMotion is a **full-stack agentic video** studio and an **open-source alterna
 - 🎛️ **Images, video, music and voice.** Create artwork with GPT Image 2.6, add a shot with Seedance 2.5, score it with Suno and narrate it with Eleven v4. [Explore the models and providers](#model-wall).
 
 <a id="快速开始"></a> <a id="quick-start"></a>
+
+<a id="desktop-app"></a>
+
+### Download the Desktop App (macOS & Windows)
+
+Use OpenMotion Studio in a native cloud-first desktop client (`OpenDesign`) with signed macOS & Windows installers, built-in local Agent MCP auto-connection, and automatic updates.
+
+| Platform | Installer | Notes |
+| --- | --- | --- |
+| **macOS (Apple Silicon · Intel)** | `OpenDesign-<version>-mac-arm64.dmg` / `OpenDesign-<version>-mac-x64.dmg` | Signed & notarized |
+| **Windows (x64)** | `OpenDesign-Setup-<version>-win-x64.exe` / `OpenDesign-Portable-<version>-win-x64.exe` | Installer (auto-updates) & Portable |
+
+**[Download from GitHub Releases (`desktop-v*`) →](https://github.com/nexu-io/openmotion/releases)**
+
+Stable desktop releases are published under independent `desktop-v<version>` tags alongside `SHA256SUMS.txt` (decoupled from npm `v*` releases). Want to run or package the desktop shell from source? See [desktop/](desktop/).
 
 ### Install from ChatGPT Marketplace
 

@@ -19,6 +19,13 @@ import {
   signFeishuWebhook,
   validateFeishuWebhookUrl,
 } from '../scripts/notify-feishu-release.mjs';
+import {
+  buildGithubReleaseNotes,
+  buildSha256SumsContent,
+  expectedStableInstallerNames,
+  publishDesktopGithubRelease,
+  resolveDesktopReleaseTag,
+} from '../scripts/publish-github-release.mjs';
 import { resolveDesktopReleaseVersion } from '../scripts/resolve-release-version.mjs';
 import {
   compareSemver,
@@ -507,9 +514,16 @@ test('.github/workflows/desktop-release.yml enforces main-only per-arch builds w
   assert.match(workflowYml, /\$\{EXTRA_BUILDER_ARGS\[@\]\+"\$\{EXTRA_BUILDER_ARGS\[@\]\}"\}/);
   assert.match(workflowYml, /max_concurrent_requests/);
 
-  // No GitHub Actions artifact upload or GitHub Release binary upload.
+  // No GitHub Actions artifact upload; GitHub Releases upload is strictly gated to stable on main inside publish-manifests.
   assert.equal(workflowYml.includes('upload-artifact'), false);
-  assert.equal(workflowYml.includes('gh release upload'), false);
+  assert.match(workflowYml, /^permissions:\s*\n\s+contents:\s*read\b/m);
+  assert.match(workflowYml, /publish-manifests:[\s\S]*?permissions:\s*\n\s+contents:\s*write\b/);
+  assert.match(
+    workflowYml,
+    /name:\s*Publish stable installers to GitHub Releases\s*\n\s+if:\s*needs\.prepare\.outputs\.channel == 'stable' && github\.ref == 'refs\/heads\/main'/,
+  );
+  assert.match(workflowYml, /GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+  assert.match(workflowYml, /desktop\/scripts\/publish-github-release\.mjs/);
 
   // Direct Cloudflare R2 / S3 upload targeting releases.open-design.ai / open-motion/desktop/<channel>/.
   assert.match(workflowYml, /CLOUDFLARE_R2_RELEASES_BUCKET/);
@@ -1230,4 +1244,124 @@ test('validateSignedConfigPayloadBounds validates minShellVersion, reason, and u
   assert.ok(paths.includes('minShellVersion'));
   assert.ok(paths.includes('minShellVersionReason'));
   assert.ok(paths.includes('updateDownloadUrl'));
+});
+
+test('desktop/scripts/publish-github-release.mjs enforces stable-only desktop-v tags and builds release notes', () => {
+  assert.equal(resolveDesktopReleaseTag('0.2.1', 'stable'), 'desktop-v0.2.1');
+  assert.throws(() => resolveDesktopReleaseTag('0.2.2-test.14', 'test'), /restricted to the "stable" channel/);
+  assert.throws(() => resolveDesktopReleaseTag('0.2.2-beta.1', 'stable'), /strict MAJOR\.MINOR\.PATCH/);
+
+  const expected = expectedStableInstallerNames('0.2.1');
+  assert.deepEqual(expected, [
+    'OpenDesign-0.2.1-mac-arm64.dmg',
+    'OpenDesign-0.2.1-mac-x64.dmg',
+    'OpenDesign-Setup-0.2.1-win-x64.exe',
+    'OpenDesign-Portable-0.2.1-win-x64.exe',
+  ]);
+
+  const sums = buildSha256SumsContent([
+    { name: 'b.exe', sha256: 'bbb' },
+    { name: 'a.dmg', sha256: 'aaa' },
+  ]);
+  assert.equal(sums, 'aaa  a.dmg\nbbb  b.exe\n');
+
+  const notes = buildGithubReleaseNotes({
+    version: '0.2.1',
+    buildVersion: '0.2.1.42',
+    commits: ['feat(desktop): add GitHub Releases publication'],
+    compareUrl: 'https://github.com/nexu-io/openmotion/compare/abc1234...def5678',
+    checksums: expected.map(name => ({ name, sha256: 'deadbeef', size: 120 * 1024 * 1024 })),
+  });
+  assert.match(notes, /## OpenMotion Desktop v0\.2\.1/);
+  assert.match(notes, /desktop-v0\.2\.1/);
+  assert.match(notes, /OpenDesign-0\.2\.1-mac-arm64\.dmg/);
+  assert.match(notes, /OpenDesign-0\.2\.1-mac-x64\.dmg/);
+  assert.match(notes, /OpenDesign-Setup-0\.2\.1-win-x64\.exe/);
+  assert.match(notes, /OpenDesign-Portable-0\.2\.1-win-x64\.exe/);
+  assert.match(notes, /SHA256SUMS\.txt/);
+  assert.match(notes, /https:\/\/releases\.open-design\.ai\/open-motion\/desktop\/stable\//);
+  assert.equal(notes.includes('inner.nexu.space'), false);
+  assert.equal(notes.includes('powerformer.net'), false);
+});
+
+test('publishDesktopGithubRelease handles create, idempotent update, and missing asset validation', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'openmotion-gh-release-test-'));
+  const summaryFile = path.join(dir, 'summary.md');
+  try {
+    for (const name of expectedStableInstallerNames('0.2.1')) {
+      writeFileSync(path.join(dir, name), `payload-${name}`, 'utf8');
+    }
+
+    const createCalls = [];
+    const created = publishDesktopGithubRelease({
+      channel: 'stable',
+      version: '0.2.1',
+      buildVersion: '0.2.1.10',
+      assetsDir: dir,
+      targetSha: '1234567890abcdef',
+      stepSummaryPath: summaryFile,
+      execFile: (cmd, args) => {
+        createCalls.push([cmd, ...args]);
+        if (args[1] === 'view') throw new Error('release not found');
+        return '';
+      },
+    });
+    assert.equal(created.tag, 'desktop-v0.2.1');
+    assert.equal(created.releaseUrl, 'https://github.com/nexu-io/openmotion/releases/tag/desktop-v0.2.1');
+    assert.equal(createCalls.length, 2);
+    assert.equal(createCalls[1][1], 'release');
+    assert.equal(createCalls[1][2], 'create');
+    assert.ok(createCalls[1].includes('--target'));
+    assert.ok(createCalls[1].includes('1234567890abcdef'));
+    const sumsText = readFileSync(path.join(dir, 'SHA256SUMS.txt'), 'utf8');
+    assert.match(sumsText, /^[0-9a-f]{64}  OpenDesign-0\.2\.1-mac-arm64\.dmg$/m);
+    assert.match(readFileSync(summaryFile, 'utf8'), /Published GitHub Release · desktop-v0\.2\.1/);
+
+    // Re-running when the release already exists uses upload --clobber + edit.
+    const updateCalls = [];
+    publishDesktopGithubRelease({
+      channel: 'stable',
+      version: '0.2.1',
+      assetsDir: dir,
+      execFile: (cmd, args) => {
+        updateCalls.push([cmd, ...args]);
+        return '';
+      },
+    });
+    assert.equal(updateCalls.length, 3);
+    assert.equal(updateCalls[1][2], 'upload');
+    assert.ok(updateCalls[1].includes('--clobber'));
+    assert.equal(updateCalls[2][2], 'edit');
+
+    // Non-stable channel is rejected before invoking gh.
+    assert.throws(
+      () =>
+        publishDesktopGithubRelease({
+          channel: 'test',
+          version: '0.2.2-test.1',
+          assetsDir: dir,
+          execFile: () => {
+            throw new Error('should not invoke gh');
+          },
+        }),
+      /restricted to the "stable" channel/,
+    );
+
+    // Missing installer fails before invoking gh.
+    rmSync(path.join(dir, 'OpenDesign-0.2.1-mac-x64.dmg'));
+    assert.throws(
+      () =>
+        publishDesktopGithubRelease({
+          channel: 'stable',
+          version: '0.2.1',
+          assetsDir: dir,
+          execFile: () => {
+            throw new Error('should not invoke gh');
+          },
+        }),
+      /Missing expected stable desktop installer/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -69,8 +69,8 @@ On `test` / `dev` builds you can also switch Studio origins at runtime from the 
 ## Release and hot-config workflows
 
 - **Desktop installers (`.github/workflows/desktop-release.yml`):**
-  - Pushing desktop-coupled paths to `desktop-test` automatically verifies, builds (`macOS arm64`, `macOS x64`, `Windows x64`), signs/notarizes macOS, uploads to `releases.open-design.ai/open-motion/desktop/test/`, merges `test-mac.yml`, and notifies Feishu.
-  - `stable` releases require `workflow_dispatch` on `main` with `channel=stable` and `publish=true`.
+  - Pushing desktop-coupled paths to `desktop-test` automatically verifies, builds (`macOS arm64`, `Windows x64`, optional `macOS x64`), signs/notarizes macOS, uploads to `releases.open-design.ai/open-motion/desktop/test/`, merges `test-mac.yml`, and notifies Feishu. `test` builds never create GitHub Releases.
+  - `stable` releases require `workflow_dispatch` on `main` with `channel=stable` and `publish=true`. After publishing verified manifests to R2, `publish-manifests` (`permissions: contents: write`) also publishes the four signed/notarized installers (`mac-arm64.dmg`, `mac-x64.dmg`, `Setup-win-x64.exe`, `Portable-win-x64.exe`) and `SHA256SUMS.txt` to an independent GitHub Release tagged `desktop-v<version>` via `desktop/scripts/publish-github-release.mjs`.
 - **Hot signed config (`.github/workflows/desktop-signed-config.yml`):**
   - Updating `desktop/config/test.payload.json` on `desktop-test` automatically validates bounds, increments the live monotonic `sequence`, signs with the operational key/cert, runs `verify-config`, and uploads `open-motion/desktop/config/test.json` (`no-cache`).
   - `stable` config updates run via `workflow_dispatch` on `main` with `channel=stable` and `publish=true`.
