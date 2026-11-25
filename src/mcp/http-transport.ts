@@ -1,3 +1,4 @@
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import {
@@ -251,6 +252,7 @@ function normalizeStreamableHttpRequest(request: Request): Request {
 }
 
 export interface McpHttpTransportDeps {
+  tracking?: Pick<CloudTrackingHandle, 'trackMcpTool'>;
   config: AppConfig;
   dispatcher: McpToolDispatcher;
   sessionStore: McpSessionStore;
@@ -450,6 +452,7 @@ export class McpStreamableHttpHandler {
       auth,
       sessionState,
       dispatcher: this.deps.dispatcher,
+      tracking: this.deps.tracking,
       publicOrigin: this.deps.config.APP_PUBLIC_ORIGIN,
       templatePresentation,
       onBindSelection,

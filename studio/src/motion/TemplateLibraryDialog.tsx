@@ -1,3 +1,4 @@
+import { withTemplateAttribution } from '../../../shared/template-attribution';
 import { IconButton } from 'open-design-ui/icon-button';
 import { CategoryStrip } from './CategoryStrip';
 import { TemplateIndustryMenu } from './TemplateIndustryMenu';
@@ -630,8 +631,9 @@ export function TemplateLibraryDialog(props: Props) {
   }, [preview, handoffPreview, locale, promptAttempt]);
   async function copy(submit = false) {
     if (!prompt) return;
-    const text = submit ? templateSubmissionPrompt(prompt, handoffPreview ? locale : 'en') : prompt;
     const template = preview, view = detailView.current, attemptId = tracking.newTrackingId();
+    const brief = submit ? templateSubmissionPrompt(prompt, handoffPreview ? locale : 'en') : prompt;
+    const text = template ? withTemplateAttribution(brief, template.id, attemptId, 'editor') : brief;
     if (template) tracking.reportUseClicked(template, submit ? 'recreate_submit' : 'recreate', view, attemptId);
     try {
       await navigator.clipboard.writeText(text);
@@ -650,7 +652,7 @@ export function TemplateLibraryDialog(props: Props) {
     try {
       const connection = info.current ?? await motionApi<IntegrationInfo>('/integration'); info.current = connection;
       const instruction = templatePrompt(connection, 'codex', template, locale);
-      text = submit ? templateSubmissionPrompt(instruction) : instruction;
+      text = withTemplateAttribution(submit ? templateSubmissionPrompt(instruction) : instruction, template.id, attemptId, 'editor');
     } catch {
       showToast(t('Could not load the instruction.'), 'error', 'feedback');
       tracking.reportCopyResult(template, 'failed', attemptId, submit, view); return null;

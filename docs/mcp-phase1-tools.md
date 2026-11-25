@@ -423,3 +423,21 @@ Read `openmotion://workflow/game/start` for local playable browser games. `openm
 `openmotion_game_validate` checks index.html, allowed CDN hosts, six multiplayer logic exports and a deterministic 50-tick smoke run. `openmotion_game_set_status` accepts building/ready/failed. `openmotion_game_publish` revalidates and sets published, returning playUrl and the multiplayer roomInviteUrlPattern. Example: create a pixel space racer with multiplayer=true, retain its returned id, read it, write source, validate, play-test in two browsers and publish when authorized. Never select a game from another conversation.
 
 Files and HTTP/MCP share the same workspace. Client HTML is served unchanged; authoritative rooms use join/start/input messages and per-player views from shared/game-contract.ts. Publication lists a game locally and does not deploy to the internet. Likes/favorites belong to one local viewer; rooms are ephemeral. Optional image/audio generation depends on actual host/model discovery and explicit spend approval. The legacy openmotion_generate_asset name is not exposed by phase-one discovery. The game writer is text-only; binary assets require authorized local file operations. Browser play and human acceptance remain separate from mechanical validation. The Studio MCP handbook describes all twelve Game Studio tools, prerequisites and recovery boundaries.
+
+### Template copy attribution
+
+`openmotion_get_template` requires `templateId` and accepts optional `copyAttemptId`
+(UUID v4) and `templateEntry` (`website` or `editor`). Copy instructions provide
+these values explicitly. Agents forward each optional field unchanged only when the connected tool advertises it in its input schema. Unsupported copy metadata is omitted; templateId remains sufficient.
+A legacy or externally authored brief may omit both fields. Do not infer them from
+an installation channel, a nearby timestamp or the most recent copy.
+
+```json
+{
+  "templateId": "motion-46f34492-8ba1-4ba5-ac6e-4b4a13c80373",
+  "copyAttemptId": "11111111-1111-4111-8111-111111111111",
+  "templateEntry": "editor"
+}
+```
+
+If OpenMotion is unavailable, follow the original installation/connection instructions first. If a service rejects optional metadata as unknown or unsupported arguments, retry once with only templateId and continue. Missing attribution must never block installation or template use, or force an upgrade. Deploy receiving API/schema support first for attribution coverage; legacy services continue to work without copy attribution.

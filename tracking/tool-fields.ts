@@ -1,3 +1,5 @@
+import { templateEntries } from '../shared/template-attribution.ts';
+import { uuid } from './core.ts';
 const legacyAssetActions = ['list', 'get', 'import', 'update', 'generate', 'jobs', 'status', 'cancel', 'retry_save', 'resume', 'import_to_project'] as const;
 export const assetActions = [...legacyAssetActions, 'read', 'brand_kit', 'transcript', 'scenario'] as const;
 const actionSets = {
@@ -15,16 +17,23 @@ const actionSets = {
   openmotion_design_comments: ['list', 'create', 'update', 'delete'],
 } as const;
 const targets = ['project', 'templates', 'providers'] as const;
-export const toolDimensions = { action: [...new Set(Object.values(actionSets).flat())], target: targets } as const;
+export const toolDimensions = { action: [...new Set(Object.values(actionSets).flat())], target: targets, template_id: 'code', copy_attempt_id: 'uuid', template_entry: templateEntries } as const;
 
 export function toolInputFields(tool: string, input: unknown) {
-  const args = input && typeof input === 'object' && !Array.isArray(input) ? input as { action?: unknown; target?: unknown } : {};
+  const args = input && typeof input === 'object' && !Array.isArray(input) ? input as { action?: unknown; target?: unknown; templateId?: unknown; copyAttemptId?: unknown; templateEntry?: unknown } : {};
   const actions: readonly typeof toolDimensions.action[number][] = Object.hasOwn(actionSets, tool) ? actionSets[tool as keyof typeof actionSets] : [];
   const defaultAction = tool === 'openmotion_export_request' ? 'request' : tool === 'openmotion_open_preview' ? 'open' : undefined;
   const action = actions.find(value => value === (args.action === undefined ? defaultAction : args.action));
   const target = tool === 'openmotion_open_preview'
     ? targets.find(value => value === (args.target === undefined ? 'project' : args.target)) : undefined;
-  return { ...(action ? { action } : {}), ...(target ? { target } : {}) };
+  const templateRead = tool === 'openmotion_get_template' || tool === 'motion_get_template';
+  const templateId = templateRead && typeof args.templateId === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(args.templateId) ? args.templateId : undefined;
+  const copyAttemptId = templateRead && typeof args.copyAttemptId === 'string' && uuid.test(args.copyAttemptId) ? args.copyAttemptId : undefined;
+  const templateEntry = templateRead ? templateEntries.find(value => value === args.templateEntry) : undefined;
+  return { ...(action ? { action } : {}), ...(target ? { target } : {}),
+    ...(templateId ? { template_id: templateId } : {}), ...(copyAttemptId ? { copy_attempt_id: copyAttemptId } : {}),
+    ...(templateEntry ? { template_entry: templateEntry } : {}) };
+
 }
 
 export const validationRules = ['missing', 'invalid_type', 'invalid_enum', 'invalid_format', 'out_of_range', 'unknown_field', 'invalid_combination'] as const;
@@ -39,7 +48,7 @@ const invalidFields = [
   'anchor.annotation.height', 'anchor.annotation.marks', 'anchor.annotation.marks[]', 'anchor.annotation.marks[].kind',
   'anchor.annotation.marks[].text', 'anchor.annotation.marks[].points', 'anchor.annotation.marks[].points[]',
   'anchor.annotation.marks[].points[].x', 'anchor.annotation.marks[].points[].y',
-  'action', 'all', 'arguments', 'assetId', 'assetNames', 'assetNames[]', 'assetNames[].name',
+  'copyAttemptId', 'templateEntry', 'action', 'all', 'arguments', 'assetId', 'assetNames', 'assetNames[]', 'assetNames[].name',
   'assetNames[].path', 'audio', 'brandKit', 'brandKit.catalogId', 'brandKit.expectedUpdatedAt', 'brandKit.file',
   'brandKit.file.data', 'brandKit.file.name', 'brandKit.kitId', 'brandKit.name', 'brandKit.operation',
   'brandKit.query', 'brandKit.remove', 'brandKit.requestId', 'brandKit.rules', 'brandKit.rules[]', 'brandKit.style',

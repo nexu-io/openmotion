@@ -1,9 +1,12 @@
 import crypto from 'node:crypto';
 import { isEntitlementHookId, type EntitlementHookId } from '../shared/entitlement-hooks.ts';
-import { createTracker, uuid } from '../tracking/core.ts';
+import { createTracker, uuid, type EventFields } from '../tracking/core.ts';
 import { omEvents, studioEvents } from '../tracking/events.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 
+import type { HostContext } from '../tracking/host.ts';
+
+type McpEvent = 'mcp_tool_started' | 'mcp_tool_finished';
 const MAX_BROWSER_BATCH_SIZE = 25;
 // Cloud pods aggregate browser telemetry from many concurrent users through one shared tracker;
 // size the buffer above the single-user desktop default (64) so bursts of card impressions do not
@@ -12,6 +15,7 @@ const STUDIO_TRACKER_MAX_QUEUE = 1024;
 const STUDIO_TRACKER_FLUSH_INTERVAL_MS = 500;
 
 export interface CloudTrackingHandle {
+  trackMcpTool<E extends McpEvent>(event: E, fields: EventFields<typeof omEvents[E]>, host?: HostContext): void;
   isEnabled(): boolean;
   lockReason(): 'environment' | null;
   acceptBrowserBatch(payload: unknown): number;
@@ -32,6 +36,7 @@ export function cloudTrackingLockReason(env: NodeJS.ProcessEnv = process.env): '
 
 function disabledCloudTracking(reason: 'environment' | null): CloudTrackingHandle {
   return {
+    trackMcpTool: () => {},
     isEnabled: () => false,
     lockReason: () => reason,
     acceptBrowserBatch: () => 0,
@@ -131,6 +136,9 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
   });
 
   return {
+    trackMcpTool(event, fields, host) {
+      try { serverTracker.track(event, fields, undefined, undefined, host); } catch { /* Telemetry never blocks a tool call. */ }
+    },
     isEnabled: isActive,
     lockReason: () => cloudTrackingLockReason(env),
     acceptBrowserBatch(payload: unknown): number {

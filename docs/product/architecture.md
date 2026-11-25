@@ -154,6 +154,16 @@ OpenMotion exposes a **Streamable HTTP** MCP server at `/mcp` (`http://127.0.0.1
 - **Client Support**: Works natively with Codex, Claude Code, Cursor, DeepSeek Harness, Claude Desktop, and **ChatGPT Cloud** (enabled automatically when deployed on a public HTTPS origin with OAuth 2.1).
 - **MCP Handbook (`studio/src/motion/McpConnectionPage.tsx`, `mcpCapabilities.ts`, `shared/integration.ts`)**: Acts as the maintained product-wide capability and setup handbook, reading live discovery from `GET /motion-api/account/integration`, offering client-side downloadable Streamable HTTP configs, direct PAT management links, and localized guidance across all eleven UI languages (`en`, `zh-CN`, `ja`, `ko`, `de`, `fr`, `ru`, `es`, `pt-BR`, `it`, `tr`).
 
+### Template copy attribution
+
+Template copy instructions carry an explicit copy UUID and source surface
+(`website` or `editor`) into the optional MCP read parameters. The cloud MCP
+transport records template reads through the existing environment-controlled
+tracking sender. It preserves template identity and copy metadata without
+changing catalog lookup or inferring attribution for legacy calls. See the
+[public contract](../mcp-phase1-tools.md#template-copy-attribution) and
+[tracking guide](../../tracking/README.md#template-copy-to-mcp-read).
+
 ---
 
 ## 7. Shared Design System & Studio UI Contract

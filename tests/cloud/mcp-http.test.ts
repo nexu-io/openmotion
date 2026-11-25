@@ -305,6 +305,32 @@ describe('Streamable HTTP /mcp Multi-Replica Sessions, 22 Tools, Security & 10 M
     assert.deepEqual(costs, [2, 2, 1, 1]);
   });
 
+  it('reports template copy metadata through the actual HTTP tools/call path', async () => {
+    const config = makeMcpConfig();
+    const auth: AuthContext = { userId: randomUUID(), workspaceId: randomUUID(), role: 'owner',
+      scopes: ['workspace:admin'], authMode: 'oidc', authMethod: 'pat' };
+    const rows: Array<{ event: string; fields: Record<string, unknown> }> = [];
+    const dispatcher = new McpToolDispatcher(config, { catalog: {
+      listTemplates: async () => ({}), getTemplate: async (_auth, args) => ({ id: args.templateId }),
+      listSkills: async () => ({}), getSkill: async () => ({}),
+    } });
+    const handler = new McpStreamableHttpHandler({ config, dispatcher, sessionStore: new InMemoryMcpSessionStore(),
+      tracking: { trackMcpTool(event, fields) { rows.push({ event, fields }); } } });
+    const args = { templateId: 'motion-example', copyAttemptId: randomUUID(), templateEntry: 'website' };
+    const response = await handler.handle(new Request('https://motion.example.test/mcp', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1,
+        method: 'tools/call', params: { name: 'openmotion_get_template', arguments: args } }) }), auth);
+    assert.equal(response.status, 200);
+    const payload = await response.json() as any;
+    assert.equal(payload.result.isError, undefined);
+    assert.equal(payload.result.structuredContent.id, args.templateId);
+    assert.deepEqual(rows.map(row => row.event), ['mcp_tool_started', 'mcp_tool_finished']);
+    assert.equal(rows[1]!.fields.template_id, args.templateId);
+    assert.equal(rows[1]!.fields.copy_attempt_id, args.copyAttemptId);
+    assert.equal(rows[1]!.fields.template_entry, 'website');
+    assert.equal(rows[1]!.fields.outcome, 'success');
+  });
+
   it('reserves a weighted allowance atomically across Redis clients', { skip: !process.env.OPENMOTION_TEST_REDIS_URL }, async () => {
     const first = new Redis(process.env.OPENMOTION_TEST_REDIS_URL!);
     const second = first.duplicate();

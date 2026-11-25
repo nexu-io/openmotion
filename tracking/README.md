@@ -650,3 +650,23 @@ copying. No titles, material names, instructions, color values, URLs or raw erro
 are admitted. Existing consent, browser admission and product=openmotion filtering
 remain in force. UI tests use fake senders; live readback requires env=test and an
 isolated test-run UUID.
+
+### Template copy to MCP read
+
+The editor and website generate one UUID per copy attempt and reuse it in the
+copy result and the actual clipboard or manual-fallback text. The instruction
+asks the Agent to pass `templateId` and only the optional `copyAttemptId` /
+`templateEntry` fields declared by the connected `openmotion_get_template` tool.
+Unknown optional metadata is retried once with only `templateId`; missing
+attribution never blocks installation, connection or template use. The cloud MCP transport reports read start/finish
+through the existing opt-out-aware cloud sender, mapping these to `template_id`,
+`copy_attempt_id` and `template_entry`. The two read events share `call_id`;
+repeated reads may share the original copy ID but have separate call IDs.
+
+No-origin reads still report the template ID, with the copy ID and surface
+absent. A successful read is not evidence of project creation or template use.
+Join to `template_instruction_copy_result` on `copy_attempt_id`, verify
+`template_id` and surface agreement, and count distinct copy IDs for copy
+conversion. Deploy receiving API and registry support first for attribution coverage;
+older services remain usable with the required template ID alone. Historical
+events and legacy fallback reads without copy metadata cannot be attributed by inference.

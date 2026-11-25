@@ -1,5 +1,12 @@
 # 公开变更记录
 
+## 2026-11-25: Preserve optional template-copy attribution
+
+- Carry the template and copy-attempt identity from Studio copy actions through template-read telemetry, including manual clipboard fallback.
+- Accept optional copy attribution in the MCP template tool and report matching start/result events without letting telemetry affect template delivery.
+- Make copied instructions check the connected tool schema and retry without optional metadata on older servers, so attribution never requires an upgrade or blocks template use.
+
+
 ## 2026-11-25 · Keep hosted project file reads current
 
 - A second Studio can read the latest saved source through a private, revalidated API response even when the filename has a cacheable asset extension.

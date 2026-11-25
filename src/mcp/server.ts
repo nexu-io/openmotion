@@ -1,3 +1,5 @@
+import { trackTemplateRead } from './tracking.ts';
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import { Server } from '@modelcontextprotocol/server';
 import { createToolRegistry } from '../../shared/mcp-registry.ts';
 import { finalVideoTool, phase1Tools } from '../../shared/phase1-tools.ts';
@@ -28,6 +30,7 @@ export interface CreatePerRequestMcpServerOptions {
   auth: AuthContext;
   sessionState: McpSessionState | null;
   dispatcher: McpToolDispatcher;
+  tracking?: Pick<CloudTrackingHandle, 'trackMcpTool'>;
   publicOrigin: string;
   templatePresentation?: McpTemplatePresentation | null;
   onBindSelection?: (selection: { projectId: string; sessionId: string }) => Promise<void> | void;
@@ -136,7 +139,8 @@ export function createPerRequestMcpServer(options: CreatePerRequestMcpServerOpti
   });
 
   server.setRequestHandler('tools/call', async (request) => {
-    const result = await options.dispatcher.dispatch(
+    const result = await trackTemplateRead(request.params.name, request.params.arguments ?? {},
+      options.sessionState?.clientInfo, options.tracking, () => options.dispatcher.dispatch(
       request.params.name,
       request.params.arguments ?? {},
       {
@@ -148,7 +152,7 @@ export function createPerRequestMcpServer(options: CreatePerRequestMcpServerOpti
         renderTemplateRecommendations: cachedShowTemplateRecommendations ?? undefined,
         onBindSelection: options.onBindSelection,
       },
-    );
+    ));
     return result;
   });
 

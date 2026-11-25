@@ -2375,6 +2375,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       config,
       auth: authDeps,
       dispatcher: mcpDispatcher,
+      tracking: cloudTracking,
       sessionStore: mcpSessionStore,
       eventBus,
       rateLimiter: deps.rateLimiter,
