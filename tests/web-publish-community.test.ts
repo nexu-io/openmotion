@@ -803,21 +803,137 @@ test('mode=new_link rotation never inherits old curated feedStatus when post-pub
     assert.equal(curatedStatus.active?.feedStatus, 'featured');
 
     // Rotate to a new link while PUT /game-listing fails transiently:
-    // new publication MUST NOT inherit 'featured' or old communityUrl.
+    // new publication MUST NOT inherit 'featured' or old communityUrl and sets listingSyncPending.
     failListingPut = true;
     const rotated = await service.publish(target, { mode: 'new_link', visibility: 'public' });
     assert.notEqual(rotated.publication.slug, first.publication.slug);
     assert.equal(rotated.publication.feedStatus, 'pending');
     assert.equal(rotated.publication.communityUrl, undefined);
+    assert.equal(rotated.publication.listingSyncPending, true);
     assert.equal(baseMock.listings.has(rotated.publication.slug), false);
 
-    // Once the control API recovers, status() retries the missing listing sync and hydrates communityUrl.
+    // Once the control API recovers, status() retries the missing listing sync and clears listingSyncPending.
     failListingPut = false;
     const healedStatus = await service.status(target);
     assert.equal(healedStatus.active?.slug, rotated.publication.slug);
     assert.equal(healedStatus.active?.feedStatus, 'pending');
     assert.equal(healedStatus.active?.communityUrl, `https://open-design.app/games/${rotated.publication.slug}`);
+    assert.equal(healedStatus.active?.listingSyncPending, undefined);
     assert.equal(baseMock.listings.has(rotated.publication.slug), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('status() never auto-enrolls legacy pre-community game shares or overwrites on transient GET 503', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-status-heal-guard-'));
+  try {
+    const gameDir = path.join(root, 'legacy-and-503');
+    await mkdir(gameDir, { recursive: true });
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Guard Game</h1>');
+
+    const baseMock = createCommunityMockAccount('go');
+    let failGet503 = false;
+    let failPut503 = false;
+    const client: WebPublishAccountClient = {
+      isSignedIn: baseMock.client.isSignedIn,
+      listWorkspaces: baseMock.client.listWorkspaces,
+      summary: baseMock.client.summary,
+      runWithEnv: baseMock.client.runWithEnv,
+      async controlApiJson(apiPath: string, options?: { method?: string; body?: unknown }) {
+        const method = options?.method ?? 'GET';
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing(?:\?.*)?$/.test(apiPath) && method === 'GET' && failGet503) {
+          throw new AccountRequestError(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', status: 503 }));
+        }
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing$/.test(apiPath) && method === 'PUT' && failPut503) {
+          throw new AccountRequestError(JSON.stringify({ error: 'SERVICE_UNAVAILABLE', status: 503 }));
+        }
+        return baseMock.client.controlApiJson!(apiPath, options);
+      },
+    };
+
+    const dataDir = path.join(root, 'pub-data');
+    const service = new WebPublishService(dataDir, client);
+    const target = {
+      kind: 'game' as const,
+      id: 'legacy-and-503',
+      title: 'Guard Game',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-1',
+      sourcePath: gameDir,
+      gameMeta: {
+        title: 'Guard Game',
+        description: 'Legacy guard test',
+        genre: 'arcade',
+        orientation: 'landscape' as const,
+        controls: 'Arrows',
+      },
+    };
+
+    // Case 1: Pre-PR legacy share (no communityUrl, no listingSyncPending, no remote listing -> GET 404).
+    await mkdir(service.storeRoot, { recursive: true });
+    await writeFile(
+      path.join(service.storeRoot, 'game--legacy-and-503.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        reservations: {},
+        publications: {
+          'index.html': {
+            schemaVersion: 1,
+            targetKind: 'game',
+            targetId: 'legacy-and-503',
+            cloudProjectId: cloudProjectIdFor('game', 'legacy-and-503'),
+            projectId: 'legacy-and-503',
+            filePath: 'index.html',
+            entryPath: 'index.html',
+            name: 'Guard Game',
+            workspaceId: 'ws_go',
+            workspaceName: 'OpenMotion go',
+            ownerMemberId: 'member_go',
+            resourceId: 'res-legacy',
+            sourceFileId: 'src-legacy',
+            sourceKey: 'key-legacy',
+            slug: 'legacy-slug-no-listing',
+            version: 1,
+            versionId: 'ver-1',
+            status: 'published',
+            url: 'https://open-design.app/artifact/p/legacy-slug-no-listing?kind=game',
+            publishedAt: Date.now(),
+            updatedAt: Date.now(),
+            fileCount: 1,
+            totalBytes: 32,
+            sourceRevision: 'rev-1',
+          },
+        },
+      }),
+    );
+
+    baseMock.controlCalls.length = 0;
+    const legacyStatus = await service.status(target);
+    assert.equal(legacyStatus.active?.slug, 'legacy-slug-no-listing');
+    assert.equal(legacyStatus.active?.listingSyncPending, undefined);
+    assert.equal(baseMock.listings.has('legacy-slug-no-listing'), false);
+    assert.equal(
+      baseMock.controlCalls.some(call => call.method === 'PUT' && call.path.includes('/game-listing')),
+      false,
+      'status() must never PUT /game-listing for a legacy share without listingSyncPending',
+    );
+
+    // Case 2: Failed publish sets listingSyncPending=true, and transient GET 503 on status() must NOT PUT.
+    failPut503 = true;
+    const failedSync = await service.publish(target, { visibility: 'public' });
+    assert.equal(failedSync.publication.listingSyncPending, true);
+
+    failPut503 = false;
+    failGet503 = true;
+    baseMock.controlCalls.length = 0;
+    const outageStatus = await service.status(target);
+    assert.equal(outageStatus.active?.listingSyncPending, true);
+    assert.equal(
+      baseMock.controlCalls.some(call => call.method === 'PUT' && call.path.includes('/game-listing')),
+      false,
+      'status() must not issue PUT /game-listing when GET fails with 503/timeout instead of confirmed 404',
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

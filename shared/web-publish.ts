@@ -96,6 +96,8 @@ export type WebPublicationRecord = {
   visibility?: WebPublishVisibility;
   allowRemix?: boolean;
   feedStatus?: WebPublishFeedStatus;
+  /** True only when a publish/resume attempted `PUT /game-listing` and remote sync failed transiently. */
+  listingSyncPending?: boolean;
   publishedAt: number;
   updatedAt: number;
   fileCount: number;

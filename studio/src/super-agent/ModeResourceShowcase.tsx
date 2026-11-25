@@ -30,6 +30,8 @@ import {
   gameApi,
   genreCovers,
   genreLabels,
+  isTopEarningGame,
+  TOP_EARNING_TAG,
 } from '../motion/game/gameCatalog';
 import {
   GAME_STUDIO_QUICK_IDEAS,
@@ -1101,9 +1103,11 @@ export function ModeResourceShowcase({
         ];
       }
       case 'game': {
+        const topEarningCount = publishedGameTemplates.filter(isTopEarningGame).length;
         const portraitCount = publishedGameTemplates.filter(g => g.orientation === 'portrait').length;
         return [
           { id: 'all', label: 'All games', count: publishedGameTemplates.length },
+          ...(topEarningCount > 0 ? [{ id: 'top-earning', label: TOP_EARNING_TAG, count: topEarningCount }] : []),
           ...(myGames.length > 0 ? [{ id: 'mine', label: 'My games', count: myGames.length }] : []),
           ...gameGenres
             .map(g => ({
@@ -1404,18 +1408,26 @@ export function ModeResourceShowcase({
     const needle = gameQuery.trim();
     const base = activeFilter === 'mine'
       ? myGames
-      : activeFilter === 'portrait'
-        ? publishedGameTemplates.filter(g => g.orientation === 'portrait')
-        : activeFilter.startsWith('genre:')
-          ? publishedGameTemplates.filter(item => item.genre === (activeFilter.slice(6) as GameGenre))
-          : publishedGameTemplates;
+      : activeFilter === 'top-earning'
+        ? publishedGameTemplates.filter(isTopEarningGame)
+        : activeFilter === 'portrait'
+          ? publishedGameTemplates.filter(g => g.orientation === 'portrait')
+          : activeFilter.startsWith('genre:')
+            ? publishedGameTemplates.filter(item => item.genre === (activeFilter.slice(6) as GameGenre))
+            : publishedGameTemplates;
     const ranked = needle
       ? rankSearchResults(base, needle, game => ({
           id: game.id,
           title: game.i18n?.[locale]?.title ?? game.title,
           subtitle: t(genreLabels[game.genre]),
           description: game.i18n?.[locale]?.description ?? game.description,
-          tags: [game.genre, ...(game.style ? [game.style] : []), ...(game.setting ? [game.setting] : [])],
+          tags: [
+            game.genre,
+            ...(game.style ? [game.style] : []),
+            ...(game.setting ? [game.setting] : []),
+            ...(game.tags ?? []),
+            ...(isTopEarningGame(game) ? [TOP_EARNING_TAG] : []),
+          ],
           aliases: [
             game.title,
             game.description,
@@ -1593,6 +1605,12 @@ export function ModeResourceShowcase({
                     }}
                   >
                     {cover && <img src={cover} alt="" />}
+                    {isTopEarningGame(game) && (
+                      <span className="om-sa-game-top-badge">
+                        <RemixIcon name="sparkling-fill" size={11} />
+                        <span>{TOP_EARNING_TAG}</span>
+                      </span>
+                    )}
                     {isCenter && !game.multiplayer && (
                       <span
                         className="om-sa-game-select-cue"
@@ -1917,6 +1935,7 @@ export function ModeResourceShowcase({
                 role="tab"
                 aria-selected={activeFilter === id}
                 data-active={activeFilter === id || undefined}
+                data-featured={id === 'top-earning' || undefined}
                 className="om-sa-showcase-tab"
                 onClick={() => {
                   setActiveFilter(id);
@@ -1953,7 +1972,8 @@ export function ModeResourceShowcase({
                   }
                 }}
               >
-                <span>{t(label)}</span>
+                {id === 'top-earning' && <RemixIcon name="sparkling-fill" size={12} />}
+                <span>{id === 'top-earning' ? TOP_EARNING_TAG : t(label)}</span>
                 {typeof count === 'number' && <span className="om-sa-tab-count">{count}</span>}
               </Button>
             ))}
@@ -2115,6 +2135,7 @@ export function ModeResourceShowcase({
                   : modeOptions?.gameTemplate?.id === game.id;
                 const isPlaying = playingGameId === game.id;
                 const status = isMine ? GAME_STATUS_LABELS[game.status] : undefined;
+                const isTopEarning = isTopEarningGame(game);
 
                 return (
                   <article
@@ -2156,6 +2177,12 @@ export function ModeResourceShowcase({
                         >
                           <RemixIcon name={isSelected ? 'check-line' : 'sparkling-line'} size={13} />
                           <span>{isSelected ? t('Selected') : isMine ? t('Attach') : t('Remix')}</span>
+                        </span>
+                      )}
+                      {isTopEarning && !status && !(game.external && !game.external.embeddable) && !game.multiplayer && (
+                        <span className="om-sa-game-top-badge">
+                          <RemixIcon name="sparkling-fill" size={11} />
+                          <span>{TOP_EARNING_TAG}</span>
                         </span>
                       )}
                       {status && (

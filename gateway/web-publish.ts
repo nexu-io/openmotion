@@ -105,6 +105,19 @@ function isUnsupportedGameListingEndpointError(error: unknown): boolean {
   return /\bfailed \((?:404|405|501):/.test(msg) || /"status"\s*:\s*(?:404|405|501)\b/.test(msg);
 }
 
+function isGameListingNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/PRIVATE_SHARE_REQUIRES_PAID_PLAN|OPENDESIGN_SIGN_IN_REQUIRED/.test(msg)) {
+    return false;
+  }
+  const status = (error as { status?: unknown }).status;
+  if (typeof status === 'number') {
+    return status === 404;
+  }
+  return /\bfailed \(404:/.test(msg) || /"status"\s*:\s*404\b/.test(msg);
+}
+
 type GameListingControlResponse = {
   visibility?: WebPublishVisibility;
   feedStatus?: WebPublishFeedStatus;
@@ -637,15 +650,20 @@ export class WebPublishService {
       let hydratedFromListing = false;
       if (currentPub?.slug && currentPub.status === 'published') {
         const remoteProjectId = currentPub.cloudProjectId || defaultCloudProjectId;
-        let remoteListing = await this.account
-          .controlApiJson<GameListingControlResponse>(
+        let remoteListing: GameListingControlResponse | null = null;
+        let remoteListingMissing = false;
+        try {
+          remoteListing = await this.account.controlApiJson<GameListingControlResponse>(
             `/api/v1/collab/shares/${encodeURIComponent(currentPub.slug)}/game-listing?projectId=${encodeURIComponent(remoteProjectId)}`,
             { method: 'GET', workspaceId: currentPub.workspaceId, timeoutMs: 6_000 },
-          )
-          .catch(() => null);
-        // If a prior publish succeeded remotely but its best-effort PUT /game-listing
-        // failed transiently, currentPub has no communityUrl yet; retry syncing once.
-        if (!remoteListing && !currentPub.communityUrl) {
+          );
+        } catch (error) {
+          remoteListingMissing = isGameListingNotFoundError(error);
+        }
+        // Only heal publications that actually attempted PUT /game-listing on publish/resume
+        // and failed transiently, and only when GET confirms 404 (never on 5xx/timeout or
+        // pre-existing shares published by earlier builds without listingSyncPending).
+        if (!remoteListing && remoteListingMissing && currentPub.listingSyncPending) {
           remoteListing = await this.syncGameListing({
             target,
             cloudProjectId: remoteProjectId,
@@ -670,7 +688,8 @@ export class WebPublishService {
             (remoteListing.visibility && remoteListing.visibility !== currentPub.visibility)
             || (remoteListing.feedStatus && remoteListing.feedStatus !== currentPub.feedStatus)
             || (typeof remoteListing.allowRemix === 'boolean' && remoteListing.allowRemix !== currentPub.allowRemix)
-            || (remoteListing.communityUrl && remoteListing.communityUrl !== currentPub.communityUrl);
+            || (remoteListing.communityUrl && remoteListing.communityUrl !== currentPub.communityUrl)
+            || Boolean(currentPub.listingSyncPending);
           if (changed) {
             await withProcessLock(this.lockFile(target.kind, target.id), async () => {
               const latest = await this.readState(target.kind, target.id);
@@ -683,6 +702,7 @@ export class WebPublishService {
                   entry.communityUrl = remoteListing.communityUrl;
                   entry.url = remoteListing.communityUrl;
                 }
+                delete entry.listingSyncPending;
                 entry.updatedAt = Date.now();
                 await this.saveState(target.kind, target.id, latest);
               }
@@ -749,6 +769,7 @@ export class WebPublishService {
                 if (remoteListing?.visibility) entry.visibility = remoteListing.visibility;
                 if (remoteListing?.feedStatus) entry.feedStatus = remoteListing.feedStatus;
                 if (typeof remoteListing?.allowRemix === 'boolean') entry.allowRemix = remoteListing.allowRemix;
+                if (remoteListing) delete entry.listingSyncPending;
                 entry.updatedAt = Date.now();
                 await this.saveState(target.kind, target.id, latest);
               }
@@ -943,8 +964,9 @@ export class WebPublishService {
           );
         }
       }
+      const { listingSyncPending: _prevListingSyncPending, ...baseCurrent } = current;
       const next: WebPublicationRecord = {
-        ...current,
+        ...baseCurrent,
         visibility: res.visibility ?? options.visibility,
         allowRemix: typeof res.allowRemix === 'boolean' ? res.allowRemix : (options.allowRemix ?? current.allowRemix),
         feedStatus: res.feedStatus ?? current.feedStatus,
@@ -1058,8 +1080,9 @@ export class WebPublishService {
         target.kind === 'game'
           ? (resumedListing?.communityUrl ?? existingPublication.communityUrl ?? null)
           : null;
+      const { listingSyncPending: _prevListingSyncPending, ...baseExistingPublication } = existingPublication;
       const resumedPublication: WebPublicationRecord = {
-        ...existingPublication,
+        ...baseExistingPublication,
         cloudProjectId: existingProjectId,
         status: 'published',
         url: resumedCommunityUrl ?? resumedUrl,
@@ -1070,6 +1093,7 @@ export class WebPublishService {
               visibility: resumedListing?.visibility ?? requestedVisibility,
               feedStatus: resumedListing?.feedStatus ?? existingPublication.feedStatus ?? 'pending',
               allowRemix: resumedListing?.allowRemix ?? options.allowRemix ?? existingPublication.allowRemix ?? true,
+              ...(resumedListing ? {} : { listingSyncPending: true }),
             }
           : {}),
         fileCount: bundle.fileCount,
@@ -1321,6 +1345,7 @@ export class WebPublishService {
               visibility: listingSync?.visibility ?? requestedVisibility,
               allowRemix: listingSync?.allowRemix ?? options.allowRemix ?? true,
               feedStatus: listingSync?.feedStatus ?? 'pending',
+              ...(listingSync ? {} : { listingSyncPending: true }),
             }
           : {}),
         publishedAt,
