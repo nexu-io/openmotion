@@ -50,7 +50,7 @@ function CompositionLoadingStatus({ showMark = true, canEditWhileLoading, assetG
   }
   return (
     <div
-      className="absolute inset-0 z-20 flex flex-col items-center overflow-y-auto select-none [container-type:size] bg-[var(--motion-canvas)] text-[color:var(--motion-strong)]"
+      className="absolute inset-0 z-20 flex flex-col items-center overflow-y-auto select-none [container:composition-preview/size] bg-[var(--motion-canvas)] text-[color:var(--motion-strong)]"
       data-hyperframes-ignore=""
       data-testid="composition-loading-overlay"
       role="status"
@@ -60,8 +60,8 @@ function CompositionLoadingStatus({ showMark = true, canEditWhileLoading, assetG
       onDragStart={(event) => event.preventDefault()}
     >
       <div className={showMark ? "my-auto flex w-full min-w-0 max-w-sm flex-col items-center gap-2 p-2 text-center" : "sr-only"}>
-        {showMark && <span className="motion-preview-loading-mark [@container(max-height:8rem)]:hidden!" aria-hidden="true" />}
-        <div className="w-full shrink-0">
+        {showMark && <span className="motion-preview-loading-mark" aria-hidden="true" />}
+        <div className="motion-preview-loading-copy w-full shrink-0">
           <span id={labelId} className="block text-sm font-semibold">
             {pendingAsset ? t("Preparing preview assets") : t("Preparing the first preview frame")}
           </span>

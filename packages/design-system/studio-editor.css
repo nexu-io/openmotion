@@ -52,6 +52,20 @@
   mask: url('./brand/loading-mark.svg') center / contain no-repeat;
   animation: motion-preview-mark-breathe var(--motion-duration-loading) var(--motion-ease-standard) infinite alternate;
 }
+@container composition-preview (max-width: 280px) or (max-height: 160px) {
+  .motion-preview-loading-mark {
+    width: min(var(--motion-space-24), 20cqmin);
+    height: min(var(--motion-space-24), 20cqmin);
+  }
+  .motion-preview-loading-copy {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
 @keyframes motion-preview-loading-enter {
   to { opacity: 1; }
 }
