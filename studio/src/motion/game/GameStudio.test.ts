@@ -31,17 +31,20 @@ describe('gameCatalog multi-file detection and internal tags', () => {
     expect(needsGameService('<!doctype html><script>console.log("inline")</script>')).toBe(false);
   });
 
-  it('preserves internal top赚钱 tags on the 12 Batch 4 templates for downstream category grouping', () => {
+  it('preserves internal top赚钱 tags on bundled templates for downstream category grouping', () => {
     const expected = [
       'arrow-out-3d',
       'catch-kitty-3d',
       'goods-sort-master',
+      'kazehane',
       'parking-jam-hero',
       'piggy-escape-jam',
       'river-pals-sail',
       'rope-untangle-3d',
       'sand-tetris',
       'save-the-dog',
+      'shanghai-vice',
+      'vice-beach-golf-club',
       'water-sort-puzzle',
       'watermelon-merge-3d',
       'yarn-sort-color',

@@ -52,7 +52,7 @@ it('says it is connecting until the link exists, then syncing with nothing left 
 });
 
 it('explains a missing sign-in component, offers Retry and a copyable command that installs it where the service looks', async () => {
-  const command = "npm install --prefix '/opt/openmotion/data/account/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10";
+  const command = "npm install --prefix '/opt/openmotion/data/account/runtime' --ignore-scripts @powerformer/vela-cli@0.1.11-test.0";
   const writeText = vi.fn(async () => {}); Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   const page = await open({ state: 'signed-out', errorCode: 'connector_unavailable', connectorInstall: { command },
     error: "OpenMotion couldn't find npm to set up the OpenDesign sign-in component. Run this command in a terminal, then select Retry:" }, 'zh-CN');
@@ -201,10 +201,9 @@ it.each(['account', 'subscription'] as const)('shows the localized sign-in offer
   const guide = page.querySelector<HTMLElement>('[data-guide="sign-in"]')!;
   expect(guide.querySelector('h2')?.textContent).toBe('登录后精选模型7天无限用');
   expect(guide.querySelector('h2 span')?.textContent).toBe('7天无限用');
-  expect(guide.querySelector('h2 + span')?.textContent).toBe('Plus 及以上');
-  expect(guide.querySelector('h2 + span strong')?.textContent).toBe('Plus');
+  expect(guide.querySelector('h2 + span')?.textContent).toBe('年度 Pro / Max 专享');
   expect(actions(guide)).toEqual(['立即登录']);
-  expect(guide.querySelector('p')?.textContent).toBe('GPT image 2.0｜Nano banana 2｜Seedream5.0｜Seedream5.5');
+  expect(guide.querySelector('p')?.textContent).toBe('GPT Image 2.0｜Nano Banana 2｜Seedream 5.0｜Seedream 5.5');
   expect([...guide.querySelectorAll('p [data-brand="true"]')].map(icon => icon.getAttribute('data-provider')))
     .toEqual(['openai', 'nano-banana', 'bytedance', 'bytedance']);
   expect(guide.querySelector('ul, .om-account-offer')).toBeNull();
@@ -216,7 +215,7 @@ it('starts login from the signed-out subscription offer and switches to upgrade 
   const page = await open({ state: 'signed-out' }, 'en', 'subscription');
   const guide = page.querySelector<HTMLElement>('[data-guide="sign-in"]')!;
   expect(guide.querySelector('h2')?.textContent).toBe('Sign in for 7 days of unlimited use on select models');
-  expect(guide.querySelector('h2 + span')?.textContent).toBe('Plus and above');
+  expect(guide.querySelector('h2 + span')?.textContent).toBe('Annual Pro & Max');
   expect(guide.querySelector('ul, .om-account-offer')).toBeNull();
   expect(actions(guide)).toEqual(['Sign in now']);
   expect(page.querySelectorAll('.om-account-metrics .om-card')).toHaveLength(2);
@@ -248,7 +247,8 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
     const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan, balance: '0.00' }, 'en', 'subscription');
     const guide = page.querySelector<HTMLElement>('[data-guide="upgrade"]')!;
     expect(guide.querySelector('h2')?.textContent).toBe('7 days of unlimited use on select models');
-    expect(guide.querySelector('p')?.textContent).toBe('GPT image 2.0｜Nano banana 2｜Seedream5.0｜Seedream5.5');
+    expect(guide.querySelector('h2 + span')?.textContent).toBe('Annual Pro & Max');
+    expect(guide.querySelector('p')?.textContent).toBe('GPT Image 2.0｜Nano Banana 2｜Seedream 5.0｜Seedream 5.5');
     const modelIcons = guide.querySelectorAll('p [data-brand="true"]');
     expect([...modelIcons].map(icon => icon.getAttribute('data-provider'))).toEqual(['openai', 'nano-banana', 'bytedance', 'bytedance']);
     expect(guide.textContent).not.toContain('Current plan');

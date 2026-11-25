@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
 /** The OpenDesign connector version this release speaks to. */
-export const connectorVersion = '0.1.10';
+export const connectorVersion = '0.1.11-test.0';
 export const connectorPackage = '@powerformer/vela-cli';
 /** Why a connector could not be prepared: npm was not found, npm could not install it, or the installed copy does not run. */
 export type ConnectorProblem = 'npm_missing' | 'install_failed' | 'start_failed';

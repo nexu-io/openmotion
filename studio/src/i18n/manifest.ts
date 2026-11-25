@@ -65,6 +65,7 @@ export const I18N_EXTENSION_SOURCES: readonly I18nExtensionSource[] = [
   { kind: 'multi-locale-json', path: 'studio/src/i18n/sound-studio-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/audio-nav-menu-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/game-studio-ui.json' },
+  { kind: 'multi-locale-json', path: 'studio/src/i18n/game-publish-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/super-agent-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/campaign-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/scenario-ui.json' },

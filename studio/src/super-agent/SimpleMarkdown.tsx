@@ -225,7 +225,14 @@ type InlineRenderOptions = {
   onOpenFilePath?: (filePath: string, label?: string) => void;
   openViewerLabel: string;
   copyPathLabel: string;
+  /** Label shown instead of a published OpenDesign play link, which is never spelled out. */
+  openLabel: string;
 };
+
+/** Published OpenDesign play links (games shared with OpenDesign): shown as "Open", never as the URL itself. */
+export function isPublishedPlayLink(href: string) {
+  return /^https?:\/\/(?:[\w-]+\.)*(?:open-design\.app\/artifact\/|opendesign\.app\/g\/)/i.test(href);
+}
 
 function renderLink(
   key: number,
@@ -341,7 +348,7 @@ function renderInline(text: string, opts: InlineRenderOptions): ReactNode[] {
       } else {
         const href = safeHref(rawTarget);
         if (href) {
-          tokens.push(renderLink(key++, label, href, opts));
+          tokens.push(renderLink(key++, isPublishedPlayLink(href) && /^https?:\/\//i.test(label) ? opts.openLabel : label, href, opts));
         } else {
           tokens.push(full);
         }
@@ -356,7 +363,7 @@ function renderInline(text: string, opts: InlineRenderOptions): ReactNode[] {
       const suffix = full.slice(trimmed.length);
       const href = safeHref(trimmed);
       if (href) {
-        tokens.push(renderLink(key++, trimmed, href, opts));
+        tokens.push(renderLink(key++, isPublishedPlayLink(href) ? opts.openLabel : trimmed, href, opts));
       } else {
         tokens.push(trimmed);
       }
@@ -398,6 +405,7 @@ export function SimpleMarkdown({
     onOpenFilePath,
     openViewerLabel: t('Open in Viewer'),
     copyPathLabel: t('Copy path'),
+    openLabel: t('Open'),
   };
 
   return (

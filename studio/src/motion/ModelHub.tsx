@@ -19,9 +19,10 @@ import { findModelHub, type HubShowcaseCase } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
 import { setPendingAttribution } from './entitlementAttribution';
 import { reportHubClick, reportHubPageView } from './exploreTracking';
-import { campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
+import { campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
 import { newTrackingId } from './pageTracking';
 import { BackToExploreButton } from './BackToExploreButton';
+import { X_VIDEO_ESCAPE_EVENT, isXVideoUrl, xVideoDocument } from './xVideoEmbed';
 
 function columnsForWidth(width: number): number {
   return width >= 1180 ? 4 : width >= 820 ? 3 : width >= 520 ? 2 : 1;
@@ -73,13 +74,29 @@ function ShowcaseHoverVideo({ src, poster }: { src: string; poster: string }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
+    setFailed(false);
+  }, [src]);
+  useEffect(() => {
     const video = ref.current;
-    if (!video || failed) return;
+    if (!video || failed || isXVideoUrl(src)) return;
     void video.play().catch(() => { /* Static poster stays visible if autoplay is blocked. */ });
     return () => {
       video.pause();
     };
   }, [src, failed]);
+  if (isXVideoUrl(src)) {
+    return (
+      <iframe
+        className="om-hub-showcase-video"
+        srcDoc={xVideoDocument(src, poster, false, true)}
+        sandbox="allow-scripts"
+        allow="autoplay"
+        tabIndex={-1}
+        aria-hidden="true"
+        title=""
+      />
+    );
+  }
   if (failed) return null;
   return (
     <video
@@ -110,6 +127,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
   const [selectedTag, setSelectedTag] = useState<string>('all');
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
   const [hoveredCaseId, setHoveredCaseId] = useState<string | null>(null);
+  const [failedVideoUrls, setFailedVideoUrls] = useState<ReadonlySet<string>>(() => new Set());
   const [reducedMotion, setReducedMotion] = useState(() => (
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
@@ -118,7 +136,23 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
   const [lightboxPrompt, setLightboxPrompt] = useState('');
   const toast = useToast();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const lightboxIframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeDismissToken] = useState(() => newTrackingId());
   useDialogBehavior({ open: Boolean(activeCaseId), containerRef: dialogRef, onClose: () => setActiveCaseId(null) });
+  useEffect(() => {
+    if (!activeCaseId) return;
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.source === lightboxIframeRef.current?.contentWindow
+        && event.data?.type === X_VIDEO_ESCAPE_EVENT
+        && event.data?.token === iframeDismissToken
+      ) {
+        setActiveCaseId(null);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [activeCaseId, iframeDismissToken]);
   const showcaseRef = useRef<HTMLElement>(null);
   const masonryCount = useMasonryColumns(showcaseRef);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -136,6 +170,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
     setSelectedTag('all');
     setActiveCaseId(null);
     setHoveredCaseId(null);
+    setFailedVideoUrls(new Set());
   }, [id]);
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -239,11 +274,19 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
     const prompt = (promptOverride ?? t(item.prompt)).trim();
     const aspect = aspectRatioLabel(item.aspectRatio);
     const modality = item.destination.scene.modality;
+    const remixClip = item.videoHd || item.video;
     const draft: AssetDraft = {
       modality,
       prompt,
       preferredModel: preferredModelId,
       shotPreferences: { aspect, duration: modality === 'video' ? 5 : undefined },
+      guideExample: {
+        title: t(item.title),
+        prompt,
+        poster: item.poster,
+        clip: modality === 'video' ? remixClip : undefined,
+        posterAspect: item.aspectRatio,
+      },
       references: [],
     };
     setActiveCaseId(null);
@@ -284,8 +327,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                     <a
                       className="om-hub-promo-pill"
                       href={pricingHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      {...pricingLinkTargetProps()}
                       onClick={event => {
                         event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
                         window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
@@ -399,7 +441,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                         }}
                       >
                         <div className="om-hub-showcase-media" style={{ aspectRatio: String(item.aspectRatio) }}>
-                          <img src={item.poster} alt={itemTitle} loading="lazy" />
+                          <img src={item.poster} alt={itemTitle} loading="lazy" referrerPolicy="no-referrer" />
                           {playingHoverVideo && item.video && (
                             <ShowcaseHoverVideo src={item.video} poster={item.poster} />
                           )}
@@ -409,7 +451,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                             title={kindLabel}
                             aria-label={kindLabel}
                           >
-                            <RemixIcon name={isVideo ? 'movie-line' : 'image-line'} size={14} />
+                            <RemixIcon name={isVideo ? 'movie-line' : 'image-line'} size={11} />
                           </span>
                           <div className="om-hub-showcase-overlay">
                             <strong className="om-hub-showcase-title" title={itemTitle}>{itemTitle}</strong>
@@ -443,6 +485,9 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
           const activeTitle = t(activeCase.title);
           const activeAspect = aspectRatioLabel(activeCase.aspectRatio);
           const isVideoCase = activeCase.destination.scene.modality === 'video';
+          const videoCandidates = [activeCase.videoHd, activeCase.video]
+            .filter((url, idx, list): url is string => Boolean(url) && list.indexOf(url) === idx);
+          const activeVideoUrl = videoCandidates.find(url => !failedVideoUrls.has(url)) ?? null;
           const canCycle = filteredCases.length > 1 && currentIndex >= 0;
           const stepCase = (delta: number) => {
             if (!canCycle) return;
@@ -488,25 +533,53 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                 )}
 
                 <div className="om-hub-lightbox">
+                  <img
+                    className="om-hub-lightbox-aura"
+                    src={activeCase.poster}
+                    alt=""
+                    aria-hidden="true"
+                    referrerPolicy="no-referrer"
+                  />
                   <div className="om-hub-lightbox-stage">
                     <div
                       className="om-hub-lightbox-media"
                       data-portrait={activeCase.aspectRatio < 0.9 ? 'true' : undefined}
                       style={{ aspectRatio: String(activeCase.aspectRatio) }}
                     >
-                      {activeCase.video ? (
-                        <video
-                          key={activeCase.id}
-                          src={activeCase.video}
-                          poster={activeCase.poster}
-                          controls
-                          autoPlay={!reducedMotion}
-                          loop
-                          muted
-                          playsInline
-                        />
+                      {activeVideoUrl ? (
+                        isXVideoUrl(activeVideoUrl) ? (
+                          <iframe
+                            ref={lightboxIframeRef}
+                            key={activeVideoUrl}
+                            className="om-hub-lightbox-video"
+                            srcDoc={xVideoDocument(activeVideoUrl, activeCase.poster, true, !reducedMotion, iframeDismissToken)}
+                            sandbox="allow-scripts"
+                            allow="autoplay; fullscreen"
+                            title={activeTitle}
+                          />
+                        ) : (
+                          <video
+                            key={activeVideoUrl}
+                            className="om-hub-lightbox-video"
+                            src={activeVideoUrl}
+                            poster={activeCase.poster}
+                            controls
+                            autoPlay={!reducedMotion}
+                            loop
+                            muted
+                            playsInline
+                            onError={() => {
+                              setFailedVideoUrls(prev => {
+                                if (prev.has(activeVideoUrl)) return prev;
+                                const next = new Set(prev);
+                                next.add(activeVideoUrl);
+                                return next;
+                              });
+                            }}
+                          />
+                        )
                       ) : (
-                        <img src={activeCase.poster} alt={activeTitle} />
+                        <img src={activeCase.poster} alt={activeTitle} referrerPolicy="no-referrer" />
                       )}
                     </div>
                   </div>
@@ -559,6 +632,17 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                         <span>{hub.latestModel}</span>
                         <span>{activeAspect}</span>
                         {isVideoCase && <span>5s</span>}
+                        {activeCase.author && activeCase.sourceUrl && (
+                          <a
+                            className="om-hub-lightbox-credit"
+                            href={activeCase.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <span>{activeCase.author}</span>
+                            <RemixIcon name="arrow-right-up-line" size={12} />
+                          </a>
+                        )}
                       </div>
                     </div>
 

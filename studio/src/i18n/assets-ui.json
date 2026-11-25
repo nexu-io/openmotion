@@ -332,16 +332,17 @@
     "Black Friday: up to 50% off your first year": "黑五首年最低5折",
     "7 days of unlimited flagship image generation": "旗舰生图7天无限用",
     "Black Friday: the year’s best deals, up to 50% off": "黑五全年最低5折",
-    "Enjoy this offer with Plus or higher": "plus级以上即可享受",
+    "Enjoy this offer with Plus or higher": "Plus 及以上即可享受",
     "Upgrade (generation offer)": "立即升级",
-    "Available with Plus or higher": "plus级以上账户即可使用",
+    "Available with Plus or higher": "Plus 及以上账户即可使用",
     "Sign in now": "立即登录",
     "Requires upgrade to Plus": "需升级到 Plus",
     "Signed out": "未登录",
     "Unlock multimodal creation": "解锁多模态创作",
     "Black Friday’s lowest prices of the year! 7 days of unlimited use": "黑五全年最低价！7天无限用",
     "{provider} needs setup before generating.": "{provider} 需要先完成配置才能生成。",
-    "Configure {provider}": "配置 {provider}"
+    "Configure {provider}": "配置 {provider}",
+    "Annual Pro & Max · Up to 50% off": "年度 Pro / Max 专享 · 黑五低至 5 折"
   },
   "ja": {
     "Follows first frame": "最初のフレームに合わせる",
@@ -370,7 +371,8 @@
     "{provider} needs setup before generating.": "生成する前に {provider} の設定が必要です。",
     "Configure {provider}": "{provider} を設定",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "参照画像が OpenDesign の 2 MiB アップロード上限を超えています。",
-    "OpenDesign does not accept this reference image format.": "OpenDesign はこの参照画像形式に対応していません。"
+    "OpenDesign does not accept this reference image format.": "OpenDesign はこの参照画像形式に対応していません。",
+    "Annual Pro & Max · Up to 50% off": "年間 Pro / Max 限定 · 最大50%オフ"
   },
   "ko": {
     "Follows first frame": "첫 프레임에 맞춤",
@@ -399,7 +401,8 @@
     "{provider} needs setup before generating.": "생성하기 전에 {provider} 설정이 필요합니다.",
     "Configure {provider}": "{provider} 설정",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "참조 이미지가 OpenDesign의 2 MiB 업로드 한도를 초과합니다.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign에서 지원하지 않는 참조 이미지 형식입니다."
+    "OpenDesign does not accept this reference image format.": "OpenDesign에서 지원하지 않는 참조 이미지 형식입니다.",
+    "Annual Pro & Max · Up to 50% off": "연간 Pro / Max 전용 · 최대 50% 할인"
   },
   "de": {
     "Follows first frame": "Wie das erste Bild",
@@ -428,7 +431,8 @@
     "{provider} needs setup before generating.": "{provider} muss vor dem Generieren eingerichtet werden.",
     "Configure {provider}": "{provider} einrichten",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Das Referenzbild überschreitet das OpenDesign-Upload-Limit von 2 MiB.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign unterstützt dieses Referenzbildformat nicht."
+    "OpenDesign does not accept this reference image format.": "OpenDesign unterstützt dieses Referenzbildformat nicht.",
+    "Annual Pro & Max · Up to 50% off": "Jahres-Pro & Max · Bis zu 50 % Rabatt"
   },
   "fr": {
     "Follows first frame": "Selon la première image",
@@ -457,7 +461,8 @@
     "{provider} needs setup before generating.": "{provider} doit être configuré avant de générer.",
     "Configure {provider}": "Configurer {provider}",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "L’image de référence dépasse la limite de 2 Mio d’OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign ne prend pas en charge ce format d’image de référence."
+    "OpenDesign does not accept this reference image format.": "OpenDesign ne prend pas en charge ce format d’image de référence.",
+    "Annual Pro & Max · Up to 50% off": "Pro & Max annuel · Jusqu’à -50 %"
   },
   "ru": {
     "Follows first frame": "По первому кадру",
@@ -486,7 +491,8 @@
     "{provider} needs setup before generating.": "Перед генерацией необходимо настроить {provider}.",
     "Configure {provider}": "Настроить {provider}",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Размер референсного изображения превышает лимит OpenDesign в 2 МиБ.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign не поддерживает этот формат референсного изображения."
+    "OpenDesign does not accept this reference image format.": "OpenDesign не поддерживает этот формат референсного изображения.",
+    "Annual Pro & Max · Up to 50% off": "Годовой Pro и Max · Скидка до 50%"
   },
   "es": {
     "Follows first frame": "Según el primer fotograma",
@@ -515,7 +521,8 @@
     "{provider} needs setup before generating.": "{provider} requiere configuración antes de generar.",
     "Configure {provider}": "Configurar {provider}",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "La imagen de referencia supera el límite de carga de 2 MiB de OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign no admite este formato de imagen de referencia."
+    "OpenDesign does not accept this reference image format.": "OpenDesign no admite este formato de imagen de referencia.",
+    "Annual Pro & Max · Up to 50% off": "Pro y Max anual · Hasta 50% dto."
   },
   "pt-BR": {
     "Follows first frame": "Conforme o primeiro quadro",
@@ -544,7 +551,8 @@
     "{provider} needs setup before generating.": "{provider} precisa ser configurado antes de gerar.",
     "Configure {provider}": "Configurar {provider}",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "A imagem de referência excede o limite de envio de 2 MiB do OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "O OpenDesign não aceita este formato de imagem de referência."
+    "OpenDesign does not accept this reference image format.": "O OpenDesign não aceita este formato de imagem de referência.",
+    "Annual Pro & Max · Up to 50% off": "Pro e Max anual · Até 50% off"
   },
   "it": {
     "Follows first frame": "Come il primo fotogramma",
@@ -573,7 +581,8 @@
     "{provider} needs setup before generating.": "{provider} deve essere configurato prima di generare.",
     "Configure {provider}": "Configura {provider}",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "L’immagine di riferimento supera il limite di caricamento di 2 MiB di OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign non accetta questo formato di immagine di riferimento."
+    "OpenDesign does not accept this reference image format.": "OpenDesign non accetta questo formato di immagine di riferimento.",
+    "Annual Pro & Max · Up to 50% off": "Pro e Max annuale · Fino al 50% off"
   },
   "tr": {
     "Follows first frame": "İlk kareye göre",
@@ -602,6 +611,7 @@
     "{provider} needs setup before generating.": "Üretmeden önce {provider} kurulumu gerekiyor.",
     "Configure {provider}": "{provider} yapılandır",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Referans görsel OpenDesign’ın 2 MiB yükleme sınırını aşıyor.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign bu referans görsel biçimini kabul etmiyor."
+    "OpenDesign does not accept this reference image format.": "OpenDesign bu referans görsel biçimini kabul etmiyor.",
+    "Annual Pro & Max · Up to 50% off": "Yıllık Pro ve Max · %50’ye varan indirim"
   }
 }
