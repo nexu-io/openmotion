@@ -236,6 +236,7 @@ for (const plan of ['free', 'go']) {
     const options = { ...time, openBrowser: async (url: string) => { opened.push(url); } };
     const result = await mediaUse(store, { action: 'wait_sign_in', timeoutSeconds: 21 }, undefined, options);
     assert.equal(result.signIn.state, 'awaiting_payment');
+    assert.match(result.signIn.instruction, /15 minutes pass without payment.*nothing was generated or charged.*upgrade\.url still works.*own API key/);
     assert.equal(result.signIn.upgrade.opened, true);
     assert.equal(result.signIn.upgrade.plan, 'plus');
     assert.match(result.signIn.upgrade.entryId, uuid);
