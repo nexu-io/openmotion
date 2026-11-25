@@ -17,6 +17,7 @@ import { apiJson, ProviderError, retryRead, type Fetcher } from './network.ts';
 import { cloudImageParameters, mediaSubmitHeaders, productionApi, uploadInputs } from './opendesign.ts';
 import type { ProviderContext } from './providers.ts';
 import { resumableDownload, type DownloadProgress } from './resumable-download.ts';
+import { isCloudIntentTargetPath, OPENMOTION_CLOUD_ENTRY_SOURCE } from '../shared/workspace-collab.ts';
 import { accountDirectory } from './account-directory.ts';
 import { withProcessLock } from '../shared/process-lock.ts';
 import { connectorRuntime, connectorVersion, ConnectorUnavailable, installConnector, manualInstallCommand, verifyConnector, type ConnectorProblem } from './account-connector.ts';
@@ -518,6 +519,21 @@ export class OpenDesignAccount {
   async isSignedIn(): Promise<boolean> {
     return signedInProfile(await this.profile());
   }
+  async getControlSession(): Promise<{ apiUrl: string; controlKey: string; controlKeyId?: string; user?: Profile['user'] } | null> {
+    const profile = await this.profile();
+    if (!signedInProfile(profile) || !profile?.controlKey || !await this.identity()) return null;
+    return {
+      apiUrl: (profile.apiUrl?.trim() || productionApi).replace(/\/$/, ''),
+      controlKey: profile.controlKey,
+      ...(profile.controlKeyId ? { controlKeyId: profile.controlKeyId } : {}),
+      ...(profile.user ? { user: profile.user } : {}),
+    };
+  }
+  async listAllWorkspaceRecords(signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+    const profile = await this.profile();
+    if (!signedInProfile(profile) || !profile?.controlKey) return [];
+    return this.fetchWorkspaceRecords(profile, signal, 15_000);
+  }
   async listWorkspaces(signal?: AbortSignal): Promise<OpenDesignWorkspaceInfo[]> {
     const profile = await this.profile();
     if (!signedInProfile(profile) || !profile?.controlKey) {
@@ -744,31 +760,53 @@ export class OpenDesignAccount {
     return { exitCode: attempt.exitCode, cancelled };
   }
   /**
-   * Opens the subscription page in the system browser, the one the connector used for sign-in, so its OpenDesign session
-   * carries over. A one-time account intent makes the page confirm it is the account signed in here before any purchase.
+   * Opens an OpenDesign Cloud destination in the system browser with a one-time account intent
+   * when signed into production so the browser session stays matched with the desktop client.
    */
-  async openSubscription(launch: (url: string) => Promise<void> = openSystemBrowser, attribution?: AccountAttribution) {
-    const entryId = validEntryId(attribution?.entryId) ?? randomUUID();
-    // Preserve the AMR-registered entry source so AMR keeps the full attribution (including od_entry_id).
-    const target = '/dashboard?' + new URLSearchParams({
-      billing: 'plan', od_origin: 'openmotion',
-      od_entry_source: 'openmotion_manage_subscription',
-      od_entry_id: entryId, od_entry_at: new Date().toISOString(),
-    });
+  async openCloudUrl(
+    targetPath: string,
+    entrySource = OPENMOTION_CLOUD_ENTRY_SOURCE,
+    launch: ((url: string) => Promise<void>) | false = openSystemBrowser,
+    attribution?: { utmMedium?: string; entryId?: unknown },
+  ) {
+    const cleanPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+    const [pathname, rawQuery = ''] = cleanPath.split('?', 2);
+    const params = new URLSearchParams(rawQuery);
+    params.set('od_origin', 'openmotion');
+    params.set('od_entry_source', entrySource);
+    params.set('od_entry_id', validEntryId(attribution?.entryId) ?? randomUUID());
+    params.set('od_entry_at', new Date().toISOString());
+    if (attribution?.utmMedium) {
+      params.set('utm_source', 'openmotion');
+      params.set('utm_medium', attribution.utmMedium);
+    }
+    const target = `${pathname}?${params.toString()}`;
     let url = consoleUrl + target;
     const profile = await this.profile();
-    if (signedInProfile(profile) && profile!.apiUrl?.replace(/\/$/, '') === productionApi && await this.identity()) {
+    if (
+      isCloudIntentTargetPath(pathname) &&
+      signedInProfile(profile) &&
+      profile!.apiUrl?.replace(/\/$/, '') === productionApi &&
+      await this.identity()
+    ) {
       try {
         const response = await (this.options.fetcher ?? fetch)(productionApi + '/api/v1/auth/intents', {
           method: 'POST', headers: { Authorization: 'Bearer ' + profile!.controlKey, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ target }), redirect: 'error', signal: AbortSignal.timeout(10_000),
+          body: JSON.stringify({ target }), redirect: 'error', signal: AbortSignal.timeout(2_500),
         });
         const intentId = response.ok ? (await response.json().catch(() => null))?.intentId : undefined;
         if (typeof intentId === 'string' && /^[\w-]{1,128}$/.test(intentId)) url = consoleUrl + '/login?' + new URLSearchParams({ intentId });
       } catch { /* Without an intent the page still opens and asks the browser to sign in when needed. */ }
     }
-    const opened = await launch(url).then(() => true, () => false);
+    const opened = launch === false ? false : await launch(url).then(() => true, () => false);
     return { url, opened };
+  }
+  /**
+   * Opens the subscription page in the system browser, the one the connector used for sign-in, so its OpenDesign session
+   * carries over. A one-time account intent makes the page confirm it is the account signed in here before any purchase.
+   */
+  async openSubscription(launch: (url: string) => Promise<void> = openSystemBrowser, attribution?: AccountAttribution) {
+    return this.openCloudUrl('/dashboard?billing=plan', 'openmotion_manage_subscription', launch, attribution);
   }
   async cancel() {
     const connecting = this.connecting, generation = ++this.generation;

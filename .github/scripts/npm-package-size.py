@@ -9,7 +9,7 @@ import tarfile
 
 MIB = 1024 * 1024
 WARNING_GROWTH = MIB
-MAX_BYTES = 28 * MIB  # 26 playable game templates add about 2.3 MiB compressed (PR #768).
+MAX_BYTES = 29 * MIB  # 26 playable game templates (+2.3 MiB, PR #768); workspace collab, commercialization & unified library (+0.16 MiB over 27.94 MiB baseline, PR #1045).
 
 
 def package_files(path):

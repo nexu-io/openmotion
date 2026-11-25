@@ -9,7 +9,7 @@ export const feishu = { platform: '飞书', href: 'https://applink.feishu.cn/cli
 export function useCommunityLink() {
   const { t, locale } = useI18n();
   const { platform, href, icon } = locale === 'zh-CN' ? feishu : discord;
-  return { href, icon, label: t('Join OpenMotion on {platform}', { platform }) };
+  return { platform, href, icon, label: t('Join OpenMotion on {platform}', { platform }) };
 }
 
 export function CommunityLink() {

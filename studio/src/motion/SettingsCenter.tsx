@@ -20,6 +20,7 @@ import { AgentSettings, DefaultAgentCard } from './AgentSettings';
 import { DiagnosticExport } from './DiagnosticExport';
 import { discord, feishu } from './CommunityLink';
 import { GITHUB_REPOSITORY, repositorySupportLinks } from './githubRepository';
+import { useOptionalGrowthSurfaces } from './collab/GrowthSurfacesContext';
 import { SettingsSurfaceBoundary } from './SettingsSurfaceBoundary';
 import { getDesktopBridge, isDesktopApp, useDesktopUpdateState } from '../utils/platformHost';
 import { useFollowUpBehavior } from '../utils/superAgentPreferences';
@@ -85,6 +86,7 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
   const { t, locale } = useI18n();
   const desktopApp = isDesktopApp();
   const updater = useDesktopUpdateState();
+  const growth = useOptionalGrowthSurfaces();
   const communityLinks = locale === 'zh-CN' ? [feishu, discord] : [discord, feishu];
   const [version, setVersion] = useState<string>();
   useEffect(() => {
@@ -146,6 +148,17 @@ function ResourceSettings({ about, openConnections }: { about: boolean; openConn
       {communityLinks.map((link, index) => <a key={link.href} className="om-nav-item om-resource-link" href={link.href} target="_blank" rel="noopener noreferrer" onClick={() => tracking.reportSettingsClick('help_resources', 'community', { position: index + 1 })}>
         <span>{link === feishu ? t('Feishu group') : link.platform}</span><RemixIcon name="external-link-line" size={16} />
       </a>)}
+      {growth && (
+        <Button
+          variant="plain"
+          type="button"
+          className="om-nav-item om-resource-link om-support-help-btn"
+          onClick={() => growth.openSupportDialog({ source: 'Help' })}
+        >
+          <span>{t('Contact support')}</span>
+          <RemixIcon name="customer-service-2-line" size={16} />
+        </Button>
+      )}
     </section>}
     {!about && (
       <section className="om-card om-card-stack">

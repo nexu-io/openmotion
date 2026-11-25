@@ -38,6 +38,8 @@ export type CreativeNavigationProps = {
   onNavigateSound?: (destination: StudioDestination, soundTab?: SoundTabId | null) => void;
   currentPage: 'explore' | 'mcp' | 'agent' | null;
   onOpenPage: (page: 'explore' | 'mcp' | 'agent', client?: McpClient) => void;
+  libraryActive?: boolean;
+  onOpenLibrary?: () => void;
   onOpenAgentStart: (mode: SuperAgentRouteMode | null) => void;
   /** The page this navigation is shown on, so its clicks segment by where the user was. */
   trackingPage: CreativePage;
@@ -87,7 +89,7 @@ function MediaChoices({ studio, destination, onNavigate, onSelectModel, catalog 
   </div>;
 }
 
-export function CreativeNavigation({ specialty, onChooseStudio, destination, soundTab, motionActive, designActive, cinemaActive, scenarioActive, onOpenScenario, onOpenScenarioHub, onNavigate, onNavigateSound, currentPage, onOpenPage, onOpenAgentStart, overflowActions, trackingPage }: CreativeNavigationProps & { overflowActions?: (close: () => void) => ReactNode }) {
+export function CreativeNavigation({ specialty, onChooseStudio, destination, soundTab, motionActive, designActive, cinemaActive, scenarioActive, onOpenScenario, onOpenScenarioHub, onNavigate, onNavigateSound, currentPage, onOpenPage, libraryActive, onOpenLibrary, onOpenAgentStart, overflowActions, trackingPage }: CreativeNavigationProps & { overflowActions?: (close: () => void) => ReactNode }) {
   const { t } = useI18n();
   const [open, setOpen] = useState<Modality | 'mcp' | 'workflows' | 'agent' | null>(null);
   const [popupHost, setPopupHost] = useState<HTMLElement>();
@@ -102,6 +104,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
   const strip = useRef<HTMLDivElement>(null);
   const more = useRef<HTMLDivElement>(null);
   const hasWorkflows = Boolean(onOpenScenario && onOpenScenarioHub);
+  const hasLibrary = Boolean(onOpenLibrary);
 
   const choose = (action: () => void) => {
     const navigation = rail.current;
@@ -144,8 +147,8 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
       onActivate: () => onOpenScenarioHub!(),
     }] : []),
   ];
-  // Order: Explore, the media menus and MCP, Super Agent, then Workflows, then the studios.
-  const splitStart = 1;
+  // Order: Explore, Library, the media menus and MCP, Super Agent, then Workflows, then the studios.
+  const splitStart = hasLibrary ? 2 : 1;
   const mediaCount = menuDestinations.length - (hasWorkflows ? 1 : 0);
   const agentIndex = splitStart + mediaCount;
   const workflowsIndex = hasWorkflows ? agentIndex + 1 : -1;
@@ -261,6 +264,10 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
       aria-current={currentPage === 'explore' ? 'page' : undefined} onPointerEnter={() => prefetchStudioTarget('explore')} onPointerDown={() => prefetchStudioTarget('explore')} onFocus={() => prefetchStudioTarget('explore')} onClick={() => { track('nav_explore', { navTarget: 'explore', inOverflow: inPanel }); choose(() => onOpenPage('explore')); }}>
       <RemixIcon name="global-line" size={17} /><span>{t('Explore')}</span>
     </Button>;
+    if (hasLibrary && index === 1) return <Button variant="plain" className="om-nav-item om-library-nav-link" data-testid="nav-library-link" aria-label={t('Library')} title={t('Library')}
+      aria-current={libraryActive ? 'page' : undefined} onPointerEnter={() => prefetchStudioTarget('assets')} onPointerDown={() => prefetchStudioTarget('assets')} onFocus={() => prefetchStudioTarget('assets')} onClick={() => { track('nav_studio', { navTarget: 'library', inOverflow: inPanel }); choose(() => onOpenLibrary!()); }}>
+      <RemixIcon name={libraryActive ? 'folder-open-fill' : 'folder-3-line'} size={16} /><span>{t('Library')}</span>
+    </Button>;
     if (index < agentIndex || index === workflowsIndex) return splitItem(index, inPanel);
     if (index === agentIndex) {
       const expanded = open === 'agent' && (index >= visibleCount) === inPanel;
@@ -316,7 +323,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
             }
             setMoreOpen(next);
           }} aria-label={t('More Studio')} className="om-selection-panel om-nav-more-panel"
-          trigger={<Button variant="plain" type="button" className="om-nav-item">{t('More Studio')}</Button>}>
+          trigger={<Button variant="plain" type="button" className="om-nav-item om-nav-more-trigger" aria-label={t('More Studio')}><RemixIcon name="menu-line" size={16} className="om-nav-more-icon" /><span className="om-nav-more-label">{t('More Studio')}</span></Button>}>
           {moreOpen && (overflowActions || hidden.some(index => index < studioStart)) && <div className="om-nav-more-tools">
             {overflowActions?.(() => setMoreOpen(false))}
             {hidden.filter(index => index < studioStart).map(index => <div key={index}>{item(index, true)}</div>)}
