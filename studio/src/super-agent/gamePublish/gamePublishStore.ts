@@ -177,7 +177,11 @@ function wechatInstructions(session: GamePublishSession) {
 /** Tells the Agent about the OpenDesign link when the user kept OpenDesign selected; the page publishes it. */
 export function linkNote(session: GamePublishSession) {
   if (!session.linkToo && !session.linkUrl) return '';
-  return `\n\nThe user kept OpenDesign selected. In your first message say only, in the user's language: "OpenDesign 试玩链接已发布，可以在下面点打开或复制" (English: "The OpenDesign play link is published; open or copy it below"). Never write the link or any URL to it, never say who published it or that you will not change it, and do not publish it yourself.`;
+  // Only claim "published" once the link is live; while it is still publishing (or failed) say what the page shows.
+  const line = session.linkUrl
+    ? '"OpenDesign 试玩链接已发布，可以在下面点打开或复制" (English: "The OpenDesign play link is published; open or copy it below")'
+    : '"OpenDesign 试玩链接正在发布，好了会在下面显示打开和复制" (English: "The OpenDesign play link is being published; Open and Copy link appear below when it is ready")';
+  return `\n\nThe user kept OpenDesign selected. In your first message say only, in the user's language: ${line}. Never write the link or any URL to it, never say who published it or that you will not change it, and do not publish it yourself.`;
 }
 
 /** Shows step `index` (skipping steps already done): its card in the conversation, and a package build if the step has one. */

@@ -68,6 +68,9 @@ describe('gamePublishStore', () => {
     gamePublishActions.choose(input.artifactId, 'wechat');
     expect(publish).toHaveBeenCalledWith('game', 'abc12345', expect.objectContaining({ filePath: 'index.html', deployMode: 'publish' }));
     expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('kept OpenDesign selected');
+    // Picked while the link is still publishing: the Agent must not claim it is live yet.
+    expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('正在发布');
+    expect(handoff.mock.calls[0][0].hiddenInstructions).not.toContain('已发布');
     await settle();
     // Whether the link is still publishing or already live, the Agent never gets the URL to repeat.
     expect(handoff.mock.calls[0][0].hiddenInstructions).not.toContain('play.opendesign.app');
