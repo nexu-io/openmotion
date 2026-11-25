@@ -192,17 +192,28 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
 
     try {
       if (oauthError) {
-        const { returnTo } = await deps.oidc.resolveCancelledCallback({
+        const { returnTo, verified } = await deps.oidc.resolveCancelledCallback({
           state,
           txCookieValue,
           iss,
           error: oauthError,
         });
+        if (verified && (authAttribution.hookId || authAttribution.entryId)) {
+          deps.cloudTracking?.trackWebSignInResult({
+            outcome: 'cancelled',
+            hookId: authAttribution.hookId,
+            entryId: authAttribution.entryId,
+            durationMs: authAttribution.startedAt ? Date.now() - authAttribution.startedAt : 0,
+          });
+        }
         const redirectTarget = new URL(assertSafeReturnTo(returnTo), 'http://local.invalid');
         redirectTarget.searchParams.set('auth_cancelled', '1');
         const location = `${redirectTarget.pathname}${redirectTarget.search}${redirectTarget.hash}`;
         const headers = new Headers();
-        headers.append('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'));
+        if (verified) {
+          headers.append('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'));
+          headers.append('Set-Cookie', clearCookie(AUTH_ATTR_COOKIE_NAME, secureCookie, '/auth'));
+        }
         headers.set('Location', location);
         return new Response(null, { status: 302, headers });
       }

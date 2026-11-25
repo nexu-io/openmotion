@@ -1023,20 +1023,22 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
       assert.equal(mismatchIss.status, 401);
       assert.equal(tokenCalls, 0);
 
-      const login2 = await app.request('/auth/login?returnTo=%2Fcreate%2Fimage%3Ftab%3Ddraft');
+      const login2 = await app.request('/auth/login?returnTo=%2Fcreate%2Fimage%3Ftab%3Ddraft&hook_id=header_signin&entry_id=entry-1');
       const state2 = new URL(login2.headers.get('location')!).searchParams.get('state')!;
       const tx2 = extractCookieValue(login2.headers.getSetCookie(), 'om_oidc_tx')!;
+      const attr2 = extractCookieValue(login2.headers.getSetCookie(), 'om_auth_attr')!;
       const errorCb = await app.request(
         `/auth/callback?error=login_required&state=${encodeURIComponent(state2)}`,
-        { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx2)}` } },
+        { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx2)}; om_auth_attr=${encodeURIComponent(attr2)}` } },
       );
       // User cancellation (login_required / access_denied) with verified state + tx cookie
       // redirects back to the originating page instead of exposing raw 401 JSON,
-      // never sets a session cookie, and still consumes the single-use transaction.
+      // clears om_oidc_tx and om_auth_attr, never sets a session cookie, and consumes the single-use transaction.
       assert.equal(errorCb.status, 302);
       assert.equal(errorCb.headers.get('location'), '/create/image?tab=draft&auth_cancelled=1');
       const cancelSetCookies = errorCb.headers.getSetCookie();
       assert.ok(cancelSetCookies.some((c) => c.startsWith('om_oidc_tx=;')));
+      assert.ok(cancelSetCookies.some((c) => c.startsWith('om_auth_attr=;')));
       assert.ok(!cancelSetCookies.some((c) => c.startsWith('om_session=') && !c.startsWith('om_session=;')));
       // Consumed transaction cannot be replayed with a code
       const replayAfterError = await app.request(
@@ -1044,7 +1046,15 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
         { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx2)}` } },
       );
       assert.equal(replayAfterError.status, 401);
-      // Fatal non-cancel OIDC errors and forged/missing tx cookies still return 401.
+      // Reloading or revisiting a consumed cancellation callback falls back safely to /?auth_cancelled=1
+      const replayCancelAfterError = await app.request(
+        `/auth/callback?error=login_required&state=${encodeURIComponent(state2)}`,
+        { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx2)}` } },
+      );
+      assert.equal(replayCancelAfterError.status, 302);
+      assert.equal(replayCancelAfterError.headers.get('location'), '/?auth_cancelled=1');
+      assert.equal(replayCancelAfterError.headers.getSetCookie().length, 0);
+      // Fatal non-cancel OIDC errors and mismatched issuer on cancel still return 401.
       const login3 = await app.request('/auth/login?returnTo=%2Fexplore');
       const state3 = new URL(login3.headers.get('location')!).searchParams.get('state')!;
       const tx3 = extractCookieValue(login3.headers.getSetCookie(), 'om_oidc_tx')!;
@@ -1053,12 +1063,42 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
         { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx3)}` } },
       );
       assert.equal(serverErrCb.status, 401);
+      const login3b = await app.request('/auth/login?returnTo=%2Fexplore');
+      const state3b = new URL(login3b.headers.get('location')!).searchParams.get('state')!;
+      const tx3b = extractCookieValue(login3b.headers.getSetCookie(), 'om_oidc_tx')!;
+      const mismatchIssCancel = await app.request(
+        `/auth/callback?error=login_required&state=${encodeURIComponent(state3b)}&iss=${encodeURIComponent('https://evil.example.net/api/auth')}`,
+        { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx3b)}` } },
+      );
+      assert.equal(mismatchIssCancel.status, 401);
+      // Known cancellation error with missing or cross-tab-overwritten tx cookie falls back safely
+      // to /?auth_cancelled=1 without honoring unverified returnTo, setting a session, or clearing another tab's cookie.
       const login4 = await app.request('/auth/login?returnTo=%2Fexplore');
       const state4 = new URL(login4.headers.get('location')!).searchParams.get('state')!;
       const missingTxCb = await app.request(
         `/auth/callback?error=login_required&state=${encodeURIComponent(state4)}`,
       );
-      assert.equal(missingTxCb.status, 401);
+      assert.equal(missingTxCb.status, 302);
+      assert.equal(missingTxCb.headers.get('location'), '/?auth_cancelled=1');
+      assert.equal(missingTxCb.headers.getSetCookie().length, 0);
+      // State4 was still consumed so it cannot be replayed with a code
+      const replayState4 = await app.request(
+        `/auth/callback?code=c5&state=${encodeURIComponent(state4)}`,
+      );
+      assert.equal(replayState4.status, 401);
+      // Cross-tab scenario: Tab 2 starts a newer login overwriting om_oidc_tx; cancelling Tab 1
+      // falls back to /?auth_cancelled=1 without clearing Tab 2's om_oidc_tx cookie.
+      const tab1Login = await app.request('/auth/login?returnTo=%2Fcreate%2Fimage');
+      const tab1State = new URL(tab1Login.headers.get('location')!).searchParams.get('state')!;
+      const tab2Login = await app.request('/auth/login?returnTo=%2Fassets');
+      const tab2Tx = extractCookieValue(tab2Login.headers.getSetCookie(), 'om_oidc_tx')!;
+      const tab1Cancel = await app.request(
+        `/auth/callback?error=login_required&state=${encodeURIComponent(tab1State)}`,
+        { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tab2Tx)}` } },
+      );
+      assert.equal(tab1Cancel.status, 302);
+      assert.equal(tab1Cancel.headers.get('location'), '/?auth_cancelled=1');
+      assert.equal(tab1Cancel.headers.getSetCookie().length, 0);
       assert.equal(tokenCalls, 0);
     }
 

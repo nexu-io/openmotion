@@ -292,41 +292,29 @@ export class OidcService {
    *
    * Security guarantees:
    * - Always consumes the single-use `state` transaction in cache so it cannot be replayed.
-   * - Verifies the `om_oidc_tx` cookie binding (and optional RFC 9207 `iss`) before honoring `returnTo`.
-   * - Returns `{ returnTo }` only for known user-cancellation errors with a verified transaction;
-   *   otherwise throws 401 `CloudError('UNAUTHORIZED', ...)`.
+   * - Rejects non-cancellation errors and mismatched RFC 9207 `iss` values with 401 `UNAUTHORIZED`.
+   * - Honors `tx.returnTo` (with `verified: true`) only when the single-use `state` and
+   *   `om_oidc_tx` cookie binding match.
+   * - When a known cancellation error arrives with an expired, already-consumed, missing, or
+   *   cross-tab-overwritten transaction, falls back safely to `{ returnTo: '/', verified: false }`
+   *   without trusting any caller-controlled redirect target or creating a session.
    */
   async resolveCancelledCallback(input: {
     state: string;
     txCookieValue?: string | null;
     iss?: string | null;
     error: string;
-  }): Promise<{ returnTo: string }> {
+  }): Promise<{ returnTo: string; verified: boolean }> {
     const key = input.state ? oidcTxCacheKey(input.state) : null;
     const rawTx = key ? await this.cache.get(key) : null;
     if (key) {
       await this.cache.del(key); // Single-use transaction — never allow replay after error callback
     }
 
-    if (
-      !OIDC_CANCELLED_ERRORS.has(input.error) ||
-      !rawTx ||
-      !input.txCookieValue
-    ) {
+    if (!OIDC_CANCELLED_ERRORS.has(input.error)) {
       throw new CloudError('UNAUTHORIZED', `OIDC authorization failed: ${input.error}`, {
         status: 401,
       });
-    }
-
-    let tx: OidcTransactionRecord;
-    try {
-      tx = JSON.parse(rawTx) as OidcTransactionRecord;
-    } catch {
-      throw new CloudError('UNAUTHORIZED', 'Corrupted OIDC state transaction', { status: 401 });
-    }
-
-    if (!timingSafeStringEqual(sha256Hex(input.txCookieValue), tx.txSecretHash)) {
-      throw new CloudError('UNAUTHORIZED', 'OIDC login state binding mismatch', { status: 401 });
     }
 
     if (input.iss) {
@@ -336,7 +324,22 @@ export class OidcService {
       }
     }
 
-    return { returnTo: assertSafeReturnTo(tx.returnTo) };
+    if (!rawTx || !input.txCookieValue) {
+      return { returnTo: '/', verified: false };
+    }
+
+    let tx: OidcTransactionRecord;
+    try {
+      tx = JSON.parse(rawTx) as OidcTransactionRecord;
+    } catch {
+      return { returnTo: '/', verified: false };
+    }
+
+    if (!timingSafeStringEqual(sha256Hex(input.txCookieValue), tx.txSecretHash)) {
+      return { returnTo: '/', verified: false };
+    }
+
+    return { returnTo: assertSafeReturnTo(tx.returnTo), verified: true };
   }
 
   async completeCallback(
