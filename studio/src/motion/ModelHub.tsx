@@ -22,6 +22,7 @@ import { reportHubClick, reportHubPageView } from './exploreTracking';
 import { campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
 import { newTrackingId } from './pageTracking';
 import { BackToExploreButton } from './BackToExploreButton';
+import { X_VIDEO_ESCAPE_EVENT, isXVideoUrl, xVideoDocument } from './xVideoEmbed';
 
 function columnsForWidth(width: number): number {
   return width >= 1180 ? 4 : width >= 820 ? 3 : width >= 520 ? 2 : 1;
@@ -68,13 +69,6 @@ function aspectRatioLabel(ratio: number): string {
   if (ratio <= 1.6) return '3:2';
   return '16:9';
 }
-
-const isXVideoUrl = (url: string) => /^https:\/\/video\.twimg\.com\//i.test(url);
-const escapeHtmlAttr = (value: string) =>
-  value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-/** X's video CDN returns 403 when requests carry a cross-origin Referer, so play inside a no-referrer srcDoc iframe (same pattern as HubVideoWall). */
-const xVideoDocument = (src: string, poster: string, controls: boolean, autoPlay: boolean) =>
-  `<meta name="referrer" content="no-referrer"><style>html,body{margin:0;height:100%;overflow:hidden;background:${controls ? 'black' : 'transparent'}}video{width:100%;height:100%;object-fit:${controls ? 'contain' : 'cover'};display:block}</style><video src="${escapeHtmlAttr(src)}"${controls ? ` poster="${escapeHtmlAttr(poster)}"` : ''} muted${autoPlay ? ' autoplay' : ''} loop playsinline${controls ? ' controls' : ''}></video>`;
 
 function ShowcaseHoverVideo({ src, poster }: { src: string; poster: string }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -142,7 +136,23 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
   const [lightboxPrompt, setLightboxPrompt] = useState('');
   const toast = useToast();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const lightboxIframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeDismissToken] = useState(() => newTrackingId());
   useDialogBehavior({ open: Boolean(activeCaseId), containerRef: dialogRef, onClose: () => setActiveCaseId(null) });
+  useEffect(() => {
+    if (!activeCaseId) return;
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.source === lightboxIframeRef.current?.contentWindow
+        && event.data?.type === X_VIDEO_ESCAPE_EVENT
+        && event.data?.token === iframeDismissToken
+      ) {
+        setActiveCaseId(null);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [activeCaseId, iframeDismissToken]);
   const showcaseRef = useRef<HTMLElement>(null);
   const masonryCount = useMasonryColumns(showcaseRef);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -264,7 +274,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
     const prompt = (promptOverride ?? t(item.prompt)).trim();
     const aspect = aspectRatioLabel(item.aspectRatio);
     const modality = item.destination.scene.modality;
-    const directClip = [item.videoHd, item.video].find(url => Boolean(url) && !isXVideoUrl(url!));
+    const remixClip = item.videoHd || item.video;
     const draft: AssetDraft = {
       modality,
       prompt,
@@ -274,7 +284,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
         title: t(item.title),
         prompt,
         poster: item.poster,
-        clip: modality === 'video' ? directClip : undefined,
+        clip: modality === 'video' ? remixClip : undefined,
         posterAspect: item.aspectRatio,
       },
       references: [],
@@ -540,9 +550,10 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                       {activeVideoUrl ? (
                         isXVideoUrl(activeVideoUrl) ? (
                           <iframe
+                            ref={lightboxIframeRef}
                             key={activeVideoUrl}
                             className="om-hub-lightbox-video"
-                            srcDoc={xVideoDocument(activeVideoUrl, activeCase.poster, true, !reducedMotion)}
+                            srcDoc={xVideoDocument(activeVideoUrl, activeCase.poster, true, !reducedMotion, iframeDismissToken)}
                             sandbox="allow-scripts"
                             allow="autoplay; fullscreen"
                             title={activeTitle}

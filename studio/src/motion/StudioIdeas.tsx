@@ -8,6 +8,7 @@ import { type StudioDestination } from './creativeStudios';
 import { studioExamples, sceneLayout, type SceneExample } from './sceneShowcase';
 import { skillPreviewSnapshot } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
+import { isXVideoUrl, xVideoDocument } from './xVideoEmbed';
 import sofaCutout from './scene-art/sofa-cutout.webp';
 import sofaEdit from './scene-art/sofa-edit.webp';
 import sofaRelight from './scene-art/sofa-relight.webp';
@@ -37,7 +38,8 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
   const [audioUrl, setAudioUrl] = useState('');
   const [requestedClip, setRequestedClip] = useState<string>();
   const archivedClip = example.clip?.startsWith(skillPreviewSnapshot);
-  const clip = useSkillPreview(example.clip, enabled && !failed && (!archivedClip || requestedClip === example.clip), setFailed);
+  const xHostedClip = Boolean(example.clip && isXVideoUrl(example.clip));
+  const clip = useSkillPreview(example.clip, enabled && !failed && !xHostedClip && (!archivedClip || requestedClip === example.clip), setFailed);
   useEffect(() => { if (!enabled) setRequestedClip(undefined); }, [enabled]);
   useEffect(() => {
     if (!example.audio || !enabled || failed) return;
@@ -92,7 +94,16 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
     ? { '--poster-aspect': String(example.posterAspect) } as CSSProperties
     : undefined;
   return <div ref={stage} className="om-scene-example-media" style={mediaStyle}>
-    {clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" referrerPolicy="no-referrer" />}
+    {xHostedClip && example.clip && enabled ? (
+      <iframe
+        key={example.clip}
+        className="om-hub-lightbox-video"
+        srcDoc={xVideoDocument(example.clip, example.poster, true, autoplay)}
+        sandbox="allow-scripts"
+        allow="autoplay; fullscreen"
+        title={t(example.title)}
+      />
+    ) : clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" referrerPolicy="no-referrer" />}
     {enabled && !videoGuide && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
       disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
       {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
