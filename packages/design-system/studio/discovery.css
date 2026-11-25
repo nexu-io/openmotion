@@ -42,7 +42,7 @@
 }
 
 /* Immersive discovery is shared by template and Brand Kit collections. */
-.om-gallery-surface { position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; background: var(--color-template-surface); color: var(--color-template-text); }
+.om-gallery-surface { position: fixed; inset: var(--om-desktop-safe-top, 0px) 0 0 0; width: 100%; max-width: none; height: calc(100dvh - var(--om-desktop-safe-top, 0px)); max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; background: var(--color-template-surface); color: var(--color-template-text); }
 .om-gallery-popup { z-index: 130; outline: none; }
 .om-gallery-sticky-header { position: sticky; top: 0; z-index: 3; background: var(--color-template-surface); }
 .om-gallery-header { container-type: inline-size; display: flex; align-items: center; gap: var(--motion-space-16); min-height: 76px; padding: 18px 32px 12px; }

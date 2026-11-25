@@ -1029,11 +1029,11 @@
 
 .om-design-dialog-popup {
   position: fixed;
-  top: 50%;
+  top: calc(50% + var(--om-desktop-safe-top, 0px) / 2);
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(760px, 92vw);
-  max-height: 88vh;
+  max-height: min(88dvh, calc(100dvh - var(--om-desktop-safe-top, 0px) - 32px));
   overflow-y: auto;
   border-radius: var(--motion-radius-xl);
   background: var(--motion-raised);
@@ -1078,7 +1078,8 @@
 /* --- Design Template Detail Modal (Motion-aligned) --- */
 .om-design-tpl-detail-popup {
   position: fixed;
-  inset: 0;
+  inset: var(--om-desktop-safe-top, 0px) 0 0 0;
+  height: calc(100dvh - var(--om-desktop-safe-top, 0px));
   z-index: 201;
   border-radius: 0;
   overflow: hidden;

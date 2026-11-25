@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { z } from 'zod';
@@ -152,7 +153,43 @@ function extractWildcardAssetPath(
 }
 
 const CATALOG_PUBLIC_CACHE_CONTROL = 'public, max-age=300, s-maxage=300';
+const CATALOG_LIST_CACHE_CONTROL = 'public, max-age=60, s-maxage=300, stale-while-revalidate=600';
 const CATALOG_PUBLIC_VARY = 'Origin';
+
+function matchesIfNoneMatch(headerValue: string | null | undefined, etag: string): boolean {
+  if (!headerValue) return false;
+  const trimmed = headerValue.trim();
+  if (trimmed === '*') return true;
+  const normalizedTarget = etag.replace(/^W\//i, '');
+  return trimmed.split(',').some((candidate) => {
+    const token = candidate.trim();
+    return token === etag || token.replace(/^W\//i, '') === normalizedTarget;
+  });
+}
+
+function buildPublicJsonResponse(payload: unknown, ifNoneMatch?: string | null): Response {
+  const body = JSON.stringify(payload);
+  const etag = `"sha256:${createHash('sha256').update(body, 'utf8').digest('hex')}"`;
+  if (matchesIfNoneMatch(ifNoneMatch, etag)) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        'Cache-Control': CATALOG_LIST_CACHE_CONTROL,
+        Vary: CATALOG_PUBLIC_VARY,
+      },
+    });
+  }
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      ETag: etag,
+      'Cache-Control': CATALOG_LIST_CACHE_CONTROL,
+      Vary: CATALOG_PUBLIC_VARY,
+    },
+  });
+}
 
 function buildHeadResponse(head: CatalogHead): Response {
   if ('kind' in head) return buildAssetResponse(head);
@@ -180,7 +217,7 @@ function buildAssetResponse(resolved: ResolvedCatalogAsset, ifNoneMatch?: string
     return new Response(null, { status: 302, headers });
   }
 
-  if (ifNoneMatch && ifNoneMatch.trim() === resolved.etag) {
+  if (matchesIfNoneMatch(ifNoneMatch, resolved.etag)) {
     return new Response(null, {
       status: 304,
       headers: {
@@ -260,7 +297,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono<CatalogRouteE
       locale,
       kind,
     });
-    return c.json({ templates: page.items, ...page }, 200);
+    return buildPublicJsonResponse({ templates: page.items, ...page }, c.req.header('if-none-match'));
   });
 
   // 2. Paginated / searchable catalog (Studio & web /api/template-catalog)
@@ -284,7 +321,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono<CatalogRouteE
       locale,
       kind,
     });
-    return c.json(page, 200);
+    return buildPublicJsonResponse(page, c.req.header('if-none-match'));
   });
 
   // 3. Poster GET & HEAD
@@ -336,7 +373,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono<CatalogRouteE
   app.get(`${base}/templates/:id`, async (c) => {
     const locale = c.req.query('locale') || undefined;
     const detail = await catalog.getTemplate(c.req.param('id'), { locale });
-    return c.json({ template: detail, ...detail }, 200);
+    return buildPublicJsonResponse({ template: detail, ...detail }, c.req.header('if-none-match'));
   });
 
   // 7. Zero-copy clone into workspace project (enforces AuthContext + workspace_id isolation)

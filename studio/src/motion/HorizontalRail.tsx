@@ -20,6 +20,7 @@ export function HorizontalRail({ label, className = '', viewportClassName, selec
   const [edges, setEdges] = useState({ left: false, right: false });
   useLayoutEffect(() => {
     const list = viewport.current!;
+    let frame = 0;
     function measure() {
       const left = list.clientWidth > 0 && list.scrollLeft > 1;
       const right = list.clientWidth > 0 && list.scrollWidth - list.clientWidth - list.scrollLeft > 1;
@@ -30,13 +31,24 @@ export function HorizontalRail({ label, className = '', viewportClassName, selec
       }
       setEdges(old => old.left === left && old.right === right ? old : { left, right });
     }
-    const observer = new ResizeObserver(measure);
+    function scheduleMeasure() {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        measure();
+      });
+    }
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(list);
     // Category labels may change width after localization or catalog loading.
     if (list.firstElementChild) observer.observe(list.firstElementChild);
-    list.addEventListener('scroll', measure, { passive: true });
+    list.addEventListener('scroll', scheduleMeasure, { passive: true });
     measure();
-    return () => { observer.disconnect(); list.removeEventListener('scroll', measure); };
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+      list.removeEventListener('scroll', scheduleMeasure);
+    };
   }, [id, count]);
 
   useLayoutEffect(() => {

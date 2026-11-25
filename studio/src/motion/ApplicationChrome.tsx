@@ -8,9 +8,12 @@ import { Menu, MenuItem, MenuSeparator, MenuSubmenu, MenuRadioGroup, MenuRadioIt
 import { Tooltip } from '../components/ui/Tooltip';
 import { languages, useI18n, type Locale } from '../i18n/I18n';
 import { setStudioTheme, useStudioThemePreference } from '../utils/studioTheme';
+import { getDesktopHostBridge, isDesktopApp, startDesktopBrowserLogin, useDesktopChrome, useDesktopUpdateState } from '../utils/platformHost';
+import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { buildLoginUrl, useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
+import { clearPrivateSwrCache } from './swrCache';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
@@ -42,12 +45,16 @@ export function ApplicationHeader({ settings, atExploreHome, onSkill, openAsset,
   const { openAssets, openHome } = useWorkspaceChrome();
   const homeHint = atExploreHome ? undefined : t('Back to Explore');
   const header = useRef<HTMLElement>(null);
+  const desktopChrome = useDesktopChrome();
+  const desktopBridge = getDesktopHostBridge();
   const [compactActions, setCompactActions] = useState(false);
+  const desktopInsetTotal = desktopChrome ? desktopChrome.insetLeft + desktopChrome.insetRight : 0;
+  const compactActionThreshold = desktopInsetTotal > 0 ? 640 : 560;
   useLayoutEffect(() => {
-    const observer = new ResizeObserver(([entry]) => setCompactActions(entry.contentRect.width <= 560));
+    const observer = new ResizeObserver(([entry]) => setCompactActions(entry.contentRect.width <= compactActionThreshold));
     observer.observe(header.current!);
     return () => observer.disconnect();
-  }, []);
+  }, [compactActionThreshold]);
 
   function workspaceActions(closeMenu?: () => void) {
     return <>
@@ -64,6 +71,34 @@ export function ApplicationHeader({ settings, atExploreHome, onSkill, openAsset,
       <div className="om-app-header-links"><CommunityLink /><GitHubLink /></div>
       <PricingEntry trackingPage={navigation.trackingPage} />
       <ApplicationAccountMenu settings={settings} openSettings={openSettings} />
+      {desktopChrome?.customWindowControls && desktopBridge && (
+        <div className="om-desktop-window-controls" role="group" aria-label={t('Window controls')}>
+          <IconButton
+            variant="plain"
+            type="button"
+            className="om-nav-item"
+            aria-label={t('Minimize window')}
+            onClick={() => void desktopBridge.invoke(HOST_CAPABILITIES.WINDOW, 'minimize')}
+            icon={<RemixIcon name="subtract-line" size={14} />}
+          />
+          <IconButton
+            variant="plain"
+            type="button"
+            className="om-nav-item"
+            aria-label={t(desktopChrome.maximized ? 'Restore window' : 'Maximize window')}
+            onClick={() => void desktopBridge.invoke(HOST_CAPABILITIES.WINDOW, 'toggleMaximize')}
+            icon={<RemixIcon name={desktopChrome.maximized ? 'checkbox-multiple-blank-line' : 'checkbox-blank-line'} size={13} />}
+          />
+          <IconButton
+            variant="plain"
+            type="button"
+            className="om-nav-item om-desktop-window-close"
+            aria-label={t('Close window')}
+            onClick={() => void desktopBridge.invoke(HOST_CAPABILITIES.WINDOW, 'close')}
+            icon={<RemixIcon name="close-line" size={14} />}
+          />
+        </div>
+      )}
     </div>
   </header>;
 }
@@ -96,6 +131,18 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   }, [account]);
   const cloudWeb = useCloudWebMode();
   const theme = useStudioThemePreference();
+  const desktopApp = isDesktopApp();
+  const updater = useDesktopUpdateState();
+  const updateState = desktopApp ? updater.state : null;
+  const hasPendingDesktopUpdate = Boolean(
+    updateState &&
+    (updateState.mandatory ||
+      updateState.status === 'downloaded' ||
+      updateState.status === 'available'),
+  );
+  const updateMenuVersion = updateState?.availableVersion
+    ? (/^v/i.test(updateState.availableVersion) ? updateState.availableVersion : `v${updateState.availableVersion}`)
+    : '';
   const userName = account?.user?.name?.trim() || account?.user?.email?.trim() || t('Account');
   const workspaceLabel = account?.activeWorkspace?.name;
   const isDevMode = account?.authMode === 'dev';
@@ -105,6 +152,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
     try {
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       const data = await response.json().catch(() => ({})) as { endSessionUrl?: string };
+      clearPrivateSwrCache();
       window.dispatchEvent(new Event('motion:account-changed'));
       if (data.endSessionUrl) window.location.assign(data.endSessionUrl);
     } catch {
@@ -132,6 +180,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
         >
           <span className="om-avatar" aria-hidden="true">
             {signedIn ? avatarInitial : <><RemixIcon className="om-default-avatar-icon om-default-avatar-icon-outline" name="user-3-line" size={14} /><svg className="om-default-avatar-icon om-default-avatar-icon-solid" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 22H4V20C4 17.2386 6.23858 15 9 15H15C17.7614 15 20 17.2386 20 20V22ZM12 13C8.68629 13 6 10.3137 6 7C6 3.68629 8.68629 1 12 1C15.3137 1 18 3.68629 18 7C18 10.3137 15.3137 13 12 13Z" /></svg></>}
+            {hasPendingDesktopUpdate && <span className="om-desktop-update-dot" />}
           </span>
           {isDevMode && <span className="om-badge" data-active="true">{t('Dev')}</span>}
         </Button>
@@ -150,6 +199,31 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
             <span>{workspaceLabel}</span>
           </span>
         </MenuItem>
+      )}
+      {hasPendingDesktopUpdate && updateState && (
+        <>
+          <MenuSeparator />
+          <MenuItem
+            onClick={() => {
+              if (updateState.status === 'downloaded') {
+                void updater.installUpdateNow();
+              } else {
+                openSettings('about');
+              }
+            }}
+          >
+            <span className="om-menu-label">
+              <span className="om-desktop-update-menu-dot" aria-hidden="true" />
+              {updateState.status === 'downloaded'
+                ? updateMenuVersion
+                  ? t('Restart to update ({version})', { version: updateMenuVersion })
+                  : t('Restart and install update')
+                : updateMenuVersion
+                  ? t('Update available: {version}', { version: updateMenuVersion })
+                  : t('Update available')}
+            </span>
+          </MenuItem>
+        </>
       )}
       <MenuSeparator />
       <MenuItem onClick={() => openSettings('subscription')}>
@@ -206,13 +280,20 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
               <span className="om-menu-label"><RemixIcon name="login-box-line" mirrored size={16} />{t('Sign out')}</span>
             </MenuItem>
           ) : (
-            <MenuItem onClick={() => {
-              if (cloudWeb && hasEntitlementModalListeners()) {
-                openEntitlementModal({ mode: 'guest', hookId: 'header_signin' });
-              } else {
-                window.location.assign(buildLoginUrl());
-              }
-            }}>
+            <MenuItem
+              onClick={() => {
+                const loginUrl = buildLoginUrl();
+                if (isDesktopApp()) {
+                  void startDesktopBrowserLogin({ loginUrl });
+                  return;
+                }
+                if (cloudWeb && hasEntitlementModalListeners()) {
+                  openEntitlementModal({ mode: 'guest', hookId: 'header_signin' });
+                  return;
+                }
+                window.location.assign(loginUrl);
+              }}
+            >
               <span className="om-menu-label"><RemixIcon name="login-box-line" size={16} />{t('Sign in with OpenDesign')}</span>
             </MenuItem>
           )}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from 'open-design-ui/button';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
+import { isDesktopApp, startDesktopBrowserLogin } from '../utils/platformHost';
 import { buildLoginUrl } from './AccountSettings';
 import {
   AUTH_RECOVERY_EVENT,
@@ -80,8 +81,13 @@ export function AuthRecoveryNotice({
       });
     }
     const url = buildLoginUrl(targetReturnTo);
-    if (onLoginNavigate) onLoginNavigate(url);
-    else window.location.assign(url);
+    if (onLoginNavigate) {
+      onLoginNavigate(url);
+    } else if (isDesktopApp()) {
+      void startDesktopBrowserLogin({ loginUrl: url, returnTo: targetReturnTo });
+    } else {
+      window.location.assign(url);
+    }
   }, [recovery, pendingDraft, onLoginNavigate]);
 
   const handleDismiss = useCallback(() => {

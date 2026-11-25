@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent } from 'react';
 import { Button } from 'open-design-ui/button';
+import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHost';
 import { useI18n } from '../i18n/I18n';
 import flameArtUrl from './bf-dusk-flame.jpg';
 import styles from './BlackFridayTopBanner.module.css';
@@ -85,8 +86,13 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
     markExternalCheckoutPending('bf_banner', entryId);
     void trackMotion('ui_click', { page_name: trackingPage, area: 'campaign_banner', element: 'claim_offer', campaign_id: BLACK_FRIDAY_CAMPAIGN, entry_id: entryId, hook_id: 'bf_banner', interaction_method: method(event) });
     // Stamp the click time on the address the browser is about to open, then replace the id for the next click.
-    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+    const targetUrl = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+    event.currentTarget.href = targetUrl;
     window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
+    if (isDesktopApp() && (event.button === 0 || event.button === 1)) {
+      event.preventDefault();
+      void openBillingAndRefreshOnFocus(targetUrl);
+    }
   }
   function close(event: MouseEvent) {
     void trackMotion('ui_click', { page_name: trackingPage, area: 'campaign_banner', element: 'close_banner', campaign_id: BLACK_FRIDAY_CAMPAIGN, interaction_method: method(event) });

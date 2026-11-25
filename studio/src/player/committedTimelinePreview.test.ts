@@ -5,6 +5,7 @@ import { beginStudioPendingEdit } from "../utils/studioPendingEdits";
 import { forgetSource, rememberSource } from "../utils/confirmedTextSources";
 import { usePlayerStore } from "./store/playerStore";
 import { scheduleCommittedTimelinePreview } from "./committedTimelinePreview";
+import { scheduleCommittedPreview } from "./committedPreview";
 import { hasPeerTimingDocument, mountedPeerFileVersion, tryApplyPeerChanges } from "./peerTimingPreview";
 
 vi.mock("./peerTimingPreview", () => ({
@@ -161,6 +162,50 @@ it("presents the versioned receipt when the source cache evicts the file before 
   }, previous, reload);
   forgetSource(pid, file);
   last.settle();
+  await vi.waitFor(() => expect(update).toHaveBeenCalledWith(frame, { path: file, previous, current }, expect.any(Function)));
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it.each(["event first", "receipt first"])("uses the saved source and gesture when the same revision is announced twice (%s)", async order => {
+  const { frame, reload } = setup();
+  const hold = beginStudioPendingEdit(null);
+  const previous = source("v1"), current = source("v2");
+  const read = vi.fn(async () => current);
+  const gesture = { gestureId: "drag-title" };
+  rememberSource(pid, path, current);
+  const event = () => scheduleCommittedPreview(frame, pid, [{ path, version: current.version, previous: current, read }], reload);
+  const receipt = () => scheduleCommittedPreview(frame, pid, [{ path, previous, current }], reload, gesture);
+  if (order === "event first") { event(); receipt(); } else { receipt(); event(); }
+  hold.settle();
+  await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+  expect(update).toHaveBeenCalledWith(frame, { path, previous, current }, expect.any(Function), gesture);
+  expect(read).not.toHaveBeenCalled();
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it("keeps an in-flight update valid when a version notification repeats it", async () => {
+  const { frame, reload, accepted } = setup();
+  const paint = Promise.withResolvers<boolean>();
+  update.mockImplementationOnce(() => paint.promise);
+  accepted("v1", "v2");
+  await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+  const isCurrent = update.mock.calls[0]![2];
+  scheduleCommittedPreview(frame, pid, [{ path, version: "v2" }], reload);
+  const stillCurrent = isCurrent();
+  paint.resolve(true);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(stillCurrent).toBe(true);
+  expect(update).toHaveBeenCalledTimes(1);
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it("offers a mounted child with both source revisions to the DOM updater even without template capabilities", async () => {
+  const { frame, reload } = setup();
+  const file = "compositions/custom.html";
+  vi.mocked(hasPeerTimingDocument).mockReturnValueOnce(false);
+  vi.mocked(mountedPeerFileVersion).mockReturnValue("v1");
+  const previous = source("v1"), current = source("v2");
+  scheduleCommittedPreview(frame, pid, [{ path: file, previous, current }], reload);
   await vi.waitFor(() => expect(update).toHaveBeenCalledWith(frame, { path: file, previous, current }, expect.any(Function)));
   expect(reload).not.toHaveBeenCalled();
 });

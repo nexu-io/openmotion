@@ -1,3 +1,4 @@
+import { isStudioEditSaving } from "../../utils/studioPendingEdits";
 // @vitest-environment happy-dom
 
 import React, { act } from "react";
@@ -96,6 +97,22 @@ async function reply(phase: string, result: unknown, gestureId?: unknown) {
     window.dispatchEvent(event);
   });
 }
+
+it("keeps the released drag pending through a later selection click and its save receipt", async () => {
+  const save = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(save.promise);
+  pointer("pointerdown", 60);
+  pointer("pointerup", 80);
+  const drag = messages[0]!.gestureId;
+  pointer("pointerdown", 80);
+  pointer("pointerup", 80);
+  expect(messages.map(message => message.phase)).toEqual(["start", "finish", "start", "cancel"]);
+  expect(isStudioEditSaving()).toBe(true);
+  await reply("finish", result, drag);
+  expect(isStudioEditSaving()).toBe(true);
+  await act(async () => { save.resolve({ durable: true, changed: true }); });
+  expect(isStudioEditSaving()).toBe(false);
+});
 
 it("captures a scaled drag, commits once on release and uses the shown file version", async () => {
   pointer("pointerdown", 60);
@@ -432,10 +449,10 @@ it("submits a compensated CSS resize as one edit with both dimensions", async ()
   ]);
 });
 
-it("outlines the rendered size during a constrained resize and ignores late geometry", async () => {
+it.each(["resize", "projected move"])("outlines the rendered size during a %s and ignores late geometry", async action => {
   state.domEditSelection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
   act(() => root.render(<IsolatedCanvasOverlay />));
-  const handle = canvas.querySelector<HTMLElement>('[data-resize-corner="se"]')!;
+  const handle = action === "resize" ? canvas.querySelector<HTMLElement>('[data-resize-corner="se"]')! : canvas;
   act(() => handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX: 110, clientY: 60 })));
   const start = messages[0]!;
   const viewport = { width: 200, height: 100 };
@@ -453,7 +470,7 @@ it("outlines the rendered size during a constrained resize and ignores late geom
   bounds(97);
   expect(outline.style.width).toBe("97px");
   pointer("pointerup", 145);
-  await reply("finish", { ...result, corner: "se", width: 120, height: 70, geometry: { ...geometry, width: 99 }, viewport });
+  await reply("finish", { ...result, ...(action === "resize" && { corner: "se", width: 120, height: 70 }), geometry: { ...geometry, width: 99 }, viewport });
   bounds(92);
   expect(outline.style.width).toBe("99px");
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);

@@ -1,0 +1,91 @@
+appId: io.nexu.openmotion.desktop
+productName: OpenDesign
+copyright: Copyright © OpenDesign Contributors
+artifactName: OpenDesign-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - "!dist/**/*.map"
+  - package.json
+
+asar: true
+afterPack: scripts/after-pack.cjs
+npmRebuild: false
+electronLanguages:
+  - en
+  - zh_CN
+  - ja
+
+protocols:
+  - name: OpenDesign
+    schemes:
+      - openmotion
+
+mac:
+  category: public.app-category.video
+  icon: build/icon.icns
+  extendInfo:
+    CFBundleIconName: AppIcon
+    CFBundleLocalizations:
+      - en
+      - zh_CN
+      - ja
+    NSAppTransportSecurity:
+      NSAllowsArbitraryLoads: false
+      NSAllowsLocalNetworking: true
+    NSMicrophoneUsageDescription: OpenDesign uses your microphone when you record voiceovers or audio clips in Studio.
+    NSCameraUsageDescription: OpenDesign uses your camera when you capture video clips in Studio.
+  extraResources:
+    - from: build
+      to: .
+      filter:
+        - Assets.car
+  sign: scripts/sign-mac.cjs
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  target:
+    - target: dmg
+    - target: zip
+
+dmg:
+  format: ULFO
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  artifactName: OpenDesign-Setup-${version}-${os}-${arch}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OpenDesign
+
+portable:
+  artifactName: OpenDesign-Portable-${version}-${os}-${arch}.${ext}
+
+publish:
+  provider: generic
+  url: https://releases.open-design.ai/open-motion/desktop/stable
+  channel: stable

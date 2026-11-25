@@ -616,13 +616,13 @@
 /* --- Per-Sub-Workflow Run History Manager Dialog --- */
 .om-scenario-history-dialog {
   position: fixed;
-  top: 50%;
+  top: calc(50% + var(--om-desktop-safe-top, 0px) / 2);
   left: 50%;
   transform: translate(-50%, -50%) scale(1);
   opacity: 1;
   z-index: 60;
   width: min(680px, calc(100vw - 32px));
-  max-height: min(82vh, 680px);
+  max-height: min(82dvh, 680px, calc(100dvh - var(--om-desktop-safe-top, 0px) - 32px));
   display: flex;
   flex-direction: column;
   gap: var(--motion-space-12);
@@ -2325,7 +2325,7 @@
 .om-scenario-pool--drawer {
   display: flex;
   position: fixed;
-  top: var(--motion-topbar);
+  top: var(--om-workspace-top, var(--motion-topbar));
   right: 0;
   bottom: 0;
   width: min(360px, 90vw);
@@ -2397,7 +2397,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: min(82vh, 640px);
+  height: min(82dvh, 640px, calc(100dvh - var(--om-desktop-safe-top, 0px) - 24px));
   z-index: 50;
   background: var(--motion-panel);
   border-top: 1px solid var(--motion-border);
@@ -3044,13 +3044,13 @@
 /* Preview & Picker Dialogs */
 .om-scenario-preview-dialog {
   position: fixed;
-  top: 50%;
+  top: calc(50% + var(--om-desktop-safe-top, 0px) / 2);
   left: 50%;
   transform: translate(-50%, -50%) scale(1);
   opacity: 1;
   z-index: 60;
   width: min(860px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - var(--om-desktop-safe-top, 0px) - 32px);
   display: flex;
   flex-direction: column;
   gap: var(--motion-space-14);
@@ -3066,13 +3066,13 @@
 
 .om-scenario-picker-dialog {
   position: fixed;
-  top: 50%;
+  top: calc(50% + var(--om-desktop-safe-top, 0px) / 2);
   left: 50%;
   transform: translate(-50%, -50%) scale(1);
   opacity: 1;
   z-index: 60;
   width: min(520px, calc(100vw - 32px));
-  max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - var(--om-desktop-safe-top, 0px) - 32px);
   display: flex;
   flex-direction: column;
   gap: var(--motion-space-12);

@@ -46,8 +46,11 @@ async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Sessi
     if (!change.readPrevious) return refreshParked();
     if (await refreshParked(true)) return true;
   }
+  // A mounted child can accept a verified CSS box edit without a template capability.
+  // The two sources are already here, so checking the delta needs no network read.
+  const knownMountedChange = change.current && mounted && base?.version === mounted;
   if ((base || change.readPrevious) &&
-      (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "presentation") || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
+      (hasPeerTimingDocument(frame) || knownMountedChange || hasPeerLiveEdit(frame, "presentation") || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
     const [previous, current] = await Promise.all([
       base ?? change.readPrevious?.(), change.current ?? change.read?.(),
     ]);
@@ -144,10 +147,27 @@ export function scheduleCommittedPreview(
   session.refresh = refresh;
   for (const change of changes) {
     const prior = session.pending.get(change.path);
+    const target = change.current?.version ?? change.version;
+    const priorTarget = prior?.current?.version ?? prior?.version;
+    if (prior && target && priorTarget === target) {
+      // A save receipt and a project event can describe the same immutable file.
+      // Keep an in-flight paint unless the new notice provides something it actually lacks.
+      const previous = (prior.previous?.version === target ? undefined : prior.previous) ?? change.previous;
+      const addsSource = (!prior.current && change.current) || (previous && previous !== prior.previous);
+      const addsReader = (!prior.current && !prior.read && change.read) ||
+        (!prior.previous && !prior.readPrevious && change.readPrevious);
+      if (addsSource || addsReader || (!prior.options && options)) {
+        session.pending.set(change.path, { ...prior,
+          previous, current: prior.current ?? change.current,
+          read: prior.read ?? change.read, readPrevious: prior.readPrevious ?? change.readPrevious,
+          options: prior.options ?? options,
+        });
+      }
+      continue;
+    }
     // Preserve a verified chain all the way from the mounted document. A missing link needs scene recovery.
     let previous = change.previous;
     if (prior) {
-      const priorTarget = prior.current?.version ?? prior.version;
       const joins = previous && (previous.version === priorTarget || previous.version === prior.previous?.version);
       previous = joins ? prior.previous : undefined;
     }

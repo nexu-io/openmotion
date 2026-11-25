@@ -230,6 +230,47 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
   expect(paid.querySelector('[data-guide="upgrade"]')).toBeNull();
+  expect(paid.querySelector('[data-desktop-billing-hint="true"]')).toBeNull();
+});
+
+it('shows a calm account-verification hint before external billing links in desktop app mode', async () => {
+  window.__OPENMOTION_HOST__ = {
+    info: async () => ({
+      hostKind: 'desktop',
+      shellVersion: '0.2.1',
+      contractVersion: '1.0',
+      platform: 'darwin',
+      arch: 'arm64',
+      releaseChannel: 'stable',
+      isPackaged: true,
+    }),
+    capabilities: async () => [],
+    invoke: async () => ({ ok: true, data: {} }),
+    subscribe: () => () => {},
+  };
+  try {
+    const freePage = await open(
+      { state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'free', balance: '0.00' },
+      'en',
+      'subscription',
+    );
+    const upgradeHint = freePage.querySelector('[data-desktop-billing-hint="true"]');
+    expect(upgradeHint).not.toBeNull();
+    expect(upgradeHint?.textContent).toContain('ada@example.test');
+    expect(upgradeHint?.textContent).toContain('Refresh');
+
+    const paidPage = await open(
+      { state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' },
+      'zh-CN',
+      'subscription',
+    );
+    const paidHint = paidPage.querySelector('[data-desktop-billing-hint="true"]');
+    expect(paidHint).not.toBeNull();
+    expect(paidHint?.textContent).toContain('ada@example.test');
+    expect(paidHint?.textContent).toContain('刷新');
+  } finally {
+    delete window.__OPENMOTION_HOST__;
+  }
 });
 
 it('shows the upgrade guide and honest billing notice when billing is unavailable and zero models are available', async () => {

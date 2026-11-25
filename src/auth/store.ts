@@ -376,6 +376,8 @@ export interface AuthKeyValueCache {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlSec: number): Promise<void>;
   del(key: string): Promise<void>;
+  /** Atomically read and delete a key (e.g. Redis GETDEL) for single-use tokens. */
+  getdel?(key: string): Promise<string | null>;
 }
 
 export class InMemoryAuthCache implements AuthKeyValueCache {
@@ -397,6 +399,16 @@ export class InMemoryAuthCache implements AuthKeyValueCache {
 
   async del(key: string): Promise<void> {
     this.store.delete(key);
+  }
+
+  async getdel(key: string): Promise<string | null> {
+    const entry = this.store.get(key);
+    if (!entry) return null;
+    this.store.delete(key);
+    if (Date.now() >= entry.expiresAt) {
+      return null;
+    }
+    return entry.value;
   }
 }
 
@@ -1023,6 +1035,8 @@ export function createRedisAuthCache(redis: {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, mode: 'EX', duration: number): Promise<unknown>;
   del(key: string): Promise<unknown>;
+  getdel?(key: string): Promise<string | null>;
+  eval?(script: string, numkeys: number, ...args: string[]): Promise<unknown>;
 }): AuthKeyValueCache {
   return {
     async get(key: string) {
@@ -1033,6 +1047,23 @@ export function createRedisAuthCache(redis: {
     },
     async del(key: string) {
       await redis.del(key);
+    },
+    async getdel(key: string) {
+      if (typeof redis.getdel === 'function') {
+        return redis.getdel(key);
+      }
+      if (typeof redis.eval === 'function') {
+        const res = await redis.eval(
+          "local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]); end; return v",
+          1,
+          key,
+        );
+        return typeof res === 'string' ? res : null;
+      }
+      const value = await redis.get(key);
+      if (value === null) return null;
+      await redis.del(key);
+      return value;
     },
   };
 }

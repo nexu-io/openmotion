@@ -338,9 +338,26 @@ function resolveSafeSubpath(rootDir: string, relativePath: string): string | nul
   return resolvedTarget;
 }
 
+function matchesIfNoneMatch(headerValue: string | null | undefined, etag: string): boolean {
+  if (!headerValue) return false;
+  const trimmed = headerValue.trim();
+  if (trimmed === '*') return true;
+  const normalizedTarget = etag.replace(/^W\//i, '');
+  return trimmed.split(',').some((candidate) => {
+    const token = candidate.trim();
+    return token === etag || token.replace(/^W\//i, '') === normalizedTarget;
+  });
+}
+
 async function readStaticResponse(
   filePath: string,
-  options: { cacheControl?: string; corsAll?: boolean; headOnly?: boolean } = {},
+  options: {
+    cacheControl?: string;
+    corsAll?: boolean;
+    headOnly?: boolean;
+    etag?: boolean;
+    ifNoneMatch?: string | null;
+  } = {},
 ): Promise<Response | null> {
   const mimeType = STATIC_MIME_TYPES[path.extname(filePath).toLowerCase()];
   if (!mimeType) return null;
@@ -353,6 +370,15 @@ async function readStaticResponse(
     });
     if (options.cacheControl) headers.set('Cache-Control', options.cacheControl);
     if (options.corsAll) headers.set('Access-Control-Allow-Origin', '*');
+    if (options.etag) {
+      const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
+      headers.set('ETag', etag);
+      if (matchesIfNoneMatch(options.ifNoneMatch, etag)) {
+        headers.delete('Content-Type');
+        headers.delete('Content-Length');
+        return new Response(null, { status: 304, headers });
+      }
+    }
     return new Response(options.headOnly ? null : new Uint8Array(bytes), {
       status: 200,
       headers,
@@ -372,7 +398,7 @@ export async function serveStaticAsset(
   pathname: string,
   runtimeRoot = DEFAULT_RUNTIME_ROOT,
   headOnly = false,
-  options: { allowSourcemaps?: boolean } = {},
+  options: { allowSourcemaps?: boolean; ifNoneMatch?: string | null } = {},
 ): Promise<Response | null> {
   if (options.allowSourcemaps === false && pathname.toLowerCase().endsWith('.map')) {
     return null;
@@ -383,9 +409,14 @@ export async function serveStaticAsset(
   if (designFile) {
     const target = resolveSafeSubpath(path.join(runtimeRoot, 'packages/design-system'), designFile);
     if (!target) return null;
+    const isFont = /\.(?:ttf|woff2?)$/i.test(designFile);
     return readStaticResponse(target, {
-      corsAll: /\.(?:ttf|woff2?)$/i.test(designFile),
-      cacheControl: 'public, max-age=300',
+      corsAll: isFont,
+      cacheControl: isFont
+        ? 'public, max-age=86400, stale-while-revalidate=604800'
+        : 'public, max-age=3600, stale-while-revalidate=86400',
+      etag: true,
+      ifNoneMatch: options.ifNoneMatch,
       headOnly,
     });
   }
@@ -393,7 +424,9 @@ export async function serveStaticAsset(
   // 2. Favicon
   if (pathname === '/favicon.svg') {
     return readStaticResponse(path.join(runtimeRoot, 'packages/design-system/brand/favicon.svg'), {
-      cacheControl: 'public, max-age=3600',
+      cacheControl: 'public, max-age=3600, stale-while-revalidate=86400',
+      etag: true,
+      ifNoneMatch: options.ifNoneMatch,
       headOnly,
     });
   }
@@ -2383,7 +2416,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       new URL(c.req.url).pathname,
       runtimeRoot,
       c.req.method === 'HEAD',
-      { allowSourcemaps },
+      { allowSourcemaps, ifNoneMatch: c.req.header('if-none-match') },
     );
     if (response) return response;
     return c.notFound();

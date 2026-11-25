@@ -2,7 +2,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { CategoryStrip } from './CategoryStrip';
 import { TemplateIndustryMenu } from './TemplateIndustryMenu';
 import { collectionFacet, formatCategories, type TemplateCollection } from './templateCollections';
-import { loadCoveredTemplates } from './useCoveredTemplates';
+import { loadCoveredTemplates, readCachedCoveredTemplates } from './useCoveredTemplates';
 import { Button } from 'open-design-ui/button';
 import { blackFridayReference, blackFridayTemplates } from '../../../shared/black-friday-collection';
 import { BlackFridayCollection, type BlackFridayFilter } from './BlackFridayCollection';
@@ -305,23 +305,36 @@ export function TemplateLibraryDialog(props: Props) {
   }, [props.open, props.returnFocus, props.inWorkspace, detailOnly]);
   useEffect(() => {
     if (!props.open) return;
-    setCatalog([]); setBrandStory(null); setFacetsSelected({}); setBrandFilter(false); setCompareWithout(''); setLibraryQuery(''); setCampaignSearch(emptyCampaignSearch); setSettledKeyword(''); setRecoveryExpanded(false); setPreview(null);
+    const cached = readCachedCoveredTemplates(locale, true);
+    setBrandStory(null); setFacetsSelected({}); setBrandFilter(false); setCompareWithout(''); setLibraryQuery(''); setCampaignSearch(emptyCampaignSearch); setSettledKeyword(''); setRecoveryExpanded(false); setPreview(null);
     if (dialog.current) detail.current?.close();
-    shown.current = false; searchId.current = undefined; reportedQuery.current = ''; pendingResult.current = undefined; shownCards.current.clear(); seriesLists.current.clear(); shownSeries.current.clear();
+    searchId.current = undefined; reportedQuery.current = ''; pendingResult.current = undefined; shownCards.current.clear(); seriesLists.current.clear(); shownSeries.current.clear();
+    if (cached && cached.items.length > 0) {
+      setCatalog(cached.items);
+      setCatalogVersion(cached.catalogVersion ?? '');
+      setWarning(cached.warning ?? '');
+      setError('');
+      setLoading(false);
+      shown.current = true;
+    } else {
+      setCatalog([]);
+      shown.current = false;
+    }
     const controller = new AbortController();
-    let version: string | undefined, pending = false;
-    async function load() {
-      pending = true; setLoading(true); setError('');
+    let version: string | undefined = cached?.catalogVersion, pending = false;
+    async function load(background = false) {
+      pending = true;
+      if (!background) { setLoading(true); setError(''); }
       try {
         const result = await loadCoveredTemplates(locale, controller.signal);
         if (!controller.signal.aborted) {
           version = result.catalogVersion;
-          setWarning(result.warning ?? ''); setCatalog(result.items); setCatalogVersion(version ?? ''); shown.current = true;
+          setWarning(result.warning ?? ''); setCatalog(result.items); setCatalogVersion(version ?? ''); setError(''); shown.current = true;
         }
-      } catch (err) { if (!controller.signal.aborted) setError((err as Error).message); }
+      } catch (err) { if (!controller.signal.aborted && !background) setError((err as Error).message); }
       finally { pending = false; if (!controller.signal.aborted) setLoading(false); }
     }
-    void load();
+    void load(Boolean(cached && cached.items.length > 0));
     const timer = setInterval(async () => {
       if (pending || document.hidden) return;
       pending = true;
@@ -329,7 +342,7 @@ export function TemplateLibraryDialog(props: Props) {
         const page = await motionApi<TemplatePage>(`/template-catalog?limit=1&locale=${encodeURIComponent(locale)}`, { signal: controller.signal });
         if (controller.signal.aborted) return;
         setWarning(page.warning ?? '');
-        if (page.catalogVersion !== version) await load();
+        if (page.catalogVersion !== version) await load(shown.current);
       } catch {} finally { pending = false; }
     }, 5000);
     return () => { controller.abort(); clearInterval(timer); };

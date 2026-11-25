@@ -4,12 +4,14 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { I18nProvider, useI18n, translate } from '../i18n/I18n';
 import { PrivacySettings } from './PrivacySettings';
+import { HOST_CAPABILITIES, hostOk, type UniversalHostBridge } from '../../../shared/desktop-contract';
+import { invalidateHostCapabilities } from '../utils/platformHost';
 
 const hooks = vi.hoisted(() => ({ enabled: vi.fn() }));
 vi.mock('./tracking', () => ({ setMotionTrackingEnabled: hooks.enabled }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
-afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ''; vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ''; delete window.__OPENMOTION_HOST__; vi.unstubAllGlobals(); vi.clearAllMocks(); });
 async function open() {
   const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   await act(async () => root!.render(<I18nProvider initialLocale="en"><PrivacySettings onClose={() => {}} /></I18nProvider>));
@@ -83,4 +85,35 @@ it('translates an existing failure without refetching or replacing the privacy f
   expect(container.querySelector('[role=switch]')).toBe(toggle);
   expect((toggle.getAttribute('aria-checked') === 'true')).toBe(true);
   expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('syncs usage-data preference changes to desktop host telemetry capability when available', async () => {
+  const invoke = vi.fn(async () => hostOk({ enabled: false }));
+  const bridge: UniversalHostBridge = {
+    info: vi.fn(async () => ({
+      hostKind: 'desktop' as const,
+      shellVersion: '0.2.1',
+      contractVersion: '1.0.0',
+      platform: 'darwin' as const,
+      arch: 'arm64',
+      releaseChannel: 'test' as const,
+      isPackaged: true,
+    })),
+    capabilities: vi.fn(async () => [
+      { name: HOST_CAPABILITIES.TELEMETRY, version: '1.0.0', status: 'available' as const },
+    ]),
+    invoke: invoke as UniversalHostBridge['invoke'],
+    subscribe: vi.fn(() => () => {}),
+  };
+  window.__OPENMOTION_HOST__ = bridge;
+  invalidateHostCapabilities(bridge);
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    const enabled = init?.body ? JSON.parse(String(init.body)).enabled : true;
+    return Response.json({ enabled, preference: enabled, locked: false });
+  }));
+
+  const toggle = await open();
+  expect(invoke).toHaveBeenCalledWith(HOST_CAPABILITIES.TELEMETRY, 'setEnabled', { enabled: true });
+  await act(async () => toggle.click());
+  expect(invoke).toHaveBeenCalledWith(HOST_CAPABILITIES.TELEMETRY, 'setEnabled', { enabled: false });
 });

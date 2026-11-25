@@ -8,6 +8,7 @@ import { DiagnosticExport } from './DiagnosticExport';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { Toggle } from './settingsPrimitives';
+import { syncDesktopTelemetryEnabled } from '../utils/platformHost';
 
 type Status = { enabled: boolean; preference: boolean; locked: boolean; reason?: 'test_build' | 'environment' | 'deployment' | null };
 export function PrivacySettings({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
@@ -17,16 +18,23 @@ export function PrivacySettings({ onClose, embedded = false }: { onClose: () => 
   useEffect(() => { if (!embedded) dialog.current?.showModal(); return () => dialog.current?.close(); }, [embedded]);
   useEffect(() => {
     const controller = new AbortController();
-    void motionApi<Status>('/tracking/preferences', { signal: controller.signal }).then(setStatus)
+    void motionApi<Status>('/tracking/preferences', { signal: controller.signal }).then(next => {
+      setStatus(next);
+      syncDesktopTelemetryEnabled(next.enabled);
+    })
       .catch(() => { if (!controller.signal.aborted) setError('Could not load privacy settings.'); });
     return () => controller.abort();
   }, []);
   async function change(enabled: boolean) {
-    if (!enabled) setMotionTrackingEnabled(false);
+    if (!enabled) {
+      setMotionTrackingEnabled(false);
+      syncDesktopTelemetryEnabled(false);
+    }
     setBusy(true); setError('');
     try {
       const next = await motionApi<Status>('/tracking/preferences', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }) });
       setStatus(next); setMotionTrackingEnabled(next.enabled);
+      syncDesktopTelemetryEnabled(next.enabled);
       toast.showToast(t('Privacy settings saved'), 'info');
       // Reported after the saved preference applies, so turning sharing off sends nothing.
       trackStudioClick('project_drawer', 'usage_data_toggle', undefined, undefined, next.enabled ? 'on' : 'off');

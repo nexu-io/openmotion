@@ -169,7 +169,7 @@
 .om-mcp-demo-library { display: inline-flex; align-items: center; gap: var(--motion-space-8); max-inline-size: 100%; white-space: nowrap; }
 .om-mcp-demo-library span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 .om-mcp-demo-library svg { flex: none; }
-.om-mcp-demo-dialog { position: fixed; z-index: 201; top: 50%; left: 50%; translate: -50% -50%; width: min(800px, calc(100vw - 32px)); max-height: 90dvh; overflow: auto; display: flex; flex-direction: column; gap: var(--motion-space-16); }
+.om-mcp-demo-dialog { position: fixed; z-index: 201; top: calc(50% + var(--om-desktop-safe-top, 0px) / 2); left: 50%; translate: -50% -50%; width: min(800px, calc(100vw - 32px)); max-height: calc(100dvh - var(--om-desktop-safe-top, 0px) - 32px); overflow: auto; display: flex; flex-direction: column; gap: var(--motion-space-16); }
 .om-mcp-demo-dialog > * { flex: none; }
 .om-mcp-demo-dialog > header, .om-mcp-demo-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-8); }
 .om-mcp-demo-dialog > footer { justify-content: flex-end; }

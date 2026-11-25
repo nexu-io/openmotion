@@ -1,6 +1,6 @@
 /* Shared template and Brand Kit detail presentation. Content stays in its feature. */
 .om-media-detail-grid { position: relative; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100%; }
-.om-media-detail-stage { --stage-media-height: calc(100dvh - 100px); position: relative; display: flex; align-items: center; justify-content: center; padding: var(--motion-space-24); min-width: 0; overflow: hidden; background: var(--color-template-preview-bg); isolation: isolate; }
+.om-media-detail-stage { --stage-media-height: calc(100dvh - var(--om-desktop-safe-top, 0px) - 100px); position: relative; display: flex; align-items: center; justify-content: center; padding: var(--motion-space-24); min-width: 0; overflow: hidden; background: var(--color-template-preview-bg); isolation: isolate; }
 .om-media-detail-ambient { position: absolute; inset: -10%; width: 120%; height: 120%; object-fit: cover; filter: blur(55px); opacity: .55; z-index: -2; pointer-events: none; }
 .om-media-detail-glass { position: absolute; inset: 0; background: var(--motion-gallery-stage-wash); backdrop-filter: blur(22px) saturate(.8); z-index: -1; }
 .om-media-detail-media { position: relative; flex: none; overflow: hidden; border-radius: var(--motion-radius-xl); box-shadow: var(--motion-shadow-lg); background: var(--color-template-preview-bg); }
@@ -17,7 +17,7 @@
 .om-media-detail-instruction summary { cursor: pointer; }
 .om-media-detail-instruction p { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: var(--motion-space-12); }
 
-.om-media-detail-surface { position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--color-template-surface); color: var(--color-template-text); overflow: hidden; }
+.om-media-detail-surface { position: fixed; inset: var(--om-desktop-safe-top, 0px) 0 0 0; width: 100%; max-width: none; height: calc(100dvh - var(--om-desktop-safe-top, 0px)); max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--color-template-surface); color: var(--color-template-text); overflow: hidden; }
 /* Leave the shared settings dialog (150) and floating menu (200) layers above detail. */
 .om-media-detail-popup { z-index: 140; outline: none; }
 .om-media-detail-surface::backdrop { background: var(--motion-overlay); backdrop-filter: blur(12px); }

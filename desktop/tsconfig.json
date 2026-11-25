@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "../shared/platform-host.ts",
+    "../shared/desktop-contract.ts",
+    "../shared/desktop-builtin-rules.ts",
+    "../shared/signed-config.ts",
+    "../shared/engine-command-contract.ts",
+    "../shared/desktop-auth-handoff.ts",
+    "../shared/connect-script-protocol.ts",
+    "../packages/local-atoms/**/*.ts",
+    "../packages/signed-config/**/*.ts"
+  ]
+}

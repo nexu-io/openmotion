@@ -177,7 +177,11 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
         const observed = projected ? confirmedSource(project, path) : source;
         if (observed?.version === expected) captured.set(path, { content: observed.content, version: expected });
       }
-      if (expected !== undefined && source.version !== expected) {
+      // A queued draft retains its starting revision even after an earlier local edit is confirmed.
+      // Only the transport can assign the actual write base when it prepares this packet.
+      const draftBase = projected?.version && confirmedSource(project, path)?.version === expected
+        ? isolatedEditVersion(project, path, projected.version) : source.version;
+      if (expected !== undefined && draftBase !== expected) {
         const original = captured.get(path);
         const confirmed = projected ? confirmedSource(project, path) : source;
         const { canReplayCanvasCommands } = await import('./canvasReplay');

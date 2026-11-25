@@ -16,6 +16,9 @@ import {
   readAuthPendingDraft,
   saveAuthPendingDraft,
 } from './authRecoveryStore';
+import { clearPrivateSwrCache, readSwrCache, writeSwrCache } from './swrCache';
+
+const WORKSPACE_CATALOG_CACHE_KEY = 'workspace-catalog';
 
 export type SavedProject = { id: string; title: string; titleKey?: 'OpenMotion Sample Video' | null; templateId?: string; createdAt?: number; openedAt?: number; trashedAt?: number };
 type Job = { id: string; state: 'pending' | 'running' | 'completed' | 'failed'; error?: string };
@@ -34,6 +37,7 @@ export async function motionApi<T>(path: string, init?: RequestInit, projectId?:
     // Non-JSON error body.
   }
   if (!response.ok) {
+    if (response.status === 401) clearPrivateSwrCache();
     const message = typeof data.error === 'string' ? data.error : 'Workspace connection failed';
     const error = new Error(message) as Error & { status?: number; code?: string; errorCode?: string };
     error.status = response.status;
@@ -69,11 +73,18 @@ export function useWorkspace(
 ) {
   const externalHistoryGuard = Boolean(options?.externalHistoryGuard);
   const { t } = useI18n();
-  const [projects, setProjects] = useState<SavedProject[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const initialCachedCatalog = useRef<ProjectCatalog | null | undefined>(undefined);
+  if (initialCachedCatalog.current === undefined) {
+    const cached = readSwrCache<ProjectCatalog>('private', WORKSPACE_CATALOG_CACHE_KEY);
+    initialCachedCatalog.current = cached && Array.isArray(cached.projects) ? cached : null;
+  }
+  const [projects, setProjects] = useState<SavedProject[]>(() => initialCachedCatalog.current?.projects ?? []);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => initialCachedCatalog.current?.activeId ?? null);
   const displayedProjects = useMemo(() => projects.map(project => project.id === 'project' && project.titleKey === 'OpenMotion Sample Video'
     ? { ...project, title: t(project.titleKey) } : project), [projects, t]);
-  const [sessions, setSessions] = useState<CreativeSession[]>([]);
+  const [sessions, setSessions] = useState<CreativeSession[]>(() =>
+    [...(initialCachedCatalog.current?.sessions ?? [])].sort((a, b) => (b.openedAt ?? b.createdAt ?? 0) - (a.openedAt ?? a.createdAt ?? 0)),
+  );
   const visibleSessions = useMemo(() => {
     const trashed = new Set(projects.filter(project => project.trashedAt).map(project => project.id));
     return sessions.flatMap(session => availableSession(session, trashed) ?? []);
@@ -114,6 +125,12 @@ export function useWorkspace(
     setProjects(previous => JSON.stringify(previous) === JSON.stringify(ordered) ? previous : ordered);
     const nextSessions = [...(catalog.sessions ?? [])].sort((a, b) => (b.openedAt ?? b.createdAt ?? 0) - (a.openedAt ?? a.createdAt ?? 0));
     setSessions(previous => JSON.stringify(previous) === JSON.stringify(nextSessions) ? previous : nextSessions);
+    writeSwrCache('private', WORKSPACE_CATALOG_CACHE_KEY, {
+      activeId: catalog.activeId,
+      projects: ordered,
+      sessions: nextSessions,
+      activeSessionId: catalog.activeSessionId,
+    });
   }, []);
   useEffect(() => {
     if (navigate === navigateWorkspace || externalHistoryGuard) return;
@@ -222,7 +239,20 @@ export function useWorkspace(
         refreshWorkspaceCatalog.current?.(0);
       } else if (event === 'render-updated') refreshStatus(activeWorkspaceInterval);
     });
-    return () => { controller.abort(); unsubscribeSaves(); unsubscribeActivity(); };
+    const handleAccountChanged = () => {
+      setProjects([]);
+      setActiveProjectId(null);
+      setSessions([]);
+      refreshStatus(0);
+      refreshWorkspaceCatalog.current?.(0);
+    };
+    window.addEventListener('motion:account-changed', handleAccountChanged);
+    return () => {
+      controller.abort();
+      unsubscribeSaves();
+      unsubscribeActivity();
+      window.removeEventListener('motion:account-changed', handleAccountChanged);
+    };
   }, [projectId, request, connectionCheck, sessionWithoutProject]);
 
   const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string }, route: { session?: boolean; revealArtifact?: boolean; existing?: OpenTarget } = {}) => {

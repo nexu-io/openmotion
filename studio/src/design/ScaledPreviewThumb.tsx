@@ -30,7 +30,6 @@ export function ScaledPreviewThumb({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [visible, setVisible] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [scale, setScale] = useState(0.32);
 
   const waitForReady = brandedFallback && src?.startsWith('/motion-api/design/catalog/templates/');
   const thumbSrc = useMemo(() => src ? withThumbParam(src) + (waitForReady ? '&thumbReady=1' : '') : '', [src, waitForReady]);
@@ -47,19 +46,34 @@ export function ScaledPreviewThumb({
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
-    const update = () => {
-      const width = el.getBoundingClientRect().width;
-      if (width > 0) setScale(width / VIRTUAL_WIDTH);
+    let frame = 0;
+    let lastScale = 0;
+    const applyWidth = (width: number) => {
+      if (width <= 0) return;
+      const nextScale = width / VIRTUAL_WIDTH;
+      if (Math.abs(nextScale - lastScale) < 0.0005) return;
+      lastScale = nextScale;
+      el.style.setProperty('--om-thumb-scale', String(nextScale));
     };
-    update();
+    applyWidth(el.clientWidth || el.getBoundingClientRect().width);
     let ro: ResizeObserver | undefined;
     if (typeof ResizeObserver !== 'undefined') {
-      ro = new ResizeObserver(update);
+      ro = new ResizeObserver(entries => {
+        const entryWidth = entries[0]?.contentRect.width ?? 0;
+        if (frame) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          applyWidth(entryWidth > 0 ? entryWidth : el.clientWidth);
+        });
+      });
       ro.observe(el);
     }
     if (typeof IntersectionObserver === 'undefined') {
       setVisible(true);
-      return () => ro?.disconnect();
+      return () => {
+        if (frame) cancelAnimationFrame(frame);
+        ro?.disconnect();
+      };
     }
     const io = new IntersectionObserver(entries => {
       const inView = entries.some(e => e.isIntersecting);
@@ -67,7 +81,11 @@ export function ScaledPreviewThumb({
       if (!inView) setLoaded(false);
     }, { rootMargin: '120px' });
     io.observe(el);
-    return () => { io.disconnect(); ro?.disconnect(); };
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      io.disconnect();
+      ro?.disconnect();
+    };
   }, []);
 
   const setPlaying = (play: boolean) => {
@@ -97,7 +115,7 @@ export function ScaledPreviewThumb({
           style={{
             width: VIRTUAL_WIDTH,
             height: VIRTUAL_HEIGHT,
-            transform: `scale(${scale})`,
+            transform: 'scale(var(--om-thumb-scale, 0.32))',
             opacity: loaded ? 1 : 0,
           }}
         />

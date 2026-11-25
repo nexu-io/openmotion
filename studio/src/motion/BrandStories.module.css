@@ -24,7 +24,7 @@
 .seriesLink { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-8); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-medium); }
 .collectionIntro { break-inside: avoid; padding-right: var(--motion-space-12); }
 .storyDialog { composes: om-media-detail-surface from global; }
-.storyDialog:global(.om-media-detail-surface) { inset:var(--motion-space-16); width:calc(100% - var(--motion-space-32)); height:calc(100dvh - var(--motion-space-32)); border:1px solid var(--color-template-line); border-radius:var(--motion-radius-xl); overflow:hidden; box-shadow:var(--motion-shadow-lg); }
+.storyDialog:global(.om-media-detail-surface) { inset:calc(var(--om-desktop-safe-top, 0px) + var(--motion-space-16)) var(--motion-space-16) var(--motion-space-16); width:calc(100% - var(--motion-space-32)); height:calc(100dvh - var(--om-desktop-safe-top, 0px) - var(--motion-space-32)); border:1px solid var(--color-template-line); border-radius:var(--motion-radius-xl); overflow:hidden; box-shadow:var(--motion-shadow-lg); }
 .storyDialog[open] { display:grid; grid-template-rows:auto auto auto minmax(0,1fr); }
 .storyDialog::backdrop { background:var(--motion-video-overlay); backdrop-filter:blur(12px); }
 .storyHeader { display:flex; align-items:center; justify-content:space-between; gap:var(--motion-space-12); min-height:var(--motion-space-48); padding:var(--motion-space-8) var(--motion-space-24); border-bottom:1px solid var(--color-template-line); }
@@ -133,7 +133,7 @@
 @media(max-width:1199px) { .brandGrid { grid-template-columns:repeat(3,minmax(0,1fr)); } .selectedStory { grid-template-columns:minmax(0,1fr) 340px; gap:var(--motion-space-20); } }
 @media(max-width:849px) { .brandGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } .brandMeta { display:none; } .selectedStory { grid-template-columns:minmax(0,1fr) 300px; gap:var(--motion-space-16); } .selectedCopy { padding-left:var(--motion-space-16); } }
 @media(max-width:699px) {
-  .storyDialog:global(.om-media-detail-surface) { inset:0; width:100%; height:100dvh; border:0; border-radius:0; overflow-y:auto; }
+  .storyDialog:global(.om-media-detail-surface) { inset:var(--om-desktop-safe-top, 0px) 0 0 0; width:100%; height:calc(100dvh - var(--om-desktop-safe-top, 0px)); border:0; border-radius:0; overflow-y:auto; }
   .storyDialog[open] { display:block; padding-bottom:160px; }
   .storyHeader { position:sticky; top:0; z-index:5; background:var(--color-template-surface); padding-inline:var(--motion-space-16); }
   .storyHeaderLabel { display:none; }

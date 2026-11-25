@@ -4,7 +4,7 @@
 .om-game-studio { position: relative; display: flex; flex: 1 1 auto; width: 100%; min-width: 0; height: 100%; overflow: hidden; }
 .om-game-main { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; overflow: hidden; }
 /* Hovering an animated cover can make Chromium's scroll anchoring jump backward. */
-.om-game-scroll { height: 100%; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; }
+.om-game-scroll { height: 100%; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; }
 .om-game-page, .om-game-dock { width: min(100% - 2 * var(--motion-space-24), 1280px); margin-inline: auto; }
 .om-game-dock { width: auto; }
 .om-game-dock .om-game-composer { margin-inline: auto; }
@@ -93,7 +93,7 @@ button.om-game-chip:hover, .om-game-chip[aria-expanded="true"] { background: var
 
 /* Project view: details on the left, the playable game on the right. */
 /* Detail page: the game is the main area, details sit in a narrow column on the right (below on small screens). */
-.om-game-project { position: fixed; inset: 0; z-index: 60; display: grid; grid-template-columns: minmax(0, 1fr) 264px; grid-template-rows: auto minmax(0, 1fr);
+.om-game-project { position: fixed; inset: var(--om-desktop-safe-top, 0px) 0 0 0; z-index: 60; display: grid; grid-template-columns: minmax(0, 1fr) 264px; grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas: "top top" "preview side"; gap: var(--motion-space-12); background: var(--motion-bg);
   /* Covers the whole window; the content stays centred at up to 1360px. */
   padding: var(--motion-space-12) max(var(--motion-space-24), calc((100% - 1360px) / 2)) var(--motion-space-24); }
@@ -183,6 +183,13 @@ button.om-game-chip:hover, .om-game-chip[aria-expanded="true"] { background: var
   .om-game-fan-card[data-slot="2"] { transform: translate(calc(-50% + 170px), -44%) rotate(4deg) scale(.85); }
   .om-game-fan-card[data-slot="3"], .om-game-fan-card[data-slot="4"] { display: none; }
   .om-game-headline { font-size: var(--motion-text-display); }
+}
+@media (max-width: 560px) {
+  .om-game-fan { height: 164px; }
+  .om-game-fan-card { width: 176px; }
+  .om-game-fan-card[data-slot="0"] { width: 224px; }
+  .om-game-fan-card[data-slot="1"] { transform: translate(calc(-50% - 118px), -44%) rotate(-4deg) scale(.82); }
+  .om-game-fan-card[data-slot="2"] { transform: translate(calc(-50% + 118px), -44%) rotate(4deg) scale(.82); }
 }
 .om-game-trailer { display: grid; gap: var(--motion-space-8); padding: var(--motion-space-12) var(--motion-space-12) 0; }
 /* The one strong call to action after a game is done, like "Turn to video" on an image. */

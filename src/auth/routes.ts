@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { isCloudError } from '../contracts/errors.ts';
 import { sanitizeEntryId, sanitizeHookId, type CloudTrackingHandle } from '../cloud-tracking.ts';
 import { isUuid } from '../../shared/project-validation.ts';
+import { mountDesktopHandoffRoutes } from './desktop-handoff.ts';
 import { createAuthMiddleware, getAuthContext, type AuthEnv, type AuthMiddlewareDeps } from './middleware.ts';
 import {
   buildAuthorizationServerMetadata,
@@ -73,6 +74,7 @@ function parseAuthAttributionCookie(raw: string | undefined): { hookId?: string;
 /**
  * Mounts:
  * - `/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/me`
+ * - `/auth/desktop/start`, `/auth/desktop/exchange`
  * - `/.well-known/oauth-protected-resource`, `/.well-known/oauth-protected-resource/mcp`
  * - `/.well-known/oauth-authorization-server`
  * - `/oauth/register`, `/oauth/authorize` (GET/POST), `/oauth/token`, `/oauth/revoke`
@@ -281,6 +283,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       workspaces,
     });
   });
+
+  mountDesktopHandoffRoutes(app, deps);
 
   // -------------------------------------------------------------------------
   // OAuth 2.1 Proxy Endpoints (DCR, PKCE Authorize, Token, Revoke)

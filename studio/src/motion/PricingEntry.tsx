@@ -1,5 +1,6 @@
 import { useId, useState, type MouseEvent } from 'react';
 import { useI18n } from '../i18n/I18n';
+import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHost';
 import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import type { CreativePage } from './exploreTracking';
@@ -21,8 +22,13 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
     void trackMotion('ui_click', { page_name: trackingPage, area: 'header', element: 'open_pricing', ...(campaign ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}), entry_id: entryId, hook_id: 'header_pricing',
       interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
     // Stamp the click time on the address the browser is about to open, then replace the id for the next click.
-    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
+    const targetUrl = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
+    event.currentTarget.href = targetUrl;
     window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
+    if (isDesktopApp() && (event.button === 0 || event.button === 1)) {
+      event.preventDefault();
+      void openBillingAndRefreshOnFocus(targetUrl);
+    }
   }
 
   return (

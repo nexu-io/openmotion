@@ -1,0 +1,815 @@
+<!doctype html>
+<!--
+  OpenMotion Desktop Environment Switcher (test / dev builds only).
+  Self-contained command-palette sheet using opaque OpenDesign tokens in
+  light and dark themes, zero external dependencies, strict CSP.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"
+    />
+    <title>Switch Environment</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --ev-bg: #ffffff;
+        --ev-subtle: #f7f7f7;
+        --ev-hover: #f0f0f0;
+        --ev-active-row: #efefef;
+        --ev-icon-bg: #f1f1f1;
+        --ev-border: #e6e6e6;
+        --ev-border-strong: #d4d4d4;
+        --ev-strong: #181818;
+        --ev-text: #3f3f42;
+        --ev-muted: #717176;
+        --ev-dim: #929298;
+        --ev-action: #141414;
+        --ev-action-hover: #2e2e2e;
+        --ev-on-action: #ffffff;
+        --ev-ok: #16a34a;
+        --ev-ok-soft: #ecfdf3;
+        --ev-warn: #d97706;
+        --ev-warn-soft: #fff7ed;
+        --ev-danger: #c52b32;
+        --ev-danger-soft: #fff1f1;
+        --ev-font-sans: "Albert Sans", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --ev-font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --ev-bg: #18191b;
+          --ev-subtle: #141517;
+          --ev-hover: #232528;
+          --ev-active-row: #26282c;
+          --ev-icon-bg: #242629;
+          --ev-border: #2a2c30;
+          --ev-border-strong: #3b3e44;
+          --ev-strong: #f5f6f4;
+          --ev-text: #d6d8d4;
+          --ev-muted: #8f9499;
+          --ev-dim: #686d73;
+          --ev-action: #f5f6f4;
+          --ev-action-hover: #dcded9;
+          --ev-on-action: #141517;
+          --ev-ok: #34d399;
+          --ev-ok-soft: #132a21;
+          --ev-warn: #fbbf24;
+          --ev-warn-soft: #2c2212;
+          --ev-danger: #ff9898;
+          --ev-danger-soft: #3a1f21;
+        }
+      }
+
+      html[data-theme="dark"] {
+        --ev-bg: #18191b;
+        --ev-subtle: #141517;
+        --ev-hover: #232528;
+        --ev-active-row: #26282c;
+        --ev-icon-bg: #242629;
+        --ev-border: #2a2c30;
+        --ev-border-strong: #3b3e44;
+        --ev-strong: #f5f6f4;
+        --ev-text: #d6d8d4;
+        --ev-muted: #8f9499;
+        --ev-dim: #686d73;
+        --ev-action: #f5f6f4;
+        --ev-action-hover: #dcded9;
+        --ev-on-action: #141517;
+        --ev-ok: #34d399;
+        --ev-ok-soft: #132a21;
+        --ev-warn: #fbbf24;
+        --ev-warn-soft: #2c2212;
+        --ev-danger: #ff9898;
+        --ev-danger-soft: #3a1f21;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--ev-bg);
+        color: var(--ev-text);
+        font-family: var(--ev-font-sans);
+        -webkit-font-smoothing: antialiased;
+        overflow: hidden;
+      }
+
+      .ev-shell {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Top drag chrome */
+      .ev-topbar {
+        height: 44px;
+        flex: 0 0 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 14px 0 80px;
+        border-bottom: 1px solid var(--ev-border);
+        background: var(--ev-subtle);
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+
+      html[data-platform="win32"] .ev-topbar,
+      html[data-platform="linux"] .ev-topbar {
+        padding-left: 16px;
+      }
+
+      .ev-topbar-title {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--ev-strong);
+      }
+
+      .ev-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        font-family: var(--ev-font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--ev-ok-soft);
+        color: var(--ev-ok);
+        -webkit-app-region: no-drag;
+      }
+
+      .ev-status-pill[data-custom="true"] {
+        background: var(--ev-warn-soft);
+        color: var(--ev-warn);
+      }
+
+      .ev-status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      /* Command URL bar */
+      .ev-command {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--ev-border);
+        background: var(--ev-bg);
+      }
+
+      .ev-command-icon {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 18px;
+        color: var(--ev-muted);
+      }
+
+      .ev-input {
+        flex: 1;
+        min-width: 0;
+        height: 30px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--ev-strong);
+        font-family: var(--ev-font-mono);
+        font-size: 13px;
+        outline: none;
+      }
+
+      .ev-input::placeholder {
+        font-family: var(--ev-font-sans);
+        color: var(--ev-dim);
+      }
+
+      .ev-submit {
+        flex: 0 0 auto;
+        height: 28px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 7px;
+        background: var(--ev-action);
+        color: var(--ev-on-action);
+        font-family: var(--ev-font-sans);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        transition: background 120ms ease, opacity 120ms ease;
+      }
+
+      .ev-submit:hover:not(:disabled) {
+        background: var(--ev-action-hover);
+      }
+
+      .ev-submit:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .ev-error {
+        margin: 0;
+        padding: 9px 16px;
+        background: var(--ev-danger-soft);
+        color: var(--ev-danger);
+        border-bottom: 1px solid var(--ev-border);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      /* Scrollable inset list */
+      .ev-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 10px 8px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .ev-group {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .ev-eyebrow {
+        margin: 0;
+        padding: 2px 10px 6px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--ev-dim);
+      }
+
+      .ev-row {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 9px 10px;
+        border: 0;
+        border-radius: 9px;
+        background: transparent;
+        color: var(--ev-strong);
+        text-align: left;
+        cursor: pointer;
+        font: inherit;
+        transition: background 110ms ease;
+      }
+
+      .ev-row:hover,
+      .ev-row[data-selected="true"] {
+        background: var(--ev-hover);
+      }
+
+      .ev-row[data-active="true"] {
+        background: var(--ev-active-row);
+      }
+
+      .ev-row:focus-visible {
+        outline: 2px solid var(--ev-border-strong);
+        outline-offset: -2px;
+      }
+
+      .ev-row-icon {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        border-radius: 8px;
+        background: var(--ev-icon-bg);
+        color: var(--ev-text);
+        display: grid;
+        place-items: center;
+      }
+
+      .ev-row[data-active="true"] .ev-row-icon {
+        background: var(--ev-ok-soft);
+        color: var(--ev-ok);
+      }
+
+      .ev-row-main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .ev-row-title {
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.3;
+        color: var(--ev-strong);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .ev-row-url {
+        font-family: var(--ev-font-mono);
+        font-size: 11.5px;
+        line-height: 1.3;
+        color: var(--ev-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .ev-row-right {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11.5px;
+        font-weight: 500;
+        color: var(--ev-muted);
+      }
+
+      .ev-check {
+        color: var(--ev-ok);
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11.5px;
+        font-weight: 600;
+      }
+
+      .ev-kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        border-radius: 5px;
+        border: 1px solid var(--ev-border-strong);
+        background: var(--ev-bg);
+        color: var(--ev-muted);
+        font-family: var(--ev-font-mono);
+        font-size: 10.5px;
+        line-height: 1;
+      }
+
+      .ev-row-hint {
+        opacity: 0;
+        transition: opacity 110ms ease;
+      }
+
+      .ev-row:hover .ev-row-hint,
+      .ev-row[data-selected="true"] .ev-row-hint {
+        opacity: 1;
+      }
+
+      .ev-isolation-note {
+        margin: 2px 10px 0;
+        font-size: 11.5px;
+        line-height: 1.45;
+        color: var(--ev-dim);
+      }
+
+      /* Footer bar */
+      .ev-footer {
+        flex: 0 0 42px;
+        height: 42px;
+        padding: 0 14px;
+        border-top: 1px solid var(--ev-border);
+        background: var(--ev-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .ev-shortcuts {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 11.5px;
+        color: var(--ev-dim);
+      }
+
+      .ev-shortcut {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .ev-footer-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .ev-ghost-btn {
+        height: 26px;
+        padding: 0 10px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--ev-muted);
+        font-family: var(--ev-font-sans);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 110ms ease, color 110ms ease;
+      }
+
+      .ev-ghost-btn:hover:not(:disabled) {
+        background: var(--ev-hover);
+        color: var(--ev-strong);
+      }
+
+      .ev-ghost-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ev-shell">
+      <header class="ev-topbar">
+        <span class="ev-topbar-title" id="ev-title">Switch Environment</span>
+        <span class="ev-status-pill" id="ev-active-badge" data-custom="false">
+          <span class="ev-status-dot" aria-hidden="true"></span>
+          <span id="ev-active-badge-text">TEST</span>
+        </span>
+      </header>
+
+      <form class="ev-command" id="ev-form">
+        <svg class="ev-command-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M3.6 9h16.8M3.6 15h16.8"></path>
+          <path d="M11.5 3a17 17 0 0 0 0 18M12.5 3a17 17 0 0 1 0 18"></path>
+        </svg>
+        <input
+          id="ev-url-input"
+          class="ev-input"
+          type="text"
+          placeholder="Paste Orbit lane URL or http://127.0.0.1:4173…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button type="submit" class="ev-submit" id="ev-submit-btn">
+          <span id="ev-submit-label">Switch</span>
+        </button>
+      </form>
+
+      <p class="ev-error" id="ev-error" role="alert" hidden></p>
+
+      <main class="ev-body">
+        <section class="ev-group" aria-labelledby="ev-presets-label">
+          <h2 class="ev-eyebrow" id="ev-presets-label">Environments</h2>
+          <div id="ev-presets" role="listbox" aria-label="Environments"></div>
+        </section>
+
+        <section class="ev-group" id="ev-recent-section" aria-labelledby="ev-recent-label" hidden>
+          <h2 class="ev-eyebrow" id="ev-recent-label">Recent</h2>
+          <div id="ev-recent" role="listbox" aria-label="Recent environments"></div>
+        </section>
+
+        <p class="ev-isolation-note" id="ev-hint">
+          Each custom lane or local port uses an isolated session &amp; cache. Stable builds never allow overrides.
+        </p>
+      </main>
+
+      <footer class="ev-footer">
+        <div class="ev-shortcuts" aria-hidden="true">
+          <span class="ev-shortcut"><kbd class="ev-kbd">↑↓</kbd><span id="ev-kbd-nav">Navigate</span></span>
+          <span class="ev-shortcut"><kbd class="ev-kbd">↵</kbd><span id="ev-kbd-enter">Switch</span></span>
+          <span class="ev-shortcut"><kbd class="ev-kbd">Esc</kbd><span id="ev-kbd-esc">Close</span></span>
+        </div>
+        <div class="ev-footer-actions">
+          <button type="button" class="ev-ghost-btn" id="ev-reset-btn" hidden>Reset to Default</button>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const theme = params.get('theme');
+        if (theme === 'light' || theme === 'dark') {
+          document.documentElement.setAttribute('data-theme', theme);
+        }
+        const platform = params.get('platform');
+        if (platform) {
+          document.documentElement.setAttribute('data-platform', platform);
+        }
+        const zh = (params.get('locale') || navigator.language || '').toLowerCase().startsWith('zh');
+
+        const titleEl = document.getElementById('ev-title');
+        const badgeEl = document.getElementById('ev-active-badge');
+        const badgeTextEl = document.getElementById('ev-active-badge-text');
+        const urlInput = document.getElementById('ev-url-input');
+        const submitBtn = document.getElementById('ev-submit-btn');
+        const submitLabel = document.getElementById('ev-submit-label');
+        const hintEl = document.getElementById('ev-hint');
+        const errorEl = document.getElementById('ev-error');
+        const presetsLabelEl = document.getElementById('ev-presets-label');
+        const presetsEl = document.getElementById('ev-presets');
+        const recentSectionEl = document.getElementById('ev-recent-section');
+        const recentLabelEl = document.getElementById('ev-recent-label');
+        const recentEl = document.getElementById('ev-recent');
+        const resetBtn = document.getElementById('ev-reset-btn');
+        const form = document.getElementById('ev-form');
+        const kbdNavEl = document.getElementById('ev-kbd-nav');
+        const kbdEnterEl = document.getElementById('ev-kbd-enter');
+        const kbdEscEl = document.getElementById('ev-kbd-esc');
+
+        if (zh) {
+          document.title = '切换测试环境';
+          titleEl.textContent = '切换测试环境';
+          urlInput.placeholder = '粘贴 Orbit 泳道地址，或输入 http://127.0.0.1:4173…';
+          submitLabel.textContent = '切换';
+          presetsLabelEl.textContent = '快捷环境';
+          recentLabelEl.textContent = '最近使用';
+          hintEl.textContent = '不同泳道与本地端口会自动隔离登录态与缓存；正式版不包含环境切换能力。';
+          resetBtn.textContent = '恢复默认';
+          kbdNavEl.textContent = '选择';
+          kbdEnterEl.textContent = '切换';
+          kbdEscEl.textContent = '关闭';
+        }
+
+        const ICONS = {
+          cloud: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>',
+          local: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+          lane: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
+          check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        };
+
+        let allRows = [];
+        let selectedIndex = -1;
+        let busy = false;
+
+        function setError(message) {
+          if (!message) {
+            errorEl.hidden = true;
+            errorEl.textContent = '';
+          } else {
+            errorEl.hidden = false;
+            errorEl.textContent = message;
+          }
+        }
+
+        function setBusy(next) {
+          busy = next;
+          submitBtn.disabled = next;
+          resetBtn.disabled = next;
+        }
+
+        function updateSelection(nextIndex) {
+          selectedIndex = nextIndex;
+          allRows.forEach((entry, idx) => {
+            entry.button.setAttribute('data-selected', idx === selectedIndex ? 'true' : 'false');
+          });
+          if (selectedIndex >= 0 && allRows[selectedIndex]) {
+            allRows[selectedIndex].button.scrollIntoView({ block: 'nearest' });
+          }
+        }
+
+        function closeDialog() {
+          const bridge = window.__OPENMOTION_ENV_SWITCHER__;
+          if (bridge && typeof bridge.close === 'function') {
+            void bridge.close();
+          } else {
+            window.close();
+          }
+        }
+
+        async function selectUrl(url) {
+          if (busy) return;
+          setError('');
+          const bridge = window.__OPENMOTION_ENV_SWITCHER__;
+          if (!bridge || typeof bridge.select !== 'function') {
+            setError(zh ? '环境切换桥接不可用。' : 'Environment switcher bridge is unavailable.');
+            return;
+          }
+          setBusy(true);
+          try {
+            const res = await bridge.select(url);
+            if (!res || res.ok === false) {
+              setError(res?.error?.message || (zh ? '无法切换到该环境。' : 'Could not switch environment.'));
+              setBusy(false);
+            }
+          } catch (error) {
+            setError(error instanceof Error ? error.message : String(error));
+            setBusy(false);
+          }
+        }
+
+        function iconKindFor(url) {
+          try {
+            const parsed = new URL(url);
+            if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') return 'local';
+            if (parsed.hostname === 'openmotion.powerformer.net') return 'cloud';
+            return 'lane';
+          } catch {
+            return 'lane';
+          }
+        }
+
+        function createListRow(item, activeOrigin) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'ev-row';
+          btn.setAttribute('role', 'option');
+          const isActive = item.origin === activeOrigin;
+          btn.setAttribute('data-active', isActive ? 'true' : 'false');
+          btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+          const iconWrap = document.createElement('span');
+          iconWrap.className = 'ev-row-icon';
+          iconWrap.setAttribute('aria-hidden', 'true');
+          iconWrap.innerHTML = ICONS[iconKindFor(item.url)];
+
+          const main = document.createElement('span');
+          main.className = 'ev-row-main';
+          const title = document.createElement('span');
+          title.className = 'ev-row-title';
+          title.textContent = item.label;
+          const url = document.createElement('span');
+          url.className = 'ev-row-url';
+          url.textContent = item.url.replace(/^https?:\/\//, '');
+          main.append(title, url);
+
+          const right = document.createElement('span');
+          right.className = 'ev-row-right';
+          if (isActive) {
+            const check = document.createElement('span');
+            check.className = 'ev-check';
+            check.innerHTML = ICONS.check + '<span>' + (zh ? '当前' : 'Active') + '</span>';
+            right.append(check);
+          } else {
+            const hint = document.createElement('kbd');
+            hint.className = 'ev-kbd ev-row-hint';
+            hint.textContent = '↵';
+            right.append(hint);
+          }
+
+          btn.append(iconWrap, main, right);
+          const rowIndex = allRows.length;
+          allRows.push({ button: btn, url: item.url });
+
+          btn.addEventListener('mouseenter', () => updateSelection(rowIndex));
+          btn.addEventListener('click', () => {
+            void selectUrl(item.url);
+          });
+          return btn;
+        }
+
+        function renderState(data) {
+          allRows = [];
+          selectedIndex = -1;
+          badgeTextEl.textContent = data.active.badge || data.channel.toUpperCase();
+          badgeEl.setAttribute('data-custom', data.active.isCustomOverride ? 'true' : 'false');
+          urlInput.value = data.active.isCustomOverride ? data.active.url : '';
+          resetBtn.hidden = !data.active.isCustomOverride;
+
+          presetsEl.innerHTML = '';
+          for (const preset of data.presets || []) {
+            presetsEl.append(createListRow(preset, data.active.origin));
+          }
+
+          const presetOrigins = new Set((data.presets || []).map(item => item.origin));
+          const recentItems = (data.recent || []).filter(item => !presetOrigins.has(item.origin));
+          recentEl.innerHTML = '';
+          if (recentItems.length > 0) {
+            recentSectionEl.hidden = false;
+            for (const item of recentItems) {
+              recentEl.append(createListRow(item, data.active.origin));
+            }
+          } else {
+            recentSectionEl.hidden = true;
+          }
+        }
+
+        async function loadState() {
+          const bridge = window.__OPENMOTION_ENV_SWITCHER__;
+          if (!bridge || typeof bridge.getState !== 'function') {
+            // Preview fallback when opened standalone outside Electron.
+            renderState({
+              channel: 'test',
+              active: {
+                url: 'https://test.open-design.ai',
+                origin: 'https://test.open-design.ai',
+                badge: 'TEST',
+                label: 'Test (test.open-design.ai)',
+                isCustomOverride: false,
+                isLoopback: false,
+              },
+              presets: [
+                {
+                  label: zh ? 'Test 默认测试环境' : 'Test Default',
+                  url: 'https://test.open-design.ai',
+                  origin: 'https://test.open-design.ai',
+                },
+                {
+                  label: zh ? '本地开发服务器' : 'Local Dev Server',
+                  url: 'http://127.0.0.1:4173',
+                  origin: 'http://127.0.0.1:4173',
+                },
+              ],
+              recent: [
+                {
+                  label: 'PR-482 · Preview Lane',
+                  url: 'https://pr-482.test.open-design.ai',
+                  origin: 'https://pr-482.test.open-design.ai',
+                },
+              ],
+            });
+            return;
+          }
+          const res = await bridge.getState();
+          if (!res || !res.ok || !res.data) return;
+          renderState(res.data);
+        }
+
+        form.addEventListener('submit', event => {
+          event.preventDefault();
+          const candidate = urlInput.value.trim();
+          if (candidate) {
+            void selectUrl(candidate);
+            return;
+          }
+          if (selectedIndex >= 0 && allRows[selectedIndex]) {
+            void selectUrl(allRows[selectedIndex].url);
+            return;
+          }
+          setError(zh ? '请输入目标 URL 或从下方选择一个环境。' : 'Enter a URL or select an environment below.');
+        });
+
+        resetBtn.addEventListener('click', async () => {
+          if (busy) return;
+          const bridge = window.__OPENMOTION_ENV_SWITCHER__;
+          if (!bridge || typeof bridge.reset !== 'function') return;
+          setError('');
+          setBusy(true);
+          try {
+            const res = await bridge.reset();
+            if (!res || res.ok === false) {
+              setError(res?.error?.message || (zh ? '无法重置环境。' : 'Could not reset environment.'));
+              setBusy(false);
+            }
+          } catch (error) {
+            setError(error instanceof Error ? error.message : String(error));
+            setBusy(false);
+          }
+        });
+
+        window.addEventListener('keydown', event => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeDialog();
+            return;
+          }
+          if (allRows.length === 0) return;
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            updateSelection(selectedIndex < allRows.length - 1 ? selectedIndex + 1 : 0);
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            updateSelection(selectedIndex > 0 ? selectedIndex - 1 : allRows.length - 1);
+          }
+        });
+
+        urlInput.addEventListener('input', () => {
+          setError('');
+          if (urlInput.value.trim()) {
+            updateSelection(-1);
+          }
+        });
+
+        void loadState().then(() => {
+          urlInput.focus();
+        });
+      })();
+    </script>
+  </body>
+</html>
