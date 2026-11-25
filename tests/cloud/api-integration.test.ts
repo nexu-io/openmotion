@@ -44,6 +44,7 @@ import { parseConfig, type AppConfig } from '../../src/infra/config.ts';
 import { createLogger } from '../../src/infra/logger.ts';
 import { InMemoryMcpSessionStore } from '../../src/mcp/index.ts';
 import { MockModelGateway } from '../../src/services/mock-model-adapter.ts';
+import { ProjectArchiveService } from '../../src/services/project-archive-service.ts';
 import type { WelcomeBootstrapService } from '../../src/services/welcome-bootstrap.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -3745,6 +3746,82 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     const reclaimedRetryBody = (await reclaimedRetry.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
     assert.equal(reclaimedRetryBody.replayed, true);
     assert.deepEqual(reclaimedRetryBody.imported, reclaimedBody.imported);
+
+    // An active slow import exceeding the lease duration refreshes its lease via heartbeat so
+    // an overlapping retry with the same requestId still gets 409 REQUEST_ID_CONFLICT instead of duplicating projects.
+    const shortLeaseArchive = new ProjectArchiveService({
+      db: drizzle({ client: pgClient as never, schema }) as unknown as Database,
+      storage: fixture.storage,
+      workspace,
+      files: fixture.services.files,
+      publicOrigin: config.APP_PUBLIC_ORIGIN,
+      pendingImportLeaseMs: 80,
+      pendingImportHeartbeatMs: 20,
+    });
+    const projectsBeforeSlow = pgClient.rows('projects').length;
+    const origCreateForSlow = workspace.createProject.bind(workspace);
+    let releaseSlowCreate!: () => void;
+    let markSlowEntered!: () => void;
+    const slowEntered = new Promise<void>((resolve) => {
+      markSlowEntered = resolve;
+    });
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlowCreate = resolve;
+    });
+    let slowIntercepted = false;
+    workspace.createProject = (async (...args: Parameters<typeof workspace.createProject>) => {
+      if (!slowIntercepted) {
+        slowIntercepted = true;
+        markSlowEntered();
+        await slowGate;
+      }
+      return origCreateForSlow(...args);
+    }) as typeof workspace.createProject;
+    try {
+      const slowRequestId = 'archive-upload-lease-refresh';
+      const slowImportPromise = shortLeaseArchive.importProjects(agent, {
+        requestId: slowRequestId,
+        zipBytes: zip,
+      });
+      await slowEntered;
+      const initialReceipt = pgClient
+        .rows('idempotency_receipts')
+        .find((row) => row.scope === 'archive:import' && row.request_id === slowRequestId)!;
+      const initialUpdatedMs =
+        initialReceipt.updated_at instanceof Date
+          ? initialReceipt.updated_at.getTime()
+          : Date.parse(String(initialReceipt.updated_at));
+      // Wait longer than the 80ms lease so the 20ms heartbeat must refresh updated_at to prevent reclaim.
+      await new Promise((resolve) => setTimeout(resolve, 140));
+      const refreshedReceipt = pgClient
+        .rows('idempotency_receipts')
+        .find((row) => row.scope === 'archive:import' && row.request_id === slowRequestId)!;
+      const refreshedUpdatedMs =
+        refreshedReceipt.updated_at instanceof Date
+          ? refreshedReceipt.updated_at.getTime()
+          : Date.parse(String(refreshedReceipt.updated_at));
+      assert.ok(refreshedUpdatedMs > initialUpdatedMs, 'heartbeat must refresh pending receipt updated_at');
+
+      await assert.rejects(
+        shortLeaseArchive.importProjects(agent, { requestId: slowRequestId, zipBytes: zip }),
+        (err: unknown) => err instanceof CloudError && err.code === 'REQUEST_ID_CONFLICT' && err.status === 409,
+      );
+
+      releaseSlowCreate();
+      const slowResult = await slowImportPromise;
+      assert.equal(slowResult.replayed, false);
+      assert.equal(slowResult.imported.length, 1);
+      assert.equal(pgClient.rows('projects').length, projectsBeforeSlow + 1);
+
+      const slowReplay = await shortLeaseArchive.importProjects(agent, {
+        requestId: slowRequestId,
+        zipBytes: zip,
+      });
+      assert.equal(slowReplay.replayed, true);
+      assert.deepEqual(slowReplay.imported, slowResult.imported);
+    } finally {
+      workspace.createProject = origCreateForSlow;
+    }
 
     // 2. Accessing another user's project returns PROJECT_NOT_FOUND with environment diagnostics
     const readOther = await callTool(4, 'openmotion_get_project', { projectId: otherUserProject });
