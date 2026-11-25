@@ -90,13 +90,16 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const scoped = Boolean(studio), lastStudioDraft = useRef(draft), submittedDraftRef = useRef<AssetDraft | undefined>(undefined);
   const markDraftSubmitted = useCallback((storageKey: string) => {
     clearPersistedStudioDraft(storageKey);
-    // Capture the post-submit draft after Composer's queued setDraft(current => ({ ...current, model, parameters }))
+    // Capture the post-submit draft after Composer's queued setDraft(current => ({ ...current, model, parameters, source: undefined }))
     // runs in the same React batch, so useLayoutEffect suppresses persisting the submitted draft without masking later edits.
     setDraft(current => {
-      submittedDraftRef.current = current;
-      return current;
+      const next = current.source ? { ...current, source: undefined } : current;
+      submittedDraftRef.current = next;
+      lastStudioDraft.current = next;
+      studioForm?.remember(next, { persist: false });
+      return next;
     });
-  }, []);
+  }, [studioForm]);
   useLayoutEffect(() => {
     if (submittedDraftRef.current === draft) return;
     submittedDraftRef.current = undefined;
@@ -127,7 +130,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const hasGuide = Boolean(studio?.destination.landing || layout === 'workbench' || draft.guideExample);
   const guide = Boolean(hasGuide && (studioTab ? studioTab === 'guide' : studio?.destination.landing || Boolean(draft.guideExample) || browser.data?.total === 0));
   const applyPrompt = (prompt: string) => {
-    setDraft(current => ({ ...current, prompt }));
+    setDraft(current => ({ ...current, prompt, source: undefined }));
     if (!studio) setCreating(true);
     setMobileView('create');
     setPromptAppliedToken(++promptAppliedSeq.current);

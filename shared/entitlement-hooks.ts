@@ -9,6 +9,8 @@ export const ENTITLEMENT_HOOK_IDS = [
   'session_expired_401',
   'header_pricing',
   'bf_banner',
+  'bf_hero',
+  'bf_hub',
   'settings_subscription',
   'studio_free_gate',
   'model_picker_upgrade',

@@ -100,16 +100,21 @@ export function useExploreCampaign(filters: ExploreFilters) {
 export type ExploreCampaign = ReturnType<typeof useExploreCampaign>;
 export const shouldShowBlackFridayBanner = () => blackFridayActive() && !bannerDismissedToday();
 
-/** Where the click happened: the top campaign banner or the header Pricing entry. */
-export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_header_pricing';
+/** Where the click happened: the top campaign banner, the Explore hero, a model hub promo pill, or the header Pricing entry. */
+export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_bf_hero' | 'openmotion_bf_hub' | 'openmotion_header_pricing';
 /**
- * The `od_entry_source` sent for both entries. AMR keeps an attribution only for registered sources, and
+ * The `od_entry_source` sent for these entries. AMR keeps an attribution only for registered sources, and
  * `openmotion_manage_subscription` is the OpenMotion source it already accepts; an unregistered value would drop the
- * whole attribution, entry id included. The two entries are told apart by `utm_medium` and by the OpenMotion click
+ * whole attribution, entry id included. Entries are told apart by `utm_medium` and by the OpenMotion click
  * event that carries the same `entry_id`.
  */
 const REGISTERED_ENTRY_SOURCE = 'openmotion_manage_subscription';
-const utmMedium: Record<CampaignEntrySource, string> = { openmotion_bf_banner: 'banner', openmotion_header_pricing: 'header' };
+const utmMedium: Record<CampaignEntrySource, string> = {
+  openmotion_bf_banner: 'banner',
+  openmotion_bf_hero: 'hero',
+  openmotion_bf_hub: 'model_hub',
+  openmotion_header_pricing: 'header',
+};
 
 export function newCampaignEntryId() {
   return crypto.randomUUID();

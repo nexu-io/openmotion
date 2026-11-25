@@ -29,7 +29,7 @@ export type StudioCreation = {
   draftKey?: string;
   soundTab?: SoundTabId;
   selectSoundTab?: (tabId: SoundTabId, nextDraft?: AssetDraft, model?: string | null) => void;
-  remember: (draft: AssetDraft) => void;
+  remember: (draft: AssetDraft, options?: { persist?: boolean }) => void;
   useAsFirstFrame?: (reference: AssetDraft['references'][number]) => void;
   reuseInScene?: (sceneId: StudioScene['id'], draft: AssetDraft, model?: string | null) => void;
   chooseModel: (model: string) => void;
@@ -158,6 +158,6 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     </header>
     </>}
     <AssetsPage key={isSoundStudio ? `sound/${visit}${destination.home ? ':home' : ''}` : draftKey + visit} active={active} hasProject={hasProject} studio={{ destination, catalog, guestPreview, draftKey, soundTab: activeSoundTab, selectSoundTab, useAsFirstFrame, reuseInScene, initialDraft,
-      remember: draft => { drafts.current.set(draftKey, draft); savePersistedStudioDraft(draftKey, draft); }, chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
+      remember: (draft, options) => { drafts.current.set(draftKey, draft); if (options?.persist !== false) savePersistedStudioDraft(draftKey, draft); }, chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
   </div>;
 }
