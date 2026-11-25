@@ -5,6 +5,7 @@ import { gamePublishDevTool } from './devTools';
 import { downloadPackage, formatBytes, type GamePackageCheck } from './gamePackage';
 import { copyGamePublishLink, gamePublishActions, stepBlocked, type GamePublishSession } from './gamePublishStore';
 import { playableNetwork } from './playableNetworks';
+import { OpenDesignProgress } from './WechatProgress';
 import { gamePublishPlatform } from './platforms';
 import './gamePublish.css';
 
@@ -32,6 +33,7 @@ export function PlatformProgress({ session }: { session: GamePublishSession }) {
             : t('Step {current} of {total} · {name}', { current: session.stepIndex + 1, total, name: t(current.title) })}</strong>
         {!finished && <span className="om-gp-muted"> · {t('The Agent guides you in the conversation')}</span>}
       </p>
+      <OpenDesignProgress session={session} />
       <ol className="om-gp-overview-list">
         {platform.steps.map((step, index) => {
           const state = finished || index < session.stepIndex ? 'done' : index === session.stepIndex && !waitingForTool ? 'current' : 'todo';

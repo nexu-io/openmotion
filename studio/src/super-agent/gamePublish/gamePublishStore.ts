@@ -62,6 +62,8 @@ export interface GamePublishSession {
   status: GamePublishStatus;
   linkUrl?: string;
   linkPublishing: boolean;
+  /** OpenDesign is selected by default: picking a platform also publishes the OpenDesign play link. */
+  linkToo: boolean;
   linkError?: { message: string; authRequired: boolean };
   published: GamePublishPlatformId[];
   /** Developer tool the user must confirm before the platform steps. */
@@ -168,7 +170,13 @@ const WECHAT_POLL_MS = 2500;
 
 /** What the Agent is told, out of sight, when the user picks WeChat: the publish guide and this game. */
 function wechatInstructions(session: GamePublishSession) {
-  return `${wechatPortGuide}\n\nGame id: ${session.gameId}. Guide the user through publishing this game as a WeChat Mini Game, one step per message, starting with openmotion_game_wechat action "status". The panel on the right shows the same steps from that status; it has no instructions of its own.`;
+  return `${wechatPortGuide}\n\nGame id: ${session.gameId}. Guide the user through publishing this game as a WeChat Mini Game, one step per message, starting with openmotion_game_wechat action "status". The panel on the right shows the same steps from that status; it has no instructions of its own.${linkNote(session)}`;
+}
+
+/** Tells the Agent about the OpenDesign link when the user kept OpenDesign selected; the page publishes it. */
+export function linkNote(session: GamePublishSession) {
+  if (!session.linkToo && !session.linkUrl) return '';
+  return `\n\nOpenDesign is selected too (the default): the page ${session.linkUrl ? `already published the game's OpenDesign play link (${session.linkUrl})` : "is publishing the game's OpenDesign play link now"} and shows its state at the top of the right panel. Mention it once in your first message (anyone can open the link and play); do not publish it yourself.`;
 }
 
 /**
@@ -230,6 +238,7 @@ export const gamePublishActions = {
       inputs: {},
       status: WAITING,
       linkPublishing: false,
+      linkToo: true,
       published: [],
     });
     emit();
@@ -245,6 +254,8 @@ export const gamePublishActions = {
     else gamePublishActions.open(input);
   },
   showList(artifactId: string) { update(artifactId, { view: 'list' }); },
+  /** The OpenDesign choice at the top of the platform list (selected by default). */
+  setLinkToo(artifactId: string, on: boolean) { update(artifactId, { linkToo: on }); },
   /** Publishes the game on OpenDesign Cloud, the same way the toolbar Share button does. */
   async publishLink(artifactId: string): Promise<void> {
     const session = sessions.get(artifactId);
@@ -286,6 +297,9 @@ export const gamePublishActions = {
       package: undefined,
       status: WAITING,
     });
+    const latest = sessions.get(artifactId)!;
+    // OpenDesign is selected by default, so picking a platform also publishes the OpenDesign play link.
+    if (latest.linkToo && !latest.linkUrl && !latest.linkPublishing) void gamePublishActions.publishLink(artifactId);
     if (platform.id === 'wechat') {
       gamePublishActions.startWechat(artifactId);
       return;
@@ -293,7 +307,7 @@ export const gamePublishActions = {
     // Every platform is guided by the Agent: the request goes into the conversation as a real message.
     queueSuperAgentHandoff({
       prompt: say('Publish “{title}” to {name}', { title: session.gameTitle, name: say(platform.name) }),
-      hiddenInstructions: platformInstructions(session, platform),
+      hiddenInstructions: platformInstructions(sessions.get(artifactId)!, platform) + linkNote(sessions.get(artifactId)!),
       mode: 'game',
       newChat: false,
       autoSend: true,

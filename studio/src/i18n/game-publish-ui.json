@@ -602,7 +602,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "微信没有接受已保存的密钥。请重新选择这个 AppID 的 .key 文件。",
     "Publish “{title}” to {name}": "把「{title}」上架到{name}",
     "I installed {tool}": "我装好了{tool}",
-    "Download {tool}": "下载{tool}"
+    "Download {tool}": "下载{tool}",
+    "Also publish to": "同时上架到",
+    "Publish to": "上架到",
+    "Publish on OpenDesign too": "同时发布到 OpenDesign",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "已选中：生成一个谁都能打开就玩的链接。下面选的平台也会一起带上。",
+    "A play link anyone can open.": "一个谁都能打开就玩的链接。",
+    "Publish only to OpenDesign": "只发布到 OpenDesign",
+    "Play link": "试玩链接",
+    "Publishing…": "发布中…"
   },
   "ja": {
     "WeChat Mini Game": "WeChat ミニゲーム",
@@ -1207,7 +1215,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "保存済みのキーは WeChat に受け付けられませんでした。この AppID の .key ファイルを選び直してください。",
     "Publish “{title}” to {name}": "「{title}」を {name} に公開する",
     "I installed {tool}": "{tool} をインストールしました",
-    "Download {tool}": "{tool} をダウンロード"
+    "Download {tool}": "{tool} をダウンロード",
+    "Also publish to": "同時に公開する先",
+    "Publish to": "公開先",
+    "Publish on OpenDesign too": "OpenDesign にも公開する",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "選択中：誰でも開いて遊べるリンクです。下で選ぶプラットフォームにも付きます。",
+    "A play link anyone can open.": "誰でも開いて遊べるリンクです。",
+    "Publish only to OpenDesign": "OpenDesign だけに公開",
+    "Play link": "プレイリンク",
+    "Publishing…": "公開中…"
   },
   "ko": {
     "WeChat Mini Game": "WeChat 미니게임",
@@ -1812,7 +1828,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "저장된 키를 WeChat이 받아들이지 않았습니다. 이 AppID의 .key 파일을 다시 선택하세요.",
     "Publish “{title}” to {name}": "\"{title}\"을(를) {name}에 출시하기",
     "I installed {tool}": "{tool}을(를) 설치했습니다",
-    "Download {tool}": "{tool} 다운로드"
+    "Download {tool}": "{tool} 다운로드",
+    "Also publish to": "함께 출시할 곳",
+    "Publish to": "출시할 곳",
+    "Publish on OpenDesign too": "OpenDesign에도 게시",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "선택됨: 누구나 열어서 플레이할 수 있는 링크입니다. 아래에서 고른 플랫폼에도 함께 적용됩니다.",
+    "A play link anyone can open.": "누구나 열어서 플레이할 수 있는 링크입니다.",
+    "Publish only to OpenDesign": "OpenDesign에만 게시",
+    "Play link": "플레이 링크",
+    "Publishing…": "게시 중…"
   },
   "de": {
     "WeChat Mini Game": "WeChat-Minispiel",
@@ -2417,7 +2441,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat hat den gespeicherten Schlüssel nicht akzeptiert. Wähle die .key-Datei für diese AppID erneut.",
     "Publish “{title}” to {name}": "„{title}“ auf {name} veröffentlichen",
     "I installed {tool}": "Ich habe {tool} installiert",
-    "Download {tool}": "{tool} herunterladen"
+    "Download {tool}": "{tool} herunterladen",
+    "Also publish to": "Außerdem veröffentlichen auf",
+    "Publish to": "Veröffentlichen auf",
+    "Publish on OpenDesign too": "Auch auf OpenDesign veröffentlichen",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Ausgewählt: ein Spiel-Link, den jeder öffnen kann. Plattformen, die du unten wählst, bekommen ihn auch.",
+    "A play link anyone can open.": "Ein Spiel-Link, den jeder öffnen kann.",
+    "Publish only to OpenDesign": "Nur auf OpenDesign veröffentlichen",
+    "Play link": "Spiel-Link",
+    "Publishing…": "Wird veröffentlicht…"
   },
   "fr": {
     "WeChat Mini Game": "Mini-jeu WeChat",
@@ -3022,7 +3054,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat n'a pas accepté la clé enregistrée. Choisissez à nouveau le fichier .key de cet AppID.",
     "Publish “{title}” to {name}": "Publier « {title} » sur {name}",
     "I installed {tool}": "J'ai installé {tool}",
-    "Download {tool}": "Télécharger {tool}"
+    "Download {tool}": "Télécharger {tool}",
+    "Also publish to": "Publier aussi sur",
+    "Publish to": "Publier sur",
+    "Publish on OpenDesign too": "Publier aussi sur OpenDesign",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Sélectionné : un lien de jeu que tout le monde peut ouvrir. Les plateformes choisies ci-dessous l’auront aussi.",
+    "A play link anyone can open.": "Un lien de jeu que tout le monde peut ouvrir.",
+    "Publish only to OpenDesign": "Publier seulement sur OpenDesign",
+    "Play link": "Lien de jeu",
+    "Publishing…": "Publication…"
   },
   "ru": {
     "WeChat Mini Game": "Мини-игра WeChat",
@@ -3627,7 +3667,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat не принял сохранённый ключ. Выберите файл .key для этого AppID ещё раз.",
     "Publish “{title}” to {name}": "Опубликовать «{title}» в {name}",
     "I installed {tool}": "Я установил {tool}",
-    "Download {tool}": "Скачать {tool}"
+    "Download {tool}": "Скачать {tool}",
+    "Also publish to": "Также опубликовать в",
+    "Publish to": "Опубликовать в",
+    "Publish on OpenDesign too": "Также опубликовать в OpenDesign",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Выбрано: ссылка на игру, которую может открыть любой. Платформы ниже тоже её получат.",
+    "A play link anyone can open.": "Ссылка на игру, которую может открыть любой.",
+    "Publish only to OpenDesign": "Опубликовать только в OpenDesign",
+    "Play link": "Ссылка на игру",
+    "Publishing…": "Публикация…"
   },
   "es": {
     "WeChat Mini Game": "Minijuego de WeChat",
@@ -4232,7 +4280,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat no aceptó la clave guardada. Vuelve a elegir el archivo .key de este AppID.",
     "Publish “{title}” to {name}": "Publicar «{title}» en {name}",
     "I installed {tool}": "He instalado {tool}",
-    "Download {tool}": "Descargar {tool}"
+    "Download {tool}": "Descargar {tool}",
+    "Also publish to": "Publicar también en",
+    "Publish to": "Publicar en",
+    "Publish on OpenDesign too": "Publicar también en OpenDesign",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Seleccionado: un enlace que cualquiera puede abrir para jugar. Las plataformas que elijas abajo también lo tendrán.",
+    "A play link anyone can open.": "Un enlace que cualquiera puede abrir para jugar.",
+    "Publish only to OpenDesign": "Publicar solo en OpenDesign",
+    "Play link": "Enlace para jugar",
+    "Publishing…": "Publicando…"
   },
   "pt-BR": {
     "WeChat Mini Game": "Minijogo do WeChat",
@@ -4837,7 +4893,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "O WeChat não aceitou a chave salva. Escolha de novo o arquivo .key deste AppID.",
     "Publish “{title}” to {name}": "Publicar “{title}” em {name}",
     "I installed {tool}": "Instalei o {tool}",
-    "Download {tool}": "Baixar {tool}"
+    "Download {tool}": "Baixar {tool}",
+    "Also publish to": "Publicar também em",
+    "Publish to": "Publicar em",
+    "Publish on OpenDesign too": "Publicar também no OpenDesign",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Selecionado: um link que qualquer pessoa pode abrir para jogar. As plataformas escolhidas abaixo também recebem.",
+    "A play link anyone can open.": "Um link que qualquer pessoa pode abrir para jogar.",
+    "Publish only to OpenDesign": "Publicar só no OpenDesign",
+    "Play link": "Link para jogar",
+    "Publishing…": "Publicando…"
   },
   "it": {
     "WeChat Mini Game": "Minigioco WeChat",
@@ -5442,7 +5506,15 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat non ha accettato la chiave salvata. Scegli di nuovo il file .key di questo AppID.",
     "Publish “{title}” to {name}": "Pubblica «{title}» su {name}",
     "I installed {tool}": "Ho installato {tool}",
-    "Download {tool}": "Scarica {tool}"
+    "Download {tool}": "Scarica {tool}",
+    "Also publish to": "Pubblica anche su",
+    "Publish to": "Pubblica su",
+    "Publish on OpenDesign too": "Pubblica anche su OpenDesign",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Selezionato: un link di gioco che chiunque può aprire. Anche le piattaforme scelte sotto lo avranno.",
+    "A play link anyone can open.": "Un link di gioco che chiunque può aprire.",
+    "Publish only to OpenDesign": "Pubblica solo su OpenDesign",
+    "Play link": "Link di gioco",
+    "Publishing…": "Pubblicazione…"
   },
   "tr": {
     "WeChat Mini Game": "WeChat Mini Oyunu",
@@ -6047,6 +6119,14 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat kayıtlı anahtarı kabul etmedi. Bu AppID için .key dosyasını yeniden seçin.",
     "Publish “{title}” to {name}": "\"{title}\" oyununu {name} platformunda yayınla",
     "I installed {tool}": "{tool} kurdum",
-    "Download {tool}": "{tool} indir"
+    "Download {tool}": "{tool} indir",
+    "Also publish to": "Şuralarda da yayınla",
+    "Publish to": "Şurada yayınla",
+    "Publish on OpenDesign too": "OpenDesign’da da yayınla",
+    "Selected: a play link anyone can open. Platforms you pick below get it too.": "Seçili: herkesin açıp oynayabileceği bir bağlantı. Aşağıda seçtiğin platformlar da alır.",
+    "A play link anyone can open.": "Herkesin açıp oynayabileceği bir bağlantı.",
+    "Publish only to OpenDesign": "Yalnızca OpenDesign’da yayınla",
+    "Play link": "Oyun bağlantısı",
+    "Publishing…": "Yayınlanıyor…"
   }
 }
