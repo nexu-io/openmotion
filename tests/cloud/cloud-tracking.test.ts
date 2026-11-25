@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCloudTracking, sanitizeHookId } from '../../src/cloud-tracking.ts';
+import { createLogger } from '../../src/infra/logger.ts';
 
 const VALID_TOKEN = 'phc_testToken1234567890';
 const TEST_RUN_UUID = '33333333-3333-4333-8333-333333333333';
@@ -16,7 +17,7 @@ test('createCloudTracking honors OPENMOTION_TELEMETRY=0 and DO_NOT_TRACK=1 opt-o
   const telemetryOff = createCloudTracking('1.0.0', { ...BASE_ENV, OPENMOTION_TELEMETRY: '0' });
   assert.equal(telemetryOff.isEnabled(), false);
   assert.equal(telemetryOff.lockReason(), 'environment');
-  assert.equal(telemetryOff.acceptBrowserBatch([]), 0);
+  assert.deepEqual(telemetryOff.acceptBrowserBatch([]), { queued: 0, full: 0 });
 
   const dntOn = createCloudTracking('1.0.0', { ...BASE_ENV, DO_NOT_TRACK: '1' });
   assert.equal(dntOn.isEnabled(), false);
@@ -43,12 +44,12 @@ test('createCloudTracking fails closed instead of throwing when OPENMOTION_POSTH
   for (const badHost of ['', 'not-a-url', 'http://example.com', 'https://us.i.posthog.com/subpath']) {
     const tracker = createCloudTracking('1.0.0', { ...BASE_ENV, OPENMOTION_POSTHOG_HOST: badHost });
     assert.equal(tracker.isEnabled(), false, `expected disabled handle for host=${JSON.stringify(badHost)}`);
-    assert.equal(tracker.acceptBrowserBatch([]), 0);
+    assert.deepEqual(tracker.acceptBrowserBatch([]), { queued: 0, full: 0 });
   }
 });
 
 test('acceptBrowserBatch preserves event identity, deduplicates event_id, and rejects non-studio entrypoints', () => {
-  const tracker = createCloudTracking('1.0.0', BASE_ENV);
+  const tracker = createCloudTracking('1.0.0', { ...BASE_ENV, OPENMOTION_TRACKING_ENABLED: 'count-only' });
   assert.equal(tracker.isEnabled(), true);
 
   const validStudioEvent = {
@@ -72,9 +73,34 @@ test('acceptBrowserBatch preserves event identity, deduplicates event_id, and re
   };
 
   // First submission queues the studio event and rejects the non-studio entrypoint.
-  assert.equal(tracker.acceptBrowserBatch({ events: [validStudioEvent, wrongEntrypointEvent] }), 1);
+  const legacyClick = { ...validStudioEvent, event_id: crypto.randomUUID(), event: 'ui_click',
+    properties: { page_name: 'studio', area: 'header', element: 'export', hook_id: 'header_pricing' } };
+  assert.deepEqual(tracker.acceptBrowserBatch({ events: [validStudioEvent, wrongEntrypointEvent, legacyClick] }), { queued: 1, full: 0 });
   // Retrying the exact same event_id is deduplicated by tracker.ingest().
-  assert.equal(tracker.acceptBrowserBatch({ events: [validStudioEvent] }), 0);
+  assert.deepEqual(tracker.acceptBrowserBatch({ events: [validStudioEvent] }), { queued: 0, full: 0 });
+});
+
+test('count-only batches log bounded counts, preserve queue-pressure receipts and make no outgoing requests', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const network = t.mock.method(globalThis, 'fetch', async () => new Response('{}'));
+  const lines: string[] = [];
+  const tracker = createCloudTracking('1.0.0', { ...BASE_ENV, OPENMOTION_TRACKING_ENABLED: 'count-only' },
+    createLogger({ sink: (_level, line) => lines.push(line) }));
+  const events = Array.from({ length: 65 }, () => ({ event: 'entitlement_refresh_result', entrypoint: 'studio',
+    event_id: crypto.randomUUID(), occurred_at: new Date().toISOString(), device_timezone: null, utc_offset_minutes: 0,
+    properties: { hook_id: 'header_pricing', outcome: 'success', entry_id: crypto.randomUUID() } }));
+  for (let i = 0; i < 64; i += 16) assert.deepEqual(tracker.acceptBrowserBatch(events.slice(i, i + 16)), { queued: 16, full: 0 });
+  assert.deepEqual(tracker.acceptBrowserBatch(events.slice(63)), { queued: 0, full: 1 });
+  tracker.trackWebSignInResult({ outcome: 'success', hookId: 'header_signin', userId: 'private-fixture' });
+  t.mock.timers.tick(1000);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(lines.map(line => JSON.parse(line).counts), [
+    { 'entitlement_refresh_result/header_pricing': 16 }, { 'account_sign_in_result/header_signin': 1 },
+  ]);
+  assert.ok(lines.every(line => JSON.parse(line).outcome === 'counted'));
+  assert.ok(!lines.join('').includes('private-fixture'));
+  assert.equal(network.mock.callCount(), 0);
+  assert.deepEqual(tracker.acceptBrowserBatch(events.slice(63)), { queued: 1, full: 0 });
 });
 
 test('createCloudTracking falls back to OPENMOTION_POSTHOG_KEY when OPENMOTION_POSTHOG_TOKEN is empty or whitespace', () => {

@@ -1,4 +1,5 @@
 import { createBrowserTracking } from '../../../tracking/browser.ts';
+import { isCloudEntitlementEvent } from '../../../shared/entitlement-hooks';
 import { studioEvents } from '../../../tracking/events.ts';
 import type { StudioEvent } from '../../../tracking/events.ts';
 import type { EventFields } from '../../../tracking/core.ts';
@@ -6,6 +7,7 @@ import type { EventFields } from '../../../tracking/core.ts';
 const tracking = createBrowserTracking({ registry: studioEvents, endpoint: '/motion-api/tracking', enabled: false,
   isEnabled: () => navigator.doNotTrack !== '1' });
 let initialization: Promise<void> | undefined;
+let entitlementOnly = false;
 let configuration: 'uninitialized' | 'loading' | 'ready' | 'disabled' | 'unavailable' = 'uninitialized';
 let controller: AbortController | undefined;
 let retryAt = 0;
@@ -33,6 +35,7 @@ export function initializeTracking() {
         const config: unknown = await response.json();
         if (!config || typeof config !== 'object' || !('enabled' in config) || typeof config.enabled !== 'boolean') throw new Error('INVALID_CONFIG');
         if (request.signal.aborted) return;
+        entitlementOnly = 'scope' in config && config.scope === 'entitlement';
         tracking.setEnabled(config.enabled);
         configuration = config.enabled ? 'ready' : 'disabled'; retryAt = 0;
         return;
@@ -47,6 +50,7 @@ export function initializeTracking() {
 }
 export async function trackMotion<E extends StudioEvent>(event: E, properties: EventFields<typeof studioEvents[E]>) {
   await initializeTracking();
+  if (entitlementOnly && !isCloudEntitlementEvent(event, properties)) return 'filtered' as const;
   if (configuration === 'unavailable' && navigator.doNotTrack !== '1') return 'config_unavailable' as const;
   return tracking.track(event, properties);
 }
