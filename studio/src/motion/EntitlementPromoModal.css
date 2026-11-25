@@ -478,11 +478,11 @@
    and tappable CTA hit targets without scaling via CSS zoom. */
 @media (max-width: 960px), (max-height: 680px) {
   .om-epm-mask {
-    padding: 12px;
+    padding: calc(12px + var(--om-desktop-safe-top, 0px)) 12px 12px;
   }
   .om-epm-modal {
     width: min(680px, calc(100vw - 24px));
-    max-height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px - var(--om-desktop-safe-top, 0px));
     grid-template-columns: minmax(0, 1fr);
     overflow-y: auto;
     border-radius: 20px;
@@ -497,11 +497,11 @@
 
 @media (max-width: 600px) {
   .om-epm-mask {
-    padding: 10px;
+    padding: calc(10px + var(--om-desktop-safe-top, 0px)) 10px 10px;
   }
   .om-epm-modal {
     width: calc(100vw - 20px);
-    max-height: calc(100dvh - 20px);
+    max-height: calc(100dvh - 20px - var(--om-desktop-safe-top, 0px));
     border-radius: 18px;
   }
   .om-epm-main {

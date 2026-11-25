@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import { buildLoginUrl } from './AccountSettings';
-import { campaignPricingUrl, newCampaignEntryId } from './campaignAttribution';
+import { campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
 import { markExternalCheckoutPending, type EntitlementHookId, type EntitlementModalMode } from './entitlementModalBus';
 import { trackMotion } from './tracking';
 import './EntitlementPromoModal.css';
@@ -56,6 +56,7 @@ export function EntitlementPromoModal({
   onClose,
 }: EntitlementPromoModalProps) {
   const { t, locale } = useI18n();
+  const blackFridayActive = useBlackFridayActive();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [entryId, setEntryId] = useState(newCampaignEntryId);
   const [busy, setBusy] = useState(false);
@@ -177,9 +178,9 @@ export function EntitlementPromoModal({
                         </div>
                       </div>
                     ) : null
-                  ) : (
+                  ) : blackFridayActive ? (
                     <div className="om-epm-price"><b>$14</b> {t('/mo · annual promo')}</div>
-                  )}
+                  ) : null}
 
                   <Button variant="plain" type="button" className="om-epm-cta" disabled={busy} onClick={() => handlePrimaryCta()}>
                     {busy ? t('Connecting…') : isGuest ? t('Sign in now') : t('Upgrade now')}

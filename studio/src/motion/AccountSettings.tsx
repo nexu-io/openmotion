@@ -181,6 +181,22 @@ export type ResolutionTier = '1K' | '2K' | '4K';
 
 const RESOLUTION_RANK: Record<ResolutionTier, number> = { '1K': 1, '2K': 2, '4K': 4 };
 
+export function parseResolutionScore(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim().toUpperCase();
+  const kMatch = /^(\d+(?:\.\d+)?)K$/.exec(trimmed);
+  if (kMatch) {
+    const score = Number.parseFloat(kMatch[1]!);
+    return Number.isFinite(score) && score > 0 ? score : undefined;
+  }
+  const dimMatch = /^(\d{3,5})\s*[X×]\s*(\d{3,5})$/.exec(trimmed);
+  if (dimMatch) {
+    const longest = Math.max(Number.parseInt(dimMatch[1]!, 10), Number.parseInt(dimMatch[2]!, 10));
+    if (Number.isFinite(longest) && longest > 0) return longest / 1024;
+  }
+  return undefined;
+}
+
 export function parseResolutionTier(value: unknown): ResolutionTier | undefined {
   if (typeof value !== 'string') return undefined;
   const upper = value.trim().toUpperCase();
@@ -202,8 +218,8 @@ export function imageResolutionCap(account: CloudAccountSummary | null | undefin
 
 export function exceedsResolutionCap(selectedResolution: unknown, cap: ResolutionTier | undefined): boolean {
   if (!cap) return false;
-  const selected = parseResolutionTier(selectedResolution);
-  return Boolean(selected && RESOLUTION_RANK[selected] > RESOLUTION_RANK[cap]);
+  const score = parseResolutionScore(selectedResolution);
+  return Boolean(score !== undefined && score > RESOLUTION_RANK[cap]);
 }
 
 export function isInsufficientBalanceError(error: string | null | undefined): boolean {

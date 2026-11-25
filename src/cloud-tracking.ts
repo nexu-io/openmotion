@@ -46,12 +46,23 @@ export function sanitizeEntryId(value: string | null | undefined): string | unde
   return uuid.test(trimmed) ? trimmed : undefined;
 }
 
+function stableDeploymentInstallationId(env: NodeJS.ProcessEnv, host: string, token: string): string {
+  const configured = (env.OPENMOTION_TRACKING_INSTALLATION_ID ?? '').trim();
+  if (uuid.test(configured)) return configured;
+  const seed = `${(env.APP_PUBLIC_ORIGIN ?? '').trim() || host}:${token.slice(0, 12)}`;
+  const bytes = crypto.createHash('sha256').update(`openmotion-cloud-tracking:${seed}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 /**
  * Env-controlled PostHog tracker for the Web Cloud API server.
  * Stays safely disabled unless OPENMOTION_TRACKING_ENABLED=1/true and a valid
- * public PostHog token (OPENMOTION_POSTHOG_TOKEN=phc_...) are configured,
- * and always honors OPENMOTION_TELEMETRY=0, DO_NOT_TRACK=1, test-context
- * suppression, and fail-closed host validation.
+ * public PostHog token (OPENMOTION_POSTHOG_TOKEN or OPENMOTION_POSTHOG_KEY=phc_...)
+ * are configured, and always honors OPENMOTION_TELEMETRY=0, DO_NOT_TRACK=1,
+ * test-context suppression, and fail-closed host validation.
  */
 export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv = process.env): CloudTrackingHandle {
   const lockReason = cloudTrackingLockReason(env);
@@ -64,7 +75,7 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
   }
 
   const flag = (env.OPENMOTION_TRACKING_ENABLED ?? '').trim().toLowerCase();
-  const token = (env.OPENMOTION_POSTHOG_TOKEN ?? '').trim();
+  const token = (env.OPENMOTION_POSTHOG_TOKEN ?? env.OPENMOTION_POSTHOG_KEY ?? '').trim();
   const host = (env.OPENMOTION_POSTHOG_HOST ?? 'https://us.i.posthog.com').trim();
   const rawEnv = (env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production')).trim().toLowerCase();
   const trackingEnv: 'development' | 'test' | 'production' =
@@ -82,9 +93,9 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
       host,
       token,
       identity: {
-        installation_id: crypto.randomUUID(),
+        installation_id: stableDeploymentInstallationId(env, host, token),
         utm_source: 'openmotion_web',
-        created_at: new Date().toISOString(),
+        created_at: '2026-01-01T00:00:00.000Z',
       },
       appVersion,
       env: trackingEnv,

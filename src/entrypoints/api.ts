@@ -19,6 +19,7 @@ import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { serve, type ServerType } from '@hono/node-server';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Redis } from 'ioredis';
 import {
@@ -2545,7 +2546,11 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const enabled = cloudTracking.isEnabled();
     return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
   });
-  app.post('/motion-api/tracking', async (c) => {
+  app.post('/motion-api/tracking', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
+    const contentType = (c.req.header('content-type') ?? '').toLowerCase();
+    if (!contentType.includes('application/json')) {
+      return c.json({ error: 'Content-Type must be application/json' }, 415);
+    }
     const originHeader = c.req.header('origin');
     if (originHeader) {
       const requestOrigin = new URL(c.req.url).origin;

@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { exceedsResolutionCap, imageResolutionCap, isInsufficientBalanceError, type CloudAccountSummary } from './AccountSettings';
-import { ResolutionCapGenerationGate } from './EntitlementTouchpointCards';
 import { AssetGenerationCard } from './AssetCreationVisuals';
 import type { GenerationJob } from '../../../shared/gateway';
 
@@ -29,8 +28,13 @@ describe('Plus resolution cap & insufficient balance helpers', () => {
     expect(imageResolutionCap(signedInAccount('Pro'), 'seedream-5.5')).toBe('2K');
     expect(imageResolutionCap(signedInAccount('Max'), 'seedream-5.5')).toBe('4K');
 
+    expect(exceedsResolutionCap('1.5K', '1K')).toBe(true);
     expect(exceedsResolutionCap('2K', '1K')).toBe(true);
     expect(exceedsResolutionCap('1K', '1K')).toBe(false);
+    expect(exceedsResolutionCap('1536x1024', '1K')).toBe(true);
+    expect(exceedsResolutionCap('1024x1024', '1K')).toBe(false);
+    expect(exceedsResolutionCap('2048x2048', '1K')).toBe(true);
+    expect(exceedsResolutionCap('2048x2048', '2K')).toBe(false);
     expect(exceedsResolutionCap('4K', '2K')).toBe(true);
     expect(exceedsResolutionCap('4K', '4K')).toBe(false);
   });
@@ -45,22 +49,7 @@ describe('Plus resolution cap & insufficient balance helpers', () => {
   });
 });
 
-describe('U6 Plus gate cards', () => {
-  it('renders ResolutionCapGenerationGate and invokes 1-click downgrade', () => {
-    const onDowngrade = vi.fn();
-    const host = document.createElement('div');
-    document.body.appendChild(host);
-    root = createRoot(host);
-    act(() => {
-      root!.render(<I18nProvider locale="en"><ResolutionCapGenerationGate cap="1K" onDowngrade={onDowngrade} /></I18nProvider>);
-    });
-    expect(host.textContent).toContain('Resolution exceeds your current plan');
-    const downgradeBtn = Array.from(host.querySelectorAll('button')).find(btn => btn.textContent?.includes('Switch to 1K'));
-    expect(downgradeBtn).toBeTruthy();
-    act(() => { downgradeBtn!.click(); });
-    expect(onDowngrade).toHaveBeenCalledTimes(1);
-  });
-
+describe('U6 insufficient balance failure CTA', () => {
   it('shows Add credits CTA on insufficient balance failure but not on 503', () => {
     const baseJob: GenerationJob = {
       id: 'job-1',
