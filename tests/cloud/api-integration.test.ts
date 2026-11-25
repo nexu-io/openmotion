@@ -1243,6 +1243,28 @@ describe('Cloud API Entrypoint — End-to-End Product, Studio & Streamable HTTP 
       ),
     );
 
+    // 9b. openmotion_open_preview(providers) aligns with CLOUD_P1_FEATURES.modelProviders gate
+    const providersPreviewRes = await callMcp(801, 'tools/call', {
+      name: 'openmotion_open_preview',
+      arguments: { target: 'providers', entry: 'agent_media_upgrade_free' },
+    });
+    assert.equal(providersPreviewRes.result?.isError, undefined);
+    const providersPreview = providersPreviewRes.result?.structuredContent as {
+      previewUrl: string;
+      previewHandoff: { previewUrl: string; instructions: string };
+    };
+    const providersPreviewUrl = new URL(providersPreview.previewUrl);
+    assert.equal(providersPreview.previewHandoff.previewUrl, providersPreview.previewUrl);
+    assert.equal(providersPreviewUrl.pathname, '/settings/models');
+    assert.equal(providersPreviewUrl.searchParams.get('entry_from'), 'agent_media_upgrade_free');
+    assert.equal(providersPreviewUrl.searchParams.get('embed'), '1');
+    assert.equal(providersPreviewUrl.searchParams.get('provider'), null);
+    assert.match(providersPreview.previewHandoff.instructions, /Verify that Default models is visible/);
+    assert.match(providersPreview.previewHandoff.instructions, /Settings > Account/);
+    assert.match(providersPreview.previewHandoff.instructions, /Subscription & usage/);
+    assert.doesNotMatch(providersPreview.previewHandoff.instructions, /Model providers is visible/);
+    assert.doesNotMatch(providersPreview.previewHandoff.instructions, /save or replace their OpenDesign Cloud/);
+
     // 10. Legacy sourcePath on openmotion_import_assets -> LOCAL_PATH_UNSUPPORTED_IN_CLOUD
     const legacyImport = await callMcp(9, 'tools/call', {
       name: 'openmotion_import_assets',

@@ -52,6 +52,7 @@ import {
   sessionPath,
   templateLibraryPreview,
 } from '../../shared/workspace-url.ts';
+import { CLOUD_P1_FEATURES } from '../../shared/cloud-features.ts';
 import {
   AmrIdentityClient,
   InMemoryAuthCache,
@@ -1496,6 +1497,7 @@ function createMcpDomainPorts(deps: {
             embedded: typeof args.embedded === 'boolean' ? args.embedded : undefined,
             presentation: typeof args.presentation === 'string' ? args.presentation : undefined,
             entry: typeof args.entry === 'string' ? args.entry : undefined,
+            modelProvidersEnabled: CLOUD_P1_FEATURES.modelProviders,
           });
         }
 

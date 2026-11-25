@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
-import { setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { CLOUD_P1_FEATURES, setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { providerSettingsPreview } from '../../../shared/workspace-url';
 import { MotionApp } from './MotionApp';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
@@ -241,6 +242,40 @@ describe('Cloud Phase 1 feature gates', () => {
     expect(location.pathname).toBe('/settings/account');
     const accountButtons = [...container.querySelectorAll('.om-settings-main button')].map(btn => btn.textContent?.trim());
     expect(accountButtons).not.toContain('Model gateway');
+  });
+
+  it('aligns MCP providerSettingsPreview handoff with the gated Default models surface in Cloud P1', async () => {
+    const gated = providerSettingsPreview(location.origin, {
+      entry: 'agent_media_upgrade_free',
+      modelProvidersEnabled: CLOUD_P1_FEATURES.modelProviders,
+    });
+    const gatedUrl = new URL(gated.previewUrl);
+    expect(gatedUrl.pathname).toBe('/settings/models');
+    expect(gatedUrl.searchParams.get('entry_from')).toBe('agent_media_upgrade_free');
+    expect(gatedUrl.searchParams.get('embed')).toBe('1');
+    expect(gatedUrl.searchParams.get('provider')).toBeNull();
+    expect(gated.previewHandoff.instructions).toContain('Verify that Default models is visible');
+    expect(gated.previewHandoff.instructions).toContain('Settings > Account');
+    expect(gated.previewHandoff.instructions).toContain('Settings > Subscription & usage > Manage subscription');
+    expect(gated.previewHandoff.instructions).not.toContain('Model providers is visible');
+
+    const historyLengthBefore = history.length;
+    await mountApp(gatedUrl.pathname + gatedUrl.search);
+    expect(location.pathname).toBe('/settings/models');
+    expect(location.search).toContain('entry_from=agent_media_upgrade_free');
+    expect(history.length).toBe(historyLengthBefore);
+    expect(container.querySelector('.om-settings-main h1')?.textContent).toBe('Default models');
+    expect(container.querySelector('[data-empty-models="true"]')?.textContent).toContain('Check account & plan');
+
+    // Ungated handoff preserves the original /settings/providers contract when modelProviders is enabled.
+    const ungated = providerSettingsPreview(location.origin, {
+      entry: 'agent_media_upgrade_free',
+      modelProvidersEnabled: true,
+    });
+    const ungatedUrl = new URL(ungated.previewUrl);
+    expect(ungatedUrl.pathname).toBe('/settings/providers');
+    expect(ungatedUrl.searchParams.get('provider')).toBe('account');
+    expect(ungated.previewHandoff.instructions).toContain('Verify that Model providers is visible');
   });
 
   it.each([

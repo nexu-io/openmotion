@@ -8,6 +8,7 @@
     "src/**/*.ts",
     "scripts/init-s3.ts",
     "shared/version.ts",
+    "shared/cloud-features.ts",
     "shared/browser-executable.ts",
     "shared/project-validation.ts",
     "shared/desktop-auth-handoff.ts",
