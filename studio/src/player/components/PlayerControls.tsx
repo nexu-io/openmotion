@@ -151,6 +151,8 @@ export const PlayerControls = memo(function PlayerControls({
   const timelineReady = usePlayerStore((s) => s.timelineReady);
   const mediaBuffering = usePlayerStore((s) => s.mediaBuffering);
   const assetReadinessPhase = usePlayerStore((s) => s.assetReadinessPhase);
+  const hasPendingMedia = usePlayerStore((s) => s.previewBooted && !s.editorInputLocked &&
+    !s.assetReadinessSkipped && s.assetReadinessPhase === "loading" && s.assetReadinessCompleted < s.assetReadinessTotal);
   const assetFailed = usePlayerStore((s) => s.assetReadinessFailed);
   const assetRetrying = usePlayerStore((s) => s.assetReadinessRetrying);
   const previewLoadError = usePlayerStore((s) => s.previewLoadError);
@@ -206,15 +208,15 @@ export const PlayerControls = memo(function PlayerControls({
         </span>
       </Button>
     </Tooltip>
-  ) : isBuffering ? (
+  ) : isBuffering || (hasPendingMedia && !previewLoadError) ? (
     <span
       className="motion-player-buffering"
-      data-testid="player-buffering-indicator"
+      data-testid={isBuffering ? "player-buffering-indicator" : "player-background-loading"}
       role="status"
       aria-live="polite"
     >
-      <RemixIcon name="loader-4-line" size={12} className="animate-spin motion-reduce:animate-none shrink-0" />
-      <span>{t("Buffering…")}</span>
+      {isBuffering && <RemixIcon name="loader-4-line" size={12} className="animate-spin motion-reduce:animate-none shrink-0" />}
+      <span>{isBuffering ? t("Buffering…") : t("Still loading media…")}</span>
     </span>
   ) : null;
 

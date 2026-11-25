@@ -135,6 +135,18 @@ describe("PlayerControls timecode", () => {
 });
 
 describe("PlayerControls buffering and asset-failure recovery", () => {
+  it("shows pending background media on a paused, usable preview until it settles", () => {
+    const status = () => host.querySelector('[data-testid="player-background-loading"]');
+    act(() => usePlayerStore.setState({ isPlaying: false, previewBooted: false, editorInputLocked: false,
+      assetReadinessSkipped: false, assetReadinessPhase: "loading", assetReadinessCompleted: 1, assetReadinessTotal: 2 }));
+    expect(status()).toBeNull();
+    act(() => usePlayerStore.getState().markPreviewBooted());
+    expect(status()?.textContent).toBe("Still loading media…");
+    expect(seekBar().disabled).toBe(false);
+    act(() => usePlayerStore.setState({ assetReadinessPhase: "ready", assetReadinessCompleted: 2 }));
+    expect(status()).toBeNull();
+  });
+
   it("shows a subtle buffering indicator while playing unbuffered media and clears once ready or paused", async () => {
     expect(host.querySelector('[data-testid="player-buffering-indicator"]')).toBeNull();
 
