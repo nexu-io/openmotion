@@ -49,6 +49,7 @@ describe('cloudFeatures', () => {
     document.head.append(meta);
     expect(isCloudFeatureEnabled('gameStudio')).toBe(false);
     expect(isCloudFeatureEnabled('workflows')).toBe(false);
+    expect(isCloudFeatureEnabled('modelProviders')).toBe(false);
   });
 
   it('reacts to cloud-diskless updates and test overrides in React hooks', async () => {

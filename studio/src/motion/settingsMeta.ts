@@ -21,14 +21,21 @@ export const settingsCenterSections: readonly SettingsSectionMeta[] = [
   { id: 'about', label: 'About OpenMotion', icon: 'information-line', group: 'Resources' },
 ];
 
-export function visibleSettingsCenterSections(localAgentsEnabled: boolean): SettingsSectionMeta[] {
+export function visibleSettingsCenterSections(
+  localAgentsEnabled: boolean,
+  modelProvidersEnabled = true,
+): SettingsSectionMeta[] {
   return settingsCenterSections
-    .filter(item => localAgentsEnabled || item.id !== 'local')
+    .filter(item => (localAgentsEnabled || item.id !== 'local') && (modelProvidersEnabled || item.id !== 'providers'))
     .map(item => (!localAgentsEnabled && item.id === 'models' ? { ...item, label: 'Default models' } : item));
 }
 
-export function settingsSectionLabel(section: SettingsSection, localAgentsEnabled = true): string {
-  return visibleSettingsCenterSections(localAgentsEnabled).find(item => item.id === section)?.label
+export function settingsSectionLabel(
+  section: SettingsSection,
+  localAgentsEnabled = true,
+  modelProvidersEnabled = true,
+): string {
+  return visibleSettingsCenterSections(localAgentsEnabled, modelProvidersEnabled).find(item => item.id === section)?.label
     ?? settingsCenterSections.find(item => item.id === section)?.label
     ?? 'Settings';
 }

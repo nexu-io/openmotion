@@ -228,7 +228,7 @@ function formatDate(iso: string | null | undefined): string {
   return new Date(parsed).toLocaleDateString();
 }
 
-export function AccountSettings({ subscription = false, openProviders }: { subscription?: boolean; openProviders: () => void }) {
+export function AccountSettings({ subscription = false, openProviders }: { subscription?: boolean; openProviders?: () => void }) {
   const { t } = useI18n();
   const state = useAccountSummary();
   const toast = useToast();
@@ -822,9 +822,11 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
               <h2 className="om-subtitle">{t('Unified model gateway')}</h2>
               <p className="om-muted">{t('All image, video, speech and music generation routes through the OpenDesign platform gateway. No third-party API keys are required.')}</p>
             </div>
-            <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>
-              {t('Model gateway')}<RemixIcon name="arrow-right-line" size={15} />
-            </Button>
+            {openProviders && (
+              <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>
+                {t('Model gateway')}<RemixIcon name="arrow-right-line" size={15} />
+              </Button>
+            )}
           </section>
         </>
       )}

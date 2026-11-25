@@ -64,15 +64,23 @@ export function SettingsCenter({
 }) {
   const { t } = useI18n();
   const localAgentsEnabled = useCloudFeatureEnabled('localAgents');
-  const sections = visibleSettingsCenterSections(localAgentsEnabled);
+  const modelProvidersEnabled = useCloudFeatureEnabled('modelProviders');
+  const sections = visibleSettingsCenterSections(localAgentsEnabled, modelProvidersEnabled);
+  const effectiveSection: SettingsSection =
+    section === 'providers' && !modelProvidersEnabled
+      ? 'models'
+      : section === 'local' && !localAgentsEnabled
+        ? (modelProvidersEnabled ? 'providers' : 'models')
+        : section;
   const [search, setSearch] = useState('');
   const filtered = sections.filter(item => t(item.label).toLowerCase().includes(search.toLowerCase()));
   // One view per section shown; the section is remounted for each route.
-  useEffect(() => { tracking.reportSettingsPageView(section, hasProject); }, [section]);
+  useEffect(() => { tracking.reportSettingsPageView(effectiveSection, hasProject); }, [effectiveSection]);
   const onSection = (next: SettingsSection) => {
-    if (next !== section) tracking.reportSettingsClick('settings_nav', 'section_select', { settings_section: next });
+    if (next !== effectiveSection) tracking.reportSettingsClick('settings_nav', 'section_select', { settings_section: next });
     onSectionRaw(next);
   };
+  const openProviders = modelProvidersEnabled ? () => onSection('providers') : undefined;
   return (
     <div className="om-settings-center" onKeyDown={event => event.stopPropagation()}>
       <div className="om-settings-navigation-slot">
@@ -85,7 +93,7 @@ export function SettingsCenter({
               <div className="om-settings-mobile-navigation">
                 <Select
                   label={t('Settings')}
-                  value={section}
+                  value={effectiveSection}
                   onCommit={value => onSection(value as SettingsSection)}
                   options={sections.map(item => ({ value: item.id, label: t(item.label), icon: <RemixIcon name={item.icon} size={16} /> }))}
                 />
@@ -108,9 +116,9 @@ export function SettingsCenter({
                   <Button
                     variant="plain"
                     className="om-nav-item"
-                    aria-current={section === item.id ? 'page' : undefined}
+                    aria-current={effectiveSection === item.id ? 'page' : undefined}
                     onClick={event => {
-                      if (item.id === 'privacy' && section !== 'privacy') trackStudioClick('settings', 'privacy_settings', undefined, clickMethod(event));
+                      if (item.id === 'privacy' && effectiveSection !== 'privacy') trackStudioClick('settings', 'privacy_settings', undefined, clickMethod(event));
                       onSection(item.id);
                     }}
                   >
@@ -124,28 +132,28 @@ export function SettingsCenter({
           </aside>
         </div>
       </div>
-      <main key={section} className="om-settings-main" aria-label={t(settingsSectionLabel(section, localAgentsEnabled))}>
+      <main key={effectiveSection} className="om-settings-main" aria-label={t(settingsSectionLabel(effectiveSection, localAgentsEnabled, modelProvidersEnabled))}>
         <SettingsSurfaceBoundary>
-          {section === 'mcp' ? mcp : section === 'local' && localAgentsEnabled ? <AgentSettings /> : section === 'providers' || section === 'local' ? (
+          {effectiveSection === 'mcp' ? mcp : effectiveSection === 'local' ? <AgentSettings /> : effectiveSection === 'providers' ? (
             <ModelSettings
-              key={section}
+              key={effectiveSection}
               openAccount={() => onSection('account')}
               openSubscription={() => onSection('subscription')}
               providerId={providerId}
               onProviderChange={onProviderChange}
             />
-          ) : section === 'account' || section === 'subscription' ? (
-            <AccountSettings key={section} subscription={section === 'subscription'} openProviders={() => onSection('providers')} />
-          ) : section === 'models' ? (
-            <DefaultModels openProviders={() => onSection('providers')} openAccount={() => onSection('subscription')} />
-          ) : section === 'appearance' ? (
+          ) : effectiveSection === 'account' || effectiveSection === 'subscription' ? (
+            <AccountSettings key={effectiveSection} subscription={effectiveSection === 'subscription'} openProviders={openProviders} />
+          ) : effectiveSection === 'models' ? (
+            <DefaultModels openProviders={openProviders} openAccount={() => onSection('subscription')} />
+          ) : effectiveSection === 'appearance' ? (
             <AppearanceSettings />
-          ) : section === 'privacy' ? (
+          ) : effectiveSection === 'privacy' ? (
             <div className="om-settings-page"><h1 className="om-title">{t('Privacy & data')}</h1><PrivacySettings embedded onClose={() => {}} /></div>
-          ) : section === 'general' ? (
+          ) : effectiveSection === 'general' ? (
             <GeneralSettings openConnections={() => openConnections('settings_general')} />
           ) : (
-            <ResourceSettings about={section === 'about'} openConnections={() => openConnections('settings_resources')} />
+            <ResourceSettings about={effectiveSection === 'about'} openConnections={() => openConnections('settings_resources')} />
           )}
         </SettingsSurfaceBoundary>
       </main>
@@ -153,7 +161,7 @@ export function SettingsCenter({
   );
 }
 
-function DefaultModels({ openProviders, openAccount }: { openProviders: () => void; openAccount: () => void }) {
+function DefaultModels({ openProviders, openAccount }: { openProviders?: () => void; openAccount: () => void }) {
   const { t, locale } = useI18n();
   const directory = useProviderDirectory();
   const hasModels = (directory.data?.models.length ?? 0) > 0;
@@ -176,9 +184,11 @@ function DefaultModels({ openProviders, openAccount }: { openProviders: () => vo
                 <Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>
                   {t('Check account & plan')}
                 </Button>
-                <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>
-                  {t('Model gateway')}
-                </Button>
+                {openProviders && (
+                  <Button variant="ghost" className="om-button h-auto" onClick={openProviders}>
+                    {t('Model gateway')}
+                  </Button>
+                )}
               </div>
             </section>
           )}

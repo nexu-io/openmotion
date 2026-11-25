@@ -12,6 +12,8 @@ import {
   type UniversalHostBridge,
 } from '../../../shared/desktop-contract';
 import { I18nProvider } from '../i18n/I18n';
+import { setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { invalidateHostCapabilities } from '../utils/platformHost';
 import { SettingsCenter } from './SettingsCenter';
 
@@ -22,6 +24,8 @@ afterEach(() => {
   root = undefined;
   document.body.innerHTML = '';
   delete window.__OPENMOTION_HOST__;
+  setCloudFeatureOverridesForTest(null);
+  setCachedCloudDisklessMode(null);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -253,4 +257,58 @@ it('guides users to check account & plan in Default models when no media models 
   expect(accountBtn).toBeTruthy();
   await act(async () => accountBtn.click());
   expect(onSection).toHaveBeenCalledWith('subscription');
+});
+
+it('hides the Model providers entry and internal gateway jumps in Cloud P1 mode, while restoring them when re-enabled', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).includes('models/catalog')) {
+      return Response.json({ provider: 'opendesign', mode: 'opendesign', defaults: {}, models: [] });
+    }
+    if (String(url).includes('account/summary')) {
+      return Response.json({ authenticated: true, authMode: 'oidc', user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' } });
+    }
+    return Response.json({
+      providers: [{ id: 'opendesign', label: 'OpenDesign', configured: true, enabled: true, available: false }],
+      routes: {},
+      tokens: [],
+      connections: [],
+    });
+  }));
+  setCachedCloudDisklessMode(true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+
+  await act(async () => root!.render(
+    <I18nProvider initialLocale="zh-CN">
+      <SettingsCenter section="providers" onSection={() => {}} openConnections={() => {}} />
+    </I18nProvider>,
+  ));
+
+  const navLabels = [...host.querySelectorAll('.om-settings-sections button')].map(btn => btn.textContent?.trim());
+  expect(navLabels).not.toContain('模型供应商');
+  expect(navLabels).toContain('默认模型');
+  expect(host.querySelector('.om-settings-main h1')?.textContent).toBe('默认模型');
+  const defaultModelsButtons = [...host.querySelectorAll('.om-settings-main button')].map(btn => btn.textContent?.trim());
+  expect(defaultModelsButtons).toContain('查看账户与订阅方案');
+  expect(defaultModelsButtons).not.toContain('模型网关');
+
+  await act(async () => root!.render(
+    <I18nProvider initialLocale="zh-CN">
+      <SettingsCenter section="account" onSection={() => {}} openConnections={() => {}} />
+    </I18nProvider>,
+  ));
+  const accountButtons = [...host.querySelectorAll('.om-settings-main button')].map(btn => btn.textContent?.trim());
+  expect(accountButtons).not.toContain('模型网关');
+
+  setCloudFeatureOverridesForTest({ modelProviders: true });
+  await act(async () => root!.render(
+    <I18nProvider initialLocale="zh-CN">
+      <SettingsCenter section="account" onSection={() => {}} openConnections={() => {}} />
+    </I18nProvider>,
+  ));
+  const restoredNavLabels = [...host.querySelectorAll('.om-settings-sections button')].map(btn => btn.textContent?.trim());
+  expect(restoredNavLabels).toContain('模型供应商');
+  const restoredAccountButtons = [...host.querySelectorAll('.om-settings-main button')].map(btn => btn.textContent?.trim());
+  expect(restoredAccountButtons).toContain('模型网关');
 });

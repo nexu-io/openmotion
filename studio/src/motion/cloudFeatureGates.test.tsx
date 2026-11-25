@@ -200,15 +200,47 @@ describe('Cloud Phase 1 feature gates', () => {
     expect(searchPanel.textContent).not.toContain('Game Studio');
   });
 
-  it('redirects /settings/local to /settings/providers, hides Local Agents, and renames Default models', async () => {
-    await mountApp('/settings/local');
+  it.each([
+    '/settings/local',
+    '/settings/providers',
+    '/settings/providers?provider=opendesign',
+  ])('redirects %s to /settings/models via replace, hides Model providers and Local Agents, and hides Settings gateway links', async blockedSettingsPath => {
+    const historyLengthBefore = history.length;
+    await mountApp(blockedSettingsPath);
 
-    expect(location.pathname).toBe('/settings/providers');
+    expect(location.pathname).toBe('/settings/models');
+    expect(location.search).toBe('');
+    expect(history.length).toBe(historyLengthBefore);
     const nav = container.querySelector('.om-settings-sections')!;
     expect(nav.textContent).not.toContain('Local Agents');
+    expect(nav.textContent).not.toContain('Model providers');
     expect(nav.textContent).not.toContain('Default Agent & models');
     expect(nav.textContent).toContain('Default models');
+    expect(nav.querySelector('[aria-current="page"]')?.textContent).toContain('Default models');
+    expect(container.querySelector('[aria-label="Model gateway"]')).toBeNull();
+    expect(container.querySelector('.om-settings-main h1')?.textContent).toBe('Default models');
     expect(calledUrls().some(u => u.includes('/agents'))).toBe(false);
+
+    // Empty-models guide in Default models keeps account/plan guidance but hides the Model gateway jump button.
+    const emptyGuide = container.querySelector('[data-empty-models="true"]');
+    expect(emptyGuide).not.toBeNull();
+    const emptyGuideButtons = [...emptyGuide!.querySelectorAll('button')].map(btn => btn.textContent?.trim());
+    expect(emptyGuideButtons).toContain('Check account & plan');
+    expect(emptyGuideButtons).not.toContain('Model gateway');
+
+    // ModelSwitcher popover inside Default models also omits the Model gateway footer button.
+    const chooseBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Select model"]')!;
+    await act(async () => chooseBtn.click());
+    const popoverButtons = [...document.querySelectorAll('.om-model-picker button')].map(btn => btn.textContent?.trim());
+    expect(popoverButtons).not.toContain('Model gateway');
+
+    // Account and Subscription settings pages hide the Model gateway jump button too.
+    const accountNavBtn = [...nav.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.trim() === 'Account')!;
+    await act(async () => accountNavBtn.click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(location.pathname).toBe('/settings/account');
+    const accountButtons = [...container.querySelectorAll('.om-settings-main button')].map(btn => btn.textContent?.trim());
+    expect(accountButtons).not.toContain('Model gateway');
   });
 
   it.each([

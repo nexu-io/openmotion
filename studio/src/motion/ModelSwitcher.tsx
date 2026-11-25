@@ -16,7 +16,7 @@ import { SettingsSurfaceBoundary } from './SettingsSurfaceBoundary';
 const cloudModelKinds = ['image', 'video', 'audio'] as const;
 type CloudModelKind = (typeof cloudModelKinds)[number];
 
-export function ModelSwitcher({ openSettings, capability, label }: { openSettings: () => void; capability?: ModelKind; label?: string }) {
+export function ModelSwitcher({ openSettings, capability, label }: { openSettings?: () => void; capability?: ModelKind; label?: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return <Popover open={open} onOpenChange={setOpen} aria-label={t('Select model')} align="end" className="om-model-picker om-selection-panel" trigger={<Button variant="ghost" className="om-button h-auto" aria-label={t('Select model')} title={t('Select model')}><span>{label || t('Models')}</span><RemixIcon name="arrow-down-s-line" size={12} /></Button>}>
@@ -24,7 +24,7 @@ export function ModelSwitcher({ openSettings, capability, label }: { openSetting
   </Popover>;
 }
 
-function ModelChoices({ capability, close, openSettings }: { capability?: ModelKind; close: () => void; openSettings: () => void }) {
+function ModelChoices({ capability, close, openSettings }: { capability?: ModelKind; close: () => void; openSettings?: () => void }) {
   const { t, locale } = useI18n(), directory = useProviderDirectory(), toast = useToast();
   const initialKind: CloudModelKind = capability === 'video' || capability === 'audio' ? capability : 'image';
   const [query, setQuery] = useState(''), [kind, setKind] = useState<CloudModelKind>(initialKind), [busy, setBusy] = useState(false);
@@ -74,10 +74,12 @@ function ModelChoices({ capability, close, openSettings }: { capability?: ModelK
         </div>
       )}
     </div>}
-    <div className="om-settings-row om-selection-footer">
-      <Button variant="ghost" className="om-button h-auto" onClick={() => { close(); openSettings(); }}><RemixIcon name="settings-3-line" size={15} />{t('Model gateway')}</Button>
-      {directory.data?.defaults[kind] && <Button variant="ghost" className="om-button h-auto" disabled={busy} onClick={() => void choose(null)}>{t('Reset default')}</Button>}
-    </div>
+    {(openSettings || directory.data?.defaults[kind]) && (
+      <div className="om-settings-row om-selection-footer">
+        {openSettings && <Button variant="ghost" className="om-button h-auto" onClick={() => { close(); openSettings(); }}><RemixIcon name="settings-3-line" size={15} />{t('Model gateway')}</Button>}
+        {directory.data?.defaults[kind] && <Button variant="ghost" className="om-button h-auto" disabled={busy} onClick={() => void choose(null)}>{t('Reset default')}</Button>}
+      </div>
+    )}
     <StudioToastViewport {...toast} />
   </>;
 }

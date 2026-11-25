@@ -10,6 +10,7 @@ import { getCachedCloudDisklessMode, useCloudDisklessMode } from './cloudRuntime
  */
 export const CLOUD_P1_FEATURES = {
   localAgents: false,
+  modelProviders: false,
   gameStudio: false,
   workflows: false,
   designStudio: false,

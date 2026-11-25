@@ -297,3 +297,24 @@ it('shows the upgrade guide and honest billing notice when billing is unavailabl
   expect(page.textContent).toContain('当前工作区暂无可用媒体模型，请前往 OpenDesign 查看或升级订阅方案。');
   expect(page.textContent).not.toContain('账户模型不受影响，可以照常使用');
 });
+
+it('hides the Model gateway button when openProviders is omitted', async () => {
+  hooks.summary = {
+    consoleUrl: 'https://open-design.ai/cloud',
+    authenticated: true,
+    authMode: 'oidc',
+    user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+  };
+  hooks.request.mockImplementation(async (path: string) => {
+    if (path.startsWith('account/summary')) return hooks.summary;
+    if (path === 'connections') return { connections: [] };
+    if (path === 'tokens') return { tokens: [] };
+    return hooks.summary;
+  });
+  const container = document.createElement('div');
+  document.body.append(container);
+  root = createRoot(container);
+  await act(async () => root!.render(<I18nProvider initialLocale="en"><AccountSettings /></I18nProvider>));
+  expect(container.textContent).toContain('Unified model gateway');
+  expect(findButton(container, 'Model gateway')).toBeUndefined();
+});

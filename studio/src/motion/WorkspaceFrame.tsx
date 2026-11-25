@@ -84,6 +84,7 @@ export function WorkspaceFrame(props: WorkspaceFrameProps) {
 function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blocked = false, message = '', saveState = '', onLibraryClose, onNavigate }: WorkspaceFrameProps) {
   const { t, locale } = useI18n();
   const localAgentsEnabled = useCloudFeatureEnabled('localAgents');
+  const modelProvidersEnabled = useCloudFeatureEnabled('modelProviders');
   const gameStudioEnabled = useCloudFeatureEnabled('gameStudio');
   const workflowsEnabled = useCloudFeatureEnabled('workflows');
   const designStudioEnabled = useCloudFeatureEnabled('designStudio');
@@ -161,8 +162,12 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       }
       return;
     }
-    if (page.settings === 'local' && !localAgentsEnabled) {
-      navigatePage({ settings: 'providers', mcpInSettings: false, assets: false, skills: false, templates: false }, true);
+    if (
+      (page.settings === 'providers' && !modelProvidersEnabled)
+      || (page.settings === 'local' && !localAgentsEnabled)
+    ) {
+      const fallbackSection: SettingsSection = modelProvidersEnabled ? 'providers' : 'models';
+      navigatePage({ settings: fallbackSection, provider: null, mcpInSettings: false, assets: false, skills: false, templates: false }, true);
       return;
     }
     if (
@@ -173,7 +178,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     ) {
       navigatePage({ explore: true, templates: false, ...lastExplore.current }, true);
     }
-  }, [routerLocation.pathname, routerLocation.search, routerLocation.hash, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
+  }, [routerLocation.pathname, routerLocation.search, routerLocation.hash, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, modelProvidersEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
   const presentation = workspacePresentation(location.search);
   const guard = useRef<EditorGuard | null>(null);
   const [editorState, setEditorState] = useState<Pick<EditorGuard, 'blocked' | 'saveState' | 'message'> | null>(null);
@@ -303,7 +308,15 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [navigatePage]);
   const openSettings = useCallback((section: SettingsSection, entry?: McpEntry) => {
     if (entry) connectionEntry.current = entry;
-    navigatePage({ settings: section, mcpInSettings: section === 'mcp', assets: false, skills: false, templates: false },
+    const localEnabled = isCloudFeatureEnabled('localAgents');
+    const providersEnabled = isCloudFeatureEnabled('modelProviders');
+    const resolvedSection: SettingsSection =
+      section === 'providers' && !providersEnabled
+        ? 'models'
+        : section === 'local' && !localEnabled
+          ? (providersEnabled ? 'providers' : 'models')
+          : section;
+    navigatePage({ settings: resolvedSection, mcpInSettings: resolvedSection === 'mcp', assets: false, skills: false, templates: false },
       false, entry ? 'from-page' : undefined);
   }, [navigatePage]);
   const applicationRef = useRef<HTMLDivElement>(null);
@@ -316,7 +329,13 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     if (!settingsSource || !restoreWorkspaceSource(settingsSource)) openHome();
   };
   useEffect(() => {
-    const open = () => openSettings(isCloudFeatureEnabled('localAgents') ? 'local' : 'providers');
+    const open = () => openSettings(
+      isCloudFeatureEnabled('localAgents')
+        ? 'local'
+        : isCloudFeatureEnabled('modelProviders')
+          ? 'providers'
+          : 'models',
+    );
     window.addEventListener('motion:agents-open', open);
     return () => window.removeEventListener('motion:agents-open', open);
   }, [openSettings]);
@@ -410,7 +429,11 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       navigatePage({ settings: 'mcp', templates: false }, false, 'from-page');
     },
     openModelSettings: () => openSettings('providers'),
-    openProviderSettings: provider => navigatePage({ settings: 'providers', provider, assets: false, skills: false, templates: false }),
+    openProviderSettings: provider => navigatePage(
+      isCloudFeatureEnabled('modelProviders')
+        ? { settings: 'providers', provider, assets: false, skills: false, templates: false }
+        : { settings: 'models', provider: null, assets: false, skills: false, templates: false },
+    ),
     openAccountSettings: () => openSettings('account'),
     openSubscriptionSettings: () => openSettings('subscription'),
     openHome, openAssets, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,
