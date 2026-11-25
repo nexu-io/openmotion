@@ -162,6 +162,7 @@ You have access to every capability across OpenMotion:
    - When the user asks to build, remix, update, validate, playtest, or publish a Game Studio game (or passes a Game Studio game id), read openmotion://workflow/game/start (via openmotion_read_workflow(workflow="game", section="start") or MCP resource) and inspect the draft/project with openmotion_game_get(id=...).
    - Create and remix single-player games only. When the user explicitly requests multiplayer, explain that game generation currently supports single-player and ask before adapting the brief. Existing multiplayer projects may be inspected, playtested or opened for local play.
    - Proceed directly when the single-player brief already provides the game idea and relevant options.
+   - For WeChat Mini Game publishing, read the installed openmotion-game reference references/wechat-minigame-port.md and call openmotion_game_wechat(id, action="status") first. Guide one current step at a time in this conversation. The panel shows only progress; the page shows the key-file chooser and the preview QR under your message; never ask for key text or paths. Ask for upload authorization with version/description. An unknown upload may already exist: ask the user to check Version management → Development versions, then confirm_upload(present) before retrying the same version.
    - Set status to building via openmotion_game_set_status(id=..., status="building"), implement/edit game files with openmotion_game_write_files, update metadata via openmotion_game_update_meta, capture a cover via openmotion_game_capture_cover, validate with openmotion_game_validate, simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and call openmotion_present_artifact(kind="game-project", projectId=...) so the playable game opens and reloads live inside the Browser Artifact Viewer.
    - For playable ads, follow the playable-ad recipe and keep game assets inline in index.html. For other games, ${gameAssetInstructions}
    - Only when the user explicitly asks to deploy or share an HTML game or design project online, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects). If it fails because OpenDesign is signed out (OPENDESIGN_SIGN_IN_REQUIRED), do not retry and do not also call openmotion_open_preview(target="providers") or openmotion_present_artifact(kind="web") for /settings/providers — Studio automatically renders the inline publish sign-in card in chat; tell the user to click it and reply if needed.
@@ -203,6 +204,7 @@ Use the registered OpenMotion MCP tools (mcp__openmotion__*) and injected <openm
    - Publish any HTML-expressed deliverable (Design page, Game, Motion HTML bundle, or standalone HTML file/folder) to a live Open Design Cloud share link via openmotion_assets_use(action="web_publish", webPublish={command:"publish"|"status"|"visibility"|"unpublish"|"list", targetKind:"design"|"game"|"html"|"motion", ...}) (for targetKind="game", visibility="public"|"unlisted" and allowRemix are supported on publish or command="visibility"; unlisted requires a paid Go+ plan) or openmotion_design_project(action="deploy", projectId=...) (requires OpenDesign sign-in).
 2. Playable Single-Player Games (Game Studio):
    - For Game Studio projects, call openmotion_read_workflow(workflow="game", section="start") and inspect with openmotion_game_get(id=...). Create and remix single-player games only. When the user explicitly requests multiplayer, explain that game generation currently supports single-player and ask before adapting the brief. Existing multiplayer projects may be inspected, playtested or opened for local play.
+   - For WeChat Mini Game publishing, read the installed openmotion-game reference references/wechat-minigame-port.md and call openmotion_game_wechat(id, action="status") first. Guide one current step at a time in this conversation. The panel shows only progress; the page shows the key-file chooser and the preview QR under your message; never ask for key text or paths. Ask for upload authorization with version/description. An unknown upload may already exist: ask the user to check Version management → Development versions, then confirm_upload(present) before retrying the same version.
    - When the single-player brief already specifies the game concept or options, proceed directly: call openmotion_game_set_status(id, "building"), write files via openmotion_game_write_files, update metadata (openmotion_game_update_meta), capture cover (openmotion_game_capture_cover), validate (openmotion_game_validate), simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and open via openmotion_present_artifact(kind="game-project", projectId=...). Only when the user explicitly requests online cloud deployment/sharing, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects); if it fails with OPENDESIGN_SIGN_IN_REQUIRED, do not retry and do not also call openmotion_open_preview(target="providers") or openmotion_present_artifact(kind="web") for /settings/providers — Studio automatically renders the inline publish sign-in card in chat.
    - For playable ads, follow the playable-ad recipe and keep game assets inline in index.html. For other games, ${gameAssetInstructions}
 3. Editable Motion Videos (HyperFrames / Motion Studio — embedded live in Super Agent's Artifact Viewer):
@@ -887,6 +889,28 @@ function previewJson(value: unknown, max = 3600): string {
   } catch {
     return String(value).slice(0, max);
   }
+}
+
+/** Short digest of a conversation: earlier summary, the last 16 user/assistant messages and recent artifacts. */
+function conversationDigest(chat: SuperAgentChat): string {
+  const lines: string[] = [];
+  if (chat.compactedSummary?.trim()) {
+    lines.push(`Previous summary:\n${chat.compactedSummary.trim().slice(0, 1200)}`);
+  }
+  const recent = chat.messages.filter(m => m.role === 'user' || m.role === 'assistant').slice(-16);
+  for (const msg of recent) {
+    const roleLabel = msg.role === 'user' ? 'User' : 'Assistant';
+    const cleaned = msg.text.replace(/\s+/g, ' ').trim().slice(0, 260);
+    if (cleaned) lines.push(`- ${roleLabel}: ${cleaned}`);
+  }
+  if (chat.artifacts.length > 0) {
+    const artifactSummary = chat.artifacts
+      .slice(-12)
+      .map(a => `${a.title} (${a.kind})`)
+      .join(', ');
+    lines.push(`Artifacts: ${artifactSummary}`);
+  }
+  return lines.join('\n').slice(0, 4000);
 }
 
 function normalizeOpenMotionToolName(toolName: string): string {
@@ -2601,6 +2625,16 @@ export class SuperAgentConversations {
         }
       }
     };
+    // Codex keeps the tools a thread started with. When OpenMotion adds tools (an upgrade), the old thread cannot see
+    // them, so start a new thread and carry a summary of this conversation into the first turn.
+    const toolNames = dynamicTools.map(tool => tool.name).sort().join(',');
+    let carriedHistory = '';
+    // Threads from before this record (threadTools undefined) restart only when tools are offered now.
+    const toolsChanged = active.chat.threadTools !== undefined ? active.chat.threadTools !== toolNames : dynamicTools.length > 0;
+    if (active.chat.threadId && toolsChanged) {
+      carriedHistory = conversationDigest(active.chat);
+      active.chat.threadId = undefined;
+    }
     const result = active.chat.threadId
       ? await resumeThreadWithRetry()
       : await rpc.request('thread/start', { ...options, dynamicTools });
@@ -2609,6 +2643,7 @@ export class SuperAgentConversations {
       return;
     }
     active.chat.threadId = result.thread.id;
+    active.chat.threadTools = toolNames;
     await this.persist(active, true);
     if (active.stopped) return;
 
@@ -2617,7 +2652,9 @@ export class SuperAgentConversations {
       threadId: result.thread.id,
       ...(active.chat.model && active.chat.model !== 'default' ? { model: active.chat.model } : {}),
       effort: active.chat.reasoning && active.chat.reasoning !== 'default' ? active.chat.reasoning : null,
-      input: [{ type: 'text', text: fullPrompt }],
+      input: [{ type: 'text', text: carriedHistory
+        ? `<openmotion-compacted-history>\nThis conversation continues in a new Agent session (new tools are available). Earlier messages:\n${carriedHistory}\n</openmotion-compacted-history>\n\n${fullPrompt}`
+        : fullPrompt }],
     });
     active.turnId = turn.turn.id;
   }
@@ -4712,24 +4749,7 @@ export class SuperAgentConversations {
       throw new Error('No conversation history to compact yet');
     }
 
-    const lines: string[] = [];
-    if (chat.compactedSummary?.trim()) {
-      lines.push(`Previous summary:\n${chat.compactedSummary.trim().slice(0, 1200)}`);
-    }
-    const recent = substantive.slice(-16);
-    for (const msg of recent) {
-      const roleLabel = msg.role === 'user' ? 'User' : 'Assistant';
-      const cleaned = msg.text.replace(/\s+/g, ' ').trim().slice(0, 260);
-      if (cleaned) lines.push(`- ${roleLabel}: ${cleaned}`);
-    }
-    if (chat.artifacts.length > 0) {
-      const artifactSummary = chat.artifacts
-        .slice(-12)
-        .map(a => `${a.title} (${a.kind})`)
-        .join(', ');
-      lines.push(`Artifacts: ${artifactSummary}`);
-    }
-    const summary = lines.join('\n').slice(0, 4000);
+    const summary = conversationDigest(chat);
     const compactedCount = chat.messages.length;
 
     chat.compactedSummary = summary;

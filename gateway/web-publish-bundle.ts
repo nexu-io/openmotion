@@ -178,7 +178,7 @@ async function collectSourceFiles(
         continue;
       }
       const relPosix = relDir ? `${relDir}/${entry.name}` : entry.name;
-      if (kind === 'game' && /^(?:game\.json$|(?:trailer|design|assets\/playtests)(?:\/|$))/i.test(relPosix)) {
+      if (kind === 'game' && /^(?:game\.json$|(?:trailer|design|publish|assets\/playtests)(?:\/|$))/i.test(relPosix)) {
         continue;
       }
       const absPath = path.join(resolvedRoot, relPosix);

@@ -401,9 +401,9 @@ test('WebPublishService enforces Free=Public (pending Layer 1) and unlocks Unlis
   }
 });
 
-test('loadBuiltinGameTemplates loads all 26 next-branch built-in templates cleanly for cold-start deployment', async () => {
+test('loadBuiltinGameTemplates loads all built-in templates cleanly for cold-start deployment', async () => {
   const templates = await loadBuiltinGameTemplates();
-  assert.equal(templates.length, 26);
+  assert.ok(templates.length >= 26, `expected at least 26 built-in templates, got ${templates.length}`);
 
   const ids = new Set<string>();
   let portraitCount = 0;

@@ -359,7 +359,7 @@ jobs:
           node --experimental-strip-types --test --test-concurrency=1 \
             --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=./.github/scripts/game-test-failures.mjs --test-reporter-destination=stdout \
-            tests/game-projects.test.ts
+            tests/game-projects.test.ts tests/wechat-minigame.test.ts
 
   distribution:
     name: Distribution regression

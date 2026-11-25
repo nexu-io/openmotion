@@ -100,16 +100,18 @@ test('draft lifecycle, remix, persisted local viewer and concurrent counters',()
 
 test('templates are optional, read-only and remix into independent owned files',()=>fixture(async(service,workspace)=>{
   const {game}=await service.create(brief),template=path.join(service.templates,'racer');
-  await mkdir(template,{recursive:true}); await writeFile(path.join(template,'game.json'),JSON.stringify({...game,id:'racer',status:'published',source:'template'}));
+  await mkdir(template,{recursive:true}); await writeFile(path.join(template,'game.json'),JSON.stringify({...game,id:'racer',status:'published',source:'template',tags:['top赚钱']}));
   await writeFile(path.join(template,'index.html'),'<title>Template</title>');
   assert.equal((await service.get('racer')).source,'template');
-  const raw=JSON.parse(await readFile(path.join(template,'game.json'),'utf8')); raw.cover='cover.png'; delete raw.remixOf; await writeFile(path.join(template,'game.json'),JSON.stringify(raw));
-  assert.equal((await service.get('racer')).cover,'/api/games/racer/play/cover.png'); assert.equal((await service.get('racer')).remixOf,null);
+  assert.deepEqual((await service.get('racer')).tags,['top赚钱']);
+  const raw=JSON.parse(await readFile(path.join(template,'game.json'),'utf8')); raw.cover='cover.png'; raw.tags=['top赚钱']; delete raw.remixOf; await writeFile(path.join(template,'game.json'),JSON.stringify(raw));
+  assert.equal((await service.get('racer')).cover,'/api/games/racer/play/cover.png'); assert.equal((await service.get('racer')).remixOf,null); assert.deepEqual((await service.get('racer')).tags,['top赚钱']);
   await assert.rejects(service.write('racer',[{path:'index.html',content:'bad'}]),/not found/);
   await assert.rejects(service.delete('racer'),/not found/); await assert.rejects(service.publish('racer'),/not found/);
   const remix=await service.remix('racer'); await service.write(remix.game.id,[{path:'index.html',content:'<title>Remixed</title>'}]);
   assert.equal((await service.read('racer','index.html')).content,'<title>Template</title>');
   assert.equal(remix.game.cover,`/api/games/${remix.game.id}/play/cover.png`);
+  assert.equal(remix.game.tags,undefined);
   assert.equal(remix.game.source,'mine'); assert.equal(remix.game.status,'draft');
   await service.interact('racer','favorite',true); assert.equal((await service.get('racer')).favorite,true);
 }));
@@ -158,7 +160,7 @@ test('multiplayer validation, determinism, contract errors, CDN rules and public
 }));
 
 test('MCP game tools author single-player games and preserve access to existing multiplayer games',()=>fixture(async(service,workspace)=>{
-  assert.equal(gameTools.length,12);
+  assert.equal(gameTools.length,13);
   for(const tool of gameTools) assert.match(tool.title,/^OpenMotion · /);
   validateInput(gameTools[0].inputSchema,brief);
   validateInput(gameTools[0].inputSchema,{prompt:brief.prompt});

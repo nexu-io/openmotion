@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
 import { fixture } from './fixtures.ts';
 import { gatewayFor, ModelGateway } from '../gateway/service.ts';
 import { ProviderConnections, connectionBaseUrl } from '../gateway/connections.ts';
@@ -415,6 +416,24 @@ test('source installations use the connector locked with their dependencies inst
   });
 });
 
+test('the installed video and audio commands validate Motion attribution before submission', async t => {
+  const packaged = createRequire(import.meta.url)('@powerformer/vela-cli').resolveVelaCliBin() as string | null;
+  if (!packaged) return t.skip('The connector has no binary for this platform');
+  await fixture(async store => {
+    const home = path.join(store.directory, 'cli-attribution');
+    await mkdir(home);
+    await writeFile(path.join(home, 'config.json'), JSON.stringify({ profiles: { prod: { controlKey: 'fixture-key' } } }), { mode: 0o600 });
+    // Keep this probe offline even if a future CLI ignores the attribution fields.
+    const env = { AMR_HOME: home, VELA_PROFILE: 'prod', VELA_SOURCE_PRODUCT: 'openmotion',
+      VELA_OPENMOTION_JOB_ID: 'invalid-job', HTTPS_PROXY: 'http://127.0.0.1:1' };
+    for (const command of [['video', 'gen'], ['audio', 'speech', '--voice', 'fixture'], ['audio', 'music']]) {
+      const args = [...command, '--model', 'fixture', '--prompt', 'fixture', '--no-wait', '--json'];
+      await assert.rejects(promisify(execFile)(packaged, args, { env, timeout: 5000 }),
+        { stderr: /OpenMotion attribution requires.*UUID/ });
+    }
+  });
+});
+
 test('the connector installer finds npm beside Homebrew and other Node layouts, then on PATH', { skip: process.platform === 'win32' }, async t => {
   // A Homebrew Node reports its resolved Cellar binary; npm lives under libexec there, not under lib.
   assert.deepEqual(npmCliCandidates('/opt/homebrew/Cellar/node/24.1.0/bin/node', 'darwin', {}), [
@@ -435,8 +454,8 @@ test('the connector installer finds npm beside Homebrew and other Node layouts, 
 });
 
 test('the manual connector command quotes the private directory for the shell, and its failure telemetry is valid', t => fixture(async store => {
-  assert.equal(manualInstallCommand("/Users/o'neil/$HOME/runtime", 'darwin'), `npm install --prefix '/Users/o'\\''neil/$HOME/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10`);
-  assert.equal(manualInstallCommand('C:\\Users\\me\\runtime', 'win32'), 'npm install --prefix "C:\\Users\\me\\runtime" --ignore-scripts @powerformer/vela-cli@0.1.10');
+  assert.equal(manualInstallCommand("/Users/o'neil/$HOME/runtime", 'darwin'), `npm install --prefix '/Users/o'\\''neil/$HOME/runtime' --ignore-scripts @powerformer/vela-cli@0.1.11-test.0`);
+  assert.equal(manualInstallCommand('C:\\Users\\me\\runtime', 'win32'), 'npm install --prefix "C:\\Users\\me\\runtime" --ignore-scripts @powerformer/vela-cli@0.1.11-test.0');
   const records: SignInRecord[] = [];
   const account = new OpenDesignAccount(store.directory, { binary: path.join(store.directory, 'missing-connector'), log: () => {}, track: record => records.push(record) });
   t.after(() => account.close());
@@ -457,7 +476,7 @@ if (mode === 'offline') { console.error('npm error code ECONNREFUSED'); process.
 const pkg = path.join(prefix, 'node_modules/@powerformer/vela-cli'); mkdirSync(pkg, { recursive: true });
 writeFileSync(path.join(prefix, 'package.json'), '{}');
 writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: '@powerformer/vela-cli', main: 'index.js' }));
-writeFileSync(path.join(pkg, 'vela'), '#!/bin/sh\\necho ' + (mode === 'wrong' ? '0.0.9' : '0.1.10') + '\\n'); chmodSync(path.join(pkg, 'vela'), 0o755);
+writeFileSync(path.join(pkg, 'vela'), '#!/bin/sh\\necho ' + (mode === 'wrong' ? '0.0.9' : '0.1.11-test.0') + '\\n'); chmodSync(path.join(pkg, 'vela'), 0o755);
 writeFileSync(path.join(pkg, 'index.js'), 'exports.resolveVelaCliBin = () => __dirname + "/vela";');`);
     const install = async (name: string, mode: string, findNpm: () => Promise<string | undefined> = async () => npm) => {
       process.env.FAKE_NPM = mode;
@@ -641,7 +660,7 @@ test('finished sign-in reports the confirmed account only on success, without cr
   assert.deepEqual(records.map(record => record.outcome), ['success', 'cancelled', 'failure']);
   const [success, cancelled, failure] = records;
   const { attempt_id: _id, entry_id, entry_occurred_at, duration_ms, prepare_ms, link_ms, approved_ms, ...fixed } = success;
-  assert.deepEqual(fixed, { outcome: 'success', connector_version: '0.1.10', resumed: false, last_stage: 'credential_persist_result', last_result: 'success',
+  assert.deepEqual(fixed, { outcome: 'success', connector_version: '0.1.11-test.0', resumed: false, last_stage: 'credential_persist_result', last_result: 'success',
     source_product: 'openmotion', source_detail: 'openmotion_editor_login', amr_user_id: 'fixture-user-id',
     browser_opened: true, receipt: 'accepted', exit_code: 0 });
   assert.match(entry_id!, /^[0-9a-f-]{36}$/); assert.notEqual(entry_id, success.attempt_id);
