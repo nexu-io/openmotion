@@ -47,3 +47,57 @@ test('preview updates publish the image’s exact hash, reuse objects on retry a
   objects.set(new URL(next.url).pathname.slice(1), Buffer.from('broken'));
   await assert.rejects(publishStudioPreviews(root, storage), /size mismatch/i);
 });
+
+test('on-demand LFS hydration pulls only missing public objects and skips already-published pointers', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'studio-media-lfs-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dir = path.join(root, previewSources);
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(root, 'repository-media.json'), JSON.stringify({ schemaVersion: 1, files: [] }));
+
+  const existingBytes = Buffer.from('already published video');
+  const existingDigest = mediaDigest(existingBytes);
+  const existingFile = path.join(dir, 'existing.mp4');
+  await writeFile(existingFile, `version https://git-lfs.github.com/spec/v1\noid sha256:${existingDigest}\nsize ${existingBytes.length}\n`);
+
+  const missingBytes = Buffer.from('brand new preview video');
+  const missingDigest = mediaDigest(missingBytes);
+  const missingFile = path.join(dir, 'new-preview.mp4');
+  await writeFile(missingFile, `version https://git-lfs.github.com/spec/v1\noid sha256:${missingDigest}\nsize ${missingBytes.length}\n`);
+
+  const locks = studioPreviewAssets(root);
+  const objects = new Map<string, Buffer>([
+    [new URL(locks.get('existing.mp4')!.lock.url).pathname.slice(1), existingBytes],
+  ]);
+  let puts = 0;
+  const hydratedBatches: string[][] = [];
+  const storage = {
+    endpoint: 'https://test.r2.cloudflarestorage.com', bucket: 'test-media',
+    fetcher: (async (url, init) => {
+      const object = objects.get(new URL(String(url)).pathname.slice(1));
+      return new Response(init?.method === 'HEAD' || !object ? null : new Uint8Array(object), { status: object ? 200 : 404 });
+    }) as typeof fetch,
+    run: async (args: string[]) => {
+      puts++;
+      objects.set(args[args.indexOf('--key') + 1], await readFile(args[args.indexOf('--body') + 1]));
+    },
+  };
+
+  const hydrateMissingLfs = async (paths: string[]) => {
+    hydratedBatches.push(paths);
+    for (const rel of paths) {
+      if (rel.endsWith('/new-preview.mp4')) await writeFile(missingFile, missingBytes);
+    }
+  };
+
+  await publishStudioPreviews(root, storage, { hydrateMissingLfs });
+  assert.deepEqual(hydratedBatches, [['studio/preview-media/new-preview.mp4']]);
+  assert.equal(puts, 1);
+
+  // Subsequent release with both files still unhydrated LFS pointers pulls zero objects from LFS.
+  await writeFile(missingFile, `version https://git-lfs.github.com/spec/v1\noid sha256:${missingDigest}\nsize ${missingBytes.length}\n`);
+  hydratedBatches.length = 0;
+  await publishStudioPreviews(root, storage, { hydrateMissingLfs });
+  assert.deepEqual(hydratedBatches, []);
+  assert.equal(puts, 1);
+});
