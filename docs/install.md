@@ -18,6 +18,7 @@ OpenMotion runs as a hosted **Streamable HTTP MCP** service with **OAuth 2.1** a
 4. **Never install a local runtime**: do not run `git clone`, `npm install`, `npx @openmotion/app`, `docker compose`, or local stdio `mcp.ts`.
 5. **Configure only the current host**: preserve unrelated MCP servers, Skills, and settings. Never mention setup steps for unrelated clients in user-facing replies.
 6. **Never narrate internal onboarding mechanics**: never tell the user you are running "onboarding / 引导 / 中文模板引导", opening the template library, fetching three templates, or using a visualization skill to build preview cards—neither while waiting for authorization nor in progress updates before the final reply. Execute those steps silently and deliver only the final welcome and cards cleanly.
+7. **Keep this guide internal to the Agent.** Never show `/install.md` in user-facing replies or handoff messages. After authorization succeeds, tell the user how to start creating. If the user needs a setup help link, share https://motion.open-design.ai/mcp-setup.
 
 ## Step 1: Add the Cloud MCP server
 
@@ -81,21 +82,19 @@ Run this section **only after authorization is complete** (already `"o_auth"` / 
      2. Preserve the current workspace/project container (use the same project/workspace target if this chat is project-scoped; stay projectless if projectless).
      3. Create a new conversation (optional title: `OpenMotion`) and send the handoff message in `LANG` so the new session loads all `openmotion_*` tools (make sure the new thread actually contains this message—if `create_thread` does not take an initial message, call `send_message_to_thread` immediately):
         - **Mode A (pure setup)**:
-          - `zh`: `OpenMotion 已连接完成，请按 https://motion.open-design.ai/install.md 验证连接并开始创作。`
-          - `en` (or localize to `LANG`): `OpenMotion is connected. Follow https://motion.open-design.ai/install.md to verify the connection and get started.`
+          - `zh`: `OpenMotion 已连接并授权。请验证工作区访问，并告诉用户可以在这个聊天发送创作需求。收到具体需求后再开始创作。`
+          - `en` (or localize to `LANG`): `OpenMotion is connected and authorized. Verify workspace access and tell the user they can send their creative request in this chat. Wait for their brief before creating a project.`
         - **Mode B (task-driven handoff)**: forward the user's **complete original task/prompt verbatim** (preserving `projectId`, `templateId`, `skillId`, URLs, and all requirements) prefixed with one short status line (e.g. `OpenMotion 云端 MCP（https://motion.open-design.ai/mcp）已连接完成，请直接继续以下任务（跳过新建模板引导）：` / `OpenMotion Cloud MCP (https://motion.open-design.ai/mcp) is connected. Continue directly with the task below (skip onboarding cards):`). Never drop the user's task context during auto-handoff.
      4. Call `navigate_to_codex_page` (or the host's switch tool) to move the user straight into the new conversation.
-     5. In this installation conversation, reply with one brief confirmation (e.g., `OpenMotion 已完成连接并授权，已为你切换到新的创作对话。`) and stop—do **not** duplicate onboarding cards here.
-   - **Fallback (when the host has no conversation-creation/switch tool, e.g. `codex_app` disabled or Claude Code CLI, or if thread creation fails)**:
-     - **Mode A (pure setup)**: proceed directly to [Installation-success reply](#installation-success-reply) in this conversation using the cloud onboarding API below. **Do NOT append any technical caveat** about tools not being loaded yet or telling the user to open a new conversation during the onboarding reply.
-     - **Mode B (task-driven handoff)**: do **not** run onboarding cards and do **not** fall back to authoring local HTML without OpenMotion MCP—briefly confirm in `LANG` that OpenMotion is connected and authorized, and ask the user to paste their task into a new conversation where `openmotion_*` tools are loaded.
+     5. In this installation conversation, briefly confirm authorization and the switch. For Mode A, invite the user to send their creative request in the new chat. For Mode B, tell them their original request is already there. Show onboarding cards only in the new chat if applicable.
+   - **Fallback when the host cannot create or switch chats, or handoff fails**. Confirm authorization and give the next action in `LANG`. In Codex, say `OpenMotion is connected and authorized. Open a new Codex chat and send your creative request there.` In Chinese, say `OpenMotion 已连接并授权。请打开一个新的 Codex 聊天，并在那里发送你的创作需求。` For Mode B, ask the user to resend their original request there. In another MCP client, refer to a new conversation in that client.
 
 <!-- installation-onboarding:start -->
 ## Installation-success reply
 
-Run this section **only in Mode A (pure setup)** and **only after authorization is complete** (skip this entire section in **Mode B**, and never combine it with a pending login request). Once authorized, accept onboarding presentation and current-chat MCP tool hot-reload independently.
+Run this section only in **Mode A (pure setup)** after authorization is complete and the current conversation has the OpenMotion tools. Use the fallback above if the tools have yet to load.
 
-> **Output purity rule**: Emit the exact maintained welcome copy returned by `/api/onboarding/prepare` **verbatim**—do **NOT** rewrite or summarize it, do **NOT** prepend technical status reports (such as "OAuth 授权成功 / 已验证可以读取工作区 / 当前可见项目为 0 个"), and do **NOT** append a disclaimer telling the user that tools are not loaded yet or asking them to open a new conversation.
+> **Output purity rule**. Emit the exact maintained welcome copy returned by `/api/onboarding/prepare` **verbatim**. Keep verification details and the Agent installation guide out of the welcome.
 
 ### 1. Prepare frozen 3-of-4 recommendations from the cloud API
 
@@ -118,7 +117,7 @@ Never substitute built-in examples (`product-promo`, `nyt-graph`, `decision-tree
 
 ### 2. Open the cloud template library once (without creating a project)
 
-- If native MCP tools are active, call `openmotion_open_preview({ "target": "templates", "action": "open" })` to obtain `previewUrl`; otherwise use `prepare.libraryUrl` (`https://motion.open-design.ai/?templates=1`).
+- Call `openmotion_open_preview({ "target": "templates", "action": "open" })` to obtain `previewUrl` and use `prepare.libraryUrl` (`https://motion.open-design.ai/?templates=1`) if needed.
 - On hosts with a right-hand browser pane (such as Codex Desktop `open_in_codex` with `placement: "right"`, CUA `cua.createBrowserTab('iab', url, { visible: true })`, or DSH workspace view), open or reuse that tab **once**. Do not run extra snapshots, screenshots, inventory, layout, or playback audits.
 - On CLI hosts without a right-hand browser pane (such as Claude Code terminal), do **not** claim a right-hand library opened—provide the clickable `libraryUrl` using `noSidebarWelcomeMarkdown` / `noSidebarTextWelcomeMarkdown`.
 - Never create a placeholder project during onboarding.
@@ -130,7 +129,7 @@ Choose the best supported card surface for the current host (host identity alone
 1. **Native MCP App (when `openmotion_show_template_recommendations` is natively discovered)**:
    - Call `openmotion_show_template_recommendations` with `prepare.cardPresentation.arguments` (`{ templateIds, language, onboarding: true }`) when the right-hand library opened (the component renders the welcome above the three interactive cards—do not duplicate it in text).
    - If the host has no right-hand pane or library opening failed/is unconfirmed, pass `prepare.cardPresentation.cardsOnlyArguments` (`onboarding: false`) and emit `prepare.noSidebarWelcomeMarkdown` in reply text.
-2. **Self-contained HTML visualization cards (Codex default — works even before current-chat MCP tools hot-reload)**:
+2. **Self-contained HTML visualization cards (Codex default when the native MCP App is unavailable)**:
    - Download into the current chat's explicitly permitted visualization directory:
      ```sh
      curl -fsSL "<prepare.inlineHtmlUrl>" -o "<HOST_VISUALIZATION_DIR>/openmotion-welcome.html"

@@ -1,4 +1,5 @@
 import type { Context, MiddlewareHandler } from 'hono';
+import { cloudMcpPostAuthorizationInstructions } from '../../shared/integration.ts';
 import {
   hasMinRole,
   hasScope,
@@ -70,7 +71,9 @@ function buildMcpAuthGuidance(publicOrigin: string, resourceMetadataUrl: string)
     preferred: 'oauth2.1' as const,
     mcpUrl: `${origin}/mcp`,
     installGuideUrl: `${origin}/install.md`,
+    installGuideAudience: 'agent' as const,
     connectPageUrl: `${origin}/mcp-setup`,
+    postAuthorizationInstructions: cloudMcpPostAuthorizationInstructions(origin),
     patSettingsUrl: `${origin}/settings/account#tokens`,
     resourceMetadataUrl,
     cli: {

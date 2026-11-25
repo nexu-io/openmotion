@@ -1026,7 +1026,7 @@ function createHarness(options: { historyCoalesceWindowMs?: number; now?: () => 
   const workspace = new WorkspaceService({ db, storage, files, hotTextCache });
   const assetNames = new AssetNamesService({ db, files });
   const workRounds = new WorkRoundsService(db);
-  const archives = new ProjectArchiveService({ db, storage, workspace, files });
+  const archives = new ProjectArchiveService({ db, storage, workspace, files, publicOrigin: 'https://motion.example.test' });
 
   const queues: StudioQueuesPort = {
     enqueueMediaIngest: async () => ({}),

@@ -880,6 +880,7 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
       '/motion-api/models/defaults',
       '/motion-api/account/summary',
       '/motion-api/integration',
+      `/motion-api/project-archives/${randomUUID()}/file`,
     ]) {
       const res = await app.request(url);
       assert.equal(res.status, 401, `expected 401 for unauthenticated ${url}`);
@@ -940,7 +941,7 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     assert.equal(publicConfigRes.status, 200);
     assert.match(await publicConfigRes.text(), /https:\/\/motion\.example\.test\/mcp/);
 
-    // Unauthenticated /mcp returns 401 with structured authGuidance pointing to /install.md
+    // Unauthenticated /mcp distinguishes Agent instructions from human setup help.
     const unauthMcpRes = await app.request('/mcp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -948,11 +949,16 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     });
     assert.equal(unauthMcpRes.status, 401);
     const unauthMcpBody = (await unauthMcpRes.json()) as {
-      authGuidance?: { preferred?: string; installGuideUrl?: string; connectPageUrl?: string };
+      authGuidance?: {
+        preferred?: string; installGuideUrl?: string; installGuideAudience?: string;
+        connectPageUrl?: string; postAuthorizationInstructions?: string;
+      };
     };
     assert.equal(unauthMcpBody.authGuidance?.preferred, 'oauth2.1');
     assert.equal(unauthMcpBody.authGuidance?.installGuideUrl, 'https://motion.example.test/install.md');
+    assert.equal(unauthMcpBody.authGuidance?.installGuideAudience, 'agent');
     assert.equal(unauthMcpBody.authGuidance?.connectPageUrl, 'https://motion.example.test/mcp-setup');
+    assert.match(unauthMcpBody.authGuidance?.postAuthorizationInstructions ?? '', /new Codex chat/);
 
     // OAuth 2.1 discovery endpoints are public
     const prmRes = await app.request('/.well-known/oauth-protected-resource');
@@ -1163,9 +1169,33 @@ describe('Cloud API Entrypoint — End-to-End Product, Studio & Streamable HTTP 
 
     // 4. tools/list must advertise all 22 registered domain openmotion_* tools
     const listPayload = await callMcp(2, 'tools/list');
-    const tools = (listPayload.result?.tools ?? []) as Array<{ name: string; description: string }>;
+    const tools = (listPayload.result?.tools ?? []) as Array<{
+      name: string;
+      description: string;
+      inputSchema: { properties: { action?: { enum: string[] }; sourcePath?: unknown } };
+    }>;
     assert.equal(tools.length, phase1Tools.length);
     assert.equal(tools.length, 22);
+    const archiveTool = tools.find(tool => tool.name === 'openmotion_project_archive');
+    assert.ok(archiveTool);
+    assert.deepEqual(archiveTool.inputSchema.properties.action?.enum, ['export']);
+    assert.equal(archiveTool.inputSchema.properties.sourcePath, undefined);
+    assert.doesNotMatch(archiveTool.description, /sourcePath|local ZIP path/);
+    assert.ok(archiveTool.description.includes(`POST ${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import`));
+    assert.match(archiveTool.description, /projects:write/);
+    assert.match(archiveTool.description, /projects:read/);
+
+    const legacyArchive = await callMcp(21, 'tools/call', {
+      name: 'openmotion_project_archive',
+      arguments: { action: 'import', requestId: 'archive-legacy', sourcePath: '/tmp/project.zip' },
+    });
+    assert.equal(legacyArchive.result?.isError, true);
+    const legacyError = (legacyArchive.result?.structuredContent as {
+      error: { status: number; details: { legacyCode: string } };
+    }).error;
+    assert.equal(legacyError.status, 400);
+    assert.equal(legacyError.details.legacyCode, 'LOCAL_PATH_UNSUPPORTED_IN_CLOUD');
+    assert.ok(JSON.stringify(legacyArchive.result).includes(`POST ${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import`));
     const transcriptGuide = tools.find(tool => tool.name === 'openmotion_assets_use')?.description;
     assert.ok(transcriptGuide);
     assert.match(transcriptGuide, /Cloud ASR submit\/status is unavailable/);
@@ -3413,6 +3443,9 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     assert.equal(initRes.status, 200);
     const initJson = (await initRes.json()) as { result?: { instructions?: string } };
     assert.match(initJson.result?.instructions ?? '', /https:\/\/motion\.example\.test/);
+    assert.match(initJson.result?.instructions ?? '', /After authorization, keep \/install\.md internal/);
+    assert.match(initJson.result?.instructions ?? '', /new Codex chat.*creative request/);
+    assert.ok(initJson.result?.instructions?.includes(`${config.APP_PUBLIC_ORIGIN}/mcp-setup`));
     const mcpSessionId = initRes.headers.get('mcp-session-id');
     assert.ok(mcpSessionId);
 
@@ -3448,17 +3481,73 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     });
     assert.equal(prepProjectB.result?.isError, undefined, JSON.stringify(prepProjectB.result));
 
+    // A cloud archive has an absolute, authenticated download URL and can be uploaded through HTTP.
+    const exportArgs = { action: 'export', projectIds: [projectB], requestId: 'archive-export-e2e' };
+    const exported = await callTool(20, 'openmotion_project_archive', exportArgs);
+    assert.equal(exported.result?.isError, undefined, JSON.stringify(exported.result));
+    const archive = exported.result?.structuredContent as {
+      archiveId: string; downloadUrl: string; downloadInstructions: string; bytes: number; sha256: string;
+    };
+    const archiveFile = `/motion-api/project-archives/${archive.archiveId}/file`;
+    assert.equal(archive.downloadUrl, `${config.APP_PUBLIC_ORIGIN}${archiveFile}`);
+    assert.match(archive.downloadInstructions, /OAuth.*PAT.*projects:read/);
+
+    const receipt = pgClient.rows('idempotency_receipts').find(row => row.request_id === exportArgs.requestId)!;
+    receipt.response_payload = { ...(receipt.response_payload as object), downloadUrl: archiveFile };
+    const retried = await callTool(21, 'openmotion_project_archive', exportArgs);
+    assert.deepEqual(retried.result?.structuredContent, { ...archive, replayed: true });
+
+    const archiveResponse = await app.request(archive.downloadUrl, {
+      headers: { Authorization: mcpHeaders.Authorization },
+    });
+    assert.equal(archiveResponse.status, 302);
+    const storageUrl = new URL(archiveResponse.headers.get('location')!);
+    const zip = await fixture.storage.getObjectBuffer(decodeURIComponent(storageUrl.pathname.slice(1)));
+    assert.equal(zip.byteLength, archive.bytes);
+    assert.equal(createHash('sha256').update(zip).digest('hex'), archive.sha256);
+
+    const owner = { ...agent, role: 'owner' as const, authMethod: 'session_cookie' as const };
+    const pat = await createPat(authStore, owner, { name: 'Archive download', scopes: ['projects:read'] });
+    const patHeaders = { Authorization: `Bearer ${pat.token}` };
+    assert.equal((await app.request(archive.downloadUrl, { headers: patHeaders })).status, 302);
+
+    const otherWorkspaceId = randomUUID();
+    authStore.seedWorkspace({ userId: otherUserId, workspaceId: otherWorkspaceId, email: 'other@example.test' });
+    const otherPat = await createPat(authStore, { ...owner, userId: otherUserId, workspaceId: otherWorkspaceId }, {
+      name: 'Another workspace download', scopes: ['projects:read'],
+    });
+    assert.equal((await app.request(archive.downloadUrl, {
+      headers: { Authorization: `Bearer ${otherPat.token}` },
+    })).status, 404);
+
+    const uploadUrl = `${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import?requestId=archive-upload-e2e`;
+    const uploadOptions = {
+      method: 'POST', body: new Uint8Array(zip),
+      headers: { Authorization: mcpHeaders.Authorization, 'Content-Type': 'application/zip' },
+    };
+    assert.equal((await app.request(uploadUrl, { ...uploadOptions, headers: patHeaders })).status, 403);
+    const uploaded = await app.request(uploadUrl, uploadOptions);
+    assert.equal(uploaded.status, 201);
+    const imported = (await uploaded.json()) as { imported: Array<{ projectId: string }> };
+    assert.equal(imported.imported.length, 1);
+    assert.notEqual(imported.imported[0].projectId, projectB);
+    const uploadRetry = await app.request(uploadUrl, uploadOptions);
+    assert.equal(uploadRetry.status, 200);
+    assert.deepEqual((await uploadRetry.json() as typeof imported).imported, imported.imported);
+
     // 2. Accessing another user's project returns PROJECT_NOT_FOUND with environment diagnostics
     const readOther = await callTool(4, 'openmotion_get_project', { projectId: otherUserProject });
     assert.equal(readOther.result?.isError, true);
     const errObj = readOther.result?.structuredContent?.error as {
       code?: string;
-      details?: { serverOrigin?: string; installGuideUrl?: string; hint?: string };
+      details?: { serverOrigin?: string; installGuideUrl?: string; connectPageUrl?: string; hint?: string };
     };
     assert.equal(errObj?.code, 'PROJECT_NOT_FOUND');
     assert.equal(errObj?.details?.serverOrigin, 'https://motion.example.test');
     assert.equal(errObj?.details?.installGuideUrl, 'https://motion.example.test/install.md');
-    assert.match(errObj?.details?.hint ?? '', /motion\.example\.test/);
+    assert.equal(errObj?.details?.connectPageUrl, 'https://motion.example.test/mcp-setup');
+    assert.match(errObj?.details?.hint ?? '', /motion\.example\.test\/mcp-setup/);
+    assert.doesNotMatch(errObj?.details?.hint ?? '', /\/install\.md/);
 
     const prepOther = await callTool(5, 'openmotion_import_assets', {
       action: 'prepare_upload',

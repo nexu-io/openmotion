@@ -99,9 +99,13 @@ List trashed projects with `openmotion_get_project({ trashed: true })`. Use `tra
 
 ### openmotion_project_archive
 
-`action=export` accepts `projectIds` or `all=true`, a stable `requestId`, and optional `expectedRevisions`. The result includes `archiveId`, absolute `archivePath`, `downloadUrl`, `filename`, `bytes`, `sha256` and source project revisions. Export-all excludes Trash and skips an uninitialized built-in welcome project, reporting `skippedProjectIds`. Export requires saved source and validates the finished ZIP with the import rules before returning it; it does not render a video.
+`action=export` accepts `projectIds` or `all=true`, a stable `requestId`, and optional `expectedRevisions`. It validates the finished ZIP and returns `archiveId`, `downloadUrl`, `filename`, `bytes`, `sha256` and source project revisions. Export-all excludes Trash. Desktop also returns the local `archivePath`.
 
-`action=import` accepts an absolute local ZIP `sourcePath` and stable `requestId`. It validates all projects before registration and returns new project/session identities without selecting them. Repeating the same request returns the same copies; reusing the ID with different bytes fails. OpenMotion packages and one native HyperFrames folder are supported. See [the format, exclusions and limits](project-archives.md). Browser uploads and MCP call the same implementation; the browser supplies file bytes through the upload adapter. Current host stdio configuration is unchanged.
+Cloud MCP exposes the export action. Its absolute `downloadUrl` uses the deployment's public origin. Open it while signed in to the same Studio workspace or send an OAuth access token or workspace PAT in the `Authorization: Bearer` header with `projects:read`. Follow the short-lived storage redirect and compare the ZIP's SHA-256 to `sha256`.
+
+In the cloud, upload the ZIP in Studio or send its bytes to `POST <origin>/motion-api/project-archives/import?requestId=<stable-id>` with `Content-Type: application/zip`. An API client uses OAuth or PAT Bearer authentication with `projects:write` and at least editor access. Desktop MCP accepts `action=import` with an absolute local ZIP `sourcePath` and a stable `requestId`. Cloud rejects legacy MCP imports with `sourcePath` as `LOCAL_PATH_UNSUPPORTED_IN_CLOUD`.
+
+Both environments validate imports before creating independent copies. Repeating the same request returns the same copies. Reusing the ID with different bytes is rejected. See [the format, exclusions and limits](project-archives.md).
 
 ### openmotion_assets_use / openmotion_assets
 

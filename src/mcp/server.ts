@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/server';
 import { createToolRegistry } from '../../shared/mcp-registry.ts';
-import { finalVideoTool, phase1Tools } from '../../shared/phase1-tools.ts';
+import { cloudMcpPostAuthorizationInstructions } from '../../shared/integration.ts';
+import { cloudPhase1Tools, finalVideoTool } from '../../shared/phase1-tools.ts';
 import { VERSION } from '../../shared/version.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import {
@@ -101,11 +102,10 @@ export function createPerRequestMcpServer(options: CreatePerRequestMcpServerOpti
     ? [...(templatePresentation ? [templatePresentation.tool] : []), finalVideoTool]
     : [];
 
-  const registry = createToolRegistry(phase1Tools, 'phase1', extensions);
+  const registry = createToolRegistry(cloudPhase1Tools(options.publicOrigin), 'phase1', extensions);
   const envLine = `Connected cloud server origin: ${options.publicOrigin.replace(/\/+$/, '')} (workspace: ${options.auth.workspaceId}, auth: ${options.auth.authMode}).`;
-  const instructions = registry.instructions
-    ? `${registry.instructions}\n\n${envLine}`
-    : envLine;
+  const instructions = [registry.instructions, envLine, cloudMcpPostAuthorizationInstructions(options.publicOrigin)]
+    .filter(Boolean).join('\n\n');
 
   const server = new Server(
     {

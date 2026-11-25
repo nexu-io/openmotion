@@ -41,6 +41,7 @@ export interface ProjectArchiveServiceDeps {
   readonly storage: StoragePort;
   readonly workspace: WorkspaceService;
   readonly files: ProjectFilesService;
+  readonly publicOrigin: string;
 }
 
 export interface ArchiveExportInput {
@@ -235,12 +236,18 @@ export class ProjectArchiveService {
   private readonly storage: StoragePort;
   private readonly workspace: WorkspaceService;
   private readonly files: ProjectFilesService;
+  private readonly publicOrigin: string;
 
   constructor(deps: ProjectArchiveServiceDeps) {
     this.db = deps.db;
     this.storage = deps.storage;
     this.workspace = deps.workspace;
     this.files = deps.files;
+    this.publicOrigin = deps.publicOrigin;
+  }
+
+  private archiveDownloadUrl(archiveId: string): string {
+    return new URL(`/motion-api/project-archives/${archiveId}/file`, this.publicOrigin).href;
   }
 
   /**
@@ -284,10 +291,8 @@ export class ProjectArchiveService {
         });
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
-        return {
-          ...(existingReceipt[0].responsePayload as unknown as ArchiveExportResult),
-          replayed: true,
-        };
+        const result = existingReceipt[0].responsePayload as unknown as ArchiveExportResult;
+        return { ...result, downloadUrl: this.archiveDownloadUrl(result.archiveId), replayed: true };
       }
     }
 
@@ -449,7 +454,7 @@ export class ProjectArchiveService {
       filename,
       bytes: zipBytes.byteLength,
       sha256: sha256Hex(zipBytes),
-      downloadUrl: `/motion-api/project-archives/${archiveId}/file`,
+      downloadUrl: this.archiveDownloadUrl(archiveId),
       projects: exportedEntries,
       skippedProjectIds,
       replayed: false,

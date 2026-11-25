@@ -248,6 +248,7 @@ it('preserves cloud connection, manual download and project-file guidance on the
     const download = document.querySelector<HTMLAnchorElement>('a[download="openmotion-chatgpt.json"]');
     expect(download?.getAttribute('href')).toContain('https%3A%2F%2Fmotion.example.com%2Fmcp');
     expect(button('Manage API tokens (PAT)')).toBeDefined();
+    expect(document.querySelector('a[href$="/install.md"]')).toBeNull();
     await act(async () => (document.querySelector('#dev-drawer > button') as HTMLButtonElement).click());
     const card = document.querySelector('[data-mcp-scenario="project-file"]')!;
     await act(async () => card.querySelector('button')!.click());
@@ -279,6 +280,8 @@ it('loads public cloud MCP discovery via /connect/integration when unauthenticat
     await act(async () => button('复制 Codex 安装指令').click());
     expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/install.md'));
     expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/mcp'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('打开新的 Codex 聊天并发送创作需求'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/mcp-setup'));
     expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('openmotion#quick-start'));
   } finally {
     setCachedCloudDisklessMode(null);

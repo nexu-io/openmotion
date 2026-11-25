@@ -31,7 +31,7 @@ afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks()
 it('lists projects and waits for pending saves before exporting all through the shared tool', async () => {
   let saved!: () => void;
   save.mockImplementationOnce(() => new Promise<void>(resolve => { saved = resolve; }));
-  vi.mocked(motionApi).mockResolvedValue({ downloadUrl: '/motion-api/project-archives/archive/file', filename: 'projects.zip', projects: [] });
+  vi.mocked(motionApi).mockResolvedValue({ downloadUrl: 'https://motion.example.test/motion-api/project-archives/archive/file', filename: 'projects.zip', projects: [] });
   await act(async () => button('Manage').click());
   expect(document.querySelector('[role=dialog]')?.textContent).toContain('Second film');
   await act(async () => button('Export all projects').click());
@@ -57,8 +57,8 @@ it('exports the selected project from an opened menu and retries with the same r
   expect(JSON.parse(vi.mocked(motionApi).mock.calls[1][1]!.body as string)).toEqual(first);
 });
 
-it('uploads ZIP bytes, refreshes the project list and never automatically opens imported projects', async () => {
-  vi.mocked(motionApi).mockResolvedValue({ projects: [{ projectId: 'new' }] });
+it.each(['imported', 'projects'])('uploads ZIP bytes and reads the %s result without opening the new project', async key => {
+  vi.mocked(motionApi).mockResolvedValue({ [key]: [{ projectId: 'new' }] });
   const input = document.querySelector<HTMLInputElement>('input[type=file]')!;
   const file = new File(['zip bytes'], 'shared.zip', { type: 'application/zip' });
   Object.defineProperty(input, 'files', { configurable: true, value: [file] });

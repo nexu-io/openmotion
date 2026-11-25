@@ -63,7 +63,11 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(body.includes('create_thread'));
     assert.ok(body.includes('navigate_to_codex_page'));
     assert.ok(body.includes('Output purity rule'));
-    assert.ok(body.includes(`${customOrigin}/install.md`), 'Handoff prompt must bind to APP_PUBLIC_ORIGIN');
+    assert.ok(body.includes(`${customOrigin}/mcp-setup`), 'Human-facing setup help must bind to APP_PUBLIC_ORIGIN');
+    const completionGuide = body.slice(body.indexOf('## Step 3:'));
+    assert.doesNotMatch(completionGuide, /https?:\/\/\S+\/install\.md/);
+    assert.match(completionGuide, /open a new Codex chat and send your creative request/i);
+    assert.match(body, /Never show .*install\.md.*user-facing/);
     assert.ok(!body.includes('Workbench'), 'Login guidance must avoid internal Workbench jargon');
     assert.ok(body.includes('/mcp'));
     assert.ok(body.includes('Mode A (pure setup)'));
@@ -168,6 +172,9 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(prep.welcomeMarkdown.includes('🎉 OpenMotion 连接好啦，右侧就是模板库！'));
     assert.ok(prep.noSidebarWelcomeMarkdown.includes(prep.libraryUrl));
     assert.ok(!prep.noSidebarWelcomeMarkdown.includes('右侧就是模板库'));
+    for (const welcome of [prep.welcomeMarkdown, prep.noSidebarWelcomeMarkdown]) {
+      assert.doesNotMatch(welcome, /\/install\.md/);
+    }
     assert.equal(prep.cardPresentation.tool, 'openmotion_show_template_recommendations');
     assert.deepEqual(prep.cardPresentation.arguments.templateIds, prep.templateIds);
     assert.equal(prep.dshCardPresentation.tool, 'propose_action');

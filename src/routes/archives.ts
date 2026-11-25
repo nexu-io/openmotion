@@ -16,6 +16,10 @@ export interface ArchivesRouterDeps {
 
 const READ_REQ = { scope: 'projects:read' } as const;
 const WRITE_REQ = { scope: 'projects:write', minRole: 'editor' } as const;
+const archiveDownloadHeaders = {
+  ...PRESIGNED_REDIRECT_HEADERS,
+  Vary: `${PRESIGNED_REDIRECT_HEADERS.Vary}, Authorization, X-OpenMotion-Workspace-Id`,
+};
 
 async function requireAuth(
   c: Context<{ Variables: ProductRouteVariables }>,
@@ -121,8 +125,8 @@ export function createArchivesRouter(deps: ArchivesRouterDeps): Hono<{ Variables
       c.header('Content-Length', String(head.contentLength));
       c.header('Accept-Ranges', 'bytes');
       c.header('Content-Disposition', buildContentDisposition('attachment', downloadName));
-      c.header('Cache-Control', PRESIGNED_REDIRECT_HEADERS['Cache-Control']);
-      c.header('Vary', PRESIGNED_REDIRECT_HEADERS.Vary);
+      c.header('Cache-Control', archiveDownloadHeaders['Cache-Control']);
+      c.header('Vary', archiveDownloadHeaders.Vary);
       return c.body(null, 200);
     }
 
@@ -133,7 +137,7 @@ export function createArchivesRouter(deps: ArchivesRouterDeps): Hono<{ Variables
       status: 302,
       headers: {
         Location: download.url,
-        ...PRESIGNED_REDIRECT_HEADERS,
+        ...archiveDownloadHeaders,
       },
     });
   });

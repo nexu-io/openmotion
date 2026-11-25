@@ -43,7 +43,8 @@ import {
   integrationHost,
 } from '../../shared/integration.ts';
 import { loadLibrarySkills, skillNextStep } from '../../shared/library-skill-catalog.ts';
-import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts';
+import { cloudPhase1Tools, phase1McpCapabilities } from '../../shared/phase1-tools.ts';
+import { cloudProjectArchiveDownloadInstructions } from '../../shared/project-archive.ts';
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
@@ -1853,25 +1854,13 @@ function createMcpDomainPorts(deps: {
 
     archive: {
       async handleProjectArchive(auth, args) {
-        const action = String(args.action ?? '');
-        const requestId = String(args.requestId ?? randomUUID());
-        if (action === 'export') {
-          const res = await deps.archives.exportProjects(auth, {
-            requestId,
-            projectIds: Array.isArray(args.projectIds) ? (args.projectIds as string[]) : undefined,
-            all: args.all === true,
-            expectedRevisions:
-              args.expectedRevisions && typeof args.expectedRevisions === 'object'
-                ? (args.expectedRevisions as Record<string, string>)
-                : undefined,
-          });
-          return res as unknown as Record<string, unknown>;
-        }
-        throw new CloudError(
-          'INVALID_ARGUMENT',
-          'LOCAL_PATH_UNSUPPORTED_IN_CLOUD: Upload project archives via POST /motion-api/project-archives/import in cloud deployments.',
-          { status: 400, applied: false, details: { legacyCode: 'LOCAL_PATH_UNSUPPORTED_IN_CLOUD' } },
-        );
+        const result = await deps.archives.exportProjects(auth, {
+          requestId: args.requestId as string,
+          projectIds: args.projectIds as string[] | undefined,
+          all: args.all === true,
+          expectedRevisions: args.expectedRevisions as Record<string, string> | undefined,
+        });
+        return { ...result, downloadInstructions: cloudProjectArchiveDownloadInstructions };
       },
     },
 
@@ -1957,7 +1946,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   });
   const assetNames = new AssetNamesService({ db, files });
   const workRounds = new WorkRoundsService(db);
-  const archives = new ProjectArchiveService({ db, storage, workspace, files });
+  const archives = new ProjectArchiveService({ db, storage, workspace, files, publicOrigin: config.APP_PUBLIC_ORIGIN });
   const assets = new AssetLibraryService({
     db,
     storage,
@@ -2451,7 +2440,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       patEnabled: true,
       authorizationServerUrl: oauth21.issuer,
       resourceMetadataUrl: oauth21.resourceMetadataUrl,
-      tools: phase1Tools.map((tool) => ({ name: tool.name, description: tool.description })),
+      tools: cloudPhase1Tools(config.APP_PUBLIC_ORIGIN).map(tool => ({ name: tool.name, description: tool.description })),
     });
 
   app.get('/motion-api/integration', authWithWelcome, (c) => {

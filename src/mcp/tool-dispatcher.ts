@@ -4,10 +4,11 @@ import { assetReadToolResult, type AssetReadResult } from '../../shared/asset-li
 import { designScenarios } from '../../shared/design-project.ts';
 import { inlineVideoUri } from '../../shared/inline-video.ts';
 import {
+  cloudPhase1Tools,
   finalVideoTool,
-  phase1Tools,
   validateInput,
 } from '../../shared/phase1-tools.ts';
+import { cloudProjectArchiveImportInstructions } from '../../shared/project-archive.ts';
 import { publicToolName, publicToolResult } from '../../shared/public-names.mjs';
 import { ToolInputError } from '../../shared/tool-input-error.ts';
 import {
@@ -229,12 +230,12 @@ function formatErrorResult(error: unknown): McpToolCallResponse {
 export class McpToolDispatcher {
   private readonly config: AppConfig;
   private readonly ports: McpDomainPorts;
-  private readonly phase1ByName: Map<string, (typeof phase1Tools)[number]>;
+  private readonly phase1ByName: Map<string, ReturnType<typeof cloudPhase1Tools>[number]>;
 
   constructor(config: AppConfig, ports: McpDomainPorts) {
     this.config = config;
     this.ports = ports;
-    this.phase1ByName = new Map(phase1Tools.map((tool) => [tool.name, tool]));
+    this.phase1ByName = new Map(cloudPhase1Tools(config.APP_PUBLIC_ORIGIN).map(tool => [tool.name, tool]));
   }
 
   async dispatch(
@@ -366,7 +367,19 @@ export class McpToolDispatcher {
         this.ports.importAssets.assertNoLegacySourcePath(argsObj);
       }
 
-      // Validate input against canonical phase1 schema.
+      // Preserve the legacy import error before the cloud export-only schema runs.
+      if (name === 'openmotion_project_archive' && argsObj.action === 'import') {
+        requireToolScopes(ctx.auth, ['projects:write']);
+        const instructions = cloudProjectArchiveImportInstructions(this.config.APP_PUBLIC_ORIGIN);
+        if (Object.hasOwn(argsObj, 'sourcePath')) {
+          throw new CloudError('INVALID_ARGUMENT', `LOCAL_PATH_UNSUPPORTED_IN_CLOUD: ${instructions}`, {
+            status: 400, applied: false, details: { legacyCode: 'LOCAL_PATH_UNSUPPORTED_IN_CLOUD' },
+          });
+        }
+        throw new CloudError('INVALID_ARGUMENT', instructions, { status: 400, applied: false });
+      }
+
+      // Validate input against the cloud phase-one schema.
       validateInput(definition.inputSchema, argsObj);
 
       const result = await this.dispatchDomainTool(name, argsObj, ctx);
@@ -408,7 +421,9 @@ export class McpToolDispatcher {
               authMode: ctx.auth.authMode,
               workspaceId: ctx.auth.workspaceId,
               installGuideUrl: `${serverOrigin}/install.md`,
-              hint: `Connected to ${serverOrigin} (workspace:${ctx.auth.workspaceId}). Verify that your MCP server origin and signed-in workspace match the target project URL; if not, follow ${serverOrigin}/install.md to connect to the matching deployment.`,
+              installGuideAudience: 'agent',
+              connectPageUrl: `${serverOrigin}/mcp-setup`,
+              hint: `Connected to ${serverOrigin} (workspace:${ctx.auth.workspaceId}). Verify that the MCP server origin and signed-in workspace match the target project URL. For user-facing setup help, open ${serverOrigin}/mcp-setup.`,
             },
           }),
         );
@@ -588,7 +603,7 @@ export class McpToolDispatcher {
       }
 
       case 'openmotion_project_archive': {
-        requireToolScopes(auth, args.action === 'export' ? ['projects:read'] : ['projects:write']);
+        requireToolScopes(auth, ['projects:read']);
         if (!this.ports.archive) {
           throw new CloudError('SERVICE_UNAVAILABLE', 'Project archive service is not wired', { status: 503, applied: false });
         }

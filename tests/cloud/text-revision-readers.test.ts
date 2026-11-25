@@ -71,7 +71,7 @@ async function fixture() {
     eventBus,
   });
   const workspace = new WorkspaceService({ db, storage, files });
-  const archive = new ProjectArchiveService({ db, storage, files, workspace });
+  const archive = new ProjectArchiveService({ db, storage, files, workspace, publicOrigin: 'https://motion.example.test' });
   const history = new VersionHistoryService({ db, storage, historyCoalesceWindowMs: 0, eventBus });
   await pool.query('INSERT INTO users(id,oidc_sub,display_name) VALUES ($1,$2,$2)', [userId, userId]);
   await pool.query('INSERT INTO workspaces(id,slug,name,owner_user_id) VALUES ($1,$2,$2,$3)', [workspaceId, workspaceId, userId]);

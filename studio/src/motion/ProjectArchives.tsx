@@ -93,13 +93,15 @@ export function useProjectArchives(
     }
     acting.current = true; setBusy('import');
     try {
-      const result = await motionApi<{ projects: { projectId: string }[] }>('/project-archives/import?requestId=' + requestId,
+      type ImportedProjects = { projectId: string }[];
+      const result = await motionApi<{ imported: ImportedProjects } | { projects: ImportedProjects }>('/project-archives/import?requestId=' + requestId,
         { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file });
+      const imported = 'imported' in result ? result.imported : result.projects;
       workspace.retryConnection();
-      tracking.reportProjectManage('import', 'success', result.projects.length);
+      tracking.reportProjectManage('import', 'success', imported.length);
       setQuery('');
       if (!opened) showManager();
-      toast.showToast(t('Imported {count} projects as new copies.', { count: result.projects.length }), 'info', 'feedback');
+      toast.showToast(t('Imported {count} projects as new copies.', { count: imported.length }), 'info', 'feedback');
     } catch (error) {
       tracking.reportProjectManage('import', 'failure', 0);
       const message = archiveErrorMessage(error);

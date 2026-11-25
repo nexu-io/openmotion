@@ -6,7 +6,7 @@ import { inlineVideoUri } from './inline-video.ts';
 import { templateGuideDraftSchema } from './template-guide.ts';
 import { publicToolName, legacyToolName } from './public-names.mjs';
 import { templateDiscoveryGuide, skillDiscoveryGuide } from './workflow-entry.js';
-import { projectArchiveTool } from './project-archive.ts';
+import { cloudProjectArchiveTool, projectArchiveTool } from './project-archive.ts';
 import { projectManagementTool } from './project-management.ts';
 import { assetLibraryTool, workspaceAssetUseTool } from './asset-tools.ts';
 import { designTools } from './design-tools.ts';
@@ -227,6 +227,10 @@ export const phase1Tools = [
 ];
 
 // Increment for incompatible request/response semantics; optional fields and new Tools are additive.
+export function cloudPhase1Tools(publicOrigin: string) {
+  return phase1Tools.map(tool => tool.name === projectArchiveTool.name ? cloudProjectArchiveTool(publicOrigin) : tool);
+}
+
 export const phase1McpCapabilities = { protocol: 1, tools: phase1Tools.map(tool => tool.name) };
 
 export function phase1TransportTool(health: { mcp?: { protocol?: unknown; tools?: unknown } }, tool?: string): string | undefined {

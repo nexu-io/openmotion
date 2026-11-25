@@ -526,16 +526,18 @@ export function McpConnectionPage({
                               {t('Download configuration')}
                             </a>
                           )}
-                          <a
-                            className="om-mcp-manual-link"
-                            href={setupGuideUrl(info)}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={() => click('mcp_setup', 'connection_guide', { setup_method: 'manual' })}
-                          >
-                            <span>{t('Connection guide')}</span>
-                            <RemixIcon name="arrow-right-up-line" size={14} />
-                          </a>
+                          {!httpTransport && (
+                            <a
+                              className="om-mcp-manual-link"
+                              href={setupGuideUrl(info)}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={() => click('mcp_setup', 'connection_guide', { setup_method: 'manual' })}
+                            >
+                              <span>{t('Connection guide')}</span>
+                              <RemixIcon name="arrow-right-up-line" size={14} />
+                            </a>
+                          )}
                           {httpTransport?.auth.pat && (
                             <Button
                               variant="plain"
