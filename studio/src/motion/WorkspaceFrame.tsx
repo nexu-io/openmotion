@@ -419,7 +419,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         {close => <WorkspaceSidebar archives={archives} currentId={projectId} close={close} expand={() => { close(); toggleSidebar(); }} onNavigate={close} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} openTemplates={openMotionTemplates} />}
       </WorkspaceProjectsButton>
     </span> : null,
-    settingsOpen: Boolean(settings) || pageOpen };
+    settingsOpen: Boolean(settings) || pageOpen || mobileEditorGate };
   const openSkill = (skill: string) => {
     const specialty = creativeStudios.find((entry): entry is TechniqueStudio => entry.surface === 'techniques' && entry.techniques.some(id => id === skill));
     navigatePage({ ...(specialty ? { specialty } : { skills: true }), skill, templates: false, ...lastExplore.current });

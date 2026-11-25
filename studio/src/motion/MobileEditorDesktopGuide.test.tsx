@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { MobileEditorDesktopGuide } from './MobileEditorDesktopGuide';
+import { WorkspaceFrame, useWorkspaceChrome } from './WorkspaceFrame';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -103,6 +104,99 @@ describe('MobileEditorDesktopGuide', () => {
       );
     } finally {
       act(() => root.unmount());
+    }
+  });
+
+  it('marks workspace chrome inactive so playback pauses when resizing from desktop to mobile', async () => {
+    const originalWidth = window.innerWidth;
+    const originalMatchMedia = window.matchMedia;
+    const listeners = new Map<string, Set<() => void>>();
+    const mediaState = new Map<string, boolean>([
+      ['(max-width: 767px)', false],
+      ['(max-width: 639px)', false],
+    ]);
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1440 });
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        get matches() {
+          return mediaState.get(query) ?? false;
+        },
+        media: query,
+        addEventListener: (_: string, fn: () => void) => {
+          if (!listeners.has(query)) listeners.set(query, new Set());
+          listeners.get(query)!.add(fn);
+        },
+        removeEventListener: (_: string, fn: () => void) => {
+          listeners.get(query)?.delete(fn);
+        },
+      }),
+    });
+
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ activeId: 'proj-1', projects: [{ id: 'proj-1', title: 'Demo' }] })));
+    history.replaceState(null, '', '/editor/proj-1');
+
+    const observedSettingsOpen: boolean[] = [];
+    function PlaybackLifecycleProbe() {
+      const chrome = useWorkspaceChrome();
+      useEffect(() => {
+        observedSettingsOpen.push(Boolean(chrome.settingsOpen));
+      }, [chrome.settingsOpen]);
+      return <div data-testid="mounted-editor">Editor</div>;
+    }
+
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          <I18nProvider initialLocale="en">
+            <WorkspaceFrame projectId="proj-1" waitForSaves={async () => {}}>
+              <PlaybackLifecycleProbe />
+            </WorkspaceFrame>
+          </I18nProvider>,
+        );
+      });
+
+      expect(observedSettingsOpen.at(-1)).toBe(false);
+      expect(container.querySelector('.om-mobile-editor-guide')).toBeNull();
+      expect(container.querySelector('[data-testid="mounted-editor"]')).not.toBeNull();
+
+      // Resize into mobile phone viewport (< 640px).
+      await act(async () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
+        mediaState.set('(max-width: 767px)', true);
+        mediaState.set('(max-width: 639px)', true);
+        listeners.get('(max-width: 639px)')?.forEach(fn => fn());
+      });
+
+      expect(observedSettingsOpen.at(-1)).toBe(true);
+      expect(container.querySelector('.om-mobile-editor-guide')).not.toBeNull();
+      expect(container.querySelector('.motion-workspace-content')?.hasAttribute('hidden')).toBe(true);
+      expect(container.querySelector('[data-testid="mounted-editor"]')).not.toBeNull();
+
+      // Resize back to desktop viewport (>= 768px).
+      await act(async () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1440 });
+        mediaState.set('(max-width: 767px)', false);
+        mediaState.set('(max-width: 639px)', false);
+        listeners.get('(max-width: 639px)')?.forEach(fn => fn());
+      });
+
+      expect(observedSettingsOpen.at(-1)).toBe(false);
+      expect(container.querySelector('.om-mobile-editor-guide')).toBeNull();
+      expect(container.querySelector('.motion-workspace-content')?.hasAttribute('hidden')).toBe(false);
+    } finally {
+      act(() => root.unmount());
+      Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: originalWidth });
+      Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: originalMatchMedia });
+      history.replaceState(null, '', '/');
     }
   });
 });
