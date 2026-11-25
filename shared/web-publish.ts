@@ -141,7 +141,7 @@ export const webPublishRoutes = {
 } as const;
 
 export const webPublishToolDescription =
-  ' Use action=web_publish with webPublish={command:"publish"|"status"|"unpublish"|"list", targetKind:"design"|"game"|"html"|"motion", ...} to bundle local referenced assets and publish any HTML-expressed project, playable game (including embedUrl for community HTTPS games), or standalone HTML file/folder to a unique Open Design Cloud share link.';
+  ' Use action=web_publish with webPublish={command:"publish"|"status"|"visibility"|"unpublish"|"list", targetKind:"design"|"game"|"html"|"motion", ...} to bundle local referenced assets and publish any HTML-expressed project, playable game (including embedUrl for community HTTPS games), or standalone HTML file/folder to a unique Open Design Cloud share link. For targetKind="game", pass visibility ("public"|"unlisted") and allowRemix on publish or command="visibility" (unlisted requires a paid OpenDesign Go+ plan).';
 
 export const webPublishToolArguments = {
   type: 'object',

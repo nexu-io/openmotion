@@ -10,7 +10,10 @@ import {
   type WebPublishAccountClient,
 } from '../gateway/web-publish.ts';
 import { resolveWebPublishTarget } from '../gateway/web-publish-ops.ts';
-import { loadBuiltinGameTemplates } from '../scripts/publish-game-templates.ts';
+import {
+  defaultTemplateDeployDataDir,
+  loadBuiltinGameTemplates,
+} from '../scripts/publish-game-templates.ts';
 import { pluginRoot } from '../hyperframes.ts';
 import { isPaidWebPublishPlan, type WebPublishFeedStatus, type WebPublishVisibility } from '../shared/web-publish.ts';
 import { startServer } from '../server.ts';
@@ -598,5 +601,76 @@ test('WebPublishService hydrates missing billing plan via refresh=true and toler
     assert.equal(toggled.publication.visibility, 'public');
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('WebPublishService preserves local publication state when post-publish game-listing sync hits a transient 500 error', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-listing-500-'));
+  try {
+    const gameDir = path.join(root, 'resilient-game');
+    await mkdir(gameDir, { recursive: true });
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Resilient Game</h1>');
+
+    const baseMock = createCommunityMockAccount('go');
+    const client: WebPublishAccountClient = {
+      isSignedIn: baseMock.client.isSignedIn,
+      listWorkspaces: baseMock.client.listWorkspaces,
+      summary: baseMock.client.summary,
+      runWithEnv: baseMock.client.runWithEnv,
+      async controlApiJson(apiPath: string, options?: { method?: string }) {
+        const method = options?.method ?? 'GET';
+        if (apiPath === '/api/v1/collab/game-share-entitlement' && method === 'GET') {
+          return { canUsePrivateShare: true, planTier: 'go', requiredPlan: 'go' } as never;
+        }
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing$/.test(apiPath) && method === 'PUT') {
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (503: SERVICE_UNAVAILABLE)`);
+        }
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing(?:\?.*)?$/.test(apiPath) && method === 'GET') {
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (503: SERVICE_UNAVAILABLE)`);
+        }
+        throw new Error(`Unexpected controlApiJson call: ${method} ${apiPath}`);
+      },
+    };
+
+    const dataDir = path.join(root, 'pub-data');
+    const service = new WebPublishService(dataDir, client);
+    const target = {
+      kind: 'game' as const,
+      id: 'resilient-game',
+      title: 'Resilient Game',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-1',
+      sourcePath: gameDir,
+    };
+
+    const published = await service.publish(target, { visibility: 'public' });
+    assert.equal(published.publication.status, 'published');
+    assert.equal(published.publication.visibility, 'public');
+    assert.equal(published.publication.feedStatus, 'pending');
+    assert.match(published.url ?? '', /^https:\/\/open-design\.app\/artifact\/[^/]+\/[^?]+\?kind=game$/);
+
+    // Local publication record is persisted so subsequent status() reflects the live share.
+    const afterStatus = await service.status(target);
+    assert.equal(afterStatus.active?.status, 'published');
+    assert.equal(afterStatus.active?.slug, published.publication.slug);
+    assert.equal(afterStatus.active?.url, published.url);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('defaultTemplateDeployDataDir resolves outside the repository checkout', () => {
+  const previous = process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR;
+  delete process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR;
+  try {
+    const resolved = path.resolve(defaultTemplateDeployDataDir());
+    const repoRoot = path.resolve(pluginRoot);
+    const relative = path.relative(repoRoot, resolved);
+    assert.ok(
+      relative.startsWith('..') || path.isAbsolute(relative),
+      `expected defaultTemplateDeployDataDir (${resolved}) to live outside repo (${repoRoot})`,
+    );
+  } finally {
+    if (previous !== undefined) process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR = previous;
   }
 });

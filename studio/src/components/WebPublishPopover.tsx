@@ -169,6 +169,9 @@ export function WebPublishPopover({
         refresh: refreshRemote,
       });
       setStatus(next);
+      if (next.active?.visibility) {
+        setDraftVisibility(next.active.visibility);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('Could not check share status'));
     } finally {
@@ -203,8 +206,10 @@ export function WebPublishPopover({
   }, [onCopyUrl, onNotify, reportPublish, t]);
 
   const pub = status?.active ?? null;
+  const linkStatus = pub?.status ?? 'none';
+  const isPublished = linkStatus === 'published';
   const effectiveVisibility: WebPublishVisibility =
-    pub?.visibility ?? draftVisibility;
+    isPublished ? (pub?.visibility ?? draftVisibility) : draftVisibility;
 
   const runMutation = useCallback(async (op: WebPublishMode | 'stop', copyOnSuccess = false) => {
     if (activeOp) return;
@@ -214,6 +219,9 @@ export function WebPublishPopover({
       if (op === 'stop') {
         const stopped = await webPublishClient.unpublish(targetKind, targetId, { filePath, sourcePath, embedUrl });
         setStatus(prev => mergePublicationStatus(prev, targetKind, targetId, stopped.publication, prev?.freshness ?? 'unknown'));
+        if (stopped.publication.visibility) {
+          setDraftVisibility(stopped.publication.visibility);
+        }
         reportPublish('stop', 'success');
         onNotify?.(t('Share link disabled'), 'info');
         return;
@@ -329,8 +337,6 @@ export function WebPublishPopover({
     }
   }, [open, accountResolved, signedIn, authorizing, publishHookId, targetKind]);
   const mutating = activeOp !== null;
-  const linkStatus = pub?.status ?? 'none';
-  const isPublished = linkStatus === 'published';
   const isStopped = linkStatus === 'stopped';
   const linkAccessOn = isPublished || (linkStatus === 'none' && prepublishEnabled);
   const collabPlan =

@@ -628,3 +628,138 @@ it('unlocks Unlisted for Pro users even if status omits accountPlan and defaults
   expect(radios[1].getAttribute('aria-checked')).toBe('true');
   expect(popover.querySelector('[data-private-upgrade-hint]')).toBeNull();
 });
+
+it('lets paid users change draft visibility on a stopped game share and sends it when reopening', async () => {
+  const stoppedSlug = '66666666-6666-4666-8666-666666666666';
+  const stoppedUrl = `https://open-design.app/artifact/cloud-go/${stoppedSlug}`;
+  const communityUrl = `https://open-design.app/games/${stoppedSlug}`;
+  const postBodies: Array<Record<string, unknown>> = [];
+  let statusValue: 'stopped' | 'published' = 'stopped';
+  let currentVisibility: 'public' | 'unlisted' = 'public';
+
+  const makePub = () => ({
+    schemaVersion: 1,
+    targetKind: 'game',
+    targetId: 'g_stopped',
+    cloudProjectId: 'cloud-go',
+    projectId: 'g_stopped',
+    filePath: 'index.html',
+    entryPath: 'index.html',
+    name: 'Stopped Arcade',
+    workspaceId: 'ws_go',
+    workspaceName: 'Go Space',
+    ownerMemberId: 'm_go',
+    resourceId: 'res_go',
+    sourceFileId: 'sf_go',
+    sourceKey: 'sk_go',
+    slug: stoppedSlug,
+    version: 1,
+    versionId: 'v1',
+    status: statusValue,
+    url: stoppedUrl,
+    communityUrl,
+    visibility: currentVisibility,
+    feedStatus: 'pending',
+    publishedAt: 1700000000000,
+    updatedAt: 1700000000000,
+    fileCount: 2,
+    totalBytes: 1024,
+    bundledAssetCount: 1,
+    contentFingerprint: 'fp-stopped',
+    sourceRevision: '1',
+  });
+
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (url.endsWith('/motion-api/settings/account')) {
+      return jsonResponse({
+        state: 'signed-in',
+        user: { id: 'u_go', email: 'go@example.com' },
+        plan: { id: 'go', name: 'Go', status: 'active' },
+        consoleUrl: 'https://open-design.app',
+      });
+    }
+    if (url.includes('/motion-api/web-publish/game/g_stopped') && method === 'GET') {
+      const pub = makePub();
+      return jsonResponse({
+        targetKind: 'game',
+        targetId: 'g_stopped',
+        projectId: 'g_stopped',
+        title: 'Stopped Arcade',
+        accountSignedIn: true,
+        accountState: 'signed-in',
+        accountPlan: 'go',
+        canUsePrivateShare: true,
+        freshness: 'fresh',
+        fileCount: 2,
+        totalBytes: 1024,
+        bundledAssetCount: 1,
+        entryPath: 'index.html',
+        publications: [pub],
+        deployments: [pub],
+        active: pub,
+      });
+    }
+    if (url.endsWith('/motion-api/web-publish/game/g_stopped') && method === 'POST') {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      postBodies.push(body);
+      statusValue = 'published';
+      if (body.visibility === 'unlisted' || body.visibility === 'public') {
+        currentVisibility = body.visibility;
+      }
+      const pub = makePub();
+      return jsonResponse({ publication: pub, deployment: pub, url: communityUrl, updated: false });
+    }
+    throw new Error(`Unexpected fetch: ${method} ${url}`);
+  }));
+
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: vi.fn().mockResolvedValue(undefined) },
+  });
+
+  await act(async () => {
+    root!.render(
+      <I18nProvider initialLocale="en">
+        <WebPublishPopover targetKind="game" targetId="g_stopped" title="Stopped Arcade" />
+      </I18nProvider>,
+    );
+  });
+  await flushUi();
+
+  const trigger = container!.querySelector('button.om-web-publish-trigger') as HTMLButtonElement;
+  await act(async () => {
+    trigger.click();
+  });
+  await flushUi();
+
+  const popover = document.body.querySelector('.om-web-publish-popover') as HTMLElement;
+  const radios = Array.from(popover.querySelectorAll('[role="radio"]')) as HTMLButtonElement[];
+  expect(radios).toHaveLength(2);
+  expect(radios[0].getAttribute('aria-checked')).toBe('true');
+  expect(radios[1].getAttribute('aria-checked')).toBe('false');
+
+  // Switch stopped share draft to Unlisted: radio updates immediately without PATCH.
+  await act(async () => {
+    radios[1].click();
+  });
+  await flushUi();
+
+  expect(radios[0].getAttribute('aria-checked')).toBe('false');
+  expect(radios[1].getAttribute('aria-checked')).toBe('true');
+
+  // Clicking "Reopen share link" sends the updated visibility in POST body.
+  const reopenBtn = Array.from(popover.querySelectorAll('button')).find(b =>
+    b.textContent?.includes('Reopen share link'),
+  ) as HTMLButtonElement;
+  expect(reopenBtn).toBeTruthy();
+
+  await act(async () => {
+    reopenBtn.click();
+  });
+  await flushUi();
+
+  expect(postBodies).toHaveLength(1);
+  expect(postBodies[0]).toMatchObject({ deployMode: 'resume', visibility: 'unlisted' });
+});

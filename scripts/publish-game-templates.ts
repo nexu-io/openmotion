@@ -16,6 +16,7 @@
  */
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OpenDesignAccount } from '../gateway/account.ts';
@@ -113,6 +114,23 @@ export async function loadBuiltinGameTemplates(onlyIds?: ReadonlySet<string>): P
   return targets;
 }
 
+export type FailedTemplateEntry = {
+  templateId: string;
+  title: string;
+  error: string;
+};
+
+export function defaultTemplateDeployDataDir(): string {
+  const envDir = process.env.OPENMOTION_TEMPLATE_DEPLOY_DIR?.trim();
+  if (envDir) return path.resolve(envDir);
+  if (process.platform === 'win32') {
+    const base = process.env.LOCALAPPDATA?.trim() || path.join(os.homedir(), 'AppData', 'Local');
+    return path.join(base, 'OpenMotion', 'template-deploy');
+  }
+  const stateBase = process.env.XDG_STATE_HOME?.trim() || path.join(os.homedir(), '.openmotion');
+  return path.join(stateBase, 'template-deploy');
+}
+
 export async function publishAllBuiltinTemplates(options: {
   dataDirectory: string;
   account?: OpenDesignAccount;
@@ -122,6 +140,7 @@ export async function publishAllBuiltinTemplates(options: {
 }): Promise<{
   totalTemplates: number;
   published: PublishedTemplateEntry[];
+  failed: FailedTemplateEntry[];
 }> {
   const targets = await loadBuiltinGameTemplates(options.onlyIds);
   if (options.dryRun) {
@@ -141,37 +160,47 @@ export async function publishAllBuiltinTemplates(options: {
         fileCount: 0,
         totalBytes: 0,
       })),
+      failed: [],
     };
   }
 
   const service = new WebPublishService(options.dataDirectory, options.account);
   const published: PublishedTemplateEntry[] = [];
+  const failed: FailedTemplateEntry[] = [];
 
   for (const target of targets) {
-    const result = await service.publish(target, {
-      workspaceId: options.workspaceId,
-      mode: 'publish',
-      name: target.title,
-      visibility: 'public',
-      allowRemix: true,
-    });
-    published.push({
-      templateId: target.id,
-      title: target.title,
-      genre: target.gameMeta?.genre ?? null,
-      orientation: target.gameMeta?.orientation ?? 'landscape',
-      slug: result.publication.slug,
-      cloudProjectId: result.publication.cloudProjectId,
-      communityUrl: result.publication.communityUrl ?? null,
-      artifactUrl: result.publication.artifactUrl ?? null,
-      url: result.url,
-      version: result.publication.version,
-      fileCount: result.publication.fileCount,
-      totalBytes: result.publication.totalBytes,
-    });
+    try {
+      const result = await service.publish(target, {
+        workspaceId: options.workspaceId,
+        mode: 'publish',
+        name: target.title,
+        visibility: 'public',
+        allowRemix: true,
+      });
+      published.push({
+        templateId: target.id,
+        title: target.title,
+        genre: target.gameMeta?.genre ?? null,
+        orientation: target.gameMeta?.orientation ?? 'landscape',
+        slug: result.publication.slug,
+        cloudProjectId: result.publication.cloudProjectId,
+        communityUrl: result.publication.communityUrl ?? null,
+        artifactUrl: result.publication.artifactUrl ?? null,
+        url: result.url,
+        version: result.publication.version,
+        fileCount: result.publication.fileCount,
+        totalBytes: result.publication.totalBytes,
+      });
+    } catch (error) {
+      failed.push({
+        templateId: target.id,
+        title: target.title,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
-  return { totalTemplates: targets.length, published };
+  return { totalTemplates: targets.length, published, failed };
 }
 
 function readArg(args: string[], flag: string): string | undefined {
@@ -184,9 +213,7 @@ function readArg(args: string[], flag: string): string | undefined {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const dataDirectory = path.resolve(
-    readArg(args, '--data-dir') ?? path.join(repoRoot, '.openmotion-template-deploy'),
-  );
+  const dataDirectory = path.resolve(readArg(args, '--data-dir') ?? defaultTemplateDeployDataDir());
   const onlyRaw = readArg(args, '--only');
   const onlyIds = onlyRaw
     ? new Set(onlyRaw.split(',').map(v => v.trim()).filter(Boolean))
@@ -202,12 +229,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         dryRun,
         totalTemplates: summary.totalTemplates,
         published: summary.published,
+        failed: summary.failed,
       };
       if (outputPath) {
         await mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
         await writeFile(path.resolve(outputPath), JSON.stringify(payload, null, 2) + '\n', 'utf8');
       }
       console.log(JSON.stringify(payload, null, 2));
+      if (summary.failed.length > 0) {
+        process.exitCode = 1;
+      }
     })
     .catch(error => {
       console.error(error instanceof Error ? error.message : String(error));

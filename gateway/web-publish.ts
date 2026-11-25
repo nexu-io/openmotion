@@ -1240,6 +1240,9 @@ export class WebPublishService {
         await this.stopPublication(existingPublication, existingProjectId);
       }
 
+      // Best-effort community listing sync after `share publish` has already succeeded:
+      // never fail a live publish or lose the local publication record on transient 5xx,
+      // timeout, network, or unsupported-endpoint errors; the listing reconciles on status().
       const listingSync =
         target.kind === 'game'
           ? await this.syncGameListing({
@@ -1250,12 +1253,7 @@ export class WebPublishService {
               displayName,
               visibility: requestedVisibility,
               allowRemix: options.allowRemix,
-            }).catch((error) => {
-              if (isUnsupportedGameListingEndpointError(error)) {
-                return null;
-              }
-              throw error;
-            })
+            }).catch(() => null)
           : null;
 
       const resolvedCommunityUrl =
