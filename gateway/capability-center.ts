@@ -391,7 +391,8 @@ export async function capabilityDiscover(
       settingsHandoff: inspected.settingsHandoff,
       // MCP callers get the same attributed Free/Go upgrade link as inspect; the MCP boundary strips and tracks
       // _upgradeLinkResult. The Studio (gui) list never exposes either field.
-      ...(channel === 'mcp' && inspected.upgrade ? { upgrade: inspected.upgrade, _upgradeLinkResult: inspected._upgradeLinkResult } : {}),
+      ...(channel === 'mcp' && inspected.upgrade ? { upgrade: inspected.upgrade } : {}),
+      ...(channel === 'mcp' && inspected._upgradeLinkResult ? { _upgradeLinkResult: inspected._upgradeLinkResult } : {}),
     };
   }
 
