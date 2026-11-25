@@ -510,9 +510,9 @@ function evalW(row: Row, raw: string, params: unknown[]): boolean {
   if ((m = /^([\s\S]+?)\s+in\s*\(([\s\S]+)\)$/i.exec(term))) {
     return splitTop(m[2], ',').map((v) => evalSc(v, params)).includes(row[colName(m[1])]);
   }
-  if ((m = /^([\s\S]+?)\s*>=\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) >= Number(evalSc(m[2], params));
-  if ((m = /^([\s\S]+?)\s*>\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) > Number(evalSc(m[2], params));
-  if ((m = /^([\s\S]+?)\s*<\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) < Number(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*>=\s*([\s\S]+)$/.exec(term))) return sortVal(row[colName(m[1])]) >= sortVal(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*>\s*([\s\S]+)$/.exec(term))) return sortVal(row[colName(m[1])]) > sortVal(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*<\s*([\s\S]+)$/.exec(term))) return sortVal(row[colName(m[1])]) < sortVal(evalSc(m[2], params));
   if ((m = /^([\s\S]+?)\s*=\s*([\s\S]+)$/.exec(term))) return row[colName(m[1])] === evalSc(m[2], params);
   throw new Error(`Unsupported WHERE: ${term}`);
 }
@@ -539,6 +539,7 @@ function applySet(row: Row, setC: string, params: unknown[]): void {
 }
 function sortVal(v: unknown): string | number {
   if (typeof v === 'number') return v;
+  if (v instanceof Date) return v.getTime();
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return Date.parse(v);
   return String(v ?? '');
 }
@@ -3713,6 +3714,37 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     } finally {
       workspace.createProject = originalCreateProject;
     }
+
+    // A stale pending import receipt (e.g. left behind after a worker crash/OOM) can be reclaimed on retry with the same requestId.
+    const completedRaceReceipt = pgClient
+      .rows('idempotency_receipts')
+      .find((row) => row.scope === 'archive:import' && row.request_id === 'archive-upload-race')!;
+    const staleTimestamp = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    pgClient.seed('idempotency_receipts', {
+      workspace_id: workspaceId,
+      scope: 'archive:import',
+      request_id: 'archive-upload-stale',
+      input_hash: completedRaceReceipt.input_hash,
+      state: 'pending',
+      resource_id: null,
+      response_payload: null,
+      created_at: staleTimestamp,
+      updated_at: staleTimestamp,
+      expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    });
+    const projectsBeforeStale = pgClient.rows('projects').length;
+    const staleUploadUrl = `${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import?requestId=archive-upload-stale`;
+    const reclaimedRes = await app.request(staleUploadUrl, uploadOptions);
+    assert.equal(reclaimedRes.status, 201);
+    const reclaimedBody = (await reclaimedRes.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+    assert.equal(reclaimedBody.replayed, false);
+    assert.equal(reclaimedBody.imported.length, 1);
+    assert.equal(pgClient.rows('projects').length, projectsBeforeStale + 1);
+    const reclaimedRetry = await app.request(staleUploadUrl, uploadOptions);
+    assert.equal(reclaimedRetry.status, 200);
+    const reclaimedRetryBody = (await reclaimedRetry.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+    assert.equal(reclaimedRetryBody.replayed, true);
+    assert.deepEqual(reclaimedRetryBody.imported, reclaimedBody.imported);
 
     // 2. Accessing another user's project returns PROJECT_NOT_FOUND with environment diagnostics
     const readOther = await callTool(4, 'openmotion_get_project', { projectId: otherUserProject });

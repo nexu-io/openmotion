@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { crc32 } from 'node:zlib';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { HeadObjectResult, StoragePort } from '../contracts/storage.ts';
@@ -35,6 +35,7 @@ import type { InitialProjectFile, WorkspaceService } from './workspace-service.t
 
 const ARCHIVE_MANIFEST_NAME = 'openmotion-projects.json';
 const ARCHIVE_SCHEMA_VERSION = 1;
+const PENDING_IMPORT_LEASE_MS = 5 * 60 * 1000;
 
 export interface ProjectArchiveServiceDeps {
   readonly db: Database;
@@ -263,6 +264,20 @@ export class ProjectArchiveService {
     }
   }
 
+  private async assertReceiptProjectsReadable(
+    ctx: AuthContext,
+    payload: unknown,
+    listKey: 'projects' | 'imported',
+  ): Promise<void> {
+    if (ctx.authMethod !== 'oauth_bearer') return;
+    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+    const entries = Array.isArray(record?.[listKey]) ? (record[listKey] as Array<{ projectId?: unknown }>) : [];
+    const projectIds = entries
+      .map((entry) => entry?.projectId)
+      .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0);
+    await this.assertArchiveProjectsAccess(ctx, projectIds);
+  }
+
   private async canReadArchive(ctx: AuthContext, archiveId: string): Promise<boolean> {
     if (ctx.authMethod !== 'oauth_bearer') return true;
     const receipts = await this.db
@@ -280,15 +295,8 @@ export class ProjectArchiveService {
     if (!receipt?.responsePayload || typeof receipt.responsePayload !== 'object') {
       return false;
     }
-    const payload = receipt.responsePayload as Partial<ArchiveExportResult>;
-    const projectIds = Array.isArray(payload.projects)
-      ? payload.projects
-          .map((entry) => entry?.projectId)
-          .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
-      : [];
-    if (projectIds.length === 0) return false;
     try {
-      await this.assertArchiveProjectsAccess(ctx, projectIds);
+      await this.assertReceiptProjectsReadable(ctx, receipt.responsePayload, 'projects');
       return true;
     } catch {
       return false;
@@ -337,12 +345,7 @@ export class ProjectArchiveService {
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
         const result = existingReceipt[0].responsePayload as unknown as ArchiveExportResult;
-        const exportedIds = Array.isArray(result.projects)
-          ? result.projects
-              .map((entry) => entry?.projectId)
-              .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
-          : [];
-        await this.assertArchiveProjectsAccess(ctx, exportedIds);
+        await this.assertReceiptProjectsReadable(ctx, result, 'projects');
         return { ...result, downloadUrl: this.archiveDownloadUrl(result.archiveId), replayed: true };
       }
     }
@@ -577,23 +580,24 @@ export class ProjectArchiveService {
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
         const replayedResult = existingReceipt[0].responsePayload as unknown as ArchiveImportResult;
-        const importedIds = Array.isArray(replayedResult.imported)
-          ? replayedResult.imported
-              .map((entry) => entry?.projectId)
-              .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
-          : [];
-        await this.assertArchiveProjectsAccess(ctx, importedIds);
+        await this.assertReceiptProjectsReadable(ctx, replayedResult, 'imported');
         return {
           ...replayedResult,
           replayed: true,
         };
       }
       if (existingReceipt[0].state === 'pending') {
-        throw new CloudError(
-          'REQUEST_ID_CONFLICT',
-          `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
-          { status: 409, applied: 'unknown' },
-        );
+        const updatedMs =
+          existingReceipt[0].updatedAt instanceof Date
+            ? existingReceipt[0].updatedAt.getTime()
+            : Date.parse(String(existingReceipt[0].updatedAt));
+        if (!Number.isNaN(updatedMs) && updatedMs >= Date.now() - PENDING_IMPORT_LEASE_MS) {
+          throw new CloudError(
+            'REQUEST_ID_CONFLICT',
+            `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
+            { status: 409, applied: 'unknown' },
+          );
+        }
       }
     }
 
@@ -674,40 +678,54 @@ export class ProjectArchiveService {
       .returning();
 
     if (claimed.length === 0) {
-      const [current] = await this.db
-        .select()
-        .from(idempotencyReceipts)
+      const reclaimNow = new Date();
+      const staleCutoff = new Date(reclaimNow.getTime() - PENDING_IMPORT_LEASE_MS);
+      const reclaimed = await this.db
+        .update(idempotencyReceipts)
+        .set(asUpdate(idempotencyReceipts, { updatedAt: reclaimNow }))
         .where(
           and(
             eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
             eq(idempotencyReceipts.scope, scope),
             eq(idempotencyReceipts.requestId, requestId),
+            eq(idempotencyReceipts.inputHash, inputHash),
+            eq(idempotencyReceipts.state, 'pending'),
+            lt(idempotencyReceipts.updatedAt, staleCutoff),
           ),
+        )
+        .returning();
+
+      if (reclaimed.length === 0) {
+        const [current] = await this.db
+          .select()
+          .from(idempotencyReceipts)
+          .where(
+            and(
+              eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+              eq(idempotencyReceipts.scope, scope),
+              eq(idempotencyReceipts.requestId, requestId),
+            ),
+          );
+        if (current && current.inputHash.trim() !== inputHash) {
+          throw new CloudError('REQUEST_ID_CONFLICT', `requestId "${requestId}" was used for a different import.`, {
+            status: 409,
+            applied: false,
+          });
+        }
+        if (current && current.state === 'completed' && current.responsePayload) {
+          const replayedResult = current.responsePayload as unknown as ArchiveImportResult;
+          await this.assertReceiptProjectsReadable(ctx, replayedResult, 'imported');
+          return {
+            ...replayedResult,
+            replayed: true,
+          };
+        }
+        throw new CloudError(
+          'REQUEST_ID_CONFLICT',
+          `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
+          { status: 409, applied: 'unknown' },
         );
-      if (current && current.inputHash.trim() !== inputHash) {
-        throw new CloudError('REQUEST_ID_CONFLICT', `requestId "${requestId}" was used for a different import.`, {
-          status: 409,
-          applied: false,
-        });
       }
-      if (current && current.state === 'completed' && current.responsePayload) {
-        const replayedResult = current.responsePayload as unknown as ArchiveImportResult;
-        const importedIds = Array.isArray(replayedResult.imported)
-          ? replayedResult.imported
-              .map((entry) => entry?.projectId)
-              .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
-          : [];
-        await this.assertArchiveProjectsAccess(ctx, importedIds);
-        return {
-          ...replayedResult,
-          replayed: true,
-        };
-      }
-      throw new CloudError(
-        'REQUEST_ID_CONFLICT',
-        `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
-        { status: 409, applied: 'unknown' },
-      );
     }
 
     // Create each project independently (never overwriting or auto-switching active project).
