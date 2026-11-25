@@ -1115,10 +1115,8 @@ describe('SoundStudioWorkspace', () => {
   it('shows Cloud upgrade guidance instead of legacy BYOK/fal setup when the unified gateway has zero models', async () => {
     const soundStudio = findMediaStudio('sound')!;
     const emptyCloudStudio: StudioCreation = {
-      destination: {
-        ...studioDestination(soundStudio, 'music', null),
-        soundTab: 'music',
-      },
+      destination: studioDestination(soundStudio, 'music', null),
+      soundTab: 'music',
       catalog: {
         catalog: {
           models: [],
