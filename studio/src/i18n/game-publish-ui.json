@@ -602,7 +602,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "微信没有接受已保存的密钥。请重新选择这个 AppID 的 .key 文件。",
     "Play link": "试玩链接",
     "Publishing…": "发布中…",
-    "Only OpenDesign": "只发 OpenDesign"
+    "Only OpenDesign": "只发 OpenDesign",
+    "Open": "打开",
+    "Show link": "显示链接",
+    "Hide link": "收起链接"
   },
   "ja": {
     "WeChat Mini Game": "WeChat ミニゲーム",
@@ -1207,7 +1210,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "保存済みのキーは WeChat に受け付けられませんでした。この AppID の .key ファイルを選び直してください。",
     "Play link": "プレイリンク",
     "Publishing…": "公開中…",
-    "Only OpenDesign": "OpenDesign だけ"
+    "Only OpenDesign": "OpenDesign だけ",
+    "Open": "開く",
+    "Show link": "リンクを表示",
+    "Hide link": "リンクを隠す"
   },
   "ko": {
     "WeChat Mini Game": "WeChat 미니게임",
@@ -1812,7 +1818,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "저장된 키를 WeChat이 받아들이지 않았습니다. 이 AppID의 .key 파일을 다시 선택하세요.",
     "Play link": "플레이 링크",
     "Publishing…": "게시 중…",
-    "Only OpenDesign": "OpenDesign만"
+    "Only OpenDesign": "OpenDesign만",
+    "Open": "열기",
+    "Show link": "링크 보기",
+    "Hide link": "링크 숨기기"
   },
   "de": {
     "WeChat Mini Game": "WeChat-Minispiel",
@@ -2417,7 +2426,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat hat den gespeicherten Schlüssel nicht akzeptiert. Wähle die .key-Datei für diese AppID erneut.",
     "Play link": "Spiel-Link",
     "Publishing…": "Wird veröffentlicht…",
-    "Only OpenDesign": "Nur OpenDesign"
+    "Only OpenDesign": "Nur OpenDesign",
+    "Open": "Öffnen",
+    "Show link": "Link anzeigen",
+    "Hide link": "Link ausblenden"
   },
   "fr": {
     "WeChat Mini Game": "Mini-jeu WeChat",
@@ -3022,7 +3034,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat n'a pas accepté la clé enregistrée. Choisissez à nouveau le fichier .key de cet AppID.",
     "Play link": "Lien de jeu",
     "Publishing…": "Publication…",
-    "Only OpenDesign": "Seulement OpenDesign"
+    "Only OpenDesign": "Seulement OpenDesign",
+    "Open": "Ouvrir",
+    "Show link": "Afficher le lien",
+    "Hide link": "Masquer le lien"
   },
   "ru": {
     "WeChat Mini Game": "Мини-игра WeChat",
@@ -3627,7 +3642,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat не принял сохранённый ключ. Выберите файл .key для этого AppID ещё раз.",
     "Play link": "Ссылка на игру",
     "Publishing…": "Публикация…",
-    "Only OpenDesign": "Только OpenDesign"
+    "Only OpenDesign": "Только OpenDesign",
+    "Open": "Открыть",
+    "Show link": "Показать ссылку",
+    "Hide link": "Скрыть ссылку"
   },
   "es": {
     "WeChat Mini Game": "Minijuego de WeChat",
@@ -4232,7 +4250,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat no aceptó la clave guardada. Vuelve a elegir el archivo .key de este AppID.",
     "Play link": "Enlace para jugar",
     "Publishing…": "Publicando…",
-    "Only OpenDesign": "Solo OpenDesign"
+    "Only OpenDesign": "Solo OpenDesign",
+    "Open": "Abrir",
+    "Show link": "Mostrar enlace",
+    "Hide link": "Ocultar enlace"
   },
   "pt-BR": {
     "WeChat Mini Game": "Minijogo do WeChat",
@@ -4837,7 +4858,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "O WeChat não aceitou a chave salva. Escolha de novo o arquivo .key deste AppID.",
     "Play link": "Link para jogar",
     "Publishing…": "Publicando…",
-    "Only OpenDesign": "Só OpenDesign"
+    "Only OpenDesign": "Só OpenDesign",
+    "Open": "Abrir",
+    "Show link": "Mostrar link",
+    "Hide link": "Ocultar link"
   },
   "it": {
     "WeChat Mini Game": "Minigioco WeChat",
@@ -5442,7 +5466,10 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat non ha accettato la chiave salvata. Scegli di nuovo il file .key di questo AppID.",
     "Play link": "Link di gioco",
     "Publishing…": "Pubblicazione…",
-    "Only OpenDesign": "Solo OpenDesign"
+    "Only OpenDesign": "Solo OpenDesign",
+    "Open": "Apri",
+    "Show link": "Mostra link",
+    "Hide link": "Nascondi link"
   },
   "tr": {
     "WeChat Mini Game": "WeChat Mini Oyunu",
@@ -6047,6 +6074,9 @@
     "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat kayıtlı anahtarı kabul etmedi. Bu AppID için .key dosyasını yeniden seçin.",
     "Play link": "Oyun bağlantısı",
     "Publishing…": "Yayınlanıyor…",
-    "Only OpenDesign": "Yalnızca OpenDesign"
+    "Only OpenDesign": "Yalnızca OpenDesign",
+    "Open": "Aç",
+    "Show link": "Bağlantıyı göster",
+    "Hide link": "Bağlantıyı gizle"
   }
 }

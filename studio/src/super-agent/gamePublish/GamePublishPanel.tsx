@@ -10,7 +10,7 @@ import { playableNetwork } from './playableNetworks';
 import { ENABLED_PUBLISH_PLATFORMS, GAME_PUBLISH_PLATFORMS, gamePublishPlatform, type GamePublishPlatform, type GamePublishPlatformId } from './platforms';
 import { ChoiceTiles } from '../../components/ui/ChoiceTiles';
 import { PlatformIcon } from '../../../../packages/design-system/react/PlatformIcon';
-import { LinkQr, WechatProgress } from './WechatProgress';
+import { CompactLink, WechatProgress } from './WechatProgress';
 import './gamePublish.css';
 
 type Notify = (message: string, tone?: 'info' | 'error') => void;
@@ -173,7 +173,7 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
           <RemixIcon name="checkbox-circle-fill" size={30} className="om-gp-result-icon" />
           <strong>{t(platform.resultTitle)}</strong>
           <span className="om-gp-muted">{t(platform.resultDetail)}</span>
-          {session.linkUrl && <span className="om-gp-muted">{t('Live on OpenDesign')} · {session.linkUrl}</span>}
+          {session.linkUrl && <span className="om-gp-muted">{t('Live on OpenDesign')} · <CompactLink url={session.linkUrl} onNotify={onNotify} /></span>}
           <GamePublishResultAction action={platform.resultAction} href={platform.resultHref} />
         </div>
       </>
@@ -285,9 +285,8 @@ function LinkStep({ session, onNotify }: { session: GamePublishSession; onNotify
         <div className="om-gp-check" data-tone="ok">
           <RemixIcon name="checkbox-circle-fill" size={14} />
           <span className="om-gp-check-label">{t('Live on OpenDesign')}</span>
-          <span className="om-gp-check-value">{session.linkUrl}</span>
+          <span className="om-gp-check-value"><CompactLink url={session.linkUrl} onNotify={onNotify} /></span>
         </div>
-        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void copyGamePublishLink(session.linkUrl, onNotify, t)}>{t('Copy link')}</Button>
       </div>
     );
   }
@@ -311,8 +310,8 @@ function OpenDesignChoice({ session, onNotify }: { session: GamePublishSession; 
     return (
       <div className="om-gp-od-line" data-done>
         <RemixIcon name="checkbox-circle-fill" size={14} />
-        <span className="om-gp-od-line-text">{t('Live on OpenDesign')} · {session.linkUrl}</span>
-        <Button variant="plain" type="button" className="om-gp-text-btn" onClick={() => void copyGamePublishLink(session.linkUrl, onNotify, t)}>{t('Copy link')}</Button>
+        <span className="om-gp-od-line-text">{t('Live on OpenDesign')}</span>
+        <CompactLink url={session.linkUrl} onNotify={onNotify} />
       </div>
     );
   }

@@ -177,7 +177,7 @@ function wechatInstructions(session: GamePublishSession) {
 /** Tells the Agent about the OpenDesign link when the user kept OpenDesign selected; the page publishes it. */
 export function linkNote(session: GamePublishSession) {
   if (!session.linkToo && !session.linkUrl) return '';
-  return `\n\nOpenDesign is selected too (the default): the page ${session.linkUrl ? `already published the game's OpenDesign play link (${session.linkUrl})` : "is publishing the game's OpenDesign play link now"} and shows its state at the top of the right panel. Mention it once in your first message (anyone can open the link and play); do not publish it yourself.`;
+  return `\n\nOpenDesign is selected too (the default): the page ${session.linkUrl ? `already published the game's OpenDesign play link` : "is publishing the game's OpenDesign play link now"} and shows it, folded with Open and Copy link, in the panel and the conversation. Mention it once in your first message (anyone can open the link and play); do not paste the full link and do not publish it yourself.`;
 }
 
 /** Shows step `index` (skipping steps already done): its card in the conversation, and a package build if the step has one. */
