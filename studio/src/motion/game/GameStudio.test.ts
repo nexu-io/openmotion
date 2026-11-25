@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { trailerProjectHref } from './GameStudio';
-import { bundledGames, needsGameService } from './gameCatalog';
+import { bundledGames, isTopEarningGame, needsGameService, TOP_EARNING_TAG } from './gameCatalog';
 
 describe('trailerProjectHref', () => {
   it('routes to the canonical /editor/:projectId URL instead of reusing the Game Studio pathname', () => {
@@ -22,19 +22,45 @@ describe('trailerProjectHref', () => {
   });
 });
 
-describe('gameCatalog multi-file detection & internal tags', () => {
-  it('detects sibling scripts, stylesheets, and chunked assets while keeping self-contained HTML inline', () => {
+describe('gameCatalog multi-file detection and internal tags', () => {
+  it('requires the local game service for sibling assets, src bundles, and relative script/style files', () => {
+    expect(needsGameService('<script src="src/system.bundle.js"></script>')).toBe(true);
+    expect(needsGameService('<link rel="stylesheet" href="style.css">')).toBe(true);
+    expect(needsGameService('<script>fetch("./assets/app.part0.js")</script>')).toBe(true);
     expect(needsGameService('<script>fetch("./app.part0.js")</script>')).toBe(true);
-    expect(needsGameService('<link rel="stylesheet" href="./styles.css">')).toBe(true);
-    expect(needsGameService('<script src="./src/system.bundle.js"></script>')).toBe(true);
-    expect(needsGameService('<!doctype html><script>console.log("solo")</script>')).toBe(false);
+    expect(needsGameService('<!doctype html><script>console.log("inline")</script>')).toBe(false);
   });
 
-  it('preserves internal top赚钱 tags on the 3 new 3D web templates', () => {
-    for (const id of ['vice-beach-golf-club', 'kazehane', 'shanghai-vice']) {
-      const card = bundledGames.find((g) => g.id === id);
-      expect(card, `expected bundled template ${id}`).toBeDefined();
-      expect(card?.tags).toContain('top赚钱');
-    }
+  it('exposes the featured TOP赚钱 tag helper and marks all curated uploaded templates', () => {
+    expect(isTopEarningGame({ tags: ['TOP赚钱'] })).toBe(true);
+    expect(isTopEarningGame({ tags: ['top赚钱'] })).toBe(true);
+    expect(isTopEarningGame({ tags: [] })).toBe(false);
+    expect(isTopEarningGame({})).toBe(false);
+    const tagged = bundledGames.filter(game => game.tags?.includes(TOP_EARNING_TAG)).map(game => game.id).sort();
+    expect(tagged).toEqual([
+      '3d-mahjong',
+      'backpack-hero',
+      'ball-match',
+      'block-blast',
+      'breakout-fire',
+      'candy-match',
+      'catch-fish',
+      'catch-piggy',
+      'chubby-bird-gym',
+      'doomsday-survivor',
+      'escape-match',
+      'gold-miner',
+      'hanzi-meme',
+      'kazehane',
+      'mahjong-pairs',
+      'ocean-fish-match',
+      'plants-vs-zombies',
+      'screw-puzzle',
+      'shanghai-vice',
+      'tile-stack',
+      'vice-beach-golf-club',
+      'vice-beach-motor-club',
+      'village-defense',
+    ]);
   });
 });
