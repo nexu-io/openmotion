@@ -24,6 +24,7 @@ import { creativeStudios, mediaEditorDestination, mediaLabels, motionStudio, sce
 import { sceneExamples, type SceneExample } from './sceneShowcase';
 import { AssetHoverVideo } from './AssetHoverVideo';
 import { useTemplatePlayback } from './useTemplatePlayback';
+import { useLoadMoreOnScroll } from './useLoadMoreOnScroll';
 import { editingPresets, motionSkills, skillCategories, type SkillCategory, type MotionSkill } from './skillCatalog';
 import { useWorkspaceChrome } from './WorkspaceChromeContext';
 import { ExploreActionLabel, ExploreTemplateCard, TemplatePromptAction, useExploreTemplates, useExploreTemplateShelf, type ExploreTemplateFilter } from './ExploreTemplates';
@@ -402,6 +403,8 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
   const { openLibrary, openSkills } = useWorkspaceChrome();
   const [priority, setPriority] = useState<string | null>(null);
   const [templateFilter, setTemplateFilter] = useState<ExploreTemplateFilter>(props.initialTemplateCollection ?? 'all');
+  const [filtersRequested, setFiltersRequested] = useState(Boolean(props.initialTemplateCollection));
+  const requestFilters = () => setFiltersRequested(true);
   const [skillFilter, setSkillFilter] = useState<SkillCategory | 'all'>('all');
   const shelfSkills = (skillFilter === 'all' ? featuredSkills : motionSkills.filter(skill => skill.category === skillFilter)).slice(0, templatePreviewLimit);
   const specialty = community?.source === 'techniques' ? findTechniqueStudio(community.studio) : undefined;
@@ -417,7 +420,9 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
   const showTemplates = showMotion && !specialty;
   const templates = useExploreTemplates(community?.source === 'techniques' ? undefined : community?.category ?? 'all', locale, { limit: community ? templatePreviewLimit : templatePreviewLimit + 2, firstPages });
   const showShelves = !community && showMotion;
-  const shelf = useExploreTemplateShelf(templateFilter, locale, showShelves, active, templates, templatePreviewLimit);
+  // Without an observer, defer to filter interaction rather than eagerly downloading every page.
+  const filterSentinel = useLoadMoreOnScroll(root, showShelves && active && !filtersRequested && typeof IntersectionObserver !== 'undefined', requestFilters, locale);
+  const shelf = useExploreTemplateShelf(templateFilter, locale, showShelves, active && filtersRequested, templates, templatePreviewLimit);
   const shelfItems = shelf.items;
   const facet = collectionFacet(shelf.collection);
   const firstTemplatePage = templates.pages[0];
@@ -504,14 +509,17 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
     </section>
     {showShelves && <>
       <ExploreShelf title="Templates" categoriesLabel="Template categories" categories={shelf.categories} selected={templateFilter} plainCategoryArrows
-        filters={<TemplateIndustryMenu industries={shelf.industries} selected={facet?.key === 'industries' ? [facet.value] : undefined}
-          onSelect={value => {
-            const next = value ? industryCollection(value) : 'all';
-            send('ui_click', { page_name: 'explore', area: 'explore_feed', element: 'category_select', filter_group: 'industries', ...(value ? optionId(value) : { filter_value: 'all' }), ...slugField('collection_id', next) });
-            setTemplateFilter(next);
-          }} />}
+        filters={<div ref={filterSentinel} onFocusCapture={requestFilters} onClickCapture={requestFilters}>
+          <TemplateIndustryMenu industries={shelf.industries} selected={facet?.key === 'industries' ? [facet.value] : undefined}
+            onSelect={value => {
+              const next = value ? industryCollection(value) : 'all';
+              send('ui_click', { page_name: 'explore', area: 'explore_feed', element: 'category_select', filter_group: 'industries', ...(value ? optionId(value) : { filter_value: 'all' }), ...slugField('collection_id', next) });
+              setTemplateFilter(next);
+            }} />
+        </div>}
         renderCategory={id => id === 'top-100-brands' ? <TopBrandsLabel /> : undefined}
         onCategory={next => {
+          requestFilters();
           send('ui_click', { page_name: 'explore', area: 'explore_feed', element: 'category_select', ...templateShelfTarget(next) });
           setTemplateFilter(next);
         }}

@@ -113,6 +113,14 @@ function collectStaticImportGraph(entryFile: string): {
 }
 
 describe("Studio entry shell dependency boundary", () => {
+  it("keeps early Explore discovery independent of React, the page and the routing catalog", () => {
+    const graph = collectStaticImportGraph(path.resolve(studioSrcDir, "startStudio.ts"));
+    for (const file of ["main.tsx", "motion/ExploreStudios.tsx", "router/lazyPages.ts", "../../shared/studio-catalog.ts"]) {
+      expect(graph.files.has(path.resolve(studioSrcDir, file)), file).toBe(false);
+    }
+    expect(graph.externals.has("react")).toBe(false);
+  });
+
   it("keeps @hyperframes/parsers barrel, heavy editor helpers, and lazy workspace pages out of main.tsx static graph", () => {
     const mainEntry = path.resolve(studioSrcDir, "main.tsx");
     const graph = collectStaticImportGraph(mainEntry);

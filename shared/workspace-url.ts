@@ -1,4 +1,7 @@
 import { findLandingScene, findMediaStudio, findTechniqueStudio } from './studio-catalog.ts';
+import { workspacePageName } from './workspace-page-name.ts';
+
+export { workspacePageName };
 
 export const providerSetupEntries = [
   'agent_providers', 'agent_media_signed_out', 'agent_media_upgrade_free', 'agent_media_upgrade_go',
@@ -7,14 +10,6 @@ export const providerSetupEntries = [
 export type ProviderSetupEntry = typeof providerSetupEntries[number];
 
 export type WorkspacePresentation = { embedded: boolean; sidebar: boolean; conversation: boolean };
-/** Project and template handoff URLs retain their editor context. */
-export function workspacePageName(query: URLSearchParams, hash: string) {
-  const page = query.get('page');
-  if (page !== null && page !== 'api') return page;
-  if (query.has('project') || query.has('session') || hash.startsWith('#project/') || query.get('templates') === '1' || query.get('hostChrome') === '1') return null;
-  return 'explore';
-}
-
 /** Independent workspace pages remain usable even when the retained project cannot start. */
 export function isWorkspaceSettingsPage(search: string, hash = '') {
   const query = new URLSearchParams(search), page = workspacePageName(query, hash);

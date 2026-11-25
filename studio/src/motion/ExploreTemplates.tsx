@@ -87,15 +87,18 @@ function exploreCategories(purposes: string[]): (readonly [ExploreTemplateFilter
   ];
 }
 
-export function useExploreTemplateShelf(filter: ExploreTemplateFilter, locale: string, enabled: boolean, active: boolean, all: ReturnType<typeof useExploreTemplates>, limit: number) {
+export function useExploreTemplateShelf(filter: ExploreTemplateFilter, locale: string, enabled: boolean, loadFilters: boolean, all: ReturnType<typeof useExploreTemplates>, limit: number) {
   const collection = filter === 'all' ? null : filter;
-  const curated = useCoveredTemplates(locale, enabled && active);
+  const curated = useCoveredTemplates(locale, enabled && loadFilters);
   const filtered = useExploreTemplates(enabled && isFormatCategory(filter) ? filter : undefined, locale, { limit });
   const page = filter === 'all' ? all : filtered;
+  const fullCatalog = enabled && loadFilters ? curated.catalog : null;
+  const firstPage = all.pages[0];
   const { categories, industries } = useMemo(() => {
-    const { purposes, industries } = curated.catalog ? templateCollectionFacets(curated.catalog) : { purposes: purposeOrder, industries: [] };
-    return { categories: exploreCategories(purposes), industries };
-  }, [curated.catalog]);
+    const { purposes, industries } = templateCollectionFacets(fullCatalog ?? firstPage?.items ?? []);
+    // Keep the standard shortcuts while only a sample of the catalogue is available.
+    return { categories: exploreCategories(fullCatalog ? purposes : [...new Set([...purposeOrder, ...purposes])]), industries };
+  }, [fullCatalog, firstPage]);
   const items = useMemo(() => {
     const catalog = curated.catalog ?? [];
     if (collection === 'top-100-brands') return rankDiscoverySeries(groupBrandSeries(catalog)).slice(0, limit).map(brand => brand.items[0]);

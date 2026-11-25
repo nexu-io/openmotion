@@ -920,6 +920,51 @@ it('shows mixed media in one Explore feed and opens templates and editing preset
   expect(page()).toMatchObject({ specialty: { id: 'shorts' }, skill: 'openmotion-shortlist-shorts' });
 });
 
+it.each(['approaching the toolbar', 'opening the industry menu'])('defers the Explore catalogue scan until %s', async trigger => {
+  const observed = new Map<Element, () => void>();
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) { observed.set(target, () => this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }])); }
+    unobserve() {}
+    disconnect() {}
+  });
+  const entries = Array.from({ length: 61 }, (_, i) => ({ id: `work-${i}`, title: `Work ${i}`, kind: 'reference', tags: [], industries: [i === 60 ? 'Healthcare' : 'Business software'] }));
+  const requests: number[][] = [];
+  let finishScan!: () => void;
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((input: string, options?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (!url.pathname.endsWith('/template-catalog')) return fallback(input, options);
+    const limit = Number(url.searchParams.get('limit')), offset = Number(url.searchParams.get('offset'));
+    requests.push([limit, offset]);
+    const response = () => Response.json({ items: entries.slice(offset, offset + limit), next: offset + limit < entries.length ? offset + limit : null });
+    if (offset === 60) return new Promise<Response>(resolve => { finishScan = () => resolve(response()); });
+    return Promise.resolve(response());
+  });
+  history.replaceState(null, '', '/');
+  await mount();
+  const shelf = container.querySelector<HTMLElement>('.om-explore-shelf[aria-label="Templates"]')!;
+  const ids = () => [...shelf.querySelectorAll<HTMLElement>('[data-template-id]')].map(work => work.dataset.templateId);
+  const preview = entries.slice(0, 8).map(work => work.id);
+  expect(ids()).toEqual(preview);
+  expect(requests).toEqual([[10, 0]]);
+
+  if (trigger === 'approaching the toolbar') {
+    const sentinel = [...observed.keys()].find(node => shelf.querySelector('.om-shelf-toolbar')!.contains(node))!;
+    await act(async () => observed.get(sentinel)!());
+  } else {
+    await click('By industry');
+  }
+  expect(requests).toEqual([[10, 0], [60, 0], [60, 60]]);
+  expect(ids()).toEqual(preview);
+  await act(async () => finishScan());
+  if (trigger === 'approaching the toolbar') await click('By industry');
+  const industry = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent === 'Healthcare')!;
+  await act(async () => industry.click());
+  expect(ids()).toEqual(['work-60']);
+  expect(requests).toHaveLength(3);
+});
+
 it('opens a collection with its filters and opens individual Explore cards directly', async () => {
   const fallback = fetcher.getMockImplementation()!;
   const item = (id: string, brand?: string) => ({ id, title: id, brand, author: 'Studio', tags: [], kind: 'reference' });
@@ -1308,7 +1353,7 @@ it('rotates the visible Explore spotlight and plays visible Skill previews witho
   try {
     await act(async () => { observed.get(hero)!(true); cards.forEach(card => observed.get(card)!(true)); });
     expect(hero.dataset.scene).toBe('motion');
-    expect(hero.querySelector('video[src]')?.getAttribute('src')).toMatch(/^blob:/);
+    expect(hero.querySelector('video[src]')?.getAttribute('src')).toMatch(/\/bubble-field\.mp4$/);
     for (const card of cards) expect(card.querySelector('video[src]')).toBeTruthy();
     act(() => { vi.advanceTimersByTime(6000); });
     expect(hero.dataset.scene).toBe('black-friday');

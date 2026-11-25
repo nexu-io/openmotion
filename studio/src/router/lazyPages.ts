@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import { lazyWithChunkReload } from '../utils/chunkReload';
+import { cachedPageImport, loadExplorePage } from './pageImports';
 
 /**
  * Canonical source paths (relative to `studio/src/`) for lazy-loaded workspace
@@ -54,19 +55,13 @@ function shouldSkipPrefetch(): boolean {
   return Boolean(connection?.saveData);
 }
 
-function lazyPage<T extends ComponentType<any>>(key: LazyPageKey, importer: () => Promise<{ default: T }>) {
-  let pending: Promise<{ default: T }> | null = null;
-  const load = () => {
-    if (!pending) {
-      pending = importer().catch(error => {
-        pending = null;
-        throw error;
-      });
-    }
-    return pending;
-  };
+function registerPage<T extends ComponentType<any>>(key: LazyPageKey, load: () => Promise<{ default: T }>) {
   preloaders.set(key, load);
   return lazyWithChunkReload(load);
+}
+
+function lazyPage<T extends ComponentType<any>>(key: LazyPageKey, importer: () => Promise<{ default: T }>) {
+  return registerPage(key, cachedPageImport(importer));
 }
 
 /** Warm a single lazy page chunk on user navigation intent (hover / focus). */
@@ -98,9 +93,7 @@ export function preloadAllWorkspacePages(): Promise<unknown[]> {
   return Promise.all(Array.from(preloaders.values(), load => load()));
 }
 
-export const LazyExploreStudios = lazyPage('explore', () =>
-  import('../motion/ExploreStudios').then(module => ({ default: module.ExploreStudios })),
-);
+export const LazyExploreStudios = registerPage('explore', loadExplorePage);
 
 export const LazyMotionStudioPage = lazyPage('motion', () =>
   import('../motion/MotionStudioPage').then(module => ({ default: module.MotionStudioPage })),
