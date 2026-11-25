@@ -26,16 +26,18 @@ afterEach(() => {
 interface Handle {
   compositions: string[];
   fonts: ReturnType<typeof useFileTree>["fontAssets"];
+  assetNames: ReturnType<typeof useFileTree>["assetNames"];
   refresh: ReturnType<typeof useFileTree>["refreshFileTree"];
 }
 
 const Harness = forwardRef<Handle, { projectId: string }>(function Harness({ projectId }, ref) {
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
-  const { compositions, refreshFileTree, fontAssets } = useFileTree({ projectId, projectIdRef });
-  useImperativeHandle(ref, () => ({ compositions, fonts: fontAssets, refresh: refreshFileTree }), [
+  const { compositions, refreshFileTree, fontAssets, assetNames } = useFileTree({ projectId, projectIdRef });
+  useImperativeHandle(ref, () => ({ compositions, fonts: fontAssets, assetNames, refresh: refreshFileTree }), [
     compositions,
     fontAssets,
+    assetNames,
     refreshFileTree,
   ]);
   return null;
@@ -65,6 +67,38 @@ it.each([false, true])("renders the directory before font inspection and reuses 
     expect(urls.filter(url => url.endsWith("?view=asset-details"))).toHaveLength(1);
   } finally {
     fetchSpy.mockRestore();
+  }
+});
+
+it.each([1, 2])("recovers fonts and asset names after %i failed details reads without reopening the project", async (failures) => {
+  vi.useFakeTimers();
+  const font = "assets/Display.ttf";
+  const names = { [font]: "Brand font" };
+  let attempts = 0;
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+    if (!String(input).endsWith("?view=asset-details")) {
+      return Response.json({ files: ["index.html", font], compositions: ["index.html"], assetDetailsKey: "same" });
+    }
+    if (++attempts <= failures) return new Response(null, { status: 503 });
+    return Response.json({ assetDetailsKey: "same", fonts: [{ path: font, family: "Brand" }], assetNames: names });
+  });
+  try {
+    const handle = await renderHarness("font-recovery");
+    expect(handle.current?.compositions).toEqual(["index.html"]);
+    expect(attempts).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(attempts).toBe(2);
+    if (failures === 2) {
+      expect(handle.current?.fonts[0]?.family).toBe("Display");
+      await act(async () => { await handle.current?.refresh(); });
+    }
+    expect(handle.current?.fonts[0]?.family).toBe("Brand");
+    expect(handle.current?.assetNames).toEqual(names);
+    await act(async () => { await handle.current?.refresh(); });
+    expect(attempts).toBe(failures + 1);
+  } finally {
+    fetchSpy.mockRestore();
+    vi.useRealTimers();
   }
 });
 

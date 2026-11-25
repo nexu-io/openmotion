@@ -62,6 +62,7 @@ interface FetchedFileTree {
   revision?: string;
   error?: boolean;
   assetDetailsKey?: string;
+  assetDetailsFailed?: boolean;
   fileTree: string[];
   compositionPaths: string[];
   projectDir: string | null;
@@ -257,6 +258,8 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
           loaded: true,
           revision: data.revision,
           error: false,
+          // A fresh listing lets an earlier failed details read try the same key again.
+          assetDetailsFailed: false,
           projectDir: typeof data.dir === "string" ? data.dir : prev.projectDir,
           fileTree: data.files ?? prev.fileTree,
           // A response that omits `compositions` must not wipe out a
@@ -276,13 +279,26 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     }
   }, [projectIdRef, rememberProjectTree]);
 
-  const pendingDetails = current?.fonts === undefined ? current?.assetDetailsKey : undefined;
+  const pendingDetails = !current?.assetDetailsFailed && current?.fonts === undefined ? current?.assetDetailsKey : undefined;
   useEffect(() => {
     if (!projectId || !pendingDetails) return;
     const controller = new AbortController();
-    void studioApiFetch(buildProjectApiPath(projectId) + "?view=asset-details", { signal: controller.signal })
-      .then(async response => {
-        if (!response.ok) throw new Error(`asset details fetch failed: ${response.status}`);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const storeDetails = (update: Pick<FetchedFileTree, "fonts" | "assetNames" | "assetDetailsFailed">) => {
+      setFetched(prev => {
+        if (controller.signal.aborted || prev?.projectId !== projectId || prev.assetDetailsKey !== pendingDetails) return prev;
+        const next = { ...prev, ...update };
+        rememberProjectTree(next);
+        return next;
+      });
+    };
+    const load = async (retry: boolean) => {
+      try {
+        const response = await studioApiFetch(buildProjectApiPath(projectId) + "?view=asset-details", { signal: controller.signal });
+        if (!response.ok) {
+          retry = retry && (response.status >= 500 || response.status === 408 || response.status === 429);
+          throw new Error(`asset details fetch failed: ${response.status}`);
+        }
         const details: TreeListing = await response.json();
         if (controller.signal.aborted) return;
         // During a rolling upgrade an older API can answer this query with its full listing.
@@ -291,17 +307,24 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
           : !!details.revision && details.revision === cacheByProjectRef.current.get(projectId)?.revision;
         if (!matches) {
           await refreshFileTree();
-          return;
+          throw new Error("Asset details do not match the current listing");
         }
-        setFetched(prev => {
-          if (prev?.projectId !== projectId || prev.assetDetailsKey !== pendingDetails) return prev;
-          const next = { ...prev, fonts: details.fonts ?? [], assetNames: details.assetNames };
-          rememberProjectTree(next);
-          return next;
-        });
-      })
-      .catch(error => { if (!controller.signal.aborted) reportRefreshFailure(error); });
-    return () => controller.abort();
+        storeDetails({ fonts: details.fonts ?? [], assetNames: details.assetNames });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (retry) {
+          retryTimer = setTimeout(() => void load(false), 1000);
+        } else {
+          storeDetails({ assetDetailsFailed: true });
+          reportRefreshFailure(error);
+        }
+      }
+    };
+    void load(true);
+    return () => {
+      controller.abort();
+      clearTimeout(retryTimer);
+    };
   }, [projectId, pendingDetails, refreshFileTree, rememberProjectTree]);
 
   const dismissPendingImport = useCallback((id: string) => {
