@@ -100,24 +100,22 @@ test('media example preserves setup and task continuation across supported langu
   const translations = JSON.parse(readFileSync(new URL('../studio/src/i18n/mcp-ui.json', import.meta.url), 'utf8'));
   assert.match(media.prompt, /inspect/);
   assert.match(media.prompt, /Plus or above/);
-  assert.match(media.prompt, /settingsHandoff from inspect.*page handoff/);
-  assert.match(media.prompt, /not-included.*openmotion_open_preview with target=providers and entry=agent_media_upgrade_go for Go or entry=agent_media_upgrade_free for Free/);
-  assert.match(media.prompt, /Continue model discovery.*included or signed-in unknown.*another usable provider/);
-  assert.match(media.prompt, /entry=agent_media_signed_out.*Sign in with OpenDesign directly/);
-  assert.match(media.prompt, /Upgrade to Plus directly on the opened OpenDesign page/);
+  assert.match(media.prompt, /settingsHandoff from inspect.*agent_media_signed_out.*action=sign_in/);
+  assert.match(media.prompt, /action=wait_sign_in.*ready\/failed.*15 minutes/);
+  assert.match(media.prompt, /Do not ask me to confirm sign-in or payment in chat/);
+  assert.match(media.prompt, /automatically opens the Plus checkout page.*upgrade.url/);
+  assert.match(media.prompt, /action=open_upgrade/);
+  assert.match(media.prompt, /included or signed-in unknown.*another usable provider/);
   assert.match(media.prompt, /entry=agent_media_key_rejected.*entry=agent_media_handbook only if no specific reason applies/);
-  assert.doesNotMatch(media.prompt, /Settings > Account|Subscription & usage/);
-  assert.match(media.prompt, /mediaEntitlement/);
-  assert.match(media.prompt, /OpenDesign Cloud/);
-  assert.match(media.prompt, /target=providers/);
-  assert.match(media.prompt, /confirm after setup/);
-  assert.match(media.prompt, /inspect again/);
-  assert.match(media.prompt, /original request/);
+  assert.match(media.prompt, /explain the model and cost and get consent before generating/);
+  assert.doesNotMatch(media.prompt, /Settings > Account|Subscription & usage|After I confirm payment|confirm after setup/);
   const chinesePrompt = translations['zh-CN'][media.prompt];
-  assert.match(chinesePrompt, /agent_media_upgrade_go.*agent_media_upgrade_free.*升级到 Plus.*agent_media_signed_out.*使用 OpenDesign 登录.*agent_media_key_rejected.*agent_media_handbook/);
+  assert.match(chinesePrompt, /不要让我在对话里确认登录或付款/);
+  assert.match(chinesePrompt, /系统浏览器自动打开 Plus 套餐页/);
   for (const [locale, messages] of Object.entries(translations) as [string, Record<string, string>][]) {
     const prompt = messages[media.prompt];
-    for (const token of ['upgrade.url', 'settingsHandoff', 'inspect', 'entry=agent_media_upgrade_go', 'entry=agent_media_upgrade_free']) {
+    for (const token of ['upgrade.url', 'settingsHandoff', 'inspect', 'entry=agent_media_upgrade_go', 'entry=agent_media_upgrade_free',
+      'action=sign_in', 'action=wait_sign_in', 'action=open_upgrade', 'authorizationUrl', 'userCode', 'browserOpened', '15']) {
       assert.ok(prompt?.includes(token), `${locale}: ${token}`);
     }
   }
@@ -127,11 +125,11 @@ test('media example preserves setup and task continuation across supported langu
   const setup = readFileSync(new URL(setupLink[1], new URL('../skills/openmotion-media/SKILL.md', import.meta.url)), 'utf8');
   assert.match(setup, /target: "providers"/);
   assert.match(setup, /## Media handbook handoff/);
-  assert.match(setup, /settingsHandoff.*openmotion_open_preview.*target: "providers".*page handoff/);
+  assert.match(setup, /settingsHandoff.*action: "sign_in".*openmotion_open_preview.*target: "providers".*page handoff/);
   assert.match(setup, /signed-in account.*available: true.*unknown/);
-  assert.match(setup, /not-included.*agent_media_upgrade_go.*agent_media_upgrade_free.*Upgrade to Plus.*directly/);
-  assert.match(setup, /first present it as a clickable.*Upgrade to Plus \/ 升级到 Plus/);
-  assert.match(setup, /confirms payment.*inspect again.*original request/);
+  assert.match(setup, /not-included.*automatically opens the Plus checkout.*agent_media_upgrade_go.*agent_media_upgrade_free/);
+  assert.match(setup, /present the credential-free.*Upgrade to Plus \/ 升级到 Plus/);
+  assert.match(setup, /waiting for payment automatically.*inspect again.*original request.*without asking for payment confirmation/);
   assert.match(setup, /MCP handbook media-generation example/);
   assert.match(setup, /read-only `inspect`/);
   assert.match(skill, /MCP handbook example \| \[Discovery and setup\]/);
@@ -292,4 +290,15 @@ test('library handbook capability documents single maxEdge and batch contact-she
   const library = mcpCapabilities.find(item => item.id === 'library')!;
   assert.match(library.prompt, /action=read.*maxEdge 128–1024/);
   assert.match(library.prompt, /contact sheet.*action=read items=/);
+});
+
+test('game web publishing waits for account identity while media generation keeps its entitlement flow', () => {
+  const skill = readFileSync(new URL('../skills/openmotion-game/SKILL.md', import.meta.url), 'utf8');
+  const publication = skill.split('6. **Online sharing')[1].split('\n7. ')[0];
+  assert.match(publication, /action:"sign_in", waitFor:"account"/);
+  assert.match(publication, /action:"wait_sign_in", waitFor:"account"/);
+  assert.match(publication, /Free\/Go can continue.*without a media subscription/);
+  const mediaRouting = skill.split('**Art / character / voice-led game with no usable model**')[1];
+  assert.match(mediaRouting, /Free\/Go checkout opens automatically/);
+  assert.doesNotMatch(mediaRouting, /waitFor:"account"/);
 });

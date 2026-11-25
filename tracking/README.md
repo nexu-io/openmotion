@@ -297,6 +297,22 @@ OpenGame payment links use an `opengame-` prefix on `od_entry_id` and `utm_sourc
 matches the raw UUID in `upgrade.entryId` and the `upgrade_link_result` event's `entry_id`.
 This measures link generation, not a click or payment; URLs and account information are never event fields.
 
+Agent browser checkout (`action=wait_sign_in` or `action=open_upgrade`) reuses
+`upgrade_link_result` with `entry_from=agent_sign_in_upgrade` and
+`browser_opened=true|false`. Automatic checkout stores its pending result on the
+shared attempt. The first
+active media wait that observes completion claims it once, even if the creating
+call timed out. A deadline that prevents launch clears the reservation so the
+next wait can retry; an actual launch attempt is deduplicated for 30 minutes.
+Explicit
+`open_upgrade` emits on every attempt. `outcome` records safe fallback-link
+creation, while `browser_opened` records launch success. Polling and payment
+checks alone do not emit another event. These events remain stdio MCP-only;
+`_upgradeLinkResult` is removed from the Agent-visible MCP result. URLs, login
+intents and account identifiers are never reported. `account_sign_in_result`
+uses the existing `hook_id=mcp_oauth` for Agent-initiated sign-in. Identity-only
+`waitFor=account` waits neither open checkout nor emit upgrade events.
+
 Agent upgrade links contain no one-time sign-in credentials: they skip account
 intents and point directly to the console dashboard, which requests browser
 sign-in when needed.

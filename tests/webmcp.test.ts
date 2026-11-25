@@ -130,3 +130,34 @@ test('WebMCP calls share HTTP project history, request deduplication and stale-w
   assert.equal(history.versions.length, 3);
   assert.ok(history.versions.some((v: any) => v.versionId === saved.version.versionId));
 }, false));
+
+test('media sign-in actions share the WebMCP and HTTP schema without requiring a project', t => fixture(async store => {
+  const { gatewayFor } = await import('../gateway/service.ts');
+  const gateway = gatewayFor(store);
+  t.after(() => gateway.close());
+  t.mock.method(gateway.account, 'summary', async () => ({ state: 'signed-in', plan: 'plus', billingUnavailable: false }));
+  const login = t.mock.method(gateway.account, 'login', async () => { throw new Error('Must not restart signed-in accounts'); });
+  const http = transport(store, { runtimeRoot: pluginRoot });
+  const tool = buildOpenMotionWebMcpTools(http).find(tool => tool.name === 'openmotion_media_use')!;
+  for (const action of ['sign_in', 'wait_sign_in', 'open_upgrade']) {
+    const result = await tool.execute({ action, timeoutSeconds: 1, entryId: crypto.randomUUID() });
+    assert.equal(result.isError, undefined, JSON.stringify(result));
+    assert.equal(result.signIn?.state ?? result.state, 'ready');
+  }
+  for (const input of [{ action: 'wait_sign_in', timeoutSeconds: 61 }, { action: 'wait_sign_in', timeoutSeconds: 0 }, { action: 'sign_in', entryId: 'invalid-id' }]) {
+    const result = await tool.execute(input);
+    assert.equal(result.isError, true);
+    assert.equal(result.error.code, 'INVALID_ARGUMENT');
+  }
+  t.mock.method(gateway.account, 'summary', async () => ({ state: 'signed-in', plan: 'free', billingUnavailable: false }));
+  const checkout = t.mock.method(gateway.account, 'openCloudUrl', async () => { throw new Error('Identity-only actions must not open checkout'); });
+  for (const action of ['sign_in', 'wait_sign_in']) {
+    const result = await tool.execute({ action, waitFor: 'account' });
+    assert.equal(result.isError, undefined);
+    assert.equal(result.signIn.state, 'ready');
+    assert.equal(Object.hasOwn(result, '_upgradeLinkResult'), false);
+  }
+  assert.equal((await tool.execute({ action: 'wait_sign_in', waitFor: 'invalid' })).error.code, 'INVALID_ARGUMENT');
+  assert.equal(checkout.mock.callCount(), 0);
+  assert.equal(login.mock.callCount(), 0);
+}));

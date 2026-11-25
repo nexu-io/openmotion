@@ -125,7 +125,7 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
       embedded: message.params.arguments.embedded !== false,
     }, undefined, undefined, host);
   }
-  // Any discovery route (media_use inspect, capability_discover providers/list) may carry the internal link result:
+  // Any route (media_use inspect / wait_sign_in / open_upgrade, capability_discover providers/list) may carry the internal link result:
   // strip it before the agent sees it and record the link generation once.
   if (value && !value.isError && content?._upgradeLinkResult) {
     const { _upgradeLinkResult, ...visible } = content;
