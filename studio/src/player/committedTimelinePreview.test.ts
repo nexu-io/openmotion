@@ -198,3 +198,14 @@ it("keeps an in-flight update valid when a version notification repeats it", asy
   expect(update).toHaveBeenCalledTimes(1);
   expect(reload).not.toHaveBeenCalled();
 });
+
+it("offers a mounted child with both source revisions to the DOM updater even without template capabilities", async () => {
+  const { frame, reload } = setup();
+  const file = "compositions/custom.html";
+  vi.mocked(hasPeerTimingDocument).mockReturnValueOnce(false);
+  vi.mocked(mountedPeerFileVersion).mockReturnValue("v1");
+  const previous = source("v1"), current = source("v2");
+  scheduleCommittedPreview(frame, pid, [{ path: file, previous, current }], reload);
+  await vi.waitFor(() => expect(update).toHaveBeenCalledWith(frame, { path: file, previous, current }, expect.any(Function)));
+  expect(reload).not.toHaveBeenCalled();
+});

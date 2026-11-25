@@ -46,8 +46,11 @@ async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Sessi
     if (!change.readPrevious) return refreshParked();
     if (await refreshParked(true)) return true;
   }
+  // A mounted child can accept a verified CSS box edit without a template capability.
+  // The two sources are already here, so checking the delta needs no network read.
+  const knownMountedChange = change.current && mounted && base?.version === mounted;
   if ((base || change.readPrevious) &&
-      (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "presentation") || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
+      (hasPeerTimingDocument(frame) || knownMountedChange || hasPeerLiveEdit(frame, "presentation") || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
     const [previous, current] = await Promise.all([
       base ?? change.readPrevious?.(), change.current ?? change.read?.(),
     ]);
