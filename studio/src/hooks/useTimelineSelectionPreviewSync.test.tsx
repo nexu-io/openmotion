@@ -79,6 +79,32 @@ function makeSyncFixture() {
 }
 
 describe("useTimelineSelectionPreviewSync", () => {
+  it.each([false, true])("keeps an isolated heading selected when its scene row refreshes (pending inspection %s)", async (pending) => {
+    const { firstSelection: scene, timelineElements } = makeSyncFixture();
+    const heading: DomEditSelection = {
+      ...makeSelection("Title", document.createElement("h1")),
+      sourceFile: "compositions/scene2-4-canvas.html", hfId: "hf-ftqn",
+      selector: '[data-hf-id="hf-ftqn"]', isolatedClipOwner: { id: scene.id, sourceFile: "index.html" },
+    };
+    const harness = renderHarness();
+    const inspect = Promise.withResolvers<DomEditSelection>();
+    const props = {
+      selectedElementId: "clip-1", selectedElementIds: new Set(["clip-1"]), timelineElements,
+      domEditSelection: heading, domEditGroupSelections: [heading],
+      buildDomSelectionForTimelineElement: vi.fn(() => inspect.promise), applyDomSelection: vi.fn(),
+      applyMarqueeSelection: vi.fn(), onSelectionNotFound: vi.fn(),
+    };
+    try {
+      if (pending) await harness.rerender({ ...props, domEditSelection: null, domEditGroupSelections: [] });
+      await harness.rerender(props);
+      await act(async () => { inspect.resolve(scene); });
+      expect(props.applyDomSelection).not.toHaveBeenCalled();
+      expect(props.buildDomSelectionForTimelineElement).toHaveBeenCalledTimes(pending ? 1 : 0);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   it("syncs a multi-id timeline selection into preview group selections", async () => {
     const { firstSelection, secondSelection, timelineElements, selectionById } = makeSyncFixture();
     const applyDomSelection = vi.fn();

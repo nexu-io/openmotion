@@ -1,6 +1,6 @@
 import type { SelectElementOptions, TimelineElement } from "../player";
 import { HF_AUDIO_GROUP_TAG } from "@hyperframes/core/audio-groups";
-import { findMatchingTimelineElementId, findTimelineIdByAncestor } from "../utils/studioHelpers";
+import { resolveTimelineIdForSelection } from "../utils/studioHelpers";
 import type { DomEditSelection } from "../components/editor/domEditing";
 import { logSelect } from "../utils/selectDebug";
 
@@ -42,12 +42,7 @@ export function announceTimelineSelection(
     return;
   }
   const timelineIdFor = (selection: DomEditSelection) =>
-    findMatchingTimelineElementId(selection, timelineElements) ??
-    findTimelineIdByAncestor(
-      selection.element,
-      timelineElements,
-      selection.sourceFile || "index.html",
-    );
+    resolveTimelineIdForSelection(selection, timelineElements, null);
   const members = group.map(timelineIdFor).filter((id): id is string => Boolean(id));
   const anchor = timelineIdFor(primary);
   const publishedMembers = new Set(members);

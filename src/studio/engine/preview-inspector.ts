@@ -51,7 +51,7 @@ export const PREVIEW_INSPECTOR = `
       el.textContent.length + el.childElementCount <= 16384;
     const leafText = text ? Array.from(el.childNodes, n => n.nodeName === 'BR' ? '\\n' : n.textContent || '').join('') : null;
     const src = el.getAttribute('src');
-    const clip = el.closest('.clip');
+    const clip = el.closest('.clip,[data-composition-file][data-start],[data-composition-src][data-start]');
     const clipOwner = clip && clip !== el ? { id: clip.id || undefined,
       hfId: clip.getAttribute('data-hf-id') || undefined, sourceFile: sourceFileForElement(clip) } : undefined;
     return {elementId: detail.elementId, hfId: detail.hfId, sourceFile: detail.sourceFile, ...sourceIdentity(sha256),

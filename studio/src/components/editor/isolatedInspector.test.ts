@@ -117,3 +117,8 @@ it("returns the timed clip owning a selected descendant", async () => {
   const selected = await inspect('<main><div id="card" data-hf-id="hf-card" class="clip"><span id="title">Name</span></div></main>', { elementId: "title" });
   expect(selected?.isolatedClipOwner).toEqual({ id: "card", hfId: "hf-card", sourceFile: "index.html" });
 });
+
+it("reports the owning timeline scene for a layer in an assembled composition", async () => {
+  const selection = await inspect('<div id="scene-2-4" class="scene" data-start="1.5" data-duration="12.5" data-composition-file="compositions/scene2-4-canvas.html"><h1 id="title" class="hero-heading">Edited title</h1></div>', { elementId: "title" });
+  expect(selection?.isolatedClipOwner).toEqual({ id: "scene-2-4", sourceFile: "index.html" });
+});

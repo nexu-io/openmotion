@@ -287,6 +287,9 @@ export function resolveTimelineIdForSelection(
 ): string | null {
   return (
     findMatchingTimelineElementId(selection, elements) ??
+    (selection.isolatedClipOwner && findMatchingTimelineElementId({
+      ...selection.isolatedClipOwner, isCompositionHost: false,
+    }, elements)) ??
     findTimelineIdByAncestor(
       selection.element,
       elements,

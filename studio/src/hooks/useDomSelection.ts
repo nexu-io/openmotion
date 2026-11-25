@@ -1,5 +1,6 @@
 import { useIsolatedCanvasPick } from "./useIsolatedCanvasPick";
 import { projectPreviewAdapter } from "../player/lib/projectPreviewAdapter";
+import { previewContentGeneration } from "../player/sceneSwap";
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { TimelineElement } from "../player";
 import {
@@ -378,9 +379,11 @@ export function useDomSelection({
       if (!stillSelected()) return;
       if (selection.isolatedTarget) {
         const adapter = projectPreviewAdapter(iframe, projectId);
-        if (!adapter) return;
+        if (!adapter || !iframe) return;
+        const generation = previewContentGeneration(iframe);
         const next = await inspectIsolatedElement(adapter, selection.isolatedTarget, isMasterView);
         if (next !== undefined && domEditSelectionRef.current === selection && iframe === previewIframeRef.current &&
+            previewContentGeneration(iframe) === generation &&
             projectPreviewAdapter(iframe, projectId)?.token === adapter.token)
           applyDomSelection(next, { revealPanel: false, preserveGroup: true });
         return;

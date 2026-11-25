@@ -129,22 +129,17 @@ export function useTimelineSelectionPreviewSync({
   useEffect(() => {
     const previousSelectedKey = lastSyncedSelectedKeyRef.current;
     lastSyncedSelectedKeyRef.current = selectedKey;
-    const currentDomEditSelection = domEditSelectionRef.current;
-    const currentDomEditGroupSelections = domEditGroupSelectionsRef.current;
-    const currentSelections =
-      currentDomEditGroupSelections.length > 1
-        ? currentDomEditGroupSelections
-        : currentDomEditSelection
-          ? [currentDomEditSelection]
-          : [];
-    const currentIds = currentSelections
-      .map((selection) =>
-        resolveTimelineIdForSelection(selection, timelineElements, activeCompPath),
-      )
-      .filter((id): id is string => Boolean(id));
-    const currentAnchor = currentDomEditSelection
-      ? resolveTimelineIdForSelection(currentDomEditSelection, timelineElements, activeCompPath)
-      : null;
+    const timelineIdFor = (selection: DomEditSelection) => resolveTimelineIdForSelection(selection, timelineElements, activeCompPath);
+    const readCanvasSelection = () => {
+      const primary = domEditSelectionRef.current;
+      const group = domEditGroupSelectionsRef.current;
+      const selections = group.length > 1 ? group : primary ? [primary] : [];
+      return {
+        ids: selections.map(timelineIdFor).filter((id): id is string => Boolean(id)),
+        anchor: primary && timelineIdFor(primary),
+      };
+    };
+    const { ids: currentIds, anchor: currentAnchor } = readCanvasSelection();
 
     if (selectedIds.length === 0) {
       missingSelectionKeyRef.current = "";
@@ -183,12 +178,15 @@ export function useTimelineSelectionPreviewSync({
         buildDomSelectionForTimelineElement,
       );
       if (cancelled) return;
+      // A canvas pick can finish while the timeline is inspecting its owning scene.
+      const latest = readCanvasSelection();
+      if (selectionIdsMatch(latest.ids, selectedIds, latest.anchor, selectedElementId)) return;
       if (selections.length < selectedIds.length) {
         if (recordRetryAttempt(unresolvedAttemptsRef, selectedKey, MAX_UNRESOLVED_SYNC_RETRIES)) {
           // Still within the retry grace window: stay quiet (warn only once
           // exhausted, below). Delete acts on the canvas first, so only an
           // anchor OUTSIDE this selection is cleared here, quietly.
-          if (anchorIsOutsideSelection(currentAnchor, selectedIds)) {
+          if (anchorIsOutsideSelection(latest.anchor, selectedIds)) {
             applyDomSelection(null, { revealPanel: false, announce: false });
           }
           return;

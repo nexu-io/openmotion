@@ -6,6 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 import { installReactActEnvironment, makeSelection } from "./domSelectionTestHarness";
 import { useDomSelection } from "./useDomSelection";
 import type { TimelineElement } from "../player";
+import * as adapters from "../player/lib/projectPreviewAdapter";
+import { createPreviewAdapter } from "../player/lib/previewAdapter";
+import { announcePreviewScenesSwapped } from "../player/sceneSwap";
 
 installReactActEnvironment();
 
@@ -22,7 +25,7 @@ interface TimelineSpies {
 
 function renderHarness(
   initialProps: HarnessProps,
-  options: { timelineElements?: TimelineElement[]; previewDoc?: Document } = {},
+  options: { timelineElements?: TimelineElement[]; previewDoc?: Document; frame?: HTMLIFrameElement } = {},
 ): {
   current: () => ReturnType<typeof useDomSelection>;
   rerender: (props: HarnessProps) => void;
@@ -50,9 +53,9 @@ function renderHarness(
       compIdToSrc: new Map(),
       captionEditMode: false,
       previewIframeRef: {
-        current: options.previewDoc
+        current: options.frame ?? (options.previewDoc
           ? ({ contentDocument: options.previewDoc } as HTMLIFrameElement)
-          : null,
+          : null),
       },
       timelineElements: options.timelineElements ?? [],
       getTimelineSelectionSet: () => publishedSet,
@@ -327,6 +330,42 @@ describe("useDomSelection", () => {
   });
 
   describe("a save's resync after the user moved on", () => {
+    it("reads the edited title and color from the current scene when an older inspector reply arrives first", async () => {
+      const frame = document.createElement("iframe");
+      const adapter = createPreviewAdapter({ iframe: frame, token: "test", projectId: "project-1" });
+      const older = Promise.withResolvers<unknown>();
+      const current = Promise.withResolvers<unknown>();
+      const request = vi.spyOn(adapter, "request").mockReturnValueOnce(older.promise).mockReturnValueOnce(current.promise);
+      const spy = vi.spyOn(adapters, "projectPreviewAdapter").mockReturnValue(adapter);
+      const harness = renderHarness({ activeCompPath: "index.html", projectId: "project-1", refreshKey: 0 }, { frame });
+      const sourceFile = "compositions/scene2-4-canvas.html", hfId = "hf-ftqn";
+      const target = { sourceFile, hfId, sha256: "a".repeat(64) };
+      const title = { ...makeSelection("Heading", document.createElement("h1")), sourceFile, hfId, isolatedTarget: target };
+      const snapshot = { ...target, tag: "h1", geometry: title.boundingBox, leafText: "" };
+      try {
+        act(() => harness.current().applyDomSelection(title));
+        const oldRefresh = harness.current().refreshDomEditSelectionFromPreview(title);
+        announcePreviewScenesSwapped(frame);
+        const newRefresh = harness.current().refreshDomEditSelectionFromPreview(title);
+        expect(request).toHaveBeenCalledTimes(2);
+        await act(async () => { older.resolve(snapshot); await oldRefresh; });
+        await act(async () => {
+          current.resolve({ ...snapshot, sha256: "b".repeat(64), leafText: "Edited title", inline: { color: "rgba(1, 2, 3, 0.5)" } });
+          await newRefresh;
+        });
+        expect(harness.current().domEditSelection).toMatchObject({ hfId, textContent: "Edited title", inlineStyles: { color: "rgba(1, 2, 3, 0.5)" } });
+        // The current scene can still report an intentional clear or a title restored by undo.
+        for (const leafText of ["", "Edited title"]) {
+          request.mockResolvedValueOnce({ ...snapshot, leafText });
+          await act(() => harness.current().refreshDomEditSelectionFromPreview(harness.current().domEditSelection!));
+          expect(harness.current().domEditSelection).toMatchObject({ hfId, textContent: leafText });
+        }
+      } finally {
+        harness.cleanup();
+        spy.mockRestore();
+      }
+    });
+
     function selectHeadlineInPreview() {
       const doc = document.implementation.createHTMLDocument("");
       const element = doc.body.appendChild(
