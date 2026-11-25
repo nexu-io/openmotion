@@ -263,7 +263,6 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         onError(missingVersion);
         return;
       }
-      setVersionId(current => assetVersion(asset, current) ? current : asset.currentVersionId);
       selectedAsset.current = asset; setSelected(asset);
     }).catch(error => { if (!cancelled && request === assetReadRequest.current) onError(error.message); });
     return () => { cancelled = true; };
