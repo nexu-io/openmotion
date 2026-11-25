@@ -182,32 +182,62 @@ it('falls back from videoHd to video and then poster when non-X lightbox streams
   }
 });
 
+it('serves all curated Seedance and GPT Image showcase media exclusively from first-party assets', () => {
+  const firstPartyCdn = /^https:\/\/releases\.open-design\.ai\/open-motion\/media\/sha256\/[a-f0-9]{64}\.(webp|mp4)$/;
+  const seedance = findModelHub('seedance-2-5')!;
+  const gptImage = findModelHub('gpt-image-2-6')!;
+  expect(seedance.cases).toHaveLength(70);
+  expect(gptImage.cases).toHaveLength(35);
+
+  for (const item of seedance.cases!) {
+    expect(item.poster, `${item.id} poster`).toMatch(firstPartyCdn);
+    expect(item.video, `${item.id} video`).toMatch(firstPartyCdn);
+    expect(item.videoHd, `${item.id} videoHd`).toBeUndefined();
+  }
+  for (const item of gptImage.cases!) {
+    expect(item.poster, `${item.id} poster`).toBeTruthy();
+    if (/^https?:\/\//.test(item.poster)) {
+      expect(item.poster, `${item.id} poster`).toMatch(firstPartyCdn);
+    } else {
+      expect(item.poster, `${item.id} bundled poster`).toMatch(/\.(webp|avif)$/);
+    }
+  }
+});
+
 it('plays X-hosted Seedance showcase videos inside a no-referrer srcDoc iframe on hover and lightbox', async () => {
   const seedance = findModelHub('seedance-2-5')!;
-  const xCase = seedance.cases!.find(item => item.video?.startsWith('https://video.twimg.com/'))!;
-  expect(xCase).toBeDefined();
-  container = document.createElement('div'); document.body.append(container);
-  root = createRoot(container);
-  await act(async () => root!.render(
-    <I18nProvider initialLocale="en">
-      <ModelHub id="seedance-2-5" onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onSettings={() => {}} />
-    </I18nProvider>,
-  ));
+  const xCase = seedance.cases![0];
+  const originalVideo = xCase.video;
+  const originalVideoHd = xCase.videoHd;
+  xCase.video = 'https://video.twimg.com/amplify_video/2111041977894797313/vid/avc1/640x360/sample.mp4';
+  xCase.videoHd = 'https://video.twimg.com/amplify_video/2111041977894797313/vid/avc1/1280x720/sample-hd.mp4';
+  try {
+    container = document.createElement('div'); document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root!.render(
+      <I18nProvider initialLocale="en">
+        <ModelHub id="seedance-2-5" onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onSettings={() => {}} />
+      </I18nProvider>,
+    ));
 
-  const xCard = [...container.querySelectorAll<HTMLElement>('.om-hub-showcase-card')]
-    .find(card => card.getAttribute('aria-label') === xCase.title)!;
-  expect(xCard).toBeDefined();
-  await act(async () => xCard.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
-  const hoverIframe = xCard.querySelector<HTMLIFrameElement>('iframe.om-hub-showcase-video')!;
-  expect(hoverIframe).not.toBeNull();
-  expect(hoverIframe.getAttribute('srcdoc')).toContain('name="referrer" content="no-referrer"');
-  expect(hoverIframe.getAttribute('srcdoc')).toContain(xCase.video!);
+    const xCard = [...container.querySelectorAll<HTMLElement>('.om-hub-showcase-card')]
+      .find(card => card.getAttribute('aria-label') === xCase.title)!;
+    expect(xCard).toBeDefined();
+    await act(async () => xCard.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    const hoverIframe = xCard.querySelector<HTMLIFrameElement>('iframe.om-hub-showcase-video')!;
+    expect(hoverIframe).not.toBeNull();
+    expect(hoverIframe.getAttribute('srcdoc')).toContain('name="referrer" content="no-referrer"');
+    expect(hoverIframe.getAttribute('srcdoc')).toContain(xCase.video!);
 
-  await act(async () => xCard.click());
-  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
-  const lightboxIframe = dialog.querySelector<HTMLIFrameElement>('iframe.om-hub-lightbox-video')!;
-  expect(lightboxIframe).not.toBeNull();
-  expect(lightboxIframe.getAttribute('srcdoc')).toContain(xCase.videoHd ?? xCase.video!);
+    await act(async () => xCard.click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const lightboxIframe = dialog.querySelector<HTMLIFrameElement>('iframe.om-hub-lightbox-video')!;
+    expect(lightboxIframe).not.toBeNull();
+    expect(lightboxIframe.getAttribute('srcdoc')).toContain(xCase.videoHd ?? xCase.video!);
+  } finally {
+    xCase.video = originalVideo;
+    xCase.videoHd = originalVideoHd;
+  }
 });
 
 it('ships complete, self-contained prompts and full 10-locale showcase translations while adapting masonry columns', async () => {
