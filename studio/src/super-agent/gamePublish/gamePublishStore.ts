@@ -177,25 +177,28 @@ function wechatInstructions(session: GamePublishSession) {
  * button under the Agent's message, which also tells the Agent.
  */
 function platformInstructions(session: GamePublishSession, platform: GamePublishPlatform) {
+  // Step names and button labels in the user's language, exactly as the panel and the page show them.
+  const total = platform.steps.length;
   const steps = platform.steps.map((step, index) => [
-    `${index + 1}. ${step.title} (${step.short}). Why: ${step.why}`,
-    step.todo.length ? `   To do: ${step.todo.join(' → ')}` : '',
-    step.links?.length ? `   Pages: ${step.links.map(link => `${link.label} ${link.href}`).join('; ')}` : '',
-    step.kind === 'package' ? '   The page builds this package from the game files and shows its checks and a Download button under your message.' : '',
+    `${index + 1}. ${say('Step {current} of {total} · {name}', { current: index + 1, total, name: say(step.title) })}. Why: ${say(step.why)}`,
+    step.todo.length ? `   To do: ${step.todo.map(item => say(item)).join(' → ')}` : '',
+    step.links?.length ? `   Pages: ${step.links.map(link => `${say(link.label)} ${link.href}`).join('; ')}` : '',
+    step.kind === 'package' ? `   The page builds this package from the game files and shows its checks and a "${say('Download {file}', { file: '…' })}" button under your message.` : '',
     step.kind === 'link' ? '   The page publishes the OpenDesign play link and shows it, with Copy, under your message.' : '',
     step.pick ? `   The user chooses one under your message: ${step.pick.join(', ')}.` : '',
-    step.fields ? `   The user fills in under your message: ${step.fields.map(field => field.label).join(', ')}.` : '',
-    `   Button under your message: "${step.cta}".`,
+    step.fields ? `   The user fills in under your message: ${step.fields.map(field => say(field.label)).join(', ')}.` : '',
+    `   Button under your message that finishes the step: "${say(step.cta)}".`,
   ].filter(Boolean).join('\n')).join('\n');
-  const tool = platform.devTool ? `\nBefore step 1 the user needs ${platform.devTool} installed; the page shows its download link and "I installed it, continue" under your message. Explain why it is needed and wait.` : '';
-  return `Guide the user through publishing the game "${session.gameTitle}" (game id ${session.gameId}) to ${platform.name}, in this conversation.
+  const tool = platform.devTool ? gamePublishDevTool(platform.devTool) : undefined;
+  const toolLine = tool ? `\nBefore step 1 the user needs ${say(tool.name)} (${say(tool.why)}). The page shows "${say('Download {tool}', { tool: say(tool.name) })}" and "${say('I installed it, continue')}" under your message. Explain why it is needed and wait.` : '';
+  return `Guide the user through publishing the game "${session.gameTitle}" (game id ${session.gameId}) to ${say(platform.name)}, in this conversation.
 
 Steps (the panel on the right shows the same list and which step is current; it has no instructions or buttons):
-${steps}${tool}
+${steps}${toolLine}
 
 How to guide:
-- One step per message. Start it with the step number as the panel shows it, in the user's language (for example 「第 1/${platform.steps.length} 步 · ${platform.steps[0]?.short ?? ''}」). Then say briefly where to go, what to click, what they will see and why. Keep the platform's own button and menu names.
-- Under your message the page shows that step's controls and its button. When the user presses it you receive a message like "Done: <step title>"; then continue with the next step. If the user only says a step is done in words, ask them to press the button under your message so the panel records it.
+- One step per message. Start it with that step's heading exactly as written above (it matches the panel). Then say briefly where to go, what to click, what they will see and why. Name buttons exactly as quoted above; keep the platform's own button and menu names.
+- Under your message the page shows that step's controls and its button. When the user presses it you receive a message like "${say('Done: {title}', { title: '…' })}"; then continue with the next step. If the user only says a step is done in words, ask them to press the button under your message so the panel records it.
 - You cannot see the platform: never say the platform accepted, reviewed or published the game. After the last step, sum up what they did and what the platform does next.
 - You do not build packages or links yourself; the page does. Do not edit the game files for this.`;
 }

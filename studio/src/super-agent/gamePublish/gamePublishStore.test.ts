@@ -167,7 +167,8 @@ describe('gamePublishStore', () => {
     expect(handoff).toHaveBeenCalledWith(expect.objectContaining({ newChat: false, autoSend: true, mode: 'game', prompt: expect.stringContaining('Coin Jar') }));
     const guide = handoff.mock.calls[0][0].hiddenInstructions as string;
     expect(guide).toContain('abc12345');
-    expect(guide).toContain('Download the HTML5 zip');
+    expect(guide).toContain('Step 1 of 2 · Download the HTML5 zip');
+    expect(guide).toContain('"Downloaded"');
     expect(guide).toContain('One step per message');
     await settle();
     gamePublishActions.completeStep(input.artifactId, { platformId: 'itch', stepIndex: 0 });

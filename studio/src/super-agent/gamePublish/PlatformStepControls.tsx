@@ -29,7 +29,7 @@ export function PlatformProgress({ session }: { session: GamePublishSession }) {
         <strong>{finished
           ? t('All {total} steps done', { total })
           : waitingForTool && tool ? t('Needed · {tool}', { tool: t(tool.name) })
-            : t('Step {current} of {total} · {name}', { current: session.stepIndex + 1, total, name: t(current.short) })}</strong>
+            : t('Step {current} of {total} · {name}', { current: session.stepIndex + 1, total, name: t(current.title) })}</strong>
         {!finished && <span className="om-gp-muted"> · {t('The Agent guides you in the conversation')}</span>}
       </p>
       <ol className="om-gp-overview-list">
@@ -199,4 +199,3 @@ function LinkStep({ session, onNotify }: { session: GamePublishSession; onNotify
     </div>
   );
 }
-
