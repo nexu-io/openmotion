@@ -17,17 +17,22 @@ import { preloadAllWorkspacePages } from '../router/lazyPages';
 import { resetBannerDismissal } from './campaignAttribution';
 
 const editor = vi.hoisted(() => ({ mounts: 0, fail: false, wait: async () => {} }));
-vi.mock('./AssetsPage', async () => {
-  const { LibraryHubNav } = await import('./LibraryHubNav');
-  return {
-    AssetsPage: ({ studio }: { studio?: StudioCreation }) => (
+vi.mock('./AssetsPage', () => ({
+  AssetsPage: ({ studio }: { studio?: StudioCreation }) => {
+    const { openProjects, openBrandKit } = useWorkspaceChrome();
+    return (
       <>
-        {!studio && <LibraryHubNav activeTab="timeline" />}
+        {!studio && (
+          <nav aria-label="Library sections">
+            <button type="button" data-testid="library-hub-tab-projects" onClick={() => openProjects?.()}>Projects</button>
+            <button type="button" data-testid="library-hub-tab-brand-kits" onClick={() => openBrandKit?.()}>Brand Kits</button>
+          </nav>
+        )}
         <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} />
       </>
-    ),
-  };
-});
+    );
+  },
+}));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: { projectId: string } }) => {
   const { registerEditor } = useWorkspaceChrome();

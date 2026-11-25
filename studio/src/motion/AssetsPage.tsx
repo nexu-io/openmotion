@@ -192,16 +192,17 @@ export function AssetsPage({
         const [jobResult, chatResult] = await Promise.allSettled([assetRequest<{ jobs: GenerationJob[] }>({ action: 'jobs' }), gatewayRequest<{ conversations: AssetChatSummary[] }>('assets/conversations')]);
         if (signal.aborted) return;
         let latestConversations = knownConversations.current;
-        if (chatResult.status === 'fulfilled') {
-          latestConversations = chatResult.value.conversations;
+        if (chatResult.status === 'fulfilled' && Array.isArray(chatResult.value?.conversations)) {
+          const incomingConversations = chatResult.value.conversations;
+          latestConversations = incomingConversations;
           setConversations(current => {
             const merged = new Map(current.map(chat => [chat.id, chat]));
-            for (const chat of chatResult.value.conversations) if ((merged.get(chat.id)?.updatedAt ?? 0) <= chat.updatedAt) merged.set(chat.id, chat);
+            for (const chat of incomingConversations) if ((merged.get(chat.id)?.updatedAt ?? 0) <= chat.updatedAt) merged.set(chat.id, chat);
             return [...merged.values()];
           });
         }
         setHistoryError(jobResult.status === 'rejected' || chatResult.status === 'rejected' ? 'Could not load task history' : undefined);
-        if (jobResult.status === 'rejected') return;
+        if (jobResult.status === 'rejected' || !Array.isArray(jobResult.value?.jobs)) return;
         const next = mergeAssetJobs(knownJobs.current, jobResult.value.jobs);
         if (JSON.stringify(next) !== JSON.stringify(knownJobs.current)) {
           const outputsChanged = JSON.stringify(next.flatMap(job => job.libraryAssets ?? [])) !== JSON.stringify(knownJobs.current.flatMap(job => job.libraryAssets ?? []));

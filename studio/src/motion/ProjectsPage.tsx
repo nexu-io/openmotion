@@ -460,8 +460,8 @@ export function ProjectsPage({
 
   const sourceList = useMemo(() => {
     if (!catalog) return [];
-    if (typeFilter === 'trash') return catalog.trashed;
-    return catalog.projects;
+    if (typeFilter === 'trash') return Array.isArray(catalog.trashed) ? catalog.trashed : [];
+    return Array.isArray(catalog.projects) ? catalog.projects : [];
   }, [catalog, typeFilter]);
 
   const matchesWorkspaceFilter = useCallback(
@@ -500,7 +500,7 @@ export function ProjectsPage({
     });
   }, [sourceList, typeFilter, matchesWorkspaceFilter, query, sort, t]);
 
-  const teamProjectCount = (catalog?.counts.teamShared ?? 0) + (catalog?.counts.teamPrivate ?? 0);
+  const teamProjectCount = (catalog?.counts?.teamShared ?? 0) + (catalog?.counts?.teamPrivate ?? 0);
   const memberCountBadge = primaryTeam?.memberCount;
 
   const teamCountsById = useMemo(() => {
