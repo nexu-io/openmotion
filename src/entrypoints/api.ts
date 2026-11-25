@@ -2521,11 +2521,24 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         return c.json({ error: 'Cross-origin tracking rejected' }, 403);
       }
     }
-    const clientIp =
-      c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
-      c.req.header('x-real-ip')?.trim() ||
-      'unknown';
-    if (!(await checkTrackingRateLimit(clientIp))) {
+    const resolveClientIp = (): string => {
+      if (config.TRUST_PROXY_HOPS > 0) {
+        const forwarded = c.req.header('x-forwarded-for');
+        if (forwarded) {
+          const hops = forwarded
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (hops.length > 0) {
+            return hops[Math.max(0, hops.length - config.TRUST_PROXY_HOPS)] ?? 'local';
+          }
+        }
+        const realIp = c.req.header('x-real-ip')?.trim();
+        if (realIp) return realIp;
+      }
+      return 'local';
+    };
+    if (!(await checkTrackingRateLimit(resolveClientIp()))) {
       return c.json({ error: 'Too many tracking requests' }, 429);
     }
     if (!cloudTracking.isEnabled()) {

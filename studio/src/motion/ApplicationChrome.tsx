@@ -9,8 +9,8 @@ import { Tooltip } from '../components/ui/Tooltip';
 import { languages, useI18n, type Locale } from '../i18n/I18n';
 import { setStudioTheme, useStudioThemePreference } from '../utils/studioTheme';
 import { useWorkspaceChrome } from './WorkspaceFrame';
-import { useAccountSummary } from './AccountSettings';
-import { openEntitlementModal } from './entitlementModalBus';
+import { buildLoginUrl, useAccountSummary } from './AccountSettings';
+import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
@@ -94,6 +94,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
       authMode: account.authMode ?? null,
     });
   }, [account]);
+  const cloudWeb = useCloudWebMode();
   const theme = useStudioThemePreference();
   const userName = account?.user?.name?.trim() || account?.user?.email?.trim() || t('Account');
   const workspaceLabel = account?.activeWorkspace?.name;
@@ -205,7 +206,13 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
               <span className="om-menu-label"><RemixIcon name="login-box-line" mirrored size={16} />{t('Sign out')}</span>
             </MenuItem>
           ) : (
-            <MenuItem onClick={() => openEntitlementModal({ mode: 'guest', hookId: 'header_signin' })}>
+            <MenuItem onClick={() => {
+              if (cloudWeb && hasEntitlementModalListeners()) {
+                openEntitlementModal({ mode: 'guest', hookId: 'header_signin' });
+              } else {
+                window.location.assign(buildLoginUrl());
+              }
+            }}>
               <span className="om-menu-label"><RemixIcon name="login-box-line" size={16} />{t('Sign in with OpenDesign')}</span>
             </MenuItem>
           )}
