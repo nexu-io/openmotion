@@ -280,4 +280,118 @@ describe('Guest creation entry points (OPEND-5648)', () => {
     expect(requests.some(r => r.url.endsWith('/motion-api/projects') && r.method === 'POST')).toBe(false);
     expect(requests.some(r => r.url.includes('/motion-api/projects/proj-existing/open') && r.method === 'POST')).toBe(true);
   });
+
+  it('keeps the pending intent and idempotencyKey for manual retry when auto-resume fails with a non-401 error, and passes requestId through createArtifact', async () => {
+    window.history.replaceState(null, '', '/sessions/sess-1');
+    const saved = saveAuthPendingDraft({
+      action: 'use_template',
+      templateId: 'custom-agents',
+      returnTo: '/sessions/sess-1',
+      autoResume: true,
+    });
+
+    let artifactAttempts = 0;
+    const artifactBodies: Array<Record<string, unknown>> = [];
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.includes('/motion-api/project/status')) {
+        return new Response(
+          JSON.stringify({ projectId: 'proj-1', projectTitle: 'P1', revision: 'rev-1', exportJob: null }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/motion-api/projects') && method === 'GET') {
+        return new Response(
+          JSON.stringify({ activeId: 'proj-1', projects: [{ id: 'proj-1', title: 'P1' }], sessions: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.includes('/motion-api/sessions/sess-1/artifacts') && method === 'POST') {
+        artifactAttempts += 1;
+        artifactBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        if (artifactAttempts === 1) {
+          return new Response(JSON.stringify({ error: 'Temporary conflict' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(
+          JSON.stringify({ projectId: 'proj-2', sessionId: 'sess-1', projectTitle: 'Template', revision: 'rev-2', exportJob: null }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider initialLocale="en">
+          <WorkspaceFrame sessionId="sess-1" waitForSaves={async () => {}} onNavigate={vi.fn()}>
+            <div>Editor</div>
+          </WorkspaceFrame>
+        </I18nProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+
+    // First auto-resume attempt failed with 500: intent + idempotencyKey must remain saved for manual retry.
+    expect(artifactAttempts).toBe(1);
+    expect(artifactBodies[0]?.requestId).toBe(saved.idempotencyKey);
+    expect(artifactBodies[0]?.templateId).toBe('custom-agents');
+    const retained = readAuthPendingDraft();
+    expect(retained?.idempotencyKey).toBe(saved.idempotencyKey);
+    expect(retained?.autoResume).toBeUndefined();
+
+    // AuthRecoveryNotice should now offer the manual Continue button.
+    const continueBtn = [...host.querySelectorAll<HTMLButtonElement>('[data-kind="pending_draft"] button')].find(btn =>
+      btn.textContent?.includes('Continue'),
+    );
+    expect(continueBtn).toBeDefined();
+
+    await act(async () => {
+      continueBtn!.click();
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+
+    // Manual retry succeeds with the exact same idempotencyKey and clears the draft.
+    expect(artifactAttempts).toBe(2);
+    expect(artifactBodies[1]?.requestId).toBe(saved.idempotencyKey);
+    expect(readAuthPendingDraft()).toBeNull();
+  });
+
+  it('renders a guest project-list state instead of endless skeletons when workspace reads return 401', async () => {
+    window.history.replaceState(null, '', '/?project=proj-1');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes('/motion-api/project/status') || url.endsWith('/motion-api/projects')) {
+        return new Response(
+          JSON.stringify({ error: 'Authentication required', code: 'UNAUTHORIZED', errorCode: 'auth_required', sessionExpired: false }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider initialLocale="zh-CN">
+          <WorkspaceFrame projectId="proj-1" waitForSaves={async () => {}} onNavigate={vi.fn()}>
+            <div>Editor</div>
+          </WorkspaceFrame>
+        </I18nProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+
+    expect(host.querySelector('[data-testid="project-list-skeleton"]')).toBeNull();
+    const guestState = host.querySelector('[data-testid="project-list-guest"]');
+    expect(guestState).not.toBeNull();
+    expect(guestState?.textContent).toContain('使用 OpenDesign 登录以查看你的项目');
+  });
 });

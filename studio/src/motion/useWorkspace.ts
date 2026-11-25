@@ -403,7 +403,12 @@ export function useWorkspace(
     finally { acting.current = false; setBusy(false); }
   }, [waitForSaves, request, navigate]);
   const openSession = useCallback((id: string, artifactProjectId?: string) => transition(`/sessions/${encodeURIComponent(id)}/open`, artifactProjectId ? { projectId: artifactProjectId } : undefined, { session: true, revealArtifact: Boolean(artifactProjectId), existing: { sessionId: id, projectId: artifactProjectId } }), [transition]);
-  const createArtifact = useCallback((id: string, templateId?: string) => transition(`/sessions/${encodeURIComponent(id)}/artifacts`, templateId ? { templateId } : undefined, { session: true }), [transition]);
+  const createArtifact = useCallback((id: string, templateId?: string, requestId?: string) => {
+    const payload: { templateId?: string; requestId?: string } = {};
+    if (templateId) payload.templateId = templateId;
+    if (requestId) payload.requestId = requestId;
+    return transition(`/sessions/${encodeURIComponent(id)}/artifacts`, Object.keys(payload).length > 0 ? payload : undefined, { session: true });
+  }, [transition]);
   const renameItem = useCallback(async (id: string, title: string, kind: 'projects' | 'sessions') => {
     if (acting.current) return false;
     acting.current = true; setBusy(true); setError('');

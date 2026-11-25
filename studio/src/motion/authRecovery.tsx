@@ -7,6 +7,7 @@ import { WORKSPACE_LOCATION_CHANGED } from '../utils/workspaceHistory';
 import { buildLoginUrl } from './AccountSettings';
 import * as tracking from './pageTracking';
 import {
+  AUTH_PENDING_DRAFT_CHANGED_EVENT,
   AUTH_RECOVERY_EVENT,
   clearAuthPendingDraft,
   consumeAuthCancelledFromUrl,
@@ -80,13 +81,20 @@ export function AuthRecoveryNotice({
     const onLocationChanged = () => {
       setRecovery(null);
     };
+    const onPendingDraftChanged = () => {
+      const draft = readAuthPendingDraft();
+      restoreHomeDraftIfMissing(draft);
+      setPendingDraft(draft);
+    };
     window.addEventListener(AUTH_RECOVERY_EVENT, onRecovery);
     window.addEventListener('motion:account-changed', onAccountChanged);
+    window.addEventListener(AUTH_PENDING_DRAFT_CHANGED_EVENT, onPendingDraftChanged);
     window.addEventListener(WORKSPACE_LOCATION_CHANGED, onLocationChanged);
     window.addEventListener('popstate', onLocationChanged);
     return () => {
       window.removeEventListener(AUTH_RECOVERY_EVENT, onRecovery);
       window.removeEventListener('motion:account-changed', onAccountChanged);
+      window.removeEventListener(AUTH_PENDING_DRAFT_CHANGED_EVENT, onPendingDraftChanged);
       window.removeEventListener(WORKSPACE_LOCATION_CHANGED, onLocationChanged);
       window.removeEventListener('popstate', onLocationChanged);
     };
@@ -189,7 +197,14 @@ export function AuthRecoveryNotice({
     );
   }
 
-  if (signedIn && pendingDraft && !pendingDraft.autoResume && onResumePendingDraft && (pendingDraft.templateId || pendingDraft.instruction)) {
+  const canManuallyResume = Boolean(
+    pendingDraft &&
+      (pendingDraft.templateId ||
+        pendingDraft.instruction ||
+        pendingDraft.action === 'create_project' ||
+        pendingDraft.action === 'open_editor'),
+  );
+  if (signedIn && pendingDraft && !pendingDraft.autoResume && onResumePendingDraft && canManuallyResume) {
     return (
       <div
         className="om-auth-recovery-banner"

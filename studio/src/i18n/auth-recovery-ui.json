@@ -8,7 +8,8 @@
     "Your saved input is ready to resume after signing in.": "登录后已恢复你保存的内容，可继续操作。",
     "Resuming…": "正在继续…",
     "Sign in to view your assets": "登录后查看你的资产",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "使用 OpenDesign 登录以查看、上传和管理你的个人资产库。"
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "使用 OpenDesign 登录以查看、上传和管理你的个人资产库。",
+    "Sign in with OpenDesign to view your projects.": "使用 OpenDesign 登录以查看你的项目。"
   },
   "ja": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "ログイン状態を一時的に確認できません。セッションと下書きは保持されています。しばらくしてから再試行してください。",
@@ -19,7 +20,8 @@
     "Your saved input is ready to resume after signing in.": "保存された入力をサインイン後に再開できます。",
     "Resuming…": "再開しています…",
     "Sign in to view your assets": "サインインしてアセットを表示",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "OpenDesign にサインインして、個人アセットライブラリを表示・アップロード・管理します。"
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "OpenDesign にサインインして、個人アセットライブラリを表示・アップロード・管理します。",
+    "Sign in with OpenDesign to view your projects.": "OpenDesign にサインインしてプロジェクトを表示します。"
   },
   "ko": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "일시적으로 로그인 상태를 확인할 수 없습니다. 세션과 초안은 보존되어 있으니 잠시 후 다시 시도하세요.",
@@ -30,7 +32,8 @@
     "Your saved input is ready to resume after signing in.": "로그인 후 저장된 입력을 이어서 진행할 수 있습니다.",
     "Resuming…": "이어서 진행하는 중…",
     "Sign in to view your assets": "로그인하여 에셋 보기",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "OpenDesign에 로그인하여 개인 에셋 라이브러리를 보고 업로드 및 관리하세요."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "OpenDesign에 로그인하여 개인 에셋 라이브러리를 보고 업로드 및 관리하세요.",
+    "Sign in with OpenDesign to view your projects.": "OpenDesign에 로그인하여 프로젝트를 확인하세요."
   },
   "de": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Dein Anmeldestatus konnte vorübergehend nicht überprüft werden. Sitzung und Entwürfe bleiben erhalten – bitte versuche es gleich erneut.",
@@ -41,7 +44,8 @@
     "Your saved input is ready to resume after signing in.": "Deine gespeicherte Eingabe kann nach der Anmeldung fortgesetzt werden.",
     "Resuming…": "Wird fortgesetzt…",
     "Sign in to view your assets": "Anmelden, um deine Assets anzuzeigen",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Melde dich mit OpenDesign an, um deine persönliche Asset-Bibliothek anzuzeigen, hochzuladen und zu verwalten."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Melde dich mit OpenDesign an, um deine persönliche Asset-Bibliothek anzuzeigen, hochzuladen und zu verwalten.",
+    "Sign in with OpenDesign to view your projects.": "Melde dich mit OpenDesign an, um deine Projekte anzuzeigen."
   },
   "fr": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Impossible de vérifier votre connexion pour le moment. Votre session et vos brouillons sont conservés — veuillez réessayer dans un instant.",
@@ -52,7 +56,8 @@
     "Your saved input is ready to resume after signing in.": "Votre saisie enregistrée est prête à reprendre après la connexion.",
     "Resuming…": "Reprise en cours…",
     "Sign in to view your assets": "Connectez-vous pour voir vos ressources",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Connectez-vous avec OpenDesign pour consulter, importer et gérer votre bibliothèque personnelle de ressources."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Connectez-vous avec OpenDesign pour consulter, importer et gérer votre bibliothèque personnelle de ressources.",
+    "Sign in with OpenDesign to view your projects.": "Connectez-vous avec OpenDesign pour voir vos projets."
   },
   "ru": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Временно не удаётся проверить статус входа. Ваша сессия и черновики сохранены — повторите попытку чуть позже.",
@@ -63,7 +68,8 @@
     "Your saved input is ready to resume after signing in.": "Сохранённые данные готовы к продолжению после входа.",
     "Resuming…": "Продолжение…",
     "Sign in to view your assets": "Войдите, чтобы просмотреть ассеты",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Войдите через OpenDesign, чтобы просматривать, загружать и управлять личной библиотекой ассетов."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Войдите через OpenDesign, чтобы просматривать, загружать и управлять личной библиотекой ассетов.",
+    "Sign in with OpenDesign to view your projects.": "Войдите через OpenDesign, чтобы просматривать свои проекты."
   },
   "es": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "No se puede verificar tu estado de inicio de sesión temporalmente. Tu sesión y borradores se conservan; inténtalo de nuevo en unos momentos.",
@@ -74,7 +80,8 @@
     "Your saved input is ready to resume after signing in.": "Tu contenido guardado está listo para reanudarse tras iniciar sesión.",
     "Resuming…": "Reanudando…",
     "Sign in to view your assets": "Inicia sesión para ver tus recursos",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Inicia sesión con OpenDesign para ver, subir y gestionar tu biblioteca personal de recursos."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Inicia sesión con OpenDesign para ver, subir y gestionar tu biblioteca personal de recursos.",
+    "Sign in with OpenDesign to view your projects.": "Inicia sesión con OpenDesign para ver tus proyectos."
   },
   "pt-BR": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Não foi possível verificar seu status de login temporariamente. Sua sessão e seus rascunhos foram preservados — tente novamente em instantes.",
@@ -85,7 +92,8 @@
     "Your saved input is ready to resume after signing in.": "Sua entrada salva está pronta para continuar após o login.",
     "Resuming…": "Retomando…",
     "Sign in to view your assets": "Entre para ver seus recursos",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Entre com o OpenDesign para visualizar, enviar e gerenciar sua biblioteca pessoal de recursos."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Entre com o OpenDesign para visualizar, enviar e gerenciar sua biblioteca pessoal de recursos.",
+    "Sign in with OpenDesign to view your projects.": "Entre com o OpenDesign para ver seus projetos."
   },
   "it": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Impossibile verificare temporaneamente lo stato di accesso. La sessione e le bozze sono state conservate — riprova tra poco.",
@@ -96,7 +104,8 @@
     "Your saved input is ready to resume after signing in.": "I dati salvati sono pronti per essere ripresi dopo l'accesso.",
     "Resuming…": "Ripresa in corso…",
     "Sign in to view your assets": "Accedi per visualizzare le tue risorse",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Accedi con OpenDesign per visualizzare, caricare e gestire la tua libreria personale di risorse."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Accedi con OpenDesign per visualizzare, caricare e gestire la tua libreria personale di risorse.",
+    "Sign in with OpenDesign to view your projects.": "Accedi con OpenDesign per visualizzare i tuoi progetti."
   },
   "tr": {
     "Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.": "Oturum durumunuz geçici olarak doğrulanamıyor. Oturumunuz ve taslaklarınız korundu — lütfen biraz sonra yeniden deneyin.",
@@ -107,6 +116,7 @@
     "Your saved input is ready to resume after signing in.": "Kaydedilen girdiniz giriş yaptıktan sonra devam etmeye hazır.",
     "Resuming…": "Devam ediliyor…",
     "Sign in to view your assets": "Varlıklarınızı görmek için giriş yapın",
-    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Kişisel varlık kütüphanenizi görüntülemek, yüklemek ve yönetmek için OpenDesign ile giriş yapın."
+    "Sign in with OpenDesign to view, upload, and manage your personal asset library.": "Kişisel varlık kütüphanenizi görüntülemek, yüklemek ve yönetmek için OpenDesign ile giriş yapın.",
+    "Sign in with OpenDesign to view your projects.": "Projelerinizi görmek için OpenDesign ile giriş yapın."
   }
 }

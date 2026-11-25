@@ -1376,3 +1376,31 @@ it('passes pending prompt feedback when opening a closed standalone library crea
   await click('Reuse prompt');
   expect(container.querySelector<HTMLInputElement>('[aria-label="Creation draft"]')?.getAttribute('data-prompt-applied-token')).toBe('2');
 });
+
+it('keeps standalone persisted draft cleared after job creation until the user edits again', async () => {
+  window.sessionStorage.clear();
+  await render();
+  await click('AI Create');
+  await act(async () => {
+    lastComposerSetDraft?.({ modality: 'image', prompt: 'Golden hour desert train', references: [] });
+  });
+  await flush();
+  expect(window.sessionStorage.getItem('openmotion.studio.drafts.v1')).toContain('Golden hour desert train');
+
+  const jobCreated: import('../../../shared/gateway').GenerationJob = {
+    id: 'job-created-clear', requestId: 'req-created-clear', modality: 'image', prompt: 'Golden hour desert train', state: 'queued',
+    model: { id: 'gpt-image-2', label: 'GPT Image 2', provider: 'opendesign' },
+    createdAt: 300, updatedAt: 300,
+  };
+  await act(async () => { lastComposerOnCreated?.(jobCreated); });
+  await flush();
+  expect(window.sessionStorage.getItem('openmotion.studio.drafts.v1')).toBeNull();
+
+  // Editing again after submission persists the new unsaved prompt.
+  await act(async () => {
+    lastComposerSetDraft?.({ modality: 'image', prompt: 'Midnight neon harbor', references: [] });
+  });
+  await flush();
+  expect(window.sessionStorage.getItem('openmotion.studio.drafts.v1')).toContain('Midnight neon harbor');
+  window.sessionStorage.clear();
+});

@@ -52,6 +52,7 @@ import {
   currentReturnToPath,
   readAuthPendingDraft,
   saveAuthPendingDraft,
+  type AuthPendingDraft,
 } from './authRecoveryStore';
 import { buildLoginUrl } from './AccountSettings';
 import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type SettingsSection, type WorkspacePage } from './workspacePageRouting';
@@ -300,7 +301,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   useEffect(() => setSidebarOpen(editorRoute && !narrow), [editorRoute, narrow]);
   const navigationCollapsed = !editorActive;
   const toggleSidebar = useCallback(() => setSidebarOpen(open => !open), []);
-  const openEditor = () => { navigatePage({ motion: false, templates: false }); if (narrow) setSidebarOpen(false); };
+  const openEditor = useCallback(() => { navigatePage({ motion: false, templates: false }); if (narrow) setSidebarOpen(false); }, [navigatePage, narrow]);
   const openAssets = useCallback(() => { navigatePage({ assets: true, assetId: null, assetVersion: null, templates: false }); }, [navigatePage]);
   const openSkills = useCallback((skillCategory: SkillCategory | null = null, trigger?: HTMLElement) => {
     skillsTrigger.current = trigger ?? null;
@@ -377,6 +378,36 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       window.location.assign(loginUrl);
     }
   }, []);
+  const resumePendingDraft = useCallback(async (draft: AuthPendingDraft): Promise<boolean> => {
+    if (draft.action === 'use_template' && draft.templateId) {
+      return sessionId
+        ? workspace.createArtifact(sessionId, draft.templateId, draft.idempotencyKey)
+        : workspace.startSession(draft.instruction, draft.templateId, 'motion', draft.idempotencyKey);
+    }
+    if (draft.action === 'create_project') {
+      return workspace.create(draft.instruction, draft.idempotencyKey);
+    }
+    if (draft.action === 'open_editor') {
+      const target = workspace.projects[0];
+      if (target) {
+        if (target.id === projectId) {
+          openEditor();
+          return true;
+        }
+        return workspace.open('projects', target.id);
+      }
+      return workspace.create(undefined, draft.idempotencyKey);
+    }
+    if (draft.templateId) {
+      return sessionId
+        ? workspace.createArtifact(sessionId, draft.templateId, draft.idempotencyKey)
+        : workspace.startSession(draft.instruction, draft.templateId, 'motion', draft.idempotencyKey);
+    }
+    if (draft.instruction) {
+      return workspace.startSession(draft.instruction, undefined, 'motion', draft.idempotencyKey);
+    }
+    return true;
+  }, [sessionId, workspace.createArtifact, workspace.startSession, workspace.create, workspace.open, workspace.projects, projectId, openEditor]);
   const autoResumedKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!workspace.status || guestMode || workspace.busy) return;
@@ -385,23 +416,25 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     if (pending.action === 'open_editor' && !workspace.catalogLoaded) return;
     if (autoResumedKeyRef.current === pending.idempotencyKey) return;
     autoResumedKeyRef.current = pending.idempotencyKey;
-    clearAuthPendingDraft();
-    if (pending.action === 'use_template' && pending.templateId) {
-      void (sessionId
-        ? workspace.createArtifact(sessionId, pending.templateId)
-        : workspace.startSession(pending.instruction, pending.templateId, 'motion', pending.idempotencyKey));
-    } else if (pending.action === 'create_project') {
-      void workspace.create(pending.instruction, pending.idempotencyKey);
-    } else if (pending.action === 'open_editor') {
-      const target = workspace.projects[0];
-      if (target) {
-        if (target.id === projectId) openEditor();
-        else void workspace.open('projects', target.id);
+    void resumePendingDraft(pending).then(ok => {
+      const latest = readAuthPendingDraft();
+      if (!latest || latest.idempotencyKey !== pending.idempotencyKey) return;
+      if (ok) {
+        clearAuthPendingDraft();
       } else {
-        void workspace.create(undefined, pending.idempotencyKey);
+        saveAuthPendingDraft({
+          action: latest.action,
+          returnTo: latest.returnTo,
+          idempotencyKey: latest.idempotencyKey,
+          templateId: latest.templateId,
+          instruction: latest.instruction,
+          projectId: latest.projectId,
+          homeDraftSnapshot: latest.homeDraftSnapshot,
+          autoResume: false,
+        });
       }
-    }
-  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, workspace.projects, projectId, sessionId]);
+    });
+  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
   const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
   const motionEditorDisabled = libraryBusy || (!guestMode && (!workspace.status || workspace.projects.length === 0));
@@ -641,17 +674,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       <AuthRecoveryNotice
         signedIn={!guestMode && Boolean(workspace.status)}
         onRetry={workspace.retryConnection}
-        onResumePendingDraft={async (draft) => {
-          if (draft.templateId) {
-            return sessionId
-              ? workspace.createArtifact(sessionId, draft.templateId)
-              : workspace.startSession(draft.instruction, draft.templateId, 'motion', draft.idempotencyKey);
-          }
-          if (draft.instruction) {
-            return workspace.startSession(draft.instruction, undefined, 'motion', draft.idempotencyKey);
-          }
-          return true;
-        }}
+        onResumePendingDraft={resumePendingDraft}
       />
       <div className="motion-workspace">
       {isRoutePending && <div className="motion-route-progress" role="progressbar" aria-hidden="true" />}
@@ -728,7 +751,7 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
   const { workspace, switchingDisabled, guestMode, startGuestSignIn } = useWorkspaceChrome();
   const projects = workspace.projects;
   const filtered = projects.filter(project => project.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  const loadingProjects = !workspace.status && !workspace.error && projects.length === 0;
+  const loadingProjects = !guestMode && !workspace.status && !workspace.error && projects.length === 0;
   return <aside className="motion-sidebar" aria-label={t('Workspace navigation')}>
     <div className="motion-sidebar-brand">
       <strong className="om-subtitle">{t('Workspace')}</strong>
@@ -759,6 +782,10 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
       {loadingProjects && ['75%', '55%', '65%'].map(width => <div key={width} className="motion-session pointer-events-none" data-testid="project-list-skeleton" aria-hidden="true">
         <Skeleton style={{ width, height: 'var(--motion-space-16)' }} />
       </div>)}
+      {guestMode && !filtered.length && <div className="motion-session-empty" data-testid="project-list-guest">
+        <p>{t('Sign in with OpenDesign to view your projects.')}</p>
+        {startGuestSignIn && <Button variant="ghost" type="button" className="om-button h-auto" data-primary onClick={() => { startGuestSignIn({ action: 'open_editor' }); onNavigate?.(); }}>{t('Sign in with OpenDesign')}</Button>}
+      </div>}
       {workspace.status && !filtered.length && <p className="motion-session-empty">{t(query ? 'No matching projects' : 'Create a project with your Agent to start editing.')}</p>}
       {filtered.map(project => <DisclosureRow key={project.id} className="om-project-sidebar-row" active={currentId === project.id}
         action={<ProjectArchiveMenu projectId={project.id} title={project.title} archives={archives} />}>

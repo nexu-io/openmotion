@@ -3,7 +3,17 @@ export const HOME_DRAFT_STORAGE_KEY = 'motion.home.draft.v1';
 export const STUDIO_DRAFTS_STORAGE_KEY = 'openmotion.studio.drafts.v1';
 export const HAD_AUTH_SESSION_KEY = 'openmotion.auth.had-session.v1';
 export const AUTH_RECOVERY_EVENT = 'motion:auth-recovery';
+export const AUTH_PENDING_DRAFT_CHANGED_EVENT = 'motion:auth-pending-draft-changed';
 const PENDING_DRAFT_TTL_MS = 30 * 60_000;
+
+function notifyAuthPendingDraftChanged(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new Event(AUTH_PENDING_DRAFT_CHANGED_EVENT));
+  } catch {
+    // Ignore event dispatch failures.
+  }
+}
 
 export type AuthRecoveryKind = 'auth_required' | 'auth_unavailable';
 
@@ -173,6 +183,7 @@ export function consumeAuthCancelledFromUrl(): boolean {
       } catch {
         // Ignore storage failures.
       }
+      notifyAuthPendingDraftChanged();
     } else {
       clearAuthPendingDraft();
     }
@@ -226,6 +237,7 @@ export function saveAuthPendingDraft(
     } catch {
       // Ignore storage quota / private mode failures.
     }
+    notifyAuthPendingDraftChanged();
   }
   return draft;
 }
@@ -275,6 +287,7 @@ export function clearAuthPendingDraft(): void {
   } catch {
     // Ignore storage failures.
   }
+  notifyAuthPendingDraftChanged();
 }
 
 export function classifyAuthHttpError(
