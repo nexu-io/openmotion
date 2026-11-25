@@ -280,3 +280,17 @@ it('reports checkout-return plan upgrades and billing failures for PricingEntry 
     fetchSpy.mockRestore();
   }
 });
+
+it('navigates Pricing links in the same tab in a top-level browser and uses _blank in the desktop app', () => {
+  render(<PricingEntry trackingPage="studio" />);
+  expect(container.querySelector('a')?.getAttribute('target')).toBeNull();
+
+  const bridge = { getChromeState: vi.fn() };
+  (window as unknown as { __OPENMOTION_DESKTOP__?: unknown }).__OPENMOTION_DESKTOP__ = bridge;
+  try {
+    render(<BlackFridayTopBanner trackingPage="explore" onClose={() => {}} />);
+    expect(container.querySelector('a[href*="pricing"]')?.getAttribute('target')).toBe('_blank');
+  } finally {
+    delete (window as unknown as { __OPENMOTION_DESKTOP__?: unknown }).__OPENMOTION_DESKTOP__;
+  }
+});

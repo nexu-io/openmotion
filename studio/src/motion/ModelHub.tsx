@@ -19,7 +19,7 @@ import { findModelHub, type HubShowcaseCase } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
 import { setPendingAttribution } from './entitlementAttribution';
 import { reportHubClick, reportHubPageView } from './exploreTracking';
-import { campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
+import { campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
 import { newTrackingId } from './pageTracking';
 import { BackToExploreButton } from './BackToExploreButton';
 import { X_VIDEO_ESCAPE_EVENT, isXVideoUrl, xVideoDocument } from './xVideoEmbed';
@@ -327,8 +327,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                     <a
                       className="om-hub-promo-pill"
                       href={pricingHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      {...pricingLinkTargetProps()}
                       onClick={event => {
                         event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
                         window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
