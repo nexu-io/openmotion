@@ -1,7 +1,6 @@
 import { useEffect, useState, type RefObject } from "react";
-import { useLivePreviewIframe } from "../player/store/previewIframeStore";
+import { usePreviewIframeStore } from "../player/store/previewIframeStore";
 import { readPreviewCompositionSize } from "../utils/previewCompositionSize";
-import { useMountEffect } from "./useMountEffect";
 import type { CompositionDimensions } from "../components/renders/RenderQueue";
 import { acceptStudioRuntimeMessage } from "../player/lib/runtimeProtocol";
 
@@ -36,34 +35,26 @@ export function useCompositionDimensions(iframeRef: RefObject<HTMLIFrameElement 
     null,
   );
 
-  const livePreviewIframe = useLivePreviewIframe();
-
-  // The runtime posts stage-size once per document, so a promoted reload's message was sent
-  // before this listener could accept it. The size is authored on the document: read it there.
   useEffect(() => {
-    const dimensions = readPreviewCompositionSize(livePreviewIframe);
-    if (!dimensions) return;
-    setCompositionDimensions((prev) =>
-      prev && prev.width === dimensions.width && prev.height === dimensions.height
-        ? prev
-        : dimensions,
-    );
-  }, [livePreviewIframe]);
-
-  useMountEffect(() => {
+    const update = (dimensions: CompositionDimensions | null) => {
+      if (dimensions) setCompositionDimensions(prev =>
+        prev?.width === dimensions.width && prev.height === dimensions.height ? prev : dimensions);
+    };
+    // A promoted frame may have sent its stage-size already. Read the current frame
+    // at notification time so the long-lived listener never retains a former project.
+    const readLiveSize = () => update(readPreviewCompositionSize(usePreviewIframeStore.getState().iframe));
     const handleMessage = (e: MessageEvent) => {
       if (!e.source || e.source !== iframeRef.current?.contentWindow) return;
-      const dimensions = readCompositionSizeMessage(e.data);
-      if (!dimensions) return;
-      setCompositionDimensions((prev) =>
-        prev && prev.width === dimensions.width && prev.height === dimensions.height
-          ? prev
-          : dimensions,
-      );
+      update(readCompositionSizeMessage(e.data));
     };
+    const unsubscribe = usePreviewIframeStore.subscribe(readLiveSize);
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  });
+    readLiveSize();
+    return () => {
+      unsubscribe();
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [iframeRef]);
 
   return compositionDimensions;
 }

@@ -794,6 +794,7 @@ it('shows audio feature cards, selectable models and spotlight in the Audio hove
   });
   await mount();
   await click('Audio · Scenes');
+  await act(async () => { await vi.dynamicImportSettled(); });
   const menu = document.querySelector('.om-creative-menu.om-creative-menu-audio')!;
   expect(menu).toBeTruthy();
   expect(menu.querySelector('[role="img"][aria-label="Narrator"]')).toBeTruthy();

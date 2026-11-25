@@ -29,6 +29,33 @@ export function confirmedSource(projectId: string, path: string) {
   return sources.get(key(projectId, path));
 }
 
+// Only HTTP reads completed during one uninterrupted period without file events are
+// reusable when revisiting a clip. The weak set owns no source bytes.
+const observedStreams = new Map<string, { stream: EventSource; reads: WeakSet<ConfirmedSource> }>();
+export function trackSourceReadStream(projectId: string | null, stream: EventSource) {
+  if (!projectId) return;
+  const renew = () => observedStreams.set(projectId, { stream, reads: new WeakSet() });
+  const close = () => {
+    if (observedStreams.get(projectId)?.stream === stream) observedStreams.delete(projectId);
+  };
+  const invalidate = () => {
+    if (observedStreams.get(projectId)?.stream === stream) renew();
+  };
+  stream.addEventListener("open", renew);
+  stream.addEventListener("file-change", invalidate);
+  stream.addEventListener("error", close);
+  return () => {
+    close();
+    stream.removeEventListener("open", renew);
+    stream.removeEventListener("file-change", invalidate);
+    stream.removeEventListener("error", close);
+  };
+}
+export function liveSourceReads(projectId: string) {
+  const owner = observedStreams.get(projectId);
+  return owner && owner.stream.readyState === EventSource.OPEN ? owner.reads : undefined;
+}
+
 export function supportsProjectTextEdits(projectId: string) {
   return capableProjects.has(projectId);
 }

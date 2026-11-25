@@ -1,7 +1,11 @@
-import { Fragment, cloneElement, useLayoutEffect, useRef, useState, type ReactElement, type RefAttributes, type RefObject } from "react";
+import {
+  cloneElement, useLayoutEffect, useRef, useState,
+  type Dispatch, type ReactElement, type ReactNode, type RefAttributes, type RefObject, type SetStateAction,
+} from "react";
 import { readMountedSource } from "../../hooks/syncPeerComposition";
 import { addExternalFileReloadListener } from "../../hooks/externalFileReloadBus";
-import { hasStudioFileSave } from "../../utils/studioSaveState";
+import { getStudioSaveSnapshot, hasStudioFileSave } from "../../utils/studioSaveState";
+import { studioFileRevision } from "../../utils/studioFileVersion";
 import type { PlayerProps } from "../../player/components/Player";
 import { getCompositionCacheKeyRevision } from "../../player/lib/clientCompositionCapture";
 import { isolatedPreviewOrigin } from "../../player/lib/previewLease";
@@ -26,20 +30,28 @@ type Parked = Visit & {
   player: PlayerElement;
   revision: string;
   pending: number;
+  ownWriteRevision: number;
 };
 
 function clipRevision(project: string, path: string) {
-  return getCompositionCacheKeyRevision(project, path, thumbnailRevisionOf(usePlayerStore.getState().thumbnailRevisions, path));
+  const revision = thumbnailRevisionOf(usePlayerStore.getState().thumbnailRevisions, path);
+  // A nested file can change the master without changing the master's own file version.
+  return `${getCompositionCacheKeyRevision(project, path, revision)}|${revision}`;
 }
 
-type Visits = { active: Visit; parked: Parked | null; serial: number };
+type Visits = { active: Visit; parked: Parked[]; serial: number };
+const MAX_LIVE_PREVIEWS = 4; // Includes the active preview. The master participates in the same LRU.
 
-/** Keep one painted clip. Never reorder mounted iframe nodes: Chromium would navigate them again. */
+const visitPath = (visit: Pick<Visit, "url">) => visit.url ? compositionPathOfPreviewUrl(visit.url) : "index.html";
+const saving = (project: string, path: string) => path === "index.html"
+  ? getStudioSaveSnapshot(project).pending > 0 : hasStudioFileSave(project, path);
+
+/** Keep painted documents mounted in creation order: moving an iframe in the DOM navigates it again. */
 export function useRetainedClipPlayers(
   project: string, url: string | undefined, frame: RefObject<HTMLIFrameElement | null>,
   players: PlayerElement[], live: PlayerElement | undefined,
 ) {
-  const [visits, setVisits] = useState<Visits>({ active: { project, url, id: 0 }, parked: null, serial: 0 });
+  const [visits, setVisits] = useState<Visits>({ active: { project, url, id: 0 }, parked: [], serial: 0 });
   const lastPlayer = useRef<PlayerElement | undefined>(undefined);
 
   const { active, parked, serial } = visits;
@@ -49,21 +61,43 @@ export function useRetainedClipPlayers(
     ? cloneElement(live, { key: active.resumedSlot.mountedKey }) : live;
   useLayoutEffect(() => { lastPlayer.current = renderedLive; }, [renderedLive]);
   if (active.project !== project || active.url !== url) {
-    const reuse = parked && parked.project === project && parked.url === url &&
-      parked.frame.dataset.clipPainted === "true" &&
-      parked.revision === clipRevision(project, parked.path);
-    const path = active.url && compositionPathOfPreviewUrl(active.url);
-    const previous = active.project === project && isolatedPreviewOrigin() && path && path !== "index.html" && lastPlayer.current &&
-      frame.current?.dataset.clipPainted === "true" && !hasStudioFileSave(project, path) && !isPreviewChanging()
+    const reuse = parked.find(clip => clip.project === project && clip.url === url &&
+      clip.frame.dataset.clipPainted === "true" && !saving(project, clip.path) &&
+      (clip.path !== "index.html" || clip.ownWriteRevision === studioFileRevision()) &&
+      clip.revision === clipRevision(project, clip.path));
+    const path = visitPath(active);
+    const previous = active.project === project && isolatedPreviewOrigin() && !active.settling && lastPlayer.current &&
+      frame.current?.dataset.clipPainted === "true" && !saving(project, path) && !isPreviewChanging()
       ? { ...active, path, frame: frame.current, player: lastPlayer.current,
-          revision: clipRevision(project, path), pending: 0 }
+          revision: clipRevision(project, path), pending: 0, ownWriteRevision: studioFileRevision() }
       : null;
-    const resumedSlot = reuse && live?.key && parked.player.key
-      ? { key: live.key, mountedKey: parked.player.key } : undefined;
-    setVisits({ active: { project, url, id: reuse ? parked.id : serial + 1, resumedSlot, settling: !!(reuse && parked.pending) }, serial: serial + 1, parked: previous });
+    const remaining = parked.filter(clip => clip.project === project && clip.url !== url);
+    if (previous) remaining.unshift(previous);
+    const resumedSlot = reuse && live?.key && reuse.player.key
+      ? { key: live.key, mountedKey: reuse.player.key } : undefined;
+    const next = { project, url, id: reuse?.id ?? serial + 1, resumedSlot, settling: Boolean(reuse?.pending) };
+    setVisits({ active: next, serial: serial + 1, parked: remaining.slice(0, MAX_LIVE_PREVIEWS - 1) });
   }
+
+  const park = (player: PlayerElement, visible: boolean) => cloneElement(player, {
+    ref: null, parked: true, inert: true, style: visible ? player.props.style : { display: "none" },
+  });
+  const activePlayers = players.map(player =>
+    player !== live || !renderedLive ? player : active.settling ? park(renderedLive, true) : renderedLive);
+  const groups = [
+    { id: active.id, clip: null, players: activePlayers },
+    ...parked.map(clip => ({ id: clip.id, clip, players: [park(clip.player, false)] })),
+  ];
+  return groups.sort((a, b) => a.id - b.id).map(group =>
+    <PreviewVisit key={group.id} parked={group.clip} setVisits={setVisits}>{group.players}</PreviewVisit>);
+}
+
+function PreviewVisit({ parked, setVisits, children }: {
+  parked: Parked | null; setVisits: Dispatch<SetStateAction<Visits>>; children: ReactNode;
+}) {
   useLayoutEffect(() => {
     if (!parked) return;
+    const project = parked.project;
     let failed = false;
     const current = () => !failed && parked.frame.isConnected;
     let queue = Promise.resolve();
@@ -71,7 +105,7 @@ export function useRetainedClipPlayers(
       if (!current()) return;
       failed = true;
       setVisits(v => {
-        if (v.parked === parked) return { ...v, parked: null };
+        if (v.parked.includes(parked)) return { ...v, parked: v.parked.filter(clip => clip !== parked) };
         if (v.active.id !== parked.id) return v;
         return { ...v, serial: v.serial + 1, active: { project, url: v.active.url, id: v.serial + 1 } };
       });
@@ -85,7 +119,7 @@ export function useRetainedClipPlayers(
         // document with a complete source graph can rule out an unrelated sibling.
         if (isUnrelatedPreviewHtmlChange(parked.frame, project, parked.path, [path], change.treeChanged)) {
           parked.revision = revision;
-        } else if (parked.revision !== revision || change.paths?.includes(parked.path)) {
+        } else if (parked.path === "index.html" || parked.revision !== revision || change.paths?.includes(parked.path)) {
           discard();
         }
         return;
@@ -115,14 +149,6 @@ export function useRetainedClipPlayers(
     });
     // An ACK can follow a switch back to this still-mounted document.
     return stop;
-  }, [parked, project]);
-
-  const park = (player: PlayerElement, visible: boolean) => cloneElement(player, {
-    ref: null, parked: true, inert: true, style: visible ? player.props.style : { display: "none" },
-  });
-  const activePlayers = players.map(player =>
-    player !== live || !renderedLive ? player : active.settling ? park(renderedLive, true) : renderedLive);
-  const groups = [{ id: active.id, players: activePlayers }];
-  if (parked) groups.push({ id: parked.id, players: [park(parked.player, false)] });
-  return groups.sort((a, b) => a.id - b.id).map(group => <Fragment key={group.id}>{group.players}</Fragment>);
+  }, [parked, setVisits]);
+  return <>{children}</>;
 }

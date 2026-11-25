@@ -1,4 +1,4 @@
-import { confirmedSource as savedSource, observePendingSourceRead } from "../utils/confirmedTextSources";
+import { confirmedSource as savedSource, liveSourceReads, observePendingSourceRead, supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import type { RemoteFileRead } from "./remoteFileReads";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { openComposition } from "@hyperframes/sdk";
@@ -195,6 +195,7 @@ async function readProjectFileOptional(
   path: string,
   base?: SourceVersion,
   sharedRead?: RemoteFileRead,
+  revisiting = false,
 ): Promise<ProjectFileReadResult> {
   // Reject traversal / NUL before building the request URL — `path` is a
   // user-influenced composition path (mirrors the guard in timelineEditingHelpers,
@@ -219,6 +220,9 @@ async function readProjectFileOptional(
       // Retry through the diagnostic reader so a missing project or a network fault stays visible.
     }
   }
+  const live = liveSourceReads(projectId);
+  const saved = savedSource(projectId, path);
+  if (revisiting && saved && live?.has(saved)) return publishRead(saved);
   let res: Response;
   let data: ProjectFileBody | undefined;
   const fetchStarted = performance.now();
@@ -242,7 +246,10 @@ async function readProjectFileOptional(
       contentType: res.headers.get("content-type") ?? "",
     };
   }
-  return publishRead({ ...data, version: data.version ?? res.headers?.get("etag") });
+  const version = data.version ?? res.headers?.get("etag");
+  const source = savedSource(projectId, path);
+  if (source && source.version === version && supportsOrderedTextEdits(projectId)) live?.add(source);
+  return publishRead({ ...data, version });
 }
 
 /**
@@ -457,7 +464,9 @@ export function useSdkSession(
     setOwnedSession(null);
     if (previous) disposeSdkSession(previous.session);
 
-    if (confirmedSource.current?.projectId !== projectId || confirmedSource.current?.path !== activeCompPath) confirmedSource.current = null;
+    const previousSource = confirmedSource.current;
+    const revisiting = previousSource !== null && previousSource.projectId === projectId && previousSource.path !== activeCompPath;
+    if (previousSource?.projectId !== projectId || previousSource?.path !== activeCompPath) confirmedSource.current = null;
     if (!projectId || !activeCompPath) {
       setUnreachableProject(null);
       setCompositionMissing(false);
@@ -478,7 +487,7 @@ export function useSdkSession(
     whenPreviewBooted(projectId)
       .then((booted) =>
         cancelled || !booted ? null : observePendingSourceRead(projectId, activeCompPath,
-          readProjectFileOptional(projectId, activeCompPath, confirmedSource.current ?? undefined, sharedRead)),
+          readProjectFileOptional(projectId, activeCompPath, confirmedSource.current ?? undefined, sharedRead, revisiting)),
       )
       .then(async (read) => {
         if (!read || cancelled) return;

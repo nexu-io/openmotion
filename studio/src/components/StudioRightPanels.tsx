@@ -6,6 +6,7 @@ import type { StudioRightPanelsProps } from "./StudioRightPanels.types";
 
 import { PropertyPanelEmptyState } from "./editor/PropertyPanelEmptyState";
 import type { PropertyPanelProps } from "./editor/propertyPanelTypes";
+import { RenderQueuePanel } from "./studioPanelImports";
 import { lazyWithChunkReload } from "../utils/chunkReload";
 import { LayersPanel } from "./editor/LayersPanel";
 import { CaptionPropertyPanel } from "../captions/components/CaptionPropertyPanel";
@@ -32,7 +33,6 @@ import { useApplyColorGradingScope } from "../hooks/useApplyColorGradingScope";
 import { useCloudFeatureEnabled } from "../utils/cloudFeatures";
 
 const SelectedPropertyPanel = lazyWithChunkReload(() => import("./editor/PropertyPanel").then(m => ({ default: m.PropertyPanel })));
-const RenderQueuePanel = lazyWithChunkReload(() => import("./renders/RenderQueuePanel").then(m => ({ default: m.RenderQueuePanel })));
 const SlideshowPanel = lazyWithChunkReload(() => import("./panels/SlideshowPanel").then(m => ({ default: m.SlideshowPanel })));
 const VariablesPanel = lazyWithChunkReload(() => import("./panels/VariablesPanel").then(m => ({ default: m.VariablesPanel })));
 const MotionBlurPanel = lazyWithChunkReload(() => import("./panels/MotionBlurPanel").then(m => ({ default: m.MotionBlurPanel })));

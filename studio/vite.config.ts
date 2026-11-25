@@ -93,6 +93,9 @@ export default defineConfig({
           ) {
             return 'vendor-ast';
           }
+          if (id.includes('/node_modules/@hyperframes/player/')) {
+            return 'vendor-hyperframes-player';
+          }
           if (id.includes('/node_modules/@hyperframes/')) {
             return 'vendor-hyperframes';
           }

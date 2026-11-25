@@ -35,4 +35,4 @@ export function blackFridayTemplates(catalog: readonly GalleryTemplate[], locale
   }));
 }
 
-export const blackFridaySkillIds = ['openmotion-sale-countdown', 'openmotion-sale-promo', 'openmotion-sale-carousel'] as const;
+export { blackFridaySkillIds } from './black-friday-skills.ts';

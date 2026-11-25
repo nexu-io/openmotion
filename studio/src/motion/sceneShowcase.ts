@@ -1,5 +1,7 @@
 import type { StudioDestination, StudioScene } from './creativeStudios';
-import { archivedSkillPoster, motionSkills } from './skillCatalog';
+import { motionSkills } from './skillCatalog';
+import { archivedSkillPoster } from './skillCoverMedia';
+import { drinkSplash, productPushIn } from './cinemaVideoExamples';
 import lunar from './scene-art/apollo-11.jpg';
 import speakerRoom from './scene-art/speaker-room.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
@@ -30,8 +32,6 @@ import riserCover from './scene-art/sfx-riser.webp';
 import typingAudio from './scene-art/sfx-typing.m4a?url';
 import typingCover from './scene-art/sfx-typing.webp';
 
-const product = archivedSkillPoster('light-shadow-product');
-const splash = archivedSkillPoster('splash-float-product');
 const narration = archivedSkillPoster('talking-head-recreation');
 const camera = archivedSkillPoster('babylon-js');
 
@@ -54,13 +54,10 @@ const wingWaveform = [36, 68, 75, 67, 59, 53, 49, 79, 89, 83, 76, 72, 67, 62, 57
 const cueWaveform = [2, 94, 66, 35, 46, 44, 14, 4, 2, 33, 24, 9, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 47, 77, 48, 30, 18, 43, 19, 7, 3, 43, 20, 7, 2, 2, 2, 2, 94, 87, 62, 43, 31, 22, 15, 11, 8, 5, 4, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 50, 56, 29, 15, 8, 4, 2, 2, 2, 2, 43, 81, 54, 36, 23, 15, 63, 46, 28, 17, 44, 74, 42, 24, 14, 8, 4, 2];
 const flightWaveform = [2, 2, 30, 58, 74, 76, 74, 72, 69, 63, 56, 51, 39, 28, 48, 10, 3, 2, 2, 7, 13, 23, 27, 32, 38, 43, 46, 48, 49, 48, 49, 49, 51, 49, 50, 51, 52, 50, 51, 50, 51, 51, 51, 53, 51, 51, 51, 52, 52, 50, 51, 52, 51, 50, 51, 50, 49, 49, 49, 46, 42, 39, 35, 31, 26, 22, 21, 45, 44, 52, 46, 43, 47, 43, 43, 34, 2, 2, 2, 94, 79, 47, 29, 19, 12, 8, 6, 4, 47, 45, 33, 2, 2, 2, 2, 2];
 
-const splashClip = motionSkills.find(skill => skill.id === 'openmotion-splash-float-product')?.cover?.video;
-const productClip = motionSkills.find(skill => skill.id === 'openmotion-light-shadow-product')?.cover?.video;
 
-const portrait = { title: 'Product portrait', prompt: 'Photograph an amber glass bottle in warm sidelight, with soft leaf shadows on stone.', poster: product, posterAspect: 16 / 9, clip: productClip };
+const portrait = { title: 'Product portrait', prompt: 'Photograph an amber glass bottle in warm sidelight, with soft leaf shadows on stone.', poster: productPushIn.poster, posterAspect: 16 / 9, clip: productPushIn.clip };
 const cameraStudy = { title: 'Vintage camera study', prompt: 'Frame a vintage camera in soft sidelight. Let the background fall into shadow.', poster: camera, posterAspect: 16 / 9 };
 const moon = { title: 'Lunar portrait', prompt: 'Frame a lone astronaut on a silver lunar plain. Use a low horizon, deep shadows and light reflected in the visor.', poster: lunar, posterAspect: 1024 / 999, posterPosition: 'center top', credit: 'NASA · AS11-40-5903' };
-const orange = { title: 'Slow motion detail', prompt: 'Film a slow-motion close-up of an orange soda bottle with citrus slices, mint and splashing water.', poster: splash, posterAspect: 16 / 9, clip: splashClip };
 
 export const sceneExamples: Record<StudioScene['id'], readonly [SceneExample, ...SceneExample[]]> = {
   'text-to-image': [portrait, moon, cameraStudy],
@@ -68,8 +65,8 @@ export const sceneExamples: Record<StudioScene['id'], readonly [SceneExample, ..
   'remove-background': [{ title: 'A clean product cutout', prompt: 'Keep only the speaker.', poster: speakerStudio, posterAspect: 800 / 500 }],
   relight: [{ title: 'Late afternoon light', prompt: 'Let the light fall across the table and leave soft shadows behind the speaker.', poster: speakerRoom, posterAspect: 800 / 500 }],
   character: [{ title: 'The same astronaut, a new place', prompt: 'Show the same astronaut walking through a neon-lit city street at night.', poster: lunar, posterAspect: 1024 / 999, posterPosition: 'center top', credit: 'NASA · AS11-40-5903' }],
-  'text-to-video': [orange],
-  'image-to-video': [{ title: 'A cinematic opening', prompt: 'Start on the supplied frame. Push in slowly as a band of sunlight moves across the product.', poster: product, posterAspect: 16 / 9, clip: productClip }],
+  'text-to-video': [drinkSplash],
+  'image-to-video': [productPushIn],
   'video-camera-control': [{ title: 'Orbital hero shot', prompt: 'Slow cinematic 360-degree camera orbit around a vintage camera on dark stone with dramatic rim lighting.', poster: camera, posterAspect: 16 / 9 }],
   'video-multi-shot': [{ title: 'Three-shot lunar story', prompt: 'Wide establishing shot of an astronaut on a silver lunar ridge, cutting to a medium tracking shot of boots in dust, ending on a close-up of Earth reflected in the visor.', poster: lunar, posterAspect: 1024 / 999, posterPosition: 'center top', credit: 'NASA · AS11-40-5903' }],
   music: [

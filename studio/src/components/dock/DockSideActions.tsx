@@ -1,3 +1,4 @@
+import { warmStudioPanel } from "../studioPanelImports";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { IDockviewHeaderActionsProps } from "dockview-react";
@@ -52,6 +53,7 @@ export function DockSideActions({ group, panels }: Pick<IDockviewHeaderActionsPr
           const title = panel.title || t(PANEL_DEFINITIONS[id].title);
           return <Tooltip key={id} label={unavailable ? expandHint : title} side={zone === "left" ? "right" : "left"}>
             <IconButton size="lg" aria-label={title} aria-expanded={false} disabled={unavailable}
+              onPointerEnter={() => void warmStudioPanel(id)} onFocus={() => void warmStudioPanel(id)}
               icon={<Icon size={16} />} onClick={event => {
                 // The rail opens a panel without going through its tab, so it reports the same tab click.
                 const click = TAB_CLICKS[id as keyof typeof TAB_CLICKS];

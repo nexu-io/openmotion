@@ -1,6 +1,6 @@
 import { findTemplateCollection, type TemplateCollection } from './templateCollections';
 import { skillCategories, type SkillCategory } from './skillCategories';
-import { blackFridaySkillIds } from '../../../shared/black-friday-collection';
+import { blackFridaySkillIds } from '../../../shared/black-friday-skills';
 import { isDesignScenario, type DesignScenarioId } from '../../../shared/design-project';
 import { editorProjectIdFromPath, isNotFoundSpaPath, isSpaRoutePath, spaPathnameToSearch } from '../../../shared/spa-routes';
 import { workspacePageName } from '../../../shared/workspace-url';

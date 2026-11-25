@@ -1,3 +1,4 @@
+import { trackSourceReadStream } from "../utils/confirmedTextSources";
 import { hasEditorOpeningPreload, leaveEditorOpening, noteOpeningConnection, noteOpeningFileChange } from "../utils/editorOpeningValidation";
 import { extractIndexHeadMarkup } from '../../../shared/preview-impact';
 import { orderedFileChange, projectOrderedFile } from './orderedFileChanges';
@@ -158,10 +159,12 @@ export function sseFileChangeChannel(
   let needsCatchUp = false;
   const url = studioProjectUrl('/api/events?orderedEdits=1');
   const project = new URLSearchParams(url.split("?")[1]).get("projectId");
+  let stopTrackingSources: (() => void) | undefined;
   function connect() {
     let revision: string | null = null;
     const bootstrap = project && hasEditorOpeningPreload(project);
     const eventSource = new EventSource(bootstrap ? url + "&openingHead=1" : url);
+    stopTrackingSources = trackSourceReadStream(project, eventSource);
     eventSource.addEventListener("file-change", delivery => {
       const payload = decodeFileChange(delivery);
       if (bootstrap) noteOpeningFileChange(project);
@@ -227,6 +230,7 @@ export function sseFileChangeChannel(
   // dependent preview/file requests fail. Reopen it before reconciling the project.
   function offline() {
     needsCatchUp = true;
+    stopTrackingSources?.();
     stream?.close();
     stream = null;
   }
@@ -238,6 +242,7 @@ export function sseFileChangeChannel(
   return () => {
     globalThis.removeEventListener?.("offline", offline);
     globalThis.removeEventListener?.("online", online);
+    stopTrackingSources?.();
     stream?.close();
     if (project) leaveEditorOpening(project);
   };

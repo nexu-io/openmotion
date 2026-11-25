@@ -58,6 +58,7 @@ interface NLEPreviewProps extends Pick<
   suppressLoadingOverlay?: boolean;
   loadingUi?: "studio" | "host";
   onStageRef?: (ref: React.RefObject<HTMLDivElement | null>) => void;
+  onLivePainted?: () => void;
   /** Reports the authored composition size measured from the loaded preview. */
   onCompositionSizeChange?: (size: PreviewCompositionSize | null) => void;
   /** Draws the picture edge to edge in this box, without Studio's inset band. */
@@ -97,6 +98,7 @@ export const NLEPreview = memo(function NLEPreview({
   suppressLoadingOverlay,
   loadingUi,
   onStageRef,
+  onLivePainted,
   onCompositionSizeChange,
   fillBox,
   compositionSizeHint,
@@ -492,7 +494,10 @@ export const NLEPreview = memo(function NLEPreview({
         onCompositionLoadingChange={onCompositionLoadingChange}
         onReadyToShowChange={poster.onLiveReadyToShowChange}
         onPreviewError={poster.onPreviewError}
-        onPainted={(details) => reportPreviewFirstFrame(slot, details)}
+        onPainted={(details) => {
+          reportPreviewFirstFrame(slot, details);
+          onLivePainted?.();
+        }}
         portrait={portrait}
         suppressLoadingOverlay={suppressLoadingOverlay || poster.posterVisible}
         loadingUi={loadingUi}

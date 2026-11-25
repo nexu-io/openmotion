@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { expect, it, vi } from 'vitest';
+import { beforeAll, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { WorkspaceSearch } from './WorkspaceSearch';
+import { loadWorkspaceSearchResults } from './workspaceFeatureImports';
+
+beforeAll(loadWorkspaceSearchResults);
 import { assetRequest } from './assetClient';
 
 vi.mock('./assetClient', () => ({ assetRequest: vi.fn() }));
@@ -12,6 +15,23 @@ vi.mock('./useMediaCatalog', () => ({ useMediaCatalog: () => ({ catalog: {
   models: [{ id: 'atlascloud:bytedance/seedance-2.0/text-to-video', modelId: 'bytedance/seedance-2.0/text-to-video',
     label: 'Seedance 2.0', provider: 'atlascloud', modality: 'video', mode: 'text-to-video' }],
 }, failed: false }) }));
+
+it('opens preloaded search results on the same render as its input', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.body.appendChild(document.createElement('div'));
+  const root = createRoot(container);
+  const noop = () => {};
+  try {
+    await act(async () => root.render(<WorkspaceSearch destination={null} onSkill={noop} onScene={noop} onStudio={noop}
+      onAsset={noop} onAccount={noop} onLibrary={noop} onCommunity={noop} />));
+    act(() => container.querySelector('button')!.click());
+    expect(document.querySelector('.om-workspace-search input')).not.toBeNull();
+    expect(document.querySelector('.om-workspace-search .om-search-results')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
 
 it('retries a workspace search, pages asset matches and opens the selected version', async () => {
   vi.useFakeTimers();

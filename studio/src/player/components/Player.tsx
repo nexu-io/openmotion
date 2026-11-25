@@ -33,7 +33,8 @@ export function loadPlayerModule(): Promise<unknown> {
   return playerModule;
 }
 
-if (typeof window !== "undefined") void loadPlayerModule().catch(() => {});
+// The cloud preview runs its own player on the preview origin.
+if (typeof window !== "undefined" && !isolatedPreviewOrigin()) void loadPlayerModule().catch(() => {});
 
 if (typeof window !== "undefined") installAcceleratedCanvasTracker();
 

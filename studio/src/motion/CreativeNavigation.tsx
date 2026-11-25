@@ -1,26 +1,22 @@
 import { McpClientAvatar } from './McpClientAvatar';
 import { Button } from 'open-design-ui/button';
 import type { CreativeStudio, MediaStudio, TechniqueStudio } from '../../../shared/studio-catalog';
-import { useLayoutEffect, useId, useRef, useState, type ReactNode } from 'react';
-import type { Model, Modality } from '../../../shared/gateway';
+import { Suspense, useLayoutEffect, useId, useRef, useState, type ReactNode } from 'react';
+import type { Modality } from '../../../shared/gateway';
 import { Popover } from '../components/ui/Popover';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { creativeStudios, studioIconTone, mediaLabels, modelDestination, sceneDestination, scenesForStudio, supportsScene, type StudioDestination } from './creativeStudios';
+import { creativeStudios, studioIconTone, mediaLabels, sceneDestination, scenesForStudio, type StudioDestination } from './creativeStudios';
 import { mcpClients, type McpClient } from './mcpClients';
 import { useMediaCatalog } from './useMediaCatalog';
-import speakerStudio from './scene-art/speaker-studio.webp';
-import { imageScene, menuFamilies, withOpenDesignModels } from './imageMenuModels';
-import { ImageMegaMenu, ModelMenuColumn } from './ImageMegaMenu';
-import { VideoMegaMenu } from './VideoMegaMenu';
-import { sceneExamples } from './sceneShowcase';
 import { destinationTarget, reportCreativeClick, type CreativePage, type CreativeTarget } from './exploreTracking';
-import { AudioNavMenu } from './AudioNavMenu';
 import type { SoundTabId } from './soundTabs';
 import type { ScenarioId } from '../../../shared/scenarios';
-import { ScenarioMegaMenu } from './ScenarioMegaMenu';
 import { preloadStudioRoute, preloadWorkspacePage } from '../router/lazyPages';
 import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
+
+import { AudioNavMenu, ImageMegaMenu, VideoMegaMenu, ScenarioMegaMenu, preloadOnIntent, workspaceMenuImports } from './workspaceFeatureImports';
+import { Skeleton } from '../components/ui/Skeleton';
 
 export type CreativeNavigationProps = {
   onChooseStudio: (studio: CreativeStudio, kind?: Modality) => void;
@@ -40,50 +36,6 @@ export type CreativeNavigationProps = {
   /** The page this navigation is shown on, so its clicks segment by where the user was. */
   trackingPage: CreativePage;
 };
-
-function MediaChoices({ studio, destination, onNavigate, onSelectModel, catalog }: { destination: StudioDestination | null; onNavigate: (destination: StudioDestination) => void; onSelectModel: (target: StudioDestination) => void; catalog?: ReturnType<typeof useMediaCatalog>['catalog']; studio: MediaStudio }) {
-  const { t } = useI18n();
-  const kind = studio.primaryModality;
-  const scenes = scenesForStudio(studio);
-  const pinned = catalog?.models.find(model => model.id === destination?.model);
-  const landingDestination = destination?.landing ? destination : null;
-  const families = catalog ? menuFamilies(withOpenDesignModels(catalog.models, catalog.status.providers).filter(model => model.modality === kind && scenes.some(scene => supportsScene(model, scene))), catalog.status.providers) : [];
-  return <div className="om-media-mega">
-    <div className="om-media-menu-grid om-media-mega-entries">
-      {scenes.map(scene => {
-        const example = sceneExamples[scene.id][0];
-        return <Button variant="plain" key={scene.id} className="om-scene-tile" aria-current={destination?.landing && destination.scene.id === scene.id ? 'page' : undefined}
-          onClick={() => onNavigate(sceneDestination(scene, landingDestination, pinned && supportsScene(pinned, scene) ? pinned.id : null))}>
-          {scene.id === 'text-to-image' ? (
-            <span className="om-scene-tile-art om-media-demo om-image-demo" aria-hidden="true">
-              <span className="om-media-demo-frame">
-                <img src={example.poster} alt="" />
-                <span className="om-image-demo-input">
-                  <span className="om-image-demo-lines"><i /><i /><i /></span>
-                  <span className="om-image-demo-send">↑</span>
-                </span>
-              </span>
-            </span>
-          ) : scene.id === 'image-edit' ? (
-            <span className="om-scene-tile-art om-media-demo om-edit-demo" aria-hidden="true">
-              <span className="om-media-demo-frame">
-                <img src={speakerStudio} alt="" />
-                <img className="om-edit-demo-result" src={example.poster} alt="" />
-              </span>
-            </span>
-          ) : (
-            <span className="om-scene-tile-art"><img src={example.poster} alt="" style={{ objectPosition: example.posterPosition }} /></span>
-          )}
-          <strong>{t(scene.label)}</strong>
-        </Button>;
-      })}
-    </div>
-    <div className="om-media-mega-columns" data-single>
-      <ModelMenuColumn families={families}
-        onOpen={model => onSelectModel(modelDestination(model, landingDestination))} />
-    </div>
-  </div>;
-}
 
 export function CreativeNavigation({ specialty, onChooseStudio, destination, soundTab, motionActive, designActive, cinemaActive, scenarioActive, onOpenScenario, onOpenScenarioHub, onNavigate, onNavigateSound, currentPage, onOpenPage, overflowActions, trackingPage }: CreativeNavigationProps & { overflowActions?: (close: () => void) => ReactNode }) {
   const { t } = useI18n();
@@ -193,6 +145,13 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
     const { id, studio, label, current, menuLabel, onActivate } = menuDestinations[index - splitStart];
     const expanded = open === id && (index >= visibleCount) === inPanel;
     const where = { navTarget: id, inOverflow: inPanel };
+    const warmMenu = () => {
+      if (id !== 'mcp') preloadOnIntent(workspaceMenuImports[id]);
+    };
+    const warmDestination = () => {
+      warmMenu();
+      preloadStudioRoute(id);
+    };
     const workflowsBadgeId = id === 'workflows' ? navId + '-workflows' + (inPanel ? '-more' : '') : undefined;
     const selectScene = (next: StudioDestination) => {
       track('select_scene', { ...where, ...destinationTarget(next) });
@@ -201,13 +160,14 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
     return <div className="om-nav-row om-creative-split" data-active={Boolean(current)}>
           <Popover container={popupHost} modal={false} openOnHover={!inPanel} open={expanded}
             onOpenChange={value => {
-              if (value) preloadStudioRoute(id);
+              if (value) warmDestination();
               if (value && !inPanel) setMoreOpen(false);
               setOpen(previous => value ? id : previous === id ? null : previous);
             }}
             aria-label={menuLabel} align="start" className={id === 'mcp' ? 'om-selection-panel om-creative-client-menu' : `om-selection-panel om-creative-menu om-creative-mega om-creative-menu-${id}`}
-            primaryAction={<Button variant="plain" className="om-nav-item om-nav-row-link" aria-label={id === 'workflows' ? label : undefined} aria-describedby={workflowsBadgeId} aria-current={current} onPointerEnter={() => preloadStudioRoute(id)} onFocus={() => preloadStudioRoute(id)} onClick={() => { track(id === 'mcp' ? 'nav_mcp' : id === 'workflows' ? 'nav_studio' : 'nav_media', where); choose(onActivate); }}>{label}{workflowsBadgeId && <span className="om-badge" data-nav-badge="New" id={workflowsBadgeId} lang="en">New</span>}</Button>}
-            trigger={<Button variant="plain" className="om-nav-item om-nav-row-action" aria-label={menuLabel} aria-expanded={expanded}><RemixIcon name="arrow-down-s-line" size={12} /></Button>}>
+            primaryAction={<Button variant="plain" className="om-nav-item om-nav-row-link" aria-label={id === 'workflows' ? label : undefined} aria-describedby={workflowsBadgeId} aria-current={current} onPointerEnter={warmDestination} onFocus={warmDestination} onClick={() => { track(id === 'mcp' ? 'nav_mcp' : id === 'workflows' ? 'nav_studio' : 'nav_media', where); choose(onActivate); }}>{label}{workflowsBadgeId && <span className="om-badge" data-nav-badge="New" id={workflowsBadgeId} lang="en">New</span>}</Button>}
+            trigger={<Button variant="plain" className="om-nav-item om-nav-row-action" aria-label={menuLabel} aria-expanded={expanded} onPointerEnter={warmMenu} onFocus={warmMenu}><RemixIcon name="arrow-down-s-line" size={12} /></Button>}>
+            {expanded && <Suspense fallback={<Skeleton className="om-creative-model-skeleton" />}>
             {id === 'mcp' ? <>
               <h2 lang="en">{menuLabel}</h2>
               <div className="om-mcp-client-grid">
@@ -235,10 +195,8 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
                   }} />
               : id === 'image'
                 ? <ImageMegaMenu catalog={catalog.catalog} destination={destination} onNavigate={selectScene} />
-                : id === 'video'
-                  ? <VideoMegaMenu catalog={catalog.catalog} destination={destination} onNavigate={selectScene} />
-                  : <MediaChoices catalog={catalog.catalog} studio={studio} destination={destination} onNavigate={selectScene}
-                    onSelectModel={next => { track('select_model', { ...where, ...destinationTarget(next) }); choose(() => onNavigate(next)); }} />)}
+                : <VideoMegaMenu catalog={catalog.catalog} destination={destination} onNavigate={selectScene} />)}
+            </Suspense>}
           </Popover>
         </div>;
   }
