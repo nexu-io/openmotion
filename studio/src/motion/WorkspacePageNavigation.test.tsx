@@ -74,7 +74,10 @@ const returnThroughBreadcrumb = async (label: string) => {
   await act(async () => { link!.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
 };
 async function mount(key = 0) { await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp key={key} /></I18nProvider>)); }
+const DEFAULT_EXPLORE_TEST_TIME = Date.parse('2026-11-25T12:00:00+08:00');
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(DEFAULT_EXPLORE_TEST_TIME);
   localStorage.clear(); history.replaceState(null, '', firstUrl);
   vi.mocked(preloadMotionProjectEditor).mockClear();
   editor.mounts = 0; editor.fail = false; editor.blocked = false; editor.wait = async () => {};
@@ -113,7 +116,7 @@ beforeEach(() => {
   });
   vi.stubGlobal('fetch', fetcher);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); history.replaceState(null, '', '/'); });
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); history.replaceState(null, '', '/'); });
 
 it('cold-loads whitelisted semantic SPA path URLs directly into the requested surface', async () => {
   history.replaceState(null, '', '/settings/providers');
@@ -1364,7 +1367,7 @@ it('rotates the visible Explore spotlight and plays visible Skill previews witho
   const hero = container.querySelector<HTMLElement>('.om-feature-carousel')!;
   const cards = ['.om-feed-group', '.om-studio-collection-cards'].map(section =>
     container.querySelector<HTMLElement>(section + ' [data-playback-id]')!);
-  vi.useFakeTimers();
+  vi.useFakeTimers({ now: DEFAULT_EXPLORE_TEST_TIME });
   try {
     await act(async () => { observed.get(hero)!(true); cards.forEach(card => observed.get(card)!(true)); });
     expect(hero.dataset.scene).toBe('motion');
