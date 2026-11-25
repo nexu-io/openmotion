@@ -1,3 +1,4 @@
+import { trackStudioPendingEdit } from "../../utils/studioPendingEdits";
 import { IsolatedCanvasContextMenu, type CanvasMenuPick } from "./IsolatedCanvasContextMenu";
 import { useIsolatedInlineText } from "./useIsolatedInlineText";
 import { isIsolatedSourceTarget, isolatedPatchTarget, isolatedSourceVersion, type IsolatedSourceTarget } from "./isolatedSourceTarget";
@@ -269,7 +270,7 @@ export function IsolatedCanvasOverlay() {
     const gestureSession = session.current;
     const issuedAtLoad = frameLoad.current;
     const wholePath = event.altKey || !usePlayerStore.getState().autoKeyframeEnabled;
-    void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
+    const finished = active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
       if (gestureSession !== session.current) return;
       if (frameLoad.current !== issuedAtLoad || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
         reportUnapplied();
@@ -313,6 +314,9 @@ export function IsolatedCanvasOverlay() {
         }
       }
     });
+    // The frame owns the final geometry until measurement and persistence settle.
+    // A new pointer can start immediately, including a click that changes selection.
+    trackStudioPendingEdit(finished);
   }
 
   function lostCapture(event: PointerEvent<HTMLDivElement>) {

@@ -1,3 +1,4 @@
+import { isStudioEditSaving } from "../../utils/studioPendingEdits";
 // @vitest-environment happy-dom
 
 import React, { act } from "react";
@@ -96,6 +97,22 @@ async function reply(phase: string, result: unknown, gestureId?: unknown) {
     window.dispatchEvent(event);
   });
 }
+
+it("keeps the released drag pending through a later selection click and its save receipt", async () => {
+  const save = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(save.promise);
+  pointer("pointerdown", 60);
+  pointer("pointerup", 80);
+  const drag = messages[0]!.gestureId;
+  pointer("pointerdown", 80);
+  pointer("pointerup", 80);
+  expect(messages.map(message => message.phase)).toEqual(["start", "finish", "start", "cancel"]);
+  expect(isStudioEditSaving()).toBe(true);
+  await reply("finish", result, drag);
+  expect(isStudioEditSaving()).toBe(true);
+  await act(async () => { save.resolve({ durable: true, changed: true }); });
+  expect(isStudioEditSaving()).toBe(false);
+});
 
 it("captures a scaled drag, commits once on release and uses the shown file version", async () => {
   pointer("pointerdown", 60);

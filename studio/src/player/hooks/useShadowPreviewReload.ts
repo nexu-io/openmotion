@@ -131,7 +131,7 @@ export function useShadowPreviewReload({
   const stopHoldRef = useRef<() => void>(() => {});
   const shadowUrlRef = useRef("");
   const savesAtRequestRef = useRef(0);
-  const revisionAtRequestRef = useRef(0);
+  const revisionAtRequestRef = useRef<number | null>(null);
   const beginShadowReloadRef = useRef<(url: string) => void>(() => {});
   const retry = useShadowReloadRetry(shadowGenRef, shadowUrlRef, beginShadowReloadRef);
   const promoteWhenReadyRef = useRef<(gen: number) => void>(() => {});
@@ -207,12 +207,12 @@ export function useShadowPreviewReload({
         return waitThenRetry(gen, "gesture", (retry) =>
           afterStudioManualEditGestures(liveDoc, retry),
         );
+      if (isStudioEditSaving()) return waitThenRetry(gen, "save", afterStudioPendingEdits);
       if (
         gestureSavesOnScreen() === savesAtRequestRef.current &&
         previewSourceRevision() === revisionAtRequestRef.current
       )
         return false;
-      if (isStudioEditSaving()) return waitThenRetry(gen, "save", afterStudioPendingEdits);
       logReload("shadow-reloaded-after-gesture-save", { gen });
       const url = new URL(shadowUrlRef.current, window.location.origin);
       url.searchParams.set("_t", String(Date.now()));
@@ -418,7 +418,9 @@ export function useShadowPreviewReload({
       budgetsSpentRef.current = 0;
       shadowUrlRef.current = url;
       savesAtRequestRef.current = gestureSavesOnScreen();
-      revisionAtRequestRef.current = previewSourceRevision();
+      // A source write claims its revision before it reaches storage. A document
+      // requested while it is pending cannot present that revision as confirmed.
+      revisionAtRequestRef.current = isStudioEditSaving() ? null : previewSourceRevision();
       armReadyTimer(gen);
       setPreviewSlots((prev) => planShadowReload(prev, gen, url));
       // Thumbnails of the edit wait for the new preview instead of competing with it.
