@@ -1453,3 +1453,76 @@ it('uses Model gateway instead of BYOK API-key footer copy in unified cloud mode
   expect(footer?.textContent).toContain('Model gateway');
   expect(footer?.textContent).not.toContain('API keys');
 });
+
+it('shows feature-specific cloud unavailability with Model gateway action when unified cloud catalog has models but none support the feature', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const audioOnlyCloudCatalog = {
+    models: [
+      {
+        id: 'opendesign:elevenlabs-v3',
+        provider: 'opendesign',
+        modelId: 'elevenlabs-v3',
+        label: 'Eleven v3',
+        modality: 'audio' as const,
+        mode: 'text-to-speech',
+        source: 'live' as const,
+      },
+    ],
+    status: {
+      consoleUrl: 'https://console.example.test',
+      providers: [
+        {
+          id: 'opendesign',
+          label: 'OpenDesign',
+          enabled: true,
+          configured: true,
+          available: true,
+          credentialSource: 'environment' as const,
+          verification: 'verified' as const,
+          reason: 'Unified OpenDesign platform gateway',
+        },
+      ],
+      agents: [],
+      routes: { audio: 'opendesign:elevenlabs-v3' },
+      capabilities: [],
+    },
+    mode: 'opendesign' as const,
+  };
+
+  for (const [sceneId, modality] of [
+    ['relight', 'image'],
+    ['video-multi-shot', 'video'],
+  ] as const) {
+    chrome.openModelSettings.mockClear();
+    await act(async () => root.render(
+      <AssetComposer
+        {...props}
+        draft={{ modality, prompt: 'Warm studio portrait', references: [] }}
+        studio={{
+          catalog: { catalog: audioOnlyCloudCatalog, failed: false, retry: vi.fn() },
+          chooseModel: vi.fn(),
+          remember: vi.fn(),
+          destination: mediaEditorDestination(sceneId, null),
+        }}
+      />,
+    ));
+
+    expect(container.querySelector('[data-empty-models="true"]'), sceneId).toBeNull();
+    expect(container.textContent).toContain('No compatible OpenDesign models are currently available for this feature. Check Model gateway or sync models.');
+    expect(container.textContent).not.toContain('API key');
+    expect(container.textContent).not.toContain('Sign in with OpenDesign');
+    expect(container.textContent).not.toContain('Configure OpenDesign');
+    expect(container.textContent).not.toContain('Set up to generate');
+
+    const gatewayBtn = [...container.querySelectorAll<HTMLButtonElement>('.om-creation-setup button')].find(btn => btn.textContent?.trim() === 'Model gateway')!;
+    expect(gatewayBtn, sceneId).toBeTruthy();
+    await act(async () => gatewayBtn.click());
+    expect(chrome.openModelSettings).toHaveBeenCalledTimes(1);
+
+    const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+    expect(submit.disabled).toBe(true);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+  }
+});

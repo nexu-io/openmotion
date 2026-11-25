@@ -196,9 +196,10 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   }, [active, hasUploadFiles, showReferenceSection]);
   const cloudEmptyCatalog = isCloudEmptyCatalog(gateway, compatible.length);
   const unifiedCloudOnly = isUnifiedCloudGateway(gateway?.status.providers);
+  const cloudFeatureUnavailable = Boolean(studio && gateway && featureMode && !compatible.length && unifiedCloudOnly && !cloudEmptyCatalog);
   const unknownReferences = selected?.provider === 'opendesign' && selected.modality === 'image' && selected.supportsImageReference === undefined;
   const cloudModelMissing = !!gateway && !!modelId?.startsWith('opendesign:') && !selected && !unconfiguredPreferred && !cloudEmptyCatalog;
-  const openDesignMissing = Boolean(studio && gateway && featureMode && !compatible.length && !cloudEmptyCatalog);
+  const openDesignMissing = Boolean(studio && gateway && featureMode && !compatible.length && !cloudEmptyCatalog && !unifiedCloudOnly);
   const setupProvider = unconfiguredPreferred ? preferred!.provider : openDesignMissing ? 'opendesign' : undefined;
   const syncModels = async () => {
     if (syncing) return; setSyncing(true);
@@ -289,6 +290,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const providerSetupMessage = t(unifiedCloudOnly
     ? 'No models available'
     : 'Configure a provider or sign in to use media models.');
+  const cloudFeatureUnavailableMessage = t('No compatible OpenDesign models are currently available for this feature. Check Model gateway or sync models.');
   const openDesignSetupMessage = t('This feature uses OpenDesign models. Add an OpenDesign Cloud API key or sign in to continue.');
   const manageProviders = <Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t(unifiedCloudOnly ? 'Model gateway' : 'Model providers')}</Button>;
   const configureOpenDesign = <>
@@ -297,7 +299,10 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   </>;
   const manageProvidersNotice = imageWorkspace
     ? <ProviderSetupNotice message={providerSetupMessage}>{manageProviders}</ProviderSetupNotice>
-    : <div className="om-creation-setup"><RemixIcon name="plug-line" size={20} /><p className="om-muted">{providerSetupMessage}</p>{manageProviders}</div>;
+    : <div className="om-creation-setup" role={unifiedCloudOnly ? 'status' : undefined}><RemixIcon name={unifiedCloudOnly ? 'information-line' : 'plug-line'} size={unifiedCloudOnly ? 18 : 20} /><p className="om-muted">{providerSetupMessage}</p>{manageProviders}</div>;
+  const cloudFeatureUnavailableNotice = imageWorkspace
+    ? <ProviderSetupNotice message={cloudFeatureUnavailableMessage}>{manageProviders}</ProviderSetupNotice>
+    : <div className="om-creation-setup" role="status"><RemixIcon name="information-line" size={18} /><p className="om-muted">{cloudFeatureUnavailableMessage}</p>{manageProviders}</div>;
   const openDesignSetup = imageWorkspace
     ? <ProviderSetupNotice message={openDesignSetupMessage}>{configureOpenDesign}</ProviderSetupNotice>
     : <div className="om-creation-setup" role="status"><RemixIcon name="plug-line" size={20} /><p className="om-muted">{openDesignSetupMessage}</p><div className="om-control-row">{configureOpenDesign}</div></div>;
@@ -316,7 +321,9 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
         ? <Skeleton className="om-asset-model-skeleton" />
         : cloudEmptyCatalog
           ? <CloudEmptyModelsNotice consoleUrl={gateway.status.consoleUrl} boxed={imageWorkspace} onOpenSubscription={openSubscription} />
-          : openDesignMissing ? openDesignSetup : manageProvidersNotice}
+          : cloudFeatureUnavailable
+            ? cloudFeatureUnavailableNotice
+            : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
   const setup = <>
       {unconfiguredPreferred && (imageWorkspace
@@ -336,7 +343,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
           {t('Manage subscription')}
         </Button>
       </div>}
-      {gateway && modelId && !selected && !unconfiguredPreferred && !openDesignMissing && !cloudEmptyCatalog && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
+      {gateway && modelId && !selected && !unconfiguredPreferred && !openDesignMissing && !cloudFeatureUnavailable && !cloudEmptyCatalog && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
   </>;
   const modelNotice = unknownReferences || cloudModelMissing ? <p className="om-muted" role="status">{unknownReferences && t('Image editing capability is unknown. Sync models to check reference support.')} <Button variant="ghost" className="om-button h-auto" disabled={syncing} onClick={() => void syncModels()}>{t(syncing ? 'Working…' : 'Sync models')}</Button></p> : selected && draft.references.length > 0 && <p className="om-muted">{t(maximumReferences ? draft.modality === 'video' ? 'This video model uses one image as its first frame.' : 'This model edits up to {count} image references.' : 'This model cannot use asset references. Choose an image model that supports editing, or remove the references.', { count: maximumReferences })}</p>;
   const generationSettings = parameterModel && <GenerationParameters key={parameterKey} model={parameterModel} draft={parameters}
