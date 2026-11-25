@@ -6,6 +6,7 @@ import { assetMediaUrl } from '../../../shared/asset-library';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 import { isInsufficientBalanceError } from './AccountSettings';
+import { isCloudWebMode } from './entitlementModalBus';
 import { InsufficientBalanceFailureGate } from './EntitlementTouchpointCards';
 
 export const creationKinds = [
@@ -54,7 +55,7 @@ export function AssetGenerationCard({ job, onCancel, onView, onRetrySave, onResu
     {job.savePending && !working && <p className="om-muted">{t('Generated files are kept locally. Retry saving without generating again.')}</p>}
     {accountImage && job.download && !done && <p className="om-muted" role="status">{t('Downloaded')}: {(job.download.receivedBytes / 1024 / 1024).toFixed(1)} / {(job.download.totalBytes / 1024 / 1024).toFixed(1)} MB</p>}
     {accountImage && (resumable || working && job.remoteId) && <p className="om-muted">{t('Download the original task image. Draft changes apply only to your next generation.')}</p>}
-    {job.state === 'failed' && isInsufficientBalanceError(job.error) && <InsufficientBalanceFailureGate />}
+    {job.state === 'failed' && (job.model.provider === 'account' || job.model.provider === 'opendesign' || isCloudWebMode()) && isInsufficientBalanceError(job.error) && <InsufficientBalanceFailureGate />}
     {error && <details className="om-creation-job-error"><summary>{t('Failure details')}</summary><p>{t(error)}</p></details>}
   </section>;
 }

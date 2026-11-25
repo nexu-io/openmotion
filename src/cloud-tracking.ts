@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
+import { isEntitlementHookId, type EntitlementHookId } from '../shared/entitlement-hooks.ts';
 import { createTracker, uuid } from '../tracking/core.ts';
 import { omEvents, studioEvents } from '../tracking/events.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 
 const MAX_BROWSER_BATCH_SIZE = 25;
-const SAFE_HOOK_ID = /^[a-z0-9_]{1,40}$/;
 
 export interface CloudTrackingHandle {
   isEnabled(): boolean;
@@ -34,10 +34,10 @@ function disabledCloudTracking(reason: 'environment' | null): CloudTrackingHandl
   };
 }
 
-export function sanitizeHookId(value: string | null | undefined): string | undefined {
+export function sanitizeHookId(value: string | null | undefined): EntitlementHookId | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
-  return SAFE_HOOK_ID.test(trimmed) ? trimmed : undefined;
+  return isEntitlementHookId(trimmed) ? trimmed : undefined;
 }
 
 export function sanitizeEntryId(value: string | null | undefined): string | undefined {
@@ -145,13 +145,13 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
     },
     trackWebSignInResult({ outcome, hookId, entryId, userId, durationMs }) {
       if (!isActive()) return;
-      const safeHook = sanitizeHookId(hookId) ?? 'openmotion_editor_login';
+      const safeHook: EntitlementHookId | 'openmotion_editor_login' = sanitizeHookId(hookId) ?? 'openmotion_editor_login';
       const safeEntry = sanitizeEntryId(entryId);
       serverTracker.track('account_sign_in_result', {
         attempt_id: crypto.randomUUID(),
         outcome,
         source_product: 'openmotion',
-        source_detail: safeHook as never,
+        source_detail: safeHook,
         ...(safeEntry ? { entry_id: safeEntry } : {}),
         ...(userId ? { amr_user_id: userId } : {}),
         connector_version: 'web-oidc',

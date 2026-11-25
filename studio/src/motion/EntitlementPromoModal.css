@@ -22,7 +22,7 @@
   overflow-y: auto;
   padding: calc(16px + var(--om-desktop-safe-top, 0px)) 16px 16px;
   animation: omEpmFadein 0.3s ease-out;
-  font-family: "Albert Sans", -apple-system, "PingFang SC", system-ui, sans-serif;
+  font-family: var(--motion-font-sans);
   color: var(--motion-entitlement-ink);
   color-scheme: dark;
 }

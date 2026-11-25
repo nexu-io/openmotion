@@ -75,5 +75,10 @@ describe('U6 insufficient balance failure CTA', () => {
       root!.render(<I18nProvider locale="en"><AssetGenerationCard job={{ ...baseJob, error: 'HTTP 503 Service Unavailable' }} onCancel={vi.fn()} onView={vi.fn()} /></I18nProvider>);
     });
     expect(host.textContent).not.toContain('Not enough credits to generate');
+
+    act(() => {
+      root!.render(<I18nProvider locale="en"><AssetGenerationCard job={{ ...baseJob, model: { ...baseJob.model, id: 'openai:gpt-image-1', provider: 'openai' }, error: 'insufficient_quota' }} onCancel={vi.fn()} onView={vi.fn()} /></I18nProvider>);
+    });
+    expect(host.textContent).not.toContain('Not enough credits to generate');
   });
 });

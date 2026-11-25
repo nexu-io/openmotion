@@ -2,6 +2,7 @@ import { assetImportErrorCodes, exportFailureCodes, exportFailureStages, toolDim
 import type { Entry, Registry } from './core.ts';
 import { studioUsageEvents } from './studio-events.ts';
 import { providerSetupEntries, type ProviderSetupEntry } from '../shared/workspace-url.ts';
+import { ENTITLEMENT_HOOK_IDS } from '../shared/entitlement-hooks.ts';
 export { providerSetupEntries, type ProviderSetupEntry };
 
 export const toolNames = ['motion_assets', 'motion_media_use', 'motion_list_templates', 'motion_get_template', 'motion_list_skills', 'motion_get_skill', 'motion_create_project', 'motion_open_preview',
@@ -57,7 +58,7 @@ const creative = { studio_id: 'slug', scene_id: 'slug', model_provider: 'slug', 
 const modelHub = { hub_id: 'slug', hub_video_id: 'slug', signed_in: 'boolean' } as const;
 // A site campaign shown in the application chrome. entry_id is the od_entry_id placed on the Pricing link of that click,
 // so the click joins the Pricing visit and payment the website attributes to it.
-const entitlementHookIds = ['header_signin', 'settings_signin', 'template_use', 'private_link_gate', 'assets_empty', 'studio_generate', 'cloud_export', 'session_expired_401', 'header_pricing', 'bf_banner', 'settings_subscription', 'studio_free_gate', 'model_picker_upgrade', 'studio_res_gate', 'failure_card_topup', 'mcp_oauth'] as const;
+const entitlementHookIds = ENTITLEMENT_HOOK_IDS;
 const campaign = { campaign_id: ['black_friday_2026'], entry_id: 'uuid', hook_id: entitlementHookIds } as const;
 // Workspace assets: which shelf the library shows and what kind of media an action is about.
 const assetKind = ['all', 'image', 'video', 'audio', 'trash'] as const;

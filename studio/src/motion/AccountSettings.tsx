@@ -232,13 +232,32 @@ export function isInsufficientBalanceError(error: string | null | undefined): bo
 }
 
 let cachedAccountSummary: CloudAccountSummary | null = null;
+const accountSummaryListeners = new Set<(value: CloudAccountSummary | null) => void>();
+
+function publishAccountSummary(value: CloudAccountSummary | null): void {
+  cachedAccountSummary = value;
+  for (const listener of accountSummaryListeners) {
+    listener(value);
+  }
+}
 
 export function useAccountSummary(options?: { eager?: boolean }) {
   const eager = options?.eager ?? true;
   const [account, updateAccountState] = useState<CloudAccountSummary | null>(() => cachedAccountSummary);
   const updateAccount = useCallback((value: CloudAccountSummary) => {
-    cachedAccountSummary = value;
-    updateAccountState(value);
+    publishAccountSummary(value);
+  }, []);
+  useEffect(() => {
+    if (cachedAccountSummary !== null) {
+      updateAccountState(cachedAccountSummary);
+    }
+    const listener = (value: CloudAccountSummary | null) => {
+      updateAccountState(value);
+    };
+    accountSummaryListeners.add(listener);
+    return () => {
+      accountSummaryListeners.delete(listener);
+    };
   }, []);
   const [error, setError] = useState(false);
   const request = useRef(0);

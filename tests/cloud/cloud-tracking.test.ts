@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCloudTracking } from '../../src/cloud-tracking.ts';
+import { createCloudTracking, sanitizeHookId } from '../../src/cloud-tracking.ts';
 
 const VALID_TOKEN = 'phc_testToken1234567890';
 const TEST_RUN_UUID = '33333333-3333-4333-8333-333333333333';
@@ -91,4 +91,12 @@ test('createCloudTracking falls back to OPENMOTION_POSTHOG_KEY when OPENMOTION_P
     OPENMOTION_POSTHOG_KEY: VALID_TOKEN,
   });
   assert.equal(fromWhitespace.isEnabled(), true);
+});
+
+test('sanitizeHookId only accepts registered ENTITLEMENT_HOOK_IDS', () => {
+  assert.equal(sanitizeHookId('header_signin'), 'header_signin');
+  assert.equal(sanitizeHookId(' studio_res_gate '), 'studio_res_gate');
+  assert.equal(sanitizeHookId('unregistered_custom_hook'), undefined);
+  assert.equal(sanitizeHookId(''), undefined);
+  assert.equal(sanitizeHookId(null), undefined);
 });
