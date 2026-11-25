@@ -109,13 +109,19 @@ function getSelectedDomElement(
   return findElementForSelection(doc, selection, activeCompositionPath);
 }
 
-function clipboardMarkup(saved: Document, sourceFile: string, target: AuthoredIdentity, live: Element | null, files?: readonly string[]): string {
-  const authored = findAuthoredIdentity(saved, {
-    hfId: live?.getAttribute("data-hf-id") || target.hfId,
-    id: live?.id || target.id,
-  });
-  if (authored) return authoredMarkup(authored, live, sourceFile, files);
-  if (live) return liveMarkupWithoutPreviewMarks(live);
+function clipboardMarkup(
+  saved: Document, sourceFile: string, target: AuthoredIdentity, live: Element | null,
+  files?: readonly string[], action: "copy" | "duplicate" = "copy",
+): string {
+  // Split scene instances share their source URL. The selected row identifies
+  // the authored host even while an earlier preview is still mounted.
+  const selected = findAuthoredIdentity(saved, target);
+  if (selected) return authoredMarkup(selected, live, sourceFile, files);
+  if (action === "copy" && live) {
+    const authored = findAuthoredIdentity(saved, { hfId: live.getAttribute("data-hf-id") ?? undefined, id: live.id });
+    return authored ? authoredMarkup(authored, live, sourceFile, files) : liveMarkupWithoutPreviewMarks(live);
+  }
+  if (action === "duplicate") throw new Error("The selected clip is no longer available. Select it again in the timeline.");
   throw new Error("Cannot copy an element that is missing from its source file.");
 }
 
@@ -171,7 +177,7 @@ export function useClipboard({
   );
 
   const readClips = useCallback(
-    async (elements: TimelineElement[]): Promise<TimelineClipboardClip[]> => {
+    async (elements: TimelineElement[], action: "copy" | "duplicate" = "copy"): Promise<TimelineClipboardClip[]> => {
       const documents = new Map<string, Promise<Document>>();
       return Promise.all(elements.map(async element => {
         const path = element.sourceFile || activeCompPath || "index.html";
@@ -182,7 +188,7 @@ export function useClipboard({
         }
         const live = findTimelineElementInIframe(previewIframeRef.current, element, activeCompPath);
         return {
-          html: clipboardMarkup(await source, path, { id: element.domId, hfId: element.hfId }, live, fileTree),
+          html: clipboardMarkup(await source, path, { id: element.domId, hfId: element.hfId }, live, fileTree, action),
           start: element.start,
           duration: element.duration,
           track: element.authoredTrack ?? element.track,
@@ -305,7 +311,7 @@ export function useClipboard({
           ? isolatedStructureRefresh(previewIframeRef.current, targetPath, pid, reloadPreview) : undefined;
 
         const projection = clipboardProjection(pid, targetPath, previewIframeRef.current, () => pastedIds);
-        await saveTimelineFiles({
+        const changedPaths = await saveTimelineFiles({
           projectId: pid,
           label,
           files: { [targetPath]: paste },
@@ -316,6 +322,8 @@ export function useClipboard({
           projectPending: (onSaved || supportsOrderedTextEdits(pid)) ? projection.projectPending : undefined,
           onSaved,
         }, contentDependencies(command));
+
+        if (!changedPaths.length) throw new Error("Failed to paste");
 
         // CapCut: the pasted clip(s) become the selection; the playhead does not
         // move. reloadPreview is a bare refresh-key bump with no selection
@@ -340,7 +348,12 @@ export function useClipboard({
   const handleDuplicate = useCallback(
     async (options?: InPlace): Promise<boolean> => {
       const elements = getSelectedElements();
-      if (!elements.length) return false;
+      const { selectedElementId, selectedElementIds } = usePlayerStore.getState();
+      if (!selectedElementId) return false;
+      if (elements.length !== Math.max(1, selectedElementIds.size)) {
+        showToast("The selected clip is no longer available. Select it again in the timeline.", "error");
+        return false;
+      }
       const pid = projectIdRef.current;
       if (!pid) return false;
 
@@ -355,7 +368,7 @@ export function useClipboard({
       );
 
       try {
-        const clips = await readClips(elements);
+        const clips = await readClips(elements, "duplicate");
         let ids: string[] = [];
         const command: PasteCommand = { kind: "pasteClips", compositionPath: targetPath, start: anchorTime, clips, copyLook: true };
         const duplicate = (originalContent: string) => {
@@ -367,7 +380,7 @@ export function useClipboard({
           ? isolatedStructureRefresh(previewIframeRef.current, activeCompPath ?? "index.html", pid, reloadPreview) : undefined;
 
         const projection = clipboardProjection(pid, targetPath, previewIframeRef.current, () => ids);
-        await saveTimelineFiles({
+        const changedPaths = await saveTimelineFiles({
           projectId: pid,
           label: clipLabel("Duplicate", clips.length),
           files: { [targetPath]: duplicate },
@@ -379,6 +392,8 @@ export function useClipboard({
           onSaved,
         }, contentDependencies(command));
 
+        if (!changedPaths.length) throw new Error("Failed to duplicate");
+
         // The duplicate becomes the selection, mirroring CapCut's own paste
         // convention — there is no CapCut Duplicate to match directly (Cmd+D is
         // a no-op there); this is our own choice for consistency with paste.
@@ -389,7 +404,7 @@ export function useClipboard({
         return true;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to duplicate";
-        showToast(message);
+        showToast(message, "error");
         return false;
       }
     },

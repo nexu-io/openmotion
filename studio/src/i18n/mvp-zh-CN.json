@@ -926,6 +926,8 @@
   "Pasted element": "已粘贴元素",
   "Failed to copy": "复制失败",
   "Failed to paste": "粘贴失败",
+  "The selected clip is no longer available. Select it again in the timeline.": "所选片段已不可用，请在时间轴中重新选择。",
+  "Cannot paste this item as a timeline clip.": "此项目无法作为片段粘贴到时间轴。",
   "Failed to duplicate": "创建副本失败",
   "No playable video found. Export a video file and try again.": "未找到可播放的视频轨道，请重新导出视频文件后导入。",
   "No playable audio found. Export an audio file and try again.": "未找到可播放的音频轨道，请重新导出音频文件后导入。",

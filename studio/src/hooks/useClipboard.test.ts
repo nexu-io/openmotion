@@ -215,29 +215,12 @@ describe("pasteTimelineClips", () => {
     expect(hfIdsIn(content)).toHaveLength(1);
   });
 
-  it("still strips data-hf-id from bare text with no element root", () => {
-    const noRoot: TimelineClipboardClip = {
-      html: 'text mentioning data-hf-id="hf-leak" with no tag at all',
-      start: 0,
-      duration: 1,
-      track: 0,
-    };
-    const { content } = pasteTimelineClips(ROOT, [noRoot], 0, []);
-    expect(content).not.toContain("data-hf-id");
-  });
-
-  it("still strips data-hf-id from a tag the HTML parser hoists out of body (e.g. title)", () => {
-    // A <title> never reaches DOMParser's body, so remintHfIds's DOM walk sees
-    // no root element here -- this exercises the regex fallback, not the walk.
-    const hoisted: TimelineClipboardClip = {
-      html: '<title data-hf-id="hf-leak">x</title>',
-      start: 0,
-      duration: 1,
-      track: 0,
-    };
-    const { content } = pasteTimelineClips(ROOT, [hoisted], 0, []);
-    expect(content).not.toContain("data-hf-id");
-  });
+  it.each(['text without a clip', '<title>metadata</title>', '<template><div></div></template>'])(
+    "rejects the whole paste when a selected item cannot create a timeline clip (%s)", (html) => {
+      const clips = [clip("good", 0, 1, 0), { html, start: 2, duration: 1, track: 0 }];
+      expect(() => pasteTimelineClips(ROOT, clips, 20, [])).toThrow("Cannot paste this item as a timeline clip.");
+    },
+  );
 
   it("captures the root's own id, not a data-id that happens to precede it", () => {
     const withDataId: TimelineClipboardClip = {

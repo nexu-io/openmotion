@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
 import { orderedEditFixture } from "../../tests/orderedEditFixture";
+import productPromo from "../../../template-library/product-promo/index.html?raw";
+import canvasScene from "../../../template-library/product-promo/compositions/scene2-4-canvas.html?raw";
+import { applyAtomicCutsToHtml } from "../../../packages/edit-core/split";
+import { parseAuthoredTimeline } from "../player/lib/authoredTimeline";
+import { syncHistoryTimelineFromFiles } from "../player/lib/timelineHistoryRestore";
+import { dispatchModifierKey, type HotkeyCallbacks } from "./appHotkeysDispatch";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
@@ -7,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import { applyContentCommand, isContentCommand, type ContentCommand } from "../../../packages/edit-core/content-commands";
 import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import type { RecordEditInput } from "./timelineEditingHelpers";
 import { useClipboard } from "./useClipboard";
 import { usePlayerStore, type TimelineElement } from "../player";
 import type { DomEditSelection } from "../components/editor/domEditing";
@@ -65,9 +72,8 @@ function mountPreview(
   const iframe = document.createElement("iframe");
   document.body.appendChild(iframe);
   const doc = iframe.contentDocument as Document;
-  doc.open();
-  doc.write(ensureHfIds(saved));
-  doc.close();
+  const parsedSaved = new DOMParser().parseFromString(ensureHfIds(saved), "text/html");
+  doc.replaceChild(doc.importNode(parsedSaved.documentElement, true), doc.documentElement);
   const parsed = new DOMParser().parseFromString(ensureHfIds(sub), "text/html");
   const subRoot = (parsed.querySelector("template") as HTMLTemplateElement).content
     .firstElementChild;
@@ -123,6 +129,7 @@ function mountClipboard(
     }
     writes.push(content);
   };
+  const recordEdit = vi.fn(async (_entry: RecordEditInput) => {});
   const showToast = vi.fn();
   let api: ReturnType<typeof useClipboard> | null = null;
   function Harness() {
@@ -133,7 +140,7 @@ function mountClipboard(
       domEditSelectionRef: domSelectionRef,
       showToast,
       writeProjectFile,
-      recordEdit: async () => {},
+      recordEdit,
       reloadPreview: () => {},
       handleTimelineElementsDelete: async (elements) => {
         deleted.push(...elements.map((el) => el.id));
@@ -151,6 +158,7 @@ function mountClipboard(
   const rerender = () => act(() => root?.render(React.createElement(Harness)));
   return {
     rerender,
+    recordEdit,
     showToast,
     clipboard,
     commands,
@@ -674,14 +682,17 @@ describe("clipboard with an isolated preview", () => {
   it("copies all selected clips by scoped source identity", async () => {
     const sub = SUB.replace(">Sub<", '><img src="sibling.png?x=1">Sub<');
     const nested = { ...TITLE, id: "nested", hfId: stampedHfId(sub, "h2"), sourceFile: "compositions/sub.html" };
-    usePlayerStore.setState({ elements: [TITLE, nested], selectedElementId: TITLE.id,
-      selectedElementIds: new Set([TITLE.id, nested.id]) });
+    const selection = { elements: [TITLE, nested], selectedElementId: TITLE.id,
+      selectedElementIds: new Set([TITLE.id, nested.id]) };
+    usePlayerStore.setState(selection);
     const { clipboard, writes, iframe } = mountClipboard(null, sub);
     isolate(iframe);
     expect(clipboard().handleCopy()).toBe(true);
     await clipboard().handlePaste();
     expect(writes[0]).toContain('src="compositions/sibling.png?x=1"');
     expect(writes[0]?.match(/>Title<\/h1>/g)).toHaveLength(2);
+    // Paste selects the copies. Duplicate the original multi-file selection as a separate gesture.
+    usePlayerStore.setState(selection);
     expect(await clipboard().handleDuplicate()).toBe(true);
     expect(writes[1]).toContain(">Sub</h2>");
   });
@@ -707,4 +718,103 @@ describe("clipboard with an isolated preview", () => {
     expect(deleted).toEqual([TITLE.id]);
     expect(domDeleted).toEqual([]);
   });
+});
+
+describe("OPEND-5667 split then duplicate", () => {
+  const path = "index.html";
+  const media = '<main data-composition-id="main" data-duration="20"><video id="film" src="film.mp4" data-start="1.5" data-duration="12.5" data-track-index="1"></video></main>';
+  const rows = (source: string) => parseAuthoredTimeline(source, path, "p")!.elements;
+
+  describe.each([
+    { kind: "scene", source: productPromo, id: "scene-2-4" },
+    { kind: "media", source: media, id: "film" },
+  ])("$kind", ({ source, id }) => {
+    it.each([
+      { half: "left", stalePreview: false }, { half: "right", stalePreview: false },
+      { half: "left", stalePreview: true }, { half: "right", stalePreview: true },
+    ])("duplicates the $half half at its end and restores both timeline states (stale preview: $stalePreview)", async ({ half, stalePreview }) => {
+      const cut = applyAtomicCutsToHtml(source, [{
+        target: { id }, splitTime: 10, elementStart: 1.5, elementDuration: 12.5, track: 1,
+      }]);
+      expect(cut.splitCount).toBe(1);
+      const elements = rows(cut.after);
+      const selected = elements.find(row => row.domId === (half === "left" ? id : cut.rightHalfIds[0]))!;
+      usePlayerStore.setState({ elements, duration: 20, selectedElementId: selected.key!,
+        selectedElementIds: new Set([selected.key!]), currentTime: 10 });
+      setCachedCloudDisklessMode(true);
+      const view = mountClipboard(null, SUB, () => {}, cut.after);
+      const server = orderedEditFixture("p", { ...view.files,
+        "compositions/scene2-4-canvas.html": canvasScene, "film.mp4": "media fixture",
+      });
+      if (stalePreview) {
+        // Simulate the old preview still carrying a conflicting identity after a source edit.
+        const other = elements.find(row => row.domId === (half === "left" ? cut.rightHalfIds[0] : id))!;
+        view.iframe.contentDocument!.getElementById(selected.domId!)!.setAttribute("data-hf-id", other.hfId!);
+      }
+      const duplicate = vi.fn(view.clipboard().handleDuplicate);
+      const event = new KeyboardEvent("keydown", { key: "d", metaKey: true, cancelable: true });
+      dispatchModifierKey(event, "d", { handleDuplicate: duplicate } as unknown as HotkeyCallbacks);
+      expect(event.defaultPrevented).toBe(true);
+      expect(await duplicate.mock.results[0]?.value).toBe(true);
+      expect(view.recordEdit).toHaveBeenCalledTimes(1);
+      const { before, after } = view.recordEdit.mock.calls[0]![0].files[path]!;
+      expect(before).toBe(cut.after);
+      expect(server.packets.flat()).toHaveLength(1);
+      expect(after).toBe(server.files[path]);
+      const copyId = selected.domId + "-2";
+      const additions = rows(after).filter(row => !elements.some(original => original.key === row.key));
+      expect(additions).toHaveLength(1);
+      expect(additions[0]).toMatchObject({ domId: copyId, start: selected.start + selected.duration,
+        duration: selected.duration, playbackStart: selected.playbackStart });
+      const attr = selected.kind === "composition" ? "data-composition-src" : "src";
+      const doc = new DOMParser().parseFromString(after, "text/html");
+      expect(doc.getElementById(copyId)!.getAttribute(attr)).toBe(doc.getElementById(selected.domId!)!.getAttribute(attr));
+      usePlayerStore.setState({ elements: rows(after) });
+      for (const [previous, restored] of [[after, before], [before, after]] as const) {
+        expect(syncHistoryTimelineFromFiles(path, { [path]: { previous, restored } })).toBe(true);
+        expect(usePlayerStore.getState().elements.map(row => row.key).sort()).toEqual(rows(restored).map(row => row.key).sort());
+      }
+    });
+  });
+});
+
+it("rejects a duplicate of a removed scene still mounted in the preview", async () => {
+  const view = mountClipboard(null, SUB, () => {}, productPromo);
+  const path = "index.html";
+  const selected = parseAuthoredTimeline(productPromo, path, "p")!.elements.find(row => row.domId === "scene-2-4")!;
+  const saved = new DOMParser().parseFromString(productPromo, "text/html");
+  saved.getElementById(selected.domId!)!.remove();
+  view.files[path] = saved.documentElement.outerHTML;
+  usePlayerStore.setState({ elements: [selected], selectedElementId: selected.key!,
+    selectedElementIds: new Set([selected.key!]) });
+  expect(await view.clipboard().handleDuplicate()).toBe(false);
+  expect(view.writes).toEqual([]);
+  expect(view.recordEdit).not.toHaveBeenCalled();
+  expect(view.showToast).toHaveBeenCalledWith(expect.any(String), "error");
+});
+
+it("reports a stale split selection without writing a partial duplicate", async () => {
+  selectTitle();
+  usePlayerStore.setState({ selectedElementIds: new Set([TITLE.id, "index.html#missing-split"]) });
+  const view = mountClipboard();
+  expect(await view.clipboard().handleDuplicate()).toBe(false);
+  expect(view.writes).toEqual([]);
+  expect(view.recordEdit).not.toHaveBeenCalled();
+  expect(view.showToast).toHaveBeenCalledWith(expect.any(String), "error");
+});
+
+it("selects the duplicate when the left split half has only an authored hf-id", async () => {
+  const cut = applyAtomicCutsToHtml(ensureHfIds(SAVED), [{
+    target: { hfId: TITLE_HF_ID }, splitTime: 4, elementStart: 2, elementDuration: 3, track: 0,
+  }]);
+  expect(cut.splitCount).toBe(1);
+  const path = "index.html";
+  const elements = parseAuthoredTimeline(cut.after, path, "p")!.elements;
+  const left = elements.find(row => row.hfId === TITLE_HF_ID)!;
+  usePlayerStore.setState({ elements, selectedElementId: left.key!, selectedElementIds: new Set([left.key!]) });
+  const view = mountClipboard(null, SUB, () => {}, cut.after);
+  expect(await view.clipboard().handleDuplicate()).toBe(true);
+  const copy = parseAuthoredTimeline(view.writes[0]!, path, "p")!.elements.find(row => row.start === 4 && row.duration === 2)!;
+  expect(copy.domId).toBeTruthy();
+  expect(usePlayerStore.getState().selectedElementId).toBe(copy.key);
 });
