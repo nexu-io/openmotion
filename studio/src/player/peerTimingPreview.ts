@@ -195,12 +195,15 @@ export function diffPreviewChanges(previous: string, current: string, box: BoxCa
   return changes;
 }
 
-/** The first visual edit can persist the exact IDs already mounted by the compiler. */
+/** The first visual edit persists the compiler's IDs; undo can return to the unstamped source. */
 export async function diffMountedPreview(previous: string, current: string, box: BoxCapabilities = {}) {
   const changes = diffPreviewChanges(previous, current, box);
-  if (changes || current.split("data-hf-id=").length <= previous.split("data-hf-id=").length) return changes;
+  if (changes) return changes;
+  const before = previous.split("data-hf-id=").length, after = current.split("data-hf-id=").length;
+  if (before === after) return null;
   const { ensureHfIds } = await import("@hyperframes/parsers/hf-ids");
-  return diffPreviewChanges(ensureHfIds(previous), current, box);
+  return before < after ? diffPreviewChanges(ensureHfIds(previous), current, box)
+    : diffPreviewChanges(previous, ensureHfIds(current), box);
 }
 
 function onlyStyles(changes: PreviewChange[]) {

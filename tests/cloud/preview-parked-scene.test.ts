@@ -125,6 +125,19 @@ it('includes the compiled body of an independently placed sibling when its sourc
   assert.deepEqual(f.counts, {reads: 2, swaps: 1, confirms: 2});
 });
 
+it('does not confirm the original compiled scene over a still-visible peer placement', async () => {
+  const f = fixture(true, true);
+  const moved = digest('outro moved in place');
+  f.placeSibling(moved);
+  // Undo returns both the source version and the compiled fingerprint to the initial ones.
+  Object.assign(f.fresh.sourceVersions, oldVersions);
+  Object.assign(f.nextParts, parts('old intro'));
+  const undo = { ...f.request, path: other, fileVersion: '"sha256:' + oldVersions[other] + '"' };
+  assert.equal(await f.run(undo), false, 'require document recovery when a compiled no-op cannot undo the live edit');
+  assert.equal(f.currentVersions[other], moved);
+  assert.deepEqual(f.counts, {reads: 1, swaps: 0, confirms: 0});
+});
+
 it('does not confirm either file when the runtime refuses to restart one of the scene scripts', async () => {
   const f = fixture(true);
   f.onSwap(async () => { throw new Error('scene intro cannot be swapped: its script uses .then('); });

@@ -46,3 +46,9 @@ export function mountedCanvasVersion(doc: Document, projectId: string, path: str
   if (/^[a-f0-9]{64}$/.test(tag)) return '"sha256:' + tag + '"';
   return /^"(?:sha256|patch):[a-f0-9]{64}"$/.test(tag) ? tag : undefined;
 }
+
+/** A verified soft history restore changed this document, not other frames at the same old version. */
+export function recordMountedCanvasRestore(doc: Document, project: string, path: string, version: string) {
+  const source = mountedSources.get(doc);
+  if (source?.projectId === project) source.sourceVersions[path] = version;
+}

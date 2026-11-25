@@ -79,7 +79,7 @@ function instrument(projectId, writer) {
   };
 }
 
-export async function openEditor(browser, origin, id, time, name, network) {
+export async function openEditor(browser, origin, id, time, name, network, comp) {
   const context = await browser.createBrowserContext(), page = await context.newPage();
   await page.setViewport({ width: 1650, height: 950 });
   await page.evaluateOnNewDocument(installWebMcpHost, '__seekHost');
@@ -92,10 +92,12 @@ export async function openEditor(browser, origin, id, time, name, network) {
     network.push({ name, at: Date.now(), path: url.pathname, sceneFile: url.searchParams.get('sceneFile'),
       capture: url.searchParams.has('capture'), type: request.resourceType() });
   });
-  await page.goto(`${origin}/editor/${id}?project=${id}#project/${id}?v=1&t=${time}&tab=design&rc=0`, { waitUntil: 'domcontentloaded' });
+  const composition = comp ? `&comp=${encodeURIComponent(comp)}` : '';
+  await page.goto(`${origin}/editor/${id}?project=${id}#project/${id}?v=1&t=${time}&tab=design&rc=0${composition}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-studio-timeline]');
-  const frame = await (await page.waitForSelector(active)).contentFrame();
   await page.waitForFunction(() => window.__receiptProbe.connected && window.__seekHost.has('openmotion_studio_seek'));
+  if (comp) await page.waitForFunction((selector, comp) => document.querySelector(selector)?.src.includes('/preview/comp/' + comp), {}, active, comp);
+  const frame = await (await page.waitForSelector(active)).contentFrame();
   await frame.waitForFunction(t => Math.abs((window.__player?.getTime?.() ?? -1) - t) < .05, { timeout: 60_000 }, time);
   assert.notEqual(new URL(frame.url()).origin, origin, 'isolated preview required');
   await frame.evaluate(async () => { await document.fonts.ready; });

@@ -27,3 +27,13 @@ export function acknowledgeFileEdit(
 export function forgetFileEditChain(project: string, path: string): void {
   chains.delete(JSON.stringify([project, path]));
 }
+
+/** Retire the forward history. Only a document actually repainted by undo may
+ * use its former base as evidence that it showed the source we restored from. */
+export function retireFileEditChain(project: string, path: string, previous?: string): ReadonlySet<string> {
+  const key = JSON.stringify([project, path]);
+  const chain = chains.get(key);
+  chains.delete(key);
+  return previous && chain?.current === previous
+    ? new Set([previous, chain.base, ...chain.recent]) : new Set(previous ? [previous] : []);
+}

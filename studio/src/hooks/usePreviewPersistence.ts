@@ -32,6 +32,7 @@ import { syncRestoredTimelineFromPreview } from "../player/lib/timelineRestoreSy
 import { syncHistoryTimelineFromFiles } from "../player/lib/timelineHistoryRestore";
 import { holdHistoryTimelineUntilPreviewReplaced } from "../player/timelineRestorePending";
 import { studioFileRevision } from "../utils/studioFileVersion";
+import { mountedCanvasVersion, recordMountedCanvasRestore } from "../components/editor/isolatedSourceTarget";
 
 /** The restore payload the undo/redo preview-sync consumes (from the history store). */
 interface HistoryPreviewRestore {
@@ -259,6 +260,15 @@ export function usePreviewPersistence({
       );
       // A newer write owns the preview; discard the snapshot read before it.
       if (!isCurrent() || studioFileRevision() !== revision || deferUnderGesture()) return;
+      const mounts = Object.entries(restore.files ?? {}).flatMap(([path, file]) => {
+        const shown = doc && projectId && mountedCanvasVersion(doc, projectId, path);
+        return shown && file.versions ? [{path, shown, versions: file.versions}] : [];
+      });
+      if (mounts.some(({shown, versions}) => shown !== versions.restored && !versions.previous.has(shown))) {
+        markScenesStale(iframe, paths);
+        reloadRestoredPreview();
+        return;
+      }
       const strategy = applyUndoRestoreToPreview(
         iframe,
         activePath,
@@ -268,6 +278,7 @@ export function usePreviewPersistence({
         nestedFiles,
       );
       if (strategy === "full") return;
+      for (const {path, versions} of mounts) recordMountedCanvasRestore(doc!, projectId!, path, versions.restored);
       syncRestoredTimelineFromPreview(previewIframeRef.current?.contentDocument);
     },
     [previewIframeRef, activeCompPathRef, reloadPreview, invalidateHistoryCompositions, heldPreviewDoc],

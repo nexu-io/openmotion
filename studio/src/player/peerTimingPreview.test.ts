@@ -108,6 +108,10 @@ describe("peer timing classification", () => {
     expect(await diffMountedPreview(before, after, box)).toMatchObject([
       { id: "picture", tag: "canvas", styles: [["width", "", "1100px"], ["height", "", "600px"]] },
     ]);
+    expect(await diffMountedPreview(after, before, box)).toMatchObject([
+      { id: "picture", tag: "canvas", styles: [["width", "1100px", ""], ["height", "600px", ""]] },
+    ]);
+    expect(await diffMountedPreview(after.replace(/data-hf-id="[^"]+"/, 'data-hf-id="unrelated"'), before, box)).toBeNull();
     expect(await diffMountedPreview(before, after)).toBeNull();
     expect(await diffMountedPreview(before, after.replace('width="1200"', 'width="1100"'), box)).toBeNull();
     expect(await diffMountedPreview(before, after.replace("1100px", "95%"), box)).toBeNull();

@@ -110,7 +110,8 @@ export const PREVIEW_PARKED_SCENE = `
 
   // A separate receipt can arrive while its sibling's swap still owns the player.
   let sceneTail = Promise.resolve();
-  const appliedSceneVersions = new Map();
+  // The compiled scene fingerprints do not change when a placement is painted in place.
+  const appliedSceneVersions = new Map(Object.entries(sourceVersions));
   function refreshParkedScene(message) {
     const result = sceneTail.then(() => applySceneReceipt(message));
     sceneTail = result.catch(() => false);
@@ -180,6 +181,10 @@ export const PREVIEW_PARKED_SCENE = `
       return true;
     };
     const changed = Array.from(targets).filter(([, target]) => oldParts.scenes[target.scene] !== newParts.scenes[target.scene]);
+    // A swap skips equal fingerprints. If this live scene has drifted from its compilation,
+    // only a verified inverse patch or a fresh document can restore it. Do not falsely ACK it.
+    if (Array.from(targets).some(([path, target]) => oldParts.scenes[target.scene] === newParts.scenes[target.scene] &&
+        appliedSceneVersions.get(path) !== target.base)) return false;
     if (!changed.length) return confirm();
     const fragments = await Promise.all(changed.map(([path]) => path === firstPath ? snapshot : readSceneSnapshot(path, signal)));
     const complete = snapshot.doc;

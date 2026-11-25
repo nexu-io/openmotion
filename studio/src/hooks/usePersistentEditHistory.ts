@@ -11,6 +11,8 @@ import { generateId } from "../utils/generateId";
 import { reportManualEdit, setTrackedProject, watchEditSurface } from "../motion/editorTracking";
 import { studioEditLifecycle } from "../webmcp/writeCoordinator";
 import { observeStudioSavedAt } from "../utils/studioSaveState";
+import { confirmedSource, forgetSource } from "../utils/confirmedTextSources";
+import { retireFileEditChain } from "../utils/isolatedEditVersions";
 
 interface ApplyCallbacks {
   readFile: (path: string) => Promise<string>;
@@ -341,6 +343,7 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
           ? files.filter(path => computePreviewImpact([path]).affectsPreview)
           : files;
         const previous = await readAll(previewPaths(paths), callbacks.readFile);
+        const before = new Map(projectWide ? paths.map(path => [path, confirmedSource(projectId, path)]) : []);
         const headers = studioWriteHeaders();
         lastStepToken.current = headers["X-Hyperframes-Write-Token"];
         const beforeStep = readSequence.current;
@@ -371,11 +374,25 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
         const reply = posted.body as HistoryResult | { ok: true; entry?: { label: string } | null; stepLabel?: string; appliedFiles: string[] };
         if ("appliedFiles" in reply) {
           // Snapshot history returns the destination entry. Its own diff can describe a different edit.
+          // A step can revisit an immutable file version. Its old forward receipts must
+          // not advance the restored frame back to the edit we just undid. The actual
+          // paths can also differ from the predicted step, including files we won't read below.
+          const pins = new Map(reply.appliedFiles.map(path => {
+            const base = before.get(path);
+            const pins = retireFileEditChain(projectId, path, base && base.content === previous?.[path] ? base.version : undefined);
+            forgetSource(projectId, path);
+            return [path, pins] as const;
+          }));
+          const files = await restoredFiles(previewPaths(reply.appliedFiles), previous, callbacks.readFile);
+          for (const [path, file] of Object.entries(files ?? {})) {
+            const source = confirmedSource(projectId, path);
+            if (source?.content === file.restored) file.versions = { previous: pins.get(path)!, restored: source.version };
+          }
           return {
             ok: true,
             label: reply.stepLabel ?? next?.label ?? reply.entry?.label,
             paths: reply.appliedFiles,
-            files: await restoredFiles(previewPaths(reply.appliedFiles), previous, callbacks.readFile),
+            files,
           };
         }
         if (!reply.ok) {

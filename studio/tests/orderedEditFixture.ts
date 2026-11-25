@@ -57,5 +57,6 @@ export function orderedEditFixture(project: string, initial: Record<string, stri
     return Response.json({ committed });
   });
   vi.stubGlobal('fetch', request);
-  return { files, packets, request, getVersion };
+  const replaceFile = (path: string, content: string) => { files[path] = content; versions.delete(path); };
+  return { files, packets, request, getVersion, replaceFile };
 }
