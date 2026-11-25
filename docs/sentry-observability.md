@@ -15,7 +15,7 @@ OpenMotion cloud deployments provide opt-in Web error monitoring and browser per
   - Sentry v11 automatic PII collection (`userInfo`, `cookies`, `httpHeaders`, `httpBodies`, `urlQueryParams`) is explicitly disabled.
   - Only opaque IDs (`user.id`, `workspace_id`, `project_id`) are attached — never emails, display names, or session cookies.
   - `beforeSend` / `beforeSendTransaction` / `beforeBreadcrumb` redact `preview_token`, S3 `X-Amz-*` signatures, OAuth `code`/`state`, tokens, and emails, and strip `request.cookies` / `request.data`.
-  - `tracePropagationTargets` is restricted to same-origin `/api/` and `/motion-api/` routes so cross-origin S3 presigned uploads are never broken by extra CORS tracing headers.
+  - By default, Studio propagates trace headers on same-origin `/api/` and `/motion-api/` business requests. Asset delivery routes that can redirect to presigned storage are excluded even with custom propagation targets, so audio, thumbnails, and downloads do not send trace headers to the bucket.
   - Untrusted project previews on `PREVIEW_PUBLIC_ORIGIN` never receive the Studio bootstrap script and errors originating from `PREVIEW_PUBLIC_ORIGIN` or `/api/projects/*/preview` are dropped.
 
 ---
