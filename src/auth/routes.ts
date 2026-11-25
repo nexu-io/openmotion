@@ -25,6 +25,7 @@ import {
   clearCookie,
   createBrowserSession,
   isHttpsOrigin,
+  oidcIdTokenCacheKey,
   parseCookies,
   resolveBrowserSession,
   revokeBrowserSession,
@@ -56,10 +57,6 @@ export interface AuthRoutesDeps extends AuthMiddlewareDeps {
 }
 
 const AUTH_ATTR_COOKIE_NAME = 'om_auth_attr';
-
-function oidcIdTokenCacheKey(rawSessionToken: string): string {
-  return `oidc:id_token:${sha256Hex(rawSessionToken)}`;
-}
 
 function parseAuthAttributionCookie(raw: string | undefined): { hookId?: string; entryId?: string; startedAt?: number } {
   if (!raw) return {};

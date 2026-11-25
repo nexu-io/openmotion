@@ -14,6 +14,10 @@ export const OIDC_TX_COOKIE_NAME = 'om_oidc_tx';
 export const DEFAULT_SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
 const SESSION_CACHE_TTL_SEC = 60;
 
+export function oidcIdTokenCacheKey(rawSessionToken: string): string {
+  return `oidc:id_token:${sha256Hex(rawSessionToken)}`;
+}
+
 export function isHttpsOrigin(origin: string): boolean {
   try {
     return new URL(origin).protocol === 'https:';

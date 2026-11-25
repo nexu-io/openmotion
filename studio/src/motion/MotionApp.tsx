@@ -18,28 +18,28 @@ import { editorProjectIdFromPath, isNotFoundSpaPath, isStandaloneSpaPath } from 
 import { StudioRouterProvider } from '../router/createAppRouter';
 import { readWorkspacePage } from './workspacePageRouting';
 import { buildLoginUrl } from './AccountSettings';
-import { hadAuthenticatedSession } from './authRecoveryStore';
+import type { AuthRecoveryDetail } from './authRecoveryStore';
 import { isDesktopApp, startDesktopBrowserLogin } from '../utils/platformHost';
 
 const noPendingSaves = async () => {};
 
 type MotionRouteError =
   | { kind: 'auth_required'; sessionExpired: boolean }
+  | { kind: 'auth_unavailable' }
   | { kind: 'workspace_not_found' }
   | { kind: 'generic'; message: string };
 
 function classifyRouteError(err: unknown): MotionRouteError {
   const apiErr = err as Error & {
     status?: number;
-    code?: string;
-    errorCode?: string;
-    sessionExpired?: boolean;
+    authRecovery?: AuthRecoveryDetail;
   };
   const message = apiErr?.message || 'Workspace connection failed';
-  if (apiErr?.status === 401 && (apiErr.errorCode === 'auth_required' || apiErr.code === 'UNAUTHORIZED')) {
-    const sessionExpired =
-      apiErr.sessionExpired === true || /session expired|revoked/i.test(message) || hadAuthenticatedSession();
-    return { kind: 'auth_required', sessionExpired };
+  if (apiErr?.authRecovery?.kind === 'auth_required') {
+    return { kind: 'auth_required', sessionExpired: Boolean(apiErr.authRecovery.sessionExpired) };
+  }
+  if (apiErr?.authRecovery?.kind === 'auth_unavailable') {
+    return { kind: 'auth_unavailable' };
   }
   if (apiErr?.status === 404 && /not found in this workspace/i.test(message)) {
     return { kind: 'workspace_not_found' };
@@ -171,6 +171,8 @@ function MotionAppContent() {
       >
         {routeError?.kind === 'auth_required' ? (
           <ProjectAuthRequiredScreen sessionExpired={routeError.sessionExpired} />
+        ) : routeError?.kind === 'auth_unavailable' ? (
+          <ProjectAuthUnavailableScreen onRetry={() => retry(value => value + 1)} />
         ) : routeError?.kind === 'workspace_not_found' ? (
           <ProjectWorkspaceNotFoundScreen onRetry={() => retry(value => value + 1)} />
         ) : routeError ? (
@@ -227,6 +229,30 @@ function ProjectAuthRequiredScreen({ sessionExpired }: { sessionExpired: boolean
                 {t(sessionExpired ? 'Sign in again' : 'Sign in with OpenDesign')}
               </Button>
               <a className="om-button" href="/explore">{t('Explore')}</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ProjectAuthUnavailableScreen({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <div className="motion-home-navigation"><WorkspaceMenuButton /></div>
+      <section className="om-recovery-screen" data-testid="project-auth-unavailable">
+        <div className="om-recovery-surface">
+          <div className="om-recovery-content">
+            <RemixIcon name="wifi-off-line" size={32} />
+            <p className="om-muted">
+              {t('Temporarily unable to verify your login status. Your session and drafts are preserved — please retry shortly.')}
+            </p>
+            <div className="om-recovery-actions">
+              <Button variant="ghost" className="om-button h-auto" data-primary onClick={onRetry}>
+                {t('Retry')}
+              </Button>
             </div>
           </div>
         </div>

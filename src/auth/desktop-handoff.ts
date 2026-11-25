@@ -14,6 +14,7 @@ import {
   SESSION_COOKIE_NAME,
   createBrowserSession,
   isHttpsOrigin,
+  oidcIdTokenCacheKey,
   parseCookies,
   resolveBrowserSession,
   serializeCookie,
@@ -40,6 +41,7 @@ export interface DesktopHandoffRecord {
   workspaceId: string;
   codeChallenge: string;
   redirectUri: string;
+  idToken?: string;
   expiresAt: number;
 }
 
@@ -133,6 +135,7 @@ class DesktopHandoffCodeStore {
               workspaceId: parsed.workspaceId,
               codeChallenge: parsed.codeChallenge,
               redirectUri: parsed.redirectUri,
+              ...(typeof parsed.idToken === 'string' && parsed.idToken ? { idToken: parsed.idToken } : {}),
               expiresAt: parsed.expiresAt,
             };
           }
@@ -293,6 +296,7 @@ export function mountDesktopHandoffRoutes(
     const rawSession = cookies[SESSION_COOKIE_NAME];
     let userId: string | null = null;
     let workspaceId: string | null = null;
+    let idToken: string | undefined;
 
     if (rawSession) {
       try {
@@ -307,6 +311,7 @@ export function mountDesktopHandoffRoutes(
               : resolved.auth;
           userId = auth.userId;
           workspaceId = auth.workspaceId;
+          idToken = (await deps.cache?.get(oidcIdTokenCacheKey(rawSession)).catch(() => null)) ?? undefined;
         }
       } catch (error) {
         if (isCloudError(error) && error.status === 503) {
@@ -315,6 +320,7 @@ export function mountDesktopHandoffRoutes(
         // Inactive or revoked account -> require fresh browser login.
         userId = null;
         workspaceId = null;
+        idToken = undefined;
       }
     }
 
@@ -338,6 +344,7 @@ export function mountDesktopHandoffRoutes(
       workspaceId,
       codeChallenge: validated.codeChallenge,
       redirectUri: validated.redirectUri,
+      ...(idToken ? { idToken } : {}),
     });
 
     const redirectTarget = new URL(validated.redirectUri);
@@ -418,6 +425,9 @@ export function mountDesktopHandoffRoutes(
       workspaceId: membership.workspace.id,
       ttlSec: DEFAULT_SESSION_TTL_SEC,
     });
+    if (record.idToken) {
+      await deps.cache?.set(oidcIdTokenCacheKey(session.token), record.idToken, DEFAULT_SESSION_TTL_SEC).catch(() => {});
+    }
 
     const cookieHeader = serializeCookie(SESSION_COOKIE_NAME, session.token, {
       httpOnly: true,

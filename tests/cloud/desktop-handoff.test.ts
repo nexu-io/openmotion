@@ -11,11 +11,13 @@ import { createDesktopHandoffRoutes } from '../../src/auth/desktop-handoff.ts';
 import {
   InMemoryAuthCache,
   InMemoryAuthStore,
+  OidcService,
   SESSION_COOKIE_NAME,
   assertSafeReturnTo,
   createAuthRoutes,
   createBrowserSession,
   generatePkcePair,
+  oidcIdTokenCacheKey,
   revokeBrowserSession,
   type AuthEnv,
 } from '../../src/auth/index.ts';
@@ -822,6 +824,89 @@ describe('Desktop System-Browser Session Handoff API', () => {
         }),
       ]);
       assert.deepEqual([resA.status, resB.status].sort((a, b) => a - b), [200, 401]);
+    });
+
+    it('carries the cached OIDC id_token through desktop handoff so desktop logout calls IdP end_session_endpoint (OPEND-5726)', async () => {
+      const config = makeConfig();
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const seeded = store.seedWorkspace({
+        email: 'desktop-logout@example.test',
+        displayName: 'Desktop Logout',
+        role: 'owner',
+      });
+      const browserSession = await createBrowserSession(store, {
+        userId: seeded.user.id,
+        workspaceId: seeded.workspace.id,
+      });
+      const upstreamIdToken = 'eyJhbGciOiJIUzI1NiJ9.desktop-id-token-payload.sig';
+      await cache.set(oidcIdTokenCacheKey(browserSession.token), upstreamIdToken, 3600);
+
+      const endSessionCalls: URL[] = [];
+      const oidc = new OidcService(
+        {
+          issuer: 'https://idp.example.test',
+          clientId: 'openmotion-cloud-client',
+          clientSecret: 'ephemeral-test-client-secret',
+          callbackUrl: 'https://motion.example.test/auth/callback',
+          scopes: 'openid profile email',
+          claimSub: 'sub',
+          claimEmail: 'email',
+          claimName: 'name',
+          discovery: {
+            issuer: 'https://idp.example.test',
+            authorization_endpoint: 'https://idp.example.test/authorize',
+            token_endpoint: 'https://idp.example.test/token',
+            end_session_endpoint: 'https://idp.example.test/oauth2/end-session',
+          },
+          fetcher: async (input) => {
+            endSessionCalls.push(new URL(String(input)));
+            return new Response(null, { status: 200 });
+          },
+        },
+        cache,
+      );
+
+      const app = new Hono<AuthEnv>();
+      app.route('/', createAuthRoutes({ config, store, cache, oidc }));
+
+      const { codeVerifier, codeChallenge } = generatePkcePair();
+      const redirectUri = 'http://127.0.0.1:45203/cb';
+      const startRes = await app.request(
+        buildStartUrl({
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'desktop-logout-state',
+        }),
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
+      );
+      assert.equal(startRes.status, 302);
+      const code = new URL(startRes.headers.get('location')!).searchParams.get('code')!;
+
+      const exchangeRes = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, codeVerifier, redirectUri }),
+      });
+      assert.equal(exchangeRes.status, 200);
+      const setCookie = exchangeRes.headers.get('set-cookie') ?? '';
+      const desktopMatch = new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`).exec(setCookie);
+      assert.ok(desktopMatch);
+      const desktopToken = decodeURIComponent(desktopMatch[1]!);
+
+      const logoutRes = await app.request('/auth/logout', {
+        method: 'POST',
+        headers: {
+          Cookie: `${SESSION_COOKIE_NAME}=${desktopToken}`,
+          Origin: 'https://motion.example.test',
+        },
+      });
+      assert.equal(logoutRes.status, 200);
+      assert.deepEqual(await logoutRes.json(), { ok: true });
+      assert.equal(endSessionCalls.length, 1);
+      assert.equal(endSessionCalls[0]!.searchParams.get('id_token_hint'), upstreamIdToken);
+      assert.equal(endSessionCalls[0]!.searchParams.get('client_id'), 'openmotion-cloud-client');
     });
   });
 });

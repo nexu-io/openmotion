@@ -604,3 +604,40 @@ it('shows localized workspace-mismatch guidance when an authenticated user opens
     setCachedCloudDisklessMode(null);
   }
 });
+
+it('preserves auth_unavailable recovery banner and retry UI when /preview/open returns 503 AUTH_UNAVAILABLE', async () => {
+  const projectUuid = '96d90a40-7393-4041-8aa0-4752f676fadc';
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).includes('/preview/open')) {
+      return Response.json(
+        { error: 'Temporarily unable to verify login status.', code: 'AUTH_UNAVAILABLE', errorCode: 'auth_unavailable' },
+        { status: 503 },
+      );
+    }
+    if (String(url).endsWith('/projects')) {
+      return Response.json({ activeId: id, projects: [{ id, title: 'Other' }], sessions: [] });
+    }
+    return Response.json({ projectId: id, revision: 'r1' });
+  }));
+  setCachedCloudDisklessMode(true);
+  history.replaceState(null, '', `/editor/${projectUuid}`);
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+
+    const banner = container.querySelector('.om-auth-recovery-banner[data-kind="auth_unavailable"]');
+    expect(banner).not.toBeNull();
+    const unavailable = container.querySelector('[data-testid="project-auth-unavailable"]');
+    expect(unavailable).not.toBeNull();
+    expect(unavailable?.textContent).toContain('暂时无法验证登录状态');
+    expect(container.textContent).not.toContain('无法打开项目');
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    history.replaceState(null, '', '/');
+    setCachedCloudDisklessMode(null);
+  }
+});

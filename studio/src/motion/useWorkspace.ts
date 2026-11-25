@@ -15,6 +15,7 @@ import {
   notifyAuthRecovery,
   readAuthPendingDraft,
   saveAuthPendingDraft,
+  type AuthRecoveryDetail,
 } from './authRecoveryStore';
 import { clearPrivateSwrCache, readSwrCache, writeSwrCache } from './swrCache';
 
@@ -44,15 +45,22 @@ export async function motionApi<T>(path: string, init?: MotionApiRequestInit, pr
   if (!response.ok) {
     if (response.status === 401) clearPrivateSwrCache();
     const message = typeof data.error === 'string' ? data.error : 'Workspace connection failed';
-    const error = new Error(message) as Error & { status?: number; code?: string; errorCode?: string; sessionExpired?: boolean };
+    const error = new Error(message) as Error & {
+      status?: number;
+      code?: string;
+      errorCode?: string;
+      sessionExpired?: boolean;
+      authRecovery?: AuthRecoveryDetail;
+    };
     error.status = response.status;
     if (typeof data.code === 'string') error.code = data.code;
     if (typeof data.errorCode === 'string') error.errorCode = data.errorCode;
     if (typeof data.sessionExpired === 'boolean') error.sessionExpired = data.sessionExpired;
     const authRecovery = classifyAuthHttpError(response.status, data, message);
+    if (authRecovery) error.authRecovery = authRecovery;
     const method = (fetchInit.method ?? 'GET').toUpperCase();
     const isMutating = method !== 'GET' && method !== 'HEAD';
-    if (!suppressAuthRecovery && authRecovery && (authRecovery.kind === 'auth_unavailable' || isMutating)) {
+    if (authRecovery && (authRecovery.kind === 'auth_unavailable' || (!suppressAuthRecovery && isMutating))) {
       notifyAuthRecovery(authRecovery);
     }
     throw error;
