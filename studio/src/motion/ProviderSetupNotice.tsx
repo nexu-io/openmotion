@@ -4,6 +4,7 @@ import type { GatewayStatus, Model, ProviderState } from '../../../shared/gatewa
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { buildSubscriptionUrl } from './accountOffer';
+import { markExternalCheckoutPending } from './entitlementModalBus';
 import * as tracking from './pageTracking';
 
 export function ProviderSetupNotice({ message, children }: {
@@ -48,6 +49,7 @@ export function CloudEmptyModelsNotice({
     if (event.detail === 0 && event.button === 0) {
       event.currentTarget.href = buildSubscriptionUrl(consoleUrl, 'openmotion_manage_subscription');
     }
+    markExternalCheckoutPending('studio_free_gate');
     tracking.reportSettingsClick('provider_detail', 'view_plans');
   };
   const actions = <>

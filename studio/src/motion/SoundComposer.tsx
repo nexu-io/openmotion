@@ -117,7 +117,8 @@ export function SoundComposer({
   const { account } = useAccountSummary({ eager: cloudWeb });
   const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
-  const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
+  const hostedPlanUpgrade = (cloudWeb || isHostedSelected) ? upgradePlan(account) : undefined;
+  const cloudFreeUpgradeSubmit = Boolean(hostedPlanUpgrade && cloudWeb && hasEntitlementModalListeners());
   const entitlementGate = hostedPlanUpgrade
     ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
     : null;
@@ -134,7 +135,7 @@ export function SoundComposer({
       ? previewModel.defaults.speed
       : 1;
   const estimatedSeconds = tabId === 'speech' ? estimateSpeechSeconds(draft.prompt, currentSpeed) : 0;
-  const canSubmit = (studio.guestPreview || cloudGuestSubmit)
+  const canSubmit = (studio.guestPreview || cloudGuestSubmit || cloudFreeUpgradeSubmit)
     ? !busy
     : Boolean(selected && draft.prompt.trim() && !busy && !hostedPlanUpgrade);
   const cjkLocale = locale === 'zh-CN' || locale === 'ja';
@@ -270,6 +271,10 @@ export function SoundComposer({
                   } else {
                     (openAccountSettings ?? openModelSettings)();
                   }
+                  return;
+                }
+                if (cloudFreeUpgradeSubmit) {
+                  openEntitlementModal({ mode: 'upgrade', hookId: 'studio_free_gate' });
                   return;
                 }
                 void submit();
@@ -448,7 +453,7 @@ export function SoundComposer({
             </Button>
           )}
 
-          {accountNotIncluded && (
+          {accountNotIncluded && !hostedPlanUpgrade && (
             <div className="om-creation-setup" role="status">
               <RemixIcon name="bank-card-line" size={18} />
               <p className="om-muted">{t('Signed in; multimodal generation requires OpenDesign Plus or above')}</p>
@@ -497,6 +502,10 @@ export function SoundComposer({
               } else {
                 (openAccountSettings ?? openModelSettings)();
               }
+              return;
+            }
+            if (cloudFreeUpgradeSubmit) {
+              openEntitlementModal({ mode: 'upgrade', hookId: 'studio_free_gate' });
               return;
             }
             void submit();

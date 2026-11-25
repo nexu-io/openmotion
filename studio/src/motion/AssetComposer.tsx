@@ -350,7 +350,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
               : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
-  const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
+  const hostedPlanUpgrade = (cloudWeb || isHostedSelected) ? upgradePlan(account) : undefined;
   const resolvedParameters = (() => {
     if (!selected) return undefined;
     try {
@@ -404,7 +404,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       {studio && gateway && !available.length && compatible.length > 0 && !unconfiguredPreferred && (imageWorkspace
         ? manageProvidersNotice
         : <Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t('Configure a provider or sign in to use media models.')}</Button>)}
-      {accountNotIncluded && <div className="om-creation-setup" role="status">
+      {accountNotIncluded && !hostedPlanUpgrade && <div className="om-creation-setup" role="status">
         <RemixIcon name="bank-card-line" size={20} />
         <p className="om-muted">{t('Signed in; multimodal generation requires OpenDesign Plus or above')}</p>
         <Button variant="ghost" className="om-button h-auto" onClick={openSubscription}>
@@ -426,9 +426,15 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       try { setDraft({ ...draft, model: parameterModel.id, parameters: requestParameters(value, parameterModel, draft.references.length > 0, activeDefaultValues) }); }
       catch { /* Keep invalid JSON or conflicting parameters in the local editor until corrected. */ }
     }} />;
+  const cloudFreeUpgradeSubmit = Boolean(hostedPlanUpgrade && cloudWeb && hasEntitlementModalListeners());
   const generate = cloudGuestSubmit ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary
     disabled={busy || uploadingReferences}
     onClick={() => openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' })}>
+    <RemixIcon name="sparkling-fill" size={19} />{t(featureRule?.actionLabel ?? kind.action)}
+    <RemixIcon name="arrow-right-line" size={18} />
+  </Button> : cloudFreeUpgradeSubmit ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary
+    disabled={busy || uploadingReferences}
+    onClick={() => openEntitlementModal({ mode: 'upgrade', hookId: 'studio_free_gate' })}>
     <RemixIcon name="sparkling-fill" size={19} />{t(featureRule?.actionLabel ?? kind.action)}
     <RemixIcon name="arrow-right-line" size={18} />
   </Button> : !imageWorkspace && setupProvider ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary onClick={() => configureProvider(setupProvider)}>

@@ -36,6 +36,7 @@ import { useIntegrationInfo } from './useIntegrationInfo';
 import { readWorkspacePage, type WorkspacePage } from './workspacePageRouting';
 import type { WorkspaceChrome } from './WorkspaceChromeContext';
 import { DesktopConnectPanel, type DesktopConnectAgentId } from './DesktopConnectPanel';
+import { useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { isDesktopApp } from '../utils/platformHost';
 import './McpConnectionPage.css';
@@ -242,6 +243,8 @@ export function McpConnectionPage({
   const page = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary();
+  const signedIn = account?.state === 'signed-in';
   const [galleryPosition] = useState(readMcpGalleryPosition);
   const example = (route ?? localRoute).mcpExample;
   const matchedExample = example
@@ -487,7 +490,7 @@ export function McpConnectionPage({
     >
       {breadcrumb}
 
-      {!inSettings && (
+      {!inSettings && !signedIn && (
         <div className="om-mcp-entitlement-strip">
           <span className="om-mcp-entitlement-dot" aria-hidden="true" />
           <span>{entitlementBefore}<strong>{t('available models and usage')}</strong>{entitlementAfter}</span>
