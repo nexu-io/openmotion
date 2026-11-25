@@ -138,6 +138,40 @@ it("compensates a projected CSS resize using translation without touching the an
   }
 });
 
+it.each([false, true])("moves a projected layer only when its layout stays fixed (reflow %s)", reflow => {
+  const {one, gesture} = createScene();
+  const container = document.createElement("div");
+  document.body.append(container);
+  container.append(one);
+  container.style.transform = "matrix3d(1,0,0,.003,0,1,0,0,0,0,1,0,0,0,0,1)";
+  const left = () => parseFloat(one.style.left) || 0;
+  Object.defineProperty(one, "offsetWidth", {get: () => 30 - (reflow ? left() : 0)});
+  Object.defineProperty(one, "offsetHeight", {value: 20});
+  vi.mocked(one.getBoundingClientRect).mockImplementation(() => {
+    const depth = 1 + left() * .003;
+    return new DOMRect(left() / depth, (parseFloat(one.style.top) || 0) / depth,
+      one.offsetWidth / depth, one.offsetHeight / depth);
+  });
+  const initial = one.getBoundingClientRect();
+  const start = gesture("start", "projected", {x:.1, y:.05});
+  if (reflow) {
+    expect(start).toBeNull();
+    expect(one.style.position).toBe("");
+    expect(one.getBoundingClientRect().toJSON()).toEqual(initial.toJSON());
+    return;
+  }
+  expect(start).toHaveProperty("liveResizeBounds", true);
+  const result = gesture("finish", "projected", {dx:.5, dy:.2});
+  const moved = one.getBoundingClientRect();
+  expect(result.geometry).toEqual({x:moved.x, y:moved.y, width:moved.width, height:moved.height});
+  expect(Math.abs(moved.left + moved.width / 3 - 60)).toBeLessThan(.25);
+  expect(Math.abs(moved.top + moved.height / 4 - 25)).toBeLessThan(.25);
+  expect(moved.width).toBeLessThan(initial.width);
+  expect(one.offsetWidth).toBe(30);
+  gesture("cancel", "projected");
+  expect(one.getBoundingClientRect().toJSON()).toEqual(initial.toJSON());
+});
+
 it("allows only an independently measurable size when the host cannot persist a translated corner", () => {
   const {one, gesture} = createScene(true);
   one.style.animationName = "slide";

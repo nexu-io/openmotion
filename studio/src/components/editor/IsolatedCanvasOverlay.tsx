@@ -87,15 +87,15 @@ export function IsolatedCanvasOverlay() {
   const box = draft && draft.frame === previewIframeRef.current ? draft.bounds : domEditSelection?.isolatedBounds;
   const { state: { compositionRect } } = usePreviewOverlayContext();
   useEffect(() => {
-    function resizeBounds(event: MessageEvent) {
+    function updateBounds(event: MessageEvent) {
       const active = drag.current;
-      if (!active?.corner || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
+      if ((!active?.corner && !active?.liveResizeBounds) || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
           event.data.gestureId !== active.gestureId || !active.adapter.accepts(event)) return;
       const bounds = relativeLayerBounds(event.data);
       if (bounds) setDraft({ frame: active.adapter.iframe, bounds });
     }
-    window.addEventListener("message", resizeBounds);
-    return () => window.removeEventListener("message", resizeBounds);
+    window.addEventListener("message", updateBounds);
+    return () => window.removeEventListener("message", updateBounds);
   }, []);
   useEffect(() => {
     if (!lastPick.current) setDraft(null);
@@ -281,7 +281,7 @@ export function IsolatedCanvasOverlay() {
         return;
       }
       const frame = active.adapter.iframe;
-      const finalBounds = active.corner && relativeLayerBounds(result);
+      const finalBounds = (active.corner || active.liveResizeBounds) && relativeLayerBounds(result);
       if (lastPick.current === active && finalBounds) setDraft({ frame, bounds: finalBounds });
       const write = async (version?: string) => {
         const patch = positionPatch(result);

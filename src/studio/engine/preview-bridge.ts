@@ -339,12 +339,12 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='canvas-drag'){
         var result=sceneCanvasDrag(message);
-        if(message.phase==='move' && drag?.corner && drag.id===message.gestureId && !drag.boundsScheduled){
+        if(message.phase==='move' && (drag?.corner || drag?.axes?.projection) && drag.id===message.gestureId && !drag.boundsScheduled){
           const active=drag;
           active.boundsScheduled=true;
           requestAnimationFrame(function(){
             active.boundsScheduled=false;
-            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...resizeFrameBounds(active.element)});
+            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...canvasFrameBounds(active.element)});
           });
         }
         if(message.phase==='start'){
