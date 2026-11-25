@@ -52,17 +52,30 @@ function number(value: unknown, name: string, minimum = 0) {
   return value;
 }
 const round = (value: number) => Math.round(value * 10000) / 10000;
+function isUntimedRootClip(el: Element, root: Element | null): boolean {
+  if (!root || el === root || el.hasAttribute('data-duration') || el.hasAttribute('data-end')) {
+    return false;
+  }
+  if (el.parentElement?.closest('[data-composition-id]') !== root) return false;
+  if (isTimelineIgnoredElement(el)) return false;
+  const timedParent = el.parentElement?.closest('[data-start]');
+  return !timedParent || timedParent === root;
+}
+
 function timing(el: Element) {
   const cache = new Map();
   const start = resolveReferencedStart(el.ownerDocument, el, cache, new Set());
   const root = el.closest('[data-composition-id]');
   const authoredDuration = resolveReferencedDuration(el.ownerDocument, el, cache, new Set());
-  const implicit = authoredDuration == null && isUntimedRootText(el, root);
-  const duration =
+  const implicit =
+    authoredDuration == null && (isUntimedRootText(el, root) || isUntimedRootClip(el, root));
+  const rootDuration =
     implicit && root
       ? (resolveReferencedDuration(el.ownerDocument, root, cache, new Set()) ??
         furthestClipEndFromDocument(el.ownerDocument))
-      : authoredDuration;
+      : null;
+  const duration =
+    implicit && rootDuration != null ? Math.max(0, rootDuration - start) : authoredDuration;
   return { start, duration: number(duration, 'clip duration', Number.MIN_VALUE), implicit };
 }
 function mediaIdentity(el: Element) {
@@ -233,6 +246,9 @@ function applySelectionCommand(
   if (command.kind === 'splitClips') {
     const cuts = command.hfIds.map((id) => {
       const el = target(id);
+      if (el.localName === 'canvas') {
+        throw new Error('Canvas layers cannot be split directly. Split the parent composition instead.');
+      }
       const innerMedia =
         el.hasAttribute('data-start') || el.hasAttribute('data-duration')
           ? null

@@ -41,7 +41,12 @@ import { TimelineHistoryButtons, type TimelineHistoryButtonsProps } from "./Time
 import { TimelineToolPicker } from "./TimelineToolPicker";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import type { DomEditSelection } from "./editor/domEditingTypes";
-import { canSplitElementAt, selectPlayheadSplitElements } from "../utils/timelineElementSplit";
+import {
+  CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
+  canSplitElementAt,
+  isUnsplittableCanvasElement,
+  selectPlayheadSplitElements,
+} from "../utils/timelineElementSplit";
 import { useAudioMetersVisible } from "../utils/audioMeterVisibility";
 import { LinkedSelectionToggle } from "./LinkedSelectionToggle";
 import { useLinkedClipPreferences } from "../utils/linkedClipPreferences";
@@ -263,10 +268,12 @@ export const TimelineToolbar = memo(function TimelineToolbar({
                 ? selectPlayheadSplitElements({ elements, selectedElementId, selectedElementIds }, currentTime)
                 : el && canSplitElementAt(el, currentTime) ? [el] : [];
               const canSplit = targets.length > 0;
+              const splitTooltip =
+                !canSplit && el && isUnsplittableCanvasElement(el)
+                  ? t(CANVAS_SPLIT_UNSUPPORTED_MESSAGE)
+                  : t("Split ({value0})", { value0: splitShortcut ?? keyHint("split", keys) });
               return (
-                <Tooltip
-                  label={t("Split ({value0})", { value0: splitShortcut ?? keyHint("split", keys) })}
-                >
+                <Tooltip label={splitTooltip}>
                   <IconButton variant="plain"
                     type="button"
                     disabled={!canSplit}

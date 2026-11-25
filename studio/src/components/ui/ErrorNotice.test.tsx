@@ -76,6 +76,9 @@ it('does not invent a diagnosis for unknown errors and distinguishes media failu
   expect(errorNoticeMessage('Invalid data while decoding media', 'export')).toContain('Check or replace');
   expect(errorNoticeMessage('unsupported codec', 'export')).toBe('This file format is not supported.');
   expect(errorNoticeMessage('Save paused: this file changed elsewhere.')).toContain('Resolve the changes');
+  expect(errorNoticeMessage('Changes were not saved. Saving is paused.')).toBe(
+    'Changes could not be saved. Check the connection and project before continuing.',
+  );
 });
 
 it('localizes every new error message in all supported non-English languages', () => {

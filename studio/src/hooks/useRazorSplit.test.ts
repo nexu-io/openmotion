@@ -50,8 +50,10 @@ type SplitAll = (splitTime: number) => Promise<void>;
 
 interface Harness {
   splitRequests: SplitRequest[];
+  toasts: Array<{ message: string; tone?: string }>;
   singleRef: { current: SingleSplit | undefined };
   allRef: { current: SplitAll | undefined };
+  playheadRef: { current: SplitAll | undefined };
   root: ReturnType<typeof mountProbe>;
 }
 
@@ -61,6 +63,7 @@ function mountRazorSplit(): Harness {
     [SUBCOMP_FILE]: `<div class="clip" id="child-clip" data-start="0" data-duration="6"></div>`,
   };
   const splitRequests: SplitRequest[] = [];
+  const toasts: Array<{ message: string; tone?: string }> = [];
 
   const fetchMock = createSplitFetchMock(disk, (path, body) => {
     splitRequests.push({
@@ -74,12 +77,15 @@ function mountRazorSplit(): Harness {
 
   const singleRef: { current: SingleSplit | undefined } = { current: undefined };
   const allRef: { current: SplitAll | undefined } = { current: undefined };
+  const playheadRef: { current: SplitAll | undefined } = { current: undefined };
 
   function Component() {
-    const { handleRazorSplit, handleRazorSplitAll } = useRazorSplit({
+    const { handleRazorSplit, handleRazorSplitAll, handleSplitAtPlayhead } = useRazorSplit({
       projectId: "p1",
       activeCompPath: ROOT_FILE,
-      showToast: () => {},
+      showToast: (message, tone) => {
+        toasts.push({ message, tone });
+      },
       writeProjectFile: async (path, content) => {
         disk[path] = content;
       },
@@ -88,11 +94,12 @@ function mountRazorSplit(): Harness {
     });
     singleRef.current = handleRazorSplit;
     allRef.current = handleRazorSplitAll;
+    playheadRef.current = handleSplitAtPlayhead;
     return null;
   }
 
   const root = mountProbe(Component);
-  return { splitRequests, singleRef, allRef, root };
+  return { splitRequests, toasts, singleRef, allRef, playheadRef, root };
 }
 
 afterEach(() => {
@@ -157,6 +164,37 @@ describe("useRazorSplit — sub-comp coordinate rebasing", () => {
     // Expanded child: rebased by its OWN parentCompositionStart, not the root's.
     expect(childReq.splitTime).toBe(1); // 3 - 2
     expect(childReq.elementStart).toBe(0); // 2 - 2
+  });
+
+  it("refuses splitting a standalone canvas layer and informs the user instead of cloning a blank half", async () => {
+    const canvasEl: TimelineElement = {
+      id: "hyper-canvas",
+      tag: "canvas",
+      start: 0,
+      duration: 47.2,
+      track: 0,
+      domId: "hyper-canvas",
+      hfId: "hf-yeey",
+      sourceFile: SUBCOMP_FILE,
+    };
+    usePlayerStore.setState({ elements: [canvasEl], selectedElementId: "hyper-canvas" });
+
+    await act(async () => {
+      await harness.singleRef.current!(canvasEl, 14.3);
+      await harness.playheadRef.current!(14.3);
+    });
+
+    expect(harness.splitRequests).toHaveLength(0);
+    expect(harness.toasts).toEqual([
+      {
+        message: "Canvas layers cannot be split directly. Split the parent composition instead.",
+        tone: "info",
+      },
+      {
+        message: "Canvas layers cannot be split directly. Split the parent composition instead.",
+        tone: "info",
+      },
+    ]);
   });
 });
 

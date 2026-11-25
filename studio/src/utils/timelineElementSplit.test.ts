@@ -94,6 +94,13 @@ describe("canSplitElementAt", () => {
     expect(canSplitElementAt(element({ playbackRate: 0 }), 3)).toBe(false);
     expect(canSplitElementAt(element({ playbackRate: Number.NaN }), 3)).toBe(false);
   });
+
+  it("rejects standalone script-driven canvas layers so splitting does not clone a blank right half", () => {
+    expect(canSplitElementAt(element({ tag: "canvas", domId: "hyper-canvas" }), 3)).toBe(false);
+    expect(
+      selectSplittableElements([element({ tag: "canvas", domId: "hyper-canvas" })], 3),
+    ).toEqual([]);
+  });
 });
 
 describe("selectSplittableElements", () => {

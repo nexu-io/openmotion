@@ -20,7 +20,22 @@ export function isSplitTimeWithinBounds(
   );
 }
 
+export const CANVAS_SPLIT_UNSUPPORTED_MESSAGE =
+  "Canvas layers cannot be split directly. Split the parent composition instead.";
+
+/**
+ * Procedural `<canvas>` layers are typically bound by ID or direct DOM reference
+ * to custom scripts; cloning a second `<canvas id="...-split">` leaves the right
+ * half blank/black in both preview and thumbnails. Split the parent composition instead.
+ */
+export function isUnsplittableCanvasElement(
+  el: Pick<TimelineElement, "tag" | "compositionSrc">,
+): boolean {
+  return el.tag.toLowerCase() === "canvas" && !el.compositionSrc;
+}
+
 export function canSplitElement(el: TimelineElement): boolean {
+  if (isUnsplittableCanvasElement(el)) return false;
   const hasStableIdentity = Boolean(el.hfId || el.domId || el.selector);
   const hasValidRate =
     el.playbackRate == null || (Number.isFinite(el.playbackRate) && el.playbackRate > 0);

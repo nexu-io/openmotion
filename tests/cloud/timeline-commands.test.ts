@@ -103,6 +103,30 @@ test('moving unclocked root text materializes its original composition window', 
   assert.equal(moved.querySelector('[data-composition-id]')?.getAttribute('data-duration'), '6');
 });
 
+test('moving and trimming an untimed root canvas clip inherits the composition duration', () => {
+  const html =
+    '<div data-composition-id="hyper-world" data-duration="47.2"><canvas id="hyper-canvas" data-hf-id="hf-yeey" width="1546" height="870"></canvas></div>';
+  const moved = root(apply(html, { kind: 'moveClips', changes: [{ hfId: 'hf-yeey', start: 2, track: 0 }] }));
+  assert.equal(moved.querySelector('#hyper-canvas')?.getAttribute('data-start'), '2');
+  assert.equal(moved.querySelector('#hyper-canvas')?.getAttribute('data-duration'), '47.2');
+  assert.equal(moved.querySelector('[data-composition-id]')?.getAttribute('data-duration'), '49.2');
+
+  const trimmed = root(
+    apply(html, { kind: 'trimClips', changes: [{ hfId: 'hf-yeey', start: 5, duration: 20 }] }),
+  );
+  assert.equal(trimmed.querySelector('#hyper-canvas')?.getAttribute('data-start'), '5');
+  assert.equal(trimmed.querySelector('#hyper-canvas')?.getAttribute('data-duration'), '20');
+});
+
+test('splitting a script-driven canvas element directly is rejected', () => {
+  const html =
+    '<div data-composition-id="hyper-world" data-duration="47.2"><canvas id="hyper-canvas" data-hf-id="hf-yeey" data-start="0" data-duration="47.2"></canvas></div>';
+  assert.throws(
+    () => apply(html, { kind: 'splitClips', hfIds: ['hf-yeey'], at: 15 }),
+    /Canvas layers cannot be split directly/,
+  );
+});
+
 test('a headless lane move updates paint order and time atomically, refusing a locked paint target', () => {
   const html =
     '<div data-composition-id="s" data-duration="6"><div id="a" data-hf-id="a" data-start="0" data-duration="4" data-track-index="2" style="z-index:1"></div><div id="b" data-hf-id="b" data-start="0" data-duration="4" data-track-index="1" style="z-index:5"></div></div>';

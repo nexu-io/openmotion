@@ -71,7 +71,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "支持的图片格式：PNG、JPG/JPEG、WebP、GIF、AVIF。",
     "Switching projects. Please try again shortly.": "正在切换项目，请稍后重试。",
     "Page not found": "页面不存在",
-    "The page you are looking for does not exist or is no longer available.": "你访问的页面不存在，或已下线。"
+    "The page you are looking for does not exist or is no longer available.": "你访问的页面不存在，或已下线。",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas 图层暂不支持直接分割，请在上层合成中分割该片段。"
   },
   "ja": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "このレイヤーには位置のアニメーションが複数あります。変更するものを選んでください。",
@@ -145,7 +146,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "対応する画像形式：PNG、JPG/JPEG、WebP、GIF、AVIF。",
     "Switching projects. Please try again shortly.": "プロジェクトを切り替え中です。しばらくしてからもう一度お試しください。",
     "Page not found": "ページが見つかりません",
-    "The page you are looking for does not exist or is no longer available.": "お探しのページは存在しないか、現在利用できません。"
+    "The page you are looking for does not exist or is no longer available.": "お探しのページは存在しないか、現在利用できません。",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas レイヤーは直接分割できません。親コンポジション側で分割してください。"
   },
   "ko": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "이 레이어에는 위치 애니메이션이 여러 개 있습니다. 수정할 애니메이션을 선택하세요.",
@@ -219,7 +221,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "지원하는 이미지 형식: PNG, JPG/JPEG, WebP, GIF, AVIF.",
     "Switching projects. Please try again shortly.": "프로젝트를 전환하는 중입니다. 잠시 후 다시 시도하세요.",
     "Page not found": "페이지를 찾을 수 없습니다",
-    "The page you are looking for does not exist or is no longer available.": "찾으시는 페이지가 존재하지 않거나 더 이상 이용할 수 없습니다."
+    "The page you are looking for does not exist or is no longer available.": "찾으시는 페이지가 존재하지 않거나 더 이상 이용할 수 없습니다.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas 레이어는 직접 분할할 수 없습니다. 상위 컴포지션에서 분할해 주세요."
   },
   "de": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Diese Ebene hat mehrere Positionsanimationen. Wähle die Animation aus, die du ändern möchtest.",
@@ -293,7 +296,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Unterstützte Bildformate: PNG, JPG/JPEG, WebP, GIF und AVIF.",
     "Switching projects. Please try again shortly.": "Projekt wird gewechselt. Bitte versuchen Sie es gleich noch einmal.",
     "Page not found": "Seite nicht gefunden",
-    "The page you are looking for does not exist or is no longer available.": "Die gesuchte Seite existiert nicht oder ist nicht mehr verfügbar."
+    "The page you are looking for does not exist or is no longer available.": "Die gesuchte Seite existiert nicht oder ist nicht mehr verfügbar.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas-Ebenen können nicht direkt geteilt werden. Teile stattdessen die übergeordnete Komposition."
   },
   "fr": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Ce calque a plusieurs animations de position. Sélectionnez celle que vous souhaitez modifier.",
@@ -367,7 +371,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formats d’image pris en charge : PNG, JPG/JPEG, WebP, GIF et AVIF.",
     "Switching projects. Please try again shortly.": "Changement de projet en cours. Veuillez réessayer dans un instant.",
     "Page not found": "Page introuvable",
-    "The page you are looking for does not exist or is no longer available.": "La page que vous recherchez n’existe pas ou n’est plus disponible."
+    "The page you are looking for does not exist or is no longer available.": "La page que vous recherchez n’existe pas ou n’est plus disponible.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Les calques Canvas ne peuvent pas être scindés directement. Scindez plutôt la composition parente."
   },
   "es": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Esta capa tiene varias animaciones de posición. Selecciona la que quieras modificar.",
@@ -441,7 +446,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formatos de imagen admitidos: PNG, JPG/JPEG, WebP, GIF y AVIF.",
     "Switching projects. Please try again shortly.": "Cambiando de proyecto. Inténtalo de nuevo en unos momentos.",
     "Page not found": "Página no encontrada",
-    "The page you are looking for does not exist or is no longer available.": "La página que buscas no existe o ya no está disponible."
+    "The page you are looking for does not exist or is no longer available.": "La página que buscas no existe o ya no está disponible.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Las capas Canvas no se pueden dividir directamente. Divide la composición principal en su lugar."
   },
   "pt-BR": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Esta camada tem várias animações de posição. Selecione a que deseja alterar.",
@@ -515,7 +521,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formatos de imagem compatíveis: PNG, JPG/JPEG, WebP, GIF e AVIF.",
     "Switching projects. Please try again shortly.": "Alternando projetos. Tente novamente em instantes.",
     "Page not found": "Página não encontrada",
-    "The page you are looking for does not exist or is no longer available.": "A página que você procura não existe ou não está mais disponível."
+    "The page you are looking for does not exist or is no longer available.": "A página que você procura não existe ou não está mais disponível.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Camadas Canvas não podem ser divididas diretamente. Divida a composição principal em vez disso."
   },
   "it": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Questo livello ha più animazioni di posizione. Seleziona quella da modificare.",
@@ -589,7 +596,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formati immagine supportati: PNG, JPG/JPEG, WebP, GIF e AVIF.",
     "Switching projects. Please try again shortly.": "Cambio progetto in corso. Riprova tra un momento.",
     "Page not found": "Pagina non trovata",
-    "The page you are looking for does not exist or is no longer available.": "La pagina che stai cercando non esiste o non è più disponibile."
+    "The page you are looking for does not exist or is no longer available.": "La pagina che stai cercando non esiste o non è più disponibile.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "I livelli Canvas non possono essere divisi direttamente. Dividi invece la composizione principale."
   },
   "ru": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "У этого слоя несколько анимаций положения. Выберите ту, которую хотите изменить.",
@@ -663,7 +671,8 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Поддерживаемые форматы изображений: PNG, JPG/JPEG, WebP, GIF и AVIF.",
     "Switching projects. Please try again shortly.": "Переключение проекта. Повторите попытку чуть позже.",
     "Page not found": "Страница не найдена",
-    "The page you are looking for does not exist or is no longer available.": "Запрошенная страница не существует или больше недоступна."
+    "The page you are looking for does not exist or is no longer available.": "Запрошенная страница не существует или больше недоступна.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Слои Canvas нельзя разделить напрямую. Разделите вместо этого родительскую композицию."
   },
   "tr": {
     "Multiple position tweens could own this move. Select the animation explicitly.": "Bu katmanda birden fazla konum animasyonu var. Değiştirmek istediğinizi seçin.",
@@ -737,6 +746,7 @@
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Desteklenen görüntü biçimleri: PNG, JPG/JPEG, WebP, GIF ve AVIF.",
     "Switching projects. Please try again shortly.": "Proje değiştiriliyor. Lütfen birazdan tekrar deneyin.",
     "Page not found": "Sayfa bulunamadı",
-    "The page you are looking for does not exist or is no longer available.": "Aradığınız sayfa mevcut değil veya artık kullanılamıyor."
+    "The page you are looking for does not exist or is no longer available.": "Aradığınız sayfa mevcut değil veya artık kullanılamıyor.",
+    "Canvas layers cannot be split directly. Split the parent composition instead.": "Canvas katmanları doğrudan bölünemez. Bunun yerine üst kompozisyonu bölün."
   }
 }

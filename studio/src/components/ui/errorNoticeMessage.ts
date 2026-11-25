@@ -10,7 +10,7 @@ export function errorNoticeMessage(message: string, context: ErrorContext = 'ope
   if (/external change|changed elsewhere|revision.*(?:changed|mismatch)|version mismatch|conflict|项目已切换|工程状态.*不匹配/i.test(message)) {
     return 'The project changed elsewhere. Resolve the changes before continuing.';
   }
-  if (/couldn.t save|could not save|failed to save|auto-save is paused|unsaved edit|无法保存|保存失败/i.test(message)) {
+  if (/couldn.t save|could not save|failed to save|auto-save is paused|saving is paused|changes were not saved|unsaved edit|无法保存|保存失败/i.test(message)) {
     return 'Changes could not be saved. Check the connection and project before continuing.';
   }
   if (/ENOENT|no such file|file not found|文件.*(?:丢失|不存在)|找不到.*文件/i.test(message)) {

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { DomEditSelection } from "../components/editor/domEditing";
 import type { PanelId } from "../components/dock/panelRegistry";
 import { makeSelection } from "./domSelectionTestHarness";
-import { useInspectorState, type InspectorState } from "./useStudioContextValue";
+import { buildStudioContextValue, useInspectorState, type InspectorState } from "./useStudioContextValue";
 
 interface HarnessProps {
   rightPanel: PanelId | null;
@@ -77,5 +77,50 @@ describe("useInspectorState", () => {
     expect(
       renderInspectorState(selectedProps({ rightPanel: "variables" })).shouldShowSelectedDomBounds,
     ).toBe(true);
+  });
+});
+
+describe("buildStudioContextValue", () => {
+  const baseInput = {
+    projectId: "proj-1",
+    activeCompPath: "compositions/hyper-world.html",
+    setActiveCompPath: () => {},
+    showToast: () => {},
+    previewIframeRef: { current: null },
+    captionEditMode: false,
+    compositionLoading: false,
+    refreshKey: 0,
+    setRefreshKey: () => {},
+    timelineElements: [],
+    isPlaying: false,
+    editHistory: { canUndo: false, canRedo: false, undoLabel: undefined, redoLabel: undefined },
+    handleUndo: async () => {},
+    handleRedo: async () => {},
+    writeProjectFile: async () => {},
+    recordEdit: async () => {},
+    reloadPreview: () => {},
+    renderQueue: {} as Parameters<typeof buildStudioContextValue>[0]["renderQueue"],
+    compositionDimensions: null,
+    domEditSaveQueuePaused: null,
+    externalFileConflict: false,
+    waitForPendingDomEditSaves: async () => {},
+    handlePreviewIframeRef: () => {},
+    refreshPreviewDocumentVersion: () => {},
+  };
+
+  it("preserves non-conflict coordinator save failures instead of mislabeling them as external conflicts", () => {
+    const failed = buildStudioContextValue({
+      ...baseInput,
+      externalFileConflict: false,
+      externalFileBlockedReason: "Changes were not saved. Saving is paused.",
+    });
+    expect(failed.writeBlockedReason).toBe("Changes were not saved. Saving is paused.");
+
+    const conflict = buildStudioContextValue({
+      ...baseInput,
+      externalFileConflict: true,
+      externalFileBlockedReason: "an external change to this file is waiting to be resolved",
+    });
+    expect(conflict.writeBlockedReason).toBe("an external change to this file is waiting to be resolved");
   });
 });
