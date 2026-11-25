@@ -19,6 +19,7 @@ import { brandCoverRevision } from "../../../shared/brand-catalog";
 import { buildSuperAgentHandoff } from "../../../shared/capability-hub";
 import { useOptionalWorkspaceChrome } from "./WorkspaceChromeContext";
 import { BrandCatalogGallery } from "./BrandCatalogGallery";
+import { LibraryHubNav } from "./LibraryHubNav";
 import { SettingsDialog } from "./settingsPrimitives";
 import { WorkspaceScopeNotice } from "./collab/WorkspaceScopeNotice";
 import { BrandKitDetail } from "./BrandKitDetail";
@@ -302,6 +303,11 @@ export function BrandKitPage({
     <StudioToastViewport {...toast} />
     {selectedId !== "new" && <>
       <header className="om-gallery-sticky-header">
+        {inWorkspace && !selected && (
+          <div className="om-library-hub-band">
+            <LibraryHubNav activeTab="brand-kits" />
+          </div>
+        )}
         <div className="om-gallery-header">
           <div className="om-gallery-wordmark">{!inWorkspace && <BrandLogo compact />}<span className="om-gallery-page-label">{t('Brand Kit')}</span></div>
           <nav className="om-gallery-collection-tabs" aria-label={t('Brand Kit')}>

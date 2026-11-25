@@ -56,16 +56,20 @@ const readBlackFridayActive = () => blackFridayActive();
 export const useBlackFridayActive = () => useMinuteCondition(readBlackFridayActive)[0];
 export const shouldShowBlackFridayBanner = () => blackFridayActive() && !bannerDismissedToday();
 
-/** Where the click happened: the top campaign banner or the header Pricing entry. */
-export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_header_pricing';
+/** Where the click happened: the top campaign banner, the header Pricing entry, or the post-artifact upgrade prompt. */
+export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_header_pricing' | 'openmotion_artifact_upgrade';
 /**
- * The `od_entry_source` sent for both entries. AMR keeps an attribution only for registered sources, and
+ * The `od_entry_source` sent for these entries. AMR keeps an attribution only for registered sources, and
  * `openmotion_manage_subscription` is the OpenMotion source it already accepts; an unregistered value would drop the
- * whole attribution, entry id included. The two entries are told apart by `utm_medium` and by the OpenMotion click
+ * whole attribution, entry id included. The entries are told apart by `utm_medium` and by the OpenMotion click
  * event that carries the same `entry_id`.
  */
 const REGISTERED_ENTRY_SOURCE = 'openmotion_manage_subscription';
-const utmMedium: Record<CampaignEntrySource, string> = { openmotion_bf_banner: 'banner', openmotion_header_pricing: 'header' };
+const utmMedium: Record<CampaignEntrySource, string> = {
+  openmotion_bf_banner: 'banner',
+  openmotion_header_pricing: 'header',
+  openmotion_artifact_upgrade: 'artifact_upgrade',
+};
 
 export function newCampaignEntryId() {
   return crypto.randomUUID();

@@ -7,6 +7,7 @@ import {
   cloudDashboardTargetPath,
   EMPTY_WORKSPACE_PERMISSIONS,
   formatPlanLabel,
+  isMaxPlanTier,
   isValidInviteEmail,
   OPENMOTION_CLOUD_ENTRY_SOURCE,
   workspaceBillingStates,
@@ -21,12 +22,18 @@ import {
   type WorkspaceCloudDestination,
   type WorkspaceCollabPreferences,
   type WorkspaceCollabSnapshot,
+  type WorkspaceConcurrencyResult,
   type WorkspaceDirectoryEntry,
   type WorkspaceInviteRowInput,
   type WorkspaceInviteRowResult,
   type WorkspaceLifecycleState,
+  type WorkspaceMemberEntry,
   type WorkspaceMemberRole,
+  type WorkspaceMembersResponse,
   type WorkspaceMemberStatus,
+  type WorkspacePreflightReason,
+  type WorkspacePreflightResult,
+  type WorkspaceProjectKind,
   type WorkspaceReferralSummary,
   type WorkspaceRemovalInfo,
 } from '../shared/workspace-collab.ts';
@@ -178,10 +185,21 @@ function defaultWorkspace(entries: WorkspaceDirectoryEntry[]): WorkspaceDirector
   );
 }
 
+export type RemoteTeamProjectInfo = {
+  projectId: string;
+  ownerMemberId?: string;
+  displayName?: string;
+  visibility?: ProjectVisibility;
+  updatedAt?: number;
+};
+
+const TEAM_PROJECTS_CACHE_TTL_MS = 15_000;
+
 export class WorkspaceCollabService {
   private readonly account: WorkspaceCollabAccountClient;
   private readonly fetcher: Fetcher;
   private writeQueue: Promise<unknown> = Promise.resolve();
+  private teamProjectsCache = new Map<string, { expiresAt: number; items: Map<string, RemoteTeamProjectInfo> }>();
 
   constructor(account: WorkspaceCollabAccountClient, options: { fetcher?: Fetcher } = {}) {
     this.account = account;
@@ -202,6 +220,7 @@ export class WorkspaceCollabService {
       commentSync: raw.commentSync && typeof raw.commentSync === 'object' ? raw.commentSync : {},
       preferences: {
         skipMoveToTeamConfirm: Boolean(raw.preferences?.skipMoveToTeamConfirm),
+        skipRemoveFromTeamConfirm: Boolean(raw.preferences?.skipRemoveFromTeamConfirm),
         dismissedBanners: Array.isArray(raw.preferences?.dismissedBanners)
           ? raw.preferences!.dismissedBanners.filter((item): item is string => typeof item === 'string')
           : [],
@@ -419,6 +438,7 @@ export class WorkspaceCollabService {
     const stored = await this.readState();
     const preferences: WorkspaceCollabPreferences = {
       skipMoveToTeamConfirm: Boolean(stored.preferences?.skipMoveToTeamConfirm),
+      skipRemoveFromTeamConfirm: Boolean(stored.preferences?.skipRemoveFromTeamConfirm),
       dismissedBanners: stored.preferences?.dismissedBanners ?? [],
     };
     const projectMeta = stored.projectMeta ?? {};
@@ -742,10 +762,242 @@ export class WorkspaceCollabService {
     );
   }
 
+  private invalidateTeamProjectsCache(workspaceId?: string): void {
+    if (workspaceId) {
+      this.teamProjectsCache.delete(workspaceId);
+    } else {
+      this.teamProjectsCache.clear();
+    }
+  }
+
+  private async syncVelaTeamProjectsCommand(workspaceId: string, args: string[]): Promise<boolean> {
+    try {
+      await this.account.run(['team-projects', ...args], undefined, { VELA_WORKSPACE_ID: workspaceId });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private normalizeMemberRecord(
+    raw: Record<string, unknown>,
+    selfMemberId: string,
+    sessionUser?: { id?: string; name?: string; email?: string },
+  ): WorkspaceMemberEntry | null {
+    const memberId = str(raw.workspaceMemberId || raw.memberId || raw.id);
+    const userId = str(raw.userId || raw.appUserId) || undefined;
+    const email = str(raw.email || raw.userEmail) || undefined;
+    const name = str(raw.displayName || raw.name || raw.userName) || email || 'Member';
+    const roleCandidate = str(raw.role).toLowerCase();
+    const role: WorkspaceMemberRole = VALID_ROLES.has(roleCandidate)
+      ? (roleCandidate as WorkspaceMemberRole)
+      : 'member';
+    const statusCandidate = str(raw.status || raw.memberStatus).toLowerCase();
+    const status: WorkspaceMemberStatus = VALID_MEMBER_STATUSES.has(statusCandidate)
+      ? (statusCandidate as WorkspaceMemberStatus)
+      : 'active';
+    const idValue = memberId || userId || email;
+    if (!idValue) return null;
+    const isCurrentUser =
+      (Boolean(selfMemberId) && memberId === selfMemberId) ||
+      (Boolean(sessionUser?.id) && userId === sessionUser!.id) ||
+      (Boolean(sessionUser?.email) && email?.toLowerCase() === sessionUser!.email!.toLowerCase());
+    const joinedAt = str(raw.joinedAt || raw.createdAt) || undefined;
+    return {
+      memberId: idValue,
+      ...(userId ? { userId } : {}),
+      name,
+      ...(email ? { email } : {}),
+      role,
+      status,
+      ...(isCurrentUser ? { isCurrentUser: true } : {}),
+      ...(joinedAt ? { joinedAt } : {}),
+    };
+  }
+
+  /**
+   * Read active collaborators for a workspace via Cloud API, Vela CLI, or a clean
+   * single-member self fallback when directory endpoints are unavailable.
+   */
+  async listWorkspaceMembers(workspaceId?: string): Promise<WorkspaceMembersResponse> {
+    const snapshot = await this.getSnapshot();
+    const requestedId = workspaceId?.trim();
+    const target =
+      (requestedId ? snapshot.workspaces.find(w => w.workspaceId === requestedId) : snapshot.activeWorkspace) ??
+      snapshot.activeWorkspace ??
+      null;
+
+    if (!target) {
+      return {
+        workspaceId: requestedId || 'personal',
+        workspaceName: 'Personal',
+        workspaceType: 'personal',
+        members: [],
+        totalCount: 0,
+        source: 'fallback',
+        canInviteMembers: false,
+        canInviteAdmins: false,
+        canManageMembersInCloud: false,
+      };
+    }
+
+    const perms = buildWorkspacePermissions(target);
+    const session = snapshot.signedIn ? await this.account.getControlSession().catch(() => null) : null;
+    const selfName = session?.user?.name?.trim() || session?.user?.email?.trim() || snapshot.user?.name?.trim() || 'You';
+    const selfEmail = session?.user?.email?.trim() || snapshot.user?.email?.trim();
+    const selfEntry: WorkspaceMemberEntry = {
+      memberId: target.workspaceMemberId,
+      ...(session?.user?.id ? { userId: session.user.id } : {}),
+      name: selfName,
+      ...(selfEmail ? { email: selfEmail } : {}),
+      role: target.role,
+      status: target.memberStatus,
+      isCurrentUser: true,
+    };
+
+    const parseRawMembers = (payload: unknown): WorkspaceMemberEntry[] | null => {
+      const listRaw = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === 'object'
+          ? ((payload as Record<string, unknown>).members ?? (payload as Record<string, unknown>).items)
+          : null;
+      if (!Array.isArray(listRaw)) return null;
+      const mapped = listRaw
+        .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+        .map(item => this.normalizeMemberRecord(item, target.workspaceMemberId, session?.user))
+        .filter((item): item is WorkspaceMemberEntry => Boolean(item && item.status !== 'removed'));
+      const roleOrder: Record<WorkspaceMemberRole, number> = { owner: 0, admin: 1, member: 2 };
+      mapped.sort((a, b) => roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name));
+      return mapped;
+    };
+
+    if (snapshot.signedIn && session && target.workspaceType === 'team') {
+      try {
+        const endpoint = new URL(
+          `/api/v1/workspaces/${encodeURIComponent(target.workspaceId)}/members`,
+          session.apiUrl,
+        );
+        const response = await this.fetcher(endpoint.href, {
+          headers: { authorization: `Bearer ${session.controlKey}`, accept: 'application/json' },
+          signal: AbortSignal.timeout(8_000),
+          redirect: 'error',
+        });
+        if (response.ok) {
+          const payload = await response.json().catch(() => null);
+          const parsed = parseRawMembers(payload);
+          if (parsed) {
+            return {
+              workspaceId: target.workspaceId,
+              workspaceName: target.workspaceName,
+              workspaceType: target.workspaceType,
+              members: parsed,
+              totalCount: Math.max(parsed.length, target.memberCount ?? parsed.length),
+              source: 'cloud_api',
+              canInviteMembers: perms.canInviteMembers,
+              canInviteAdmins: perms.canInviteAdmins,
+              canManageMembersInCloud: perms.canManageWorkspace,
+            };
+          }
+        }
+      } catch {
+        // Fallback to Vela CLI member directory below.
+      }
+
+      try {
+        const stdout = await this.account.run(['collab', 'member', 'list'], undefined, {
+          VELA_WORKSPACE_ID: target.workspaceId,
+        });
+        const payload = JSON.parse(stdout);
+        const parsed = parseRawMembers(payload);
+        if (parsed) {
+          return {
+            workspaceId: target.workspaceId,
+            workspaceName: target.workspaceName,
+            workspaceType: target.workspaceType,
+            members: parsed,
+            totalCount: Math.max(parsed.length, target.memberCount ?? parsed.length),
+            source: 'vela_cli',
+            canInviteMembers: perms.canInviteMembers,
+            canInviteAdmins: perms.canInviteAdmins,
+            canManageMembersInCloud: perms.canManageWorkspace,
+          };
+        }
+      } catch {
+        // Fallback to current user directory entry below.
+      }
+    }
+
+    const fallbackMembers = snapshot.signedIn ? [selfEntry] : [];
+    const fallbackTotal =
+      target.workspaceType === 'team'
+        ? Math.max(fallbackMembers.length, target.memberCount ?? fallbackMembers.length)
+        : fallbackMembers.length;
+
+    return {
+      workspaceId: target.workspaceId,
+      workspaceName: target.workspaceName,
+      workspaceType: target.workspaceType,
+      members: fallbackMembers,
+      totalCount: fallbackTotal,
+      source: 'fallback',
+      canInviteMembers: target.workspaceType === 'team' && perms.canInviteMembers,
+      canInviteAdmins: target.workspaceType === 'team' && perms.canInviteAdmins,
+      canManageMembersInCloud: target.workspaceType === 'team' && perms.canManageWorkspace,
+    };
+  }
+
+  /**
+   * Read the remote Vela team-projects catalog best-effort with short TTL caching.
+   */
+  async listRemoteTeamProjects(workspaceId: string): Promise<Map<string, RemoteTeamProjectInfo>> {
+    const cleanWsId = workspaceId.trim();
+    if (!cleanWsId) return new Map();
+    const cached = this.teamProjectsCache.get(cleanWsId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.items;
+    }
+    const items = new Map<string, RemoteTeamProjectInfo>();
+    try {
+      const stdout = await this.account.run(['team-projects', 'list'], undefined, {
+        VELA_WORKSPACE_ID: cleanWsId,
+      });
+      const parsed = JSON.parse(stdout) as unknown;
+      const rows = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).projects)
+          ? ((parsed as Record<string, unknown>).projects as unknown[])
+          : [];
+      for (const row of rows) {
+        if (!row || typeof row !== 'object') continue;
+        const rec = row as Record<string, unknown>;
+        const projectId = str(rec.projectId);
+        if (!projectId) continue;
+        const rawVis = str(rec.visibility).toLowerCase();
+        const visibility: ProjectVisibility | undefined =
+          rawVis === 'private' ? 'private' : rawVis === 'team' || rawVis === 'workspace' ? 'workspace' : undefined;
+        const ownerMemberId = str(rec.ownerMemberId) || undefined;
+        const displayName = str(rec.displayName || rec.name) || undefined;
+        const rawUpdated = typeof rec.updatedAt === 'string' ? Date.parse(rec.updatedAt) : Number(rec.updatedAt);
+        items.set(projectId, {
+          projectId,
+          ...(ownerMemberId ? { ownerMemberId } : {}),
+          ...(displayName ? { displayName } : {}),
+          ...(visibility ? { visibility } : {}),
+          ...(Number.isFinite(rawUpdated) && rawUpdated > 0 ? { updatedAt: rawUpdated } : {}),
+        });
+      }
+      this.teamProjectsCache.set(cleanWsId, { expiresAt: Date.now() + TEAM_PROJECTS_CACHE_TTL_MS, items });
+    } catch {
+      // Offline / CLI unsupported: return empty map cleanly.
+    }
+    return items;
+  }
+
   async moveProjectToWorkspace(
     projectId: string,
     targetWorkspaceId: string,
     skipFutureConfirm?: boolean,
+    options?: { kind?: WorkspaceProjectKind; title?: string },
   ): Promise<WorkspaceCollabSnapshot> {
     const cleanProjectId = projectId.trim();
     const cleanWorkspaceId = targetWorkspaceId.trim();
@@ -761,17 +1013,107 @@ export class WorkspaceCollabService {
     if (!perms.canEditWorkspaceContent) {
       throw new Error('Target team workspace is locked or read-only');
     }
+    const existingMeta = snapshot.projectMeta[cleanProjectId];
+    if (
+      existingMeta &&
+      existingMeta.workspaceId === target.workspaceId &&
+      existingMeta.ownerMemberId &&
+      existingMeta.ownerMemberId !== target.workspaceMemberId
+    ) {
+      throw new Error('This project is owned by another team member');
+    }
+    const session = await this.account.getControlSession().catch(() => null);
+    const ownerName = session?.user?.name?.trim() || session?.user?.email?.trim() || snapshot.user?.name?.trim();
+    const upsertArgs = ['upsert', cleanProjectId, '--resource-id', `project-${cleanProjectId}`];
+    if (options?.title?.trim()) {
+      upsertArgs.push('--display-name', options.title.trim().slice(0, 120));
+    }
+    const upserted = await this.syncVelaTeamProjectsCommand(target.workspaceId, upsertArgs);
+    if (upserted) {
+      await this.syncVelaTeamProjectsCommand(target.workspaceId, ['visibility', cleanProjectId, 'team']);
+    }
+    this.invalidateTeamProjectsCache(target.workspaceId);
+
     await this.updateState(current => {
       current.projectMeta ??= {};
+      const prev = current.projectMeta[cleanProjectId];
+      const kind = options?.kind ?? prev?.kind;
       current.projectMeta[cleanProjectId] = {
         projectId: cleanProjectId,
         workspaceId: target.workspaceId,
         visibility: 'workspace',
+        ...(kind ? { kind } : {}),
+        ownerMemberId: target.workspaceMemberId,
+        ...(ownerName ? { ownerName } : {}),
+        teamSynced: upserted,
         movedAt: Date.now(),
       };
       if (skipFutureConfirm) {
-        current.preferences ??= {};
+        current.preferences ??= { skipMoveToTeamConfirm: false, dismissedBanners: [] };
         current.preferences.skipMoveToTeamConfirm = true;
+      }
+    });
+    return this.getSnapshot();
+  }
+
+  /**
+   * Unshare a project from its team workspace and return it to the creator's Personal workspace.
+   */
+  async removeProjectFromTeam(projectId: string, skipFutureConfirm?: boolean): Promise<WorkspaceCollabSnapshot> {
+    const cleanProjectId = projectId.trim();
+    if (!cleanProjectId) {
+      throw new Error('Project ID is required');
+    }
+    const snapshot = await this.getSnapshot();
+    const existingMeta = snapshot.projectMeta[cleanProjectId];
+    const teamWs = existingMeta
+      ? snapshot.workspaces.find(w => w.workspaceId === existingMeta.workspaceId && w.workspaceType === 'team')
+      : undefined;
+    if (!existingMeta || !teamWs) {
+      throw new Error('Project is not shared in a team workspace');
+    }
+    if (
+      existingMeta.ownerMemberId &&
+      teamWs.workspaceMemberId &&
+      existingMeta.ownerMemberId !== teamWs.workspaceMemberId
+    ) {
+      throw new Error('Only the project creator can remove this project from the team');
+    }
+    const perms = buildWorkspacePermissions(teamWs);
+    if (!perms.canEditWorkspaceContent) {
+      throw new Error('Target team workspace is locked or read-only');
+    }
+
+    await this.syncVelaTeamProjectsCommand(teamWs.workspaceId, ['remove', cleanProjectId]);
+    this.invalidateTeamProjectsCache(teamWs.workspaceId);
+
+    const personalWs =
+      snapshot.workspaces.find(w => w.workspaceType === 'personal' && w.isDefault) ??
+      snapshot.workspaces.find(w => w.workspaceType === 'personal');
+    const personalWsId = personalWs?.workspaceId ?? 'personal';
+    const session = await this.account.getControlSession().catch(() => null);
+    const ownerName = session?.user?.name?.trim() || session?.user?.email?.trim() || existingMeta.ownerName;
+
+    await this.updateState(current => {
+      current.projectMeta ??= {};
+      const prev = current.projectMeta[cleanProjectId];
+      current.projectMeta[cleanProjectId] = {
+        projectId: cleanProjectId,
+        workspaceId: personalWsId,
+        visibility: 'private',
+        ...(prev?.kind ? { kind: prev.kind } : {}),
+        ...(personalWs?.workspaceMemberId
+          ? { ownerMemberId: personalWs.workspaceMemberId }
+          : prev?.ownerMemberId
+            ? { ownerMemberId: prev.ownerMemberId }
+            : {}),
+        ...(ownerName ? { ownerName } : {}),
+        teamSynced: false,
+        removedFromTeamAt: Date.now(),
+      };
+      if (skipFutureConfirm) {
+        current.preferences ??= { skipMoveToTeamConfirm: false, dismissedBanners: [] };
+        current.preferences.skipRemoveFromTeamConfirm = true;
       }
     });
     return this.getSnapshot();
@@ -783,8 +1125,25 @@ export class WorkspaceCollabService {
       throw new Error('Valid projectId and visibility are required');
     }
     const snapshot = await this.getSnapshot();
-    const workspaceId =
-      snapshot.projectMeta[cleanProjectId]?.workspaceId ?? snapshot.activeWorkspaceId ?? 'personal';
+    const prevMeta = snapshot.projectMeta[cleanProjectId];
+    const workspaceId = prevMeta?.workspaceId ?? snapshot.activeWorkspaceId ?? 'personal';
+    const teamWs = snapshot.workspaces.find(w => w.workspaceId === workspaceId && w.workspaceType === 'team');
+    if (teamWs) {
+      if (
+        prevMeta?.ownerMemberId &&
+        teamWs.workspaceMemberId &&
+        prevMeta.ownerMemberId !== teamWs.workspaceMemberId
+      ) {
+        throw new Error('Only the project creator can change visibility');
+      }
+      await this.syncVelaTeamProjectsCommand(teamWs.workspaceId, [
+        'visibility',
+        cleanProjectId,
+        visibility === 'workspace' ? 'team' : 'private',
+      ]);
+      this.invalidateTeamProjectsCache(teamWs.workspaceId);
+    }
+
     await this.updateState(current => {
       current.projectMeta ??= {};
       const prev = current.projectMeta[cleanProjectId];
@@ -792,7 +1151,12 @@ export class WorkspaceCollabService {
         projectId: cleanProjectId,
         workspaceId,
         visibility,
+        ...(prev?.kind ? { kind: prev.kind } : {}),
+        ...(prev?.ownerMemberId ? { ownerMemberId: prev.ownerMemberId } : {}),
+        ...(prev?.ownerName ? { ownerName: prev.ownerName } : {}),
+        ...(prev?.teamSynced !== undefined ? { teamSynced: prev.teamSynced } : {}),
         ...(prev?.movedAt ? { movedAt: prev.movedAt } : {}),
+        ...(prev?.removedFromTeamAt ? { removedFromTeamAt: prev.removedFromTeamAt } : {}),
       };
     });
     return this.getSnapshot();
@@ -843,14 +1207,268 @@ export class WorkspaceCollabService {
     return this.reportCommentSyncState(cleanProjectId, 'synced', 0);
   }
 
+  async preflightWorkspace(
+    options: { model?: string; workspaceId?: string } = {},
+  ): Promise<WorkspacePreflightResult> {
+    const checkedAt = Date.now();
+    const snapshot = await this.getSnapshot({ refresh: true });
+    if (!snapshot.signedIn || !snapshot.activeWorkspace) {
+      return {
+        funded: true,
+        reason: 'signed_out',
+        workspaceId: null,
+        workspaceName: null,
+        workspaceType: null,
+        planId: 'free',
+        planLabel: 'Free',
+        balanceUsd: null,
+        weeklyPercentLeft: null,
+        weeklyResetsAt: null,
+        audience: 'owner',
+        source: 'fallback',
+        checkedAt,
+      };
+    }
+
+    const requestedId = options.workspaceId?.trim();
+    const target =
+      (requestedId ? snapshot.workspaces.find(w => w.workspaceId === requestedId) : undefined) ??
+      snapshot.activeWorkspace;
+    const audience: 'owner' | 'member' =
+      target.workspaceId === snapshot.activeWorkspaceId
+        ? snapshot.permissions.canManageBilling
+          ? 'owner'
+          : 'member'
+        : target.role === 'owner'
+          ? 'owner'
+          : 'member';
+
+    let quota = target.workspaceId === snapshot.activeWorkspaceId ? snapshot.quota : null;
+    if (!quota) {
+      const session = await this.account.getControlSession().catch(() => null);
+      if (session) {
+        const accountSummary = await this.account.summary(false).catch(() => null);
+        if (accountSummary) {
+          quota = await this.resolveQuota(target, session, accountSummary).catch(() => null);
+        }
+      }
+    }
+
+    const basePlanId = quota?.planId ?? target.planId ?? 'free';
+    const baseFields = {
+      workspaceId: target.workspaceId,
+      workspaceName: target.workspaceName,
+      workspaceType: target.workspaceType,
+      planId: basePlanId,
+      planLabel: formatPlanLabel(basePlanId),
+      balanceUsd: quota?.creditsUsd ?? null,
+      weeklyPercentLeft: quota?.weeklyPercentLeft ?? null,
+      weeklyResetsAt: quota?.weeklyResetsAt ?? null,
+      audience,
+      checkedAt,
+    };
+
+    if (target.lifecycleState === 'locked') {
+      return { ...baseFields, funded: false, reason: 'workspace_locked', source: 'fallback' };
+    }
+    if (target.lifecycleState === 'billing_past_due') {
+      return { ...baseFields, funded: false, reason: 'billing_past_due', source: 'fallback' };
+    }
+
+    // 1. Prefer Vela `billing preflight` when available and structured.
+    try {
+      const args = ['billing', 'preflight', '--workspace-id', target.workspaceId];
+      if (options.model?.trim()) args.push('--model', options.model.trim());
+      args.push('--format', 'json');
+      const stdout = await this.account.run(args);
+      const parsed = JSON.parse(stdout) as Record<string, unknown> | null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const billingObj =
+          parsed.billing && typeof parsed.billing === 'object' ? (parsed.billing as Record<string, unknown>) : undefined;
+        const walletObj =
+          parsed.wallet && typeof parsed.wallet === 'object' ? (parsed.wallet as Record<string, unknown>) : undefined;
+        const planId =
+          str(parsed.planId || parsed.membershipTier || billingObj?.planId || basePlanId) || 'free';
+        const balanceUsd =
+          formatUsdAmount(parsed.balanceUsd ?? parsed.totalAvailableCreditsUsd ?? walletObj?.balanceUsd) ??
+          baseFields.balanceUsd;
+        const parsedWin = parseWeeklyWindowFromArray(parsed.designPlanWindows);
+        const weeklyPercentLeft =
+          typeof parsed.weeklyPercentLeft === 'number' && Number.isFinite(parsed.weeklyPercentLeft)
+            ? Math.max(0, Math.min(100, Math.round(parsed.weeklyPercentLeft)))
+            : parsedWin.weeklyPercentLeft ?? baseFields.weeklyPercentLeft;
+        const weeklyResetsAt = str(parsed.weeklyResetsAt) || parsedWin.weeklyResetsAt || baseFields.weeklyResetsAt;
+
+        const explicitFunded =
+          typeof parsed.funded === 'boolean'
+            ? parsed.funded
+            : typeof parsed.allowed === 'boolean'
+              ? parsed.allowed
+              : typeof parsed.canRun === 'boolean'
+                ? parsed.canRun
+                : typeof parsed.ok === 'boolean'
+                  ? parsed.ok
+                  : null;
+        const balanceNum = balanceUsd !== null ? Number(balanceUsd) : null;
+        const inferredFunded =
+          explicitFunded ??
+          (balanceNum !== null || weeklyPercentLeft !== null
+            ? (balanceNum !== null && balanceNum > 0) || (weeklyPercentLeft !== null && weeklyPercentLeft > 0)
+            : null);
+
+        if (inferredFunded !== null) {
+          const rawReason = str(parsed.reason || parsed.errorCode).toLowerCase();
+          let reason: WorkspacePreflightReason = inferredFunded ? 'ok' : 'insufficient_balance';
+          if (rawReason === 'workspace_locked') reason = 'workspace_locked';
+          else if (rawReason === 'billing_past_due') reason = 'billing_past_due';
+          else if (
+            rawReason === 'plan_not_entitled'
+            || rawReason === 'tier_model_not_entitled'
+            || rawReason === 'tier_request_kind_not_entitled'
+            || rawReason === 'model_access_denied'
+          ) {
+            reason = 'plan_not_entitled';
+          } else if (rawReason === 'insufficient_balance') {
+            reason = 'insufficient_balance';
+          }
+
+          return {
+            funded: inferredFunded,
+            reason,
+            workspaceId: target.workspaceId,
+            workspaceName: target.workspaceName,
+            workspaceType: target.workspaceType,
+            planId,
+            planLabel: formatPlanLabel(planId),
+            balanceUsd,
+            weeklyPercentLeft,
+            weeklyResetsAt,
+            audience,
+            source: 'vela-preflight',
+            checkedAt,
+          };
+        }
+      }
+    } catch {
+      // Fallback to billing summary snapshot below.
+    }
+
+    // 2. Fallback to billing-summary quota snapshot (fail-open only if billing itself is unavailable).
+    if (!quota || quota.unavailable) {
+      return { ...baseFields, funded: true, reason: 'unavailable', source: 'fallback' };
+    }
+    return {
+      ...baseFields,
+      funded: quota.hasAvailableFunds,
+      reason: quota.hasAvailableFunds ? 'ok' : 'insufficient_balance',
+      source: 'billing-summary',
+    };
+  }
+
+  async getRequestConcurrency(workspaceId?: string): Promise<WorkspaceConcurrencyResult> {
+    const checkedAt = Date.now();
+    const snapshot = await this.getSnapshot({ refresh: false });
+    const requestedId = workspaceId?.trim();
+    const target =
+      (requestedId ? snapshot.workspaces.find(w => w.workspaceId === requestedId) : undefined) ??
+      snapshot.activeWorkspace;
+
+    if (!snapshot.signedIn || !target) {
+      return {
+        available: false,
+        workspaceId: null,
+        planId: 'free',
+        planLabel: 'Free',
+        inFlight: null,
+        limit: null,
+        audience: 'owner',
+        isMaxPlan: false,
+        checkedAt,
+      };
+    }
+
+    const audience: 'owner' | 'member' =
+      target.workspaceId === snapshot.activeWorkspaceId
+        ? snapshot.permissions.canManageBilling
+          ? 'owner'
+          : 'member'
+        : target.role === 'owner'
+          ? 'owner'
+          : 'member';
+    const planId = snapshot.quota?.planId ?? target.planId ?? 'free';
+    const base: WorkspaceConcurrencyResult = {
+      available: false,
+      workspaceId: target.workspaceId,
+      planId,
+      planLabel: formatPlanLabel(planId),
+      inFlight: null,
+      limit: null,
+      audience,
+      isMaxPlan: isMaxPlanTier(planId),
+      checkedAt,
+    };
+
+    try {
+      const stdout = await this.account.run([
+        'billing',
+        'request-concurrency',
+        '--workspace-id',
+        target.workspaceId,
+        '--format',
+        'json',
+      ]);
+      const parsed = JSON.parse(stdout) as Record<string, unknown> | null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const firstInt = (candidates: unknown[]): number | null => {
+          for (const candidate of candidates) {
+            if (typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0) {
+              return Math.floor(candidate);
+            }
+          }
+          return null;
+        };
+        const inFlight = firstInt([
+          parsed.inFlight,
+          parsed.in_flight,
+          parsed.activeRequests,
+          parsed.activeCount,
+          parsed.current,
+        ]);
+        const limit = firstInt([
+          parsed.limit,
+          parsed.maxConcurrency,
+          parsed.concurrencyLimit,
+          parsed.max_concurrency,
+          parsed.max,
+        ]);
+        if (inFlight !== null || limit !== null) {
+          return {
+            ...base,
+            available: true,
+            inFlight,
+            limit,
+          };
+        }
+      }
+    } catch {
+      // Request-concurrency is advisory; fail softly when CLI command is unavailable.
+    }
+
+    return base;
+  }
+
   async updatePreferences(patch: {
     skipMoveToTeamConfirm?: boolean;
+    skipRemoveFromTeamConfirm?: boolean;
     dismissBanner?: string;
   }): Promise<WorkspaceCollabSnapshot> {
     await this.updateState(current => {
       current.preferences ??= { skipMoveToTeamConfirm: false, dismissedBanners: [] };
       if (typeof patch.skipMoveToTeamConfirm === 'boolean') {
         current.preferences.skipMoveToTeamConfirm = patch.skipMoveToTeamConfirm;
+      }
+      if (typeof patch.skipRemoveFromTeamConfirm === 'boolean') {
+        current.preferences.skipRemoveFromTeamConfirm = patch.skipRemoveFromTeamConfirm;
       }
       if (typeof patch.dismissBanner === 'string' && patch.dismissBanner.trim()) {
         const key = patch.dismissBanner.trim();

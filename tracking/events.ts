@@ -299,6 +299,13 @@ export const omEvents = {
   brand_kit_action_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand,
     action: ['edit', 'context', 'rescan', 'retry', 'cancel', 'delete'], outcome: ['success', 'failure'], detail_view_id: 'uuid' },
     required: ['brand_source', 'action', 'outcome'] },
+  experience_survey_event: { producers: ['studio'], fields: {
+    action: ['shown', 'submitted', 'dismissed'],
+    trigger: ['post_generation', 'post_export', 'post_deliverable'],
+    score: { min: 0, max: 10 },
+    improvement: ['wrong_output', 'incomplete_output', 'hard_to_use', 'stuck_or_failed', 'too_slow', 'visual_quality', 'other'],
+    feedback_text: 'feedback_text' },
+    required: ['action', 'trigger'] },
 } as const satisfies Registry & Record<string, { producers: readonly Entry[] }>;
 
 export type StudioEvent = { [E in keyof typeof omEvents]:

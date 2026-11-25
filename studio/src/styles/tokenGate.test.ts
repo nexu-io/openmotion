@@ -41,6 +41,7 @@ async function resolvable(candidates: string[]): Promise<Set<string>> {
     "../../../packages/design-system/studio/propertyPanelControls.css",
     "../../../packages/design-system/studio/disclosure.css",
     "../motion/workspaceCollab.css",
+    "../motion/projectsPage.css",
   ];
   const css = compiled.build(candidates) + hostStyles.map(file => readFileSync(path.join(STYLES_DIR, file), "utf8")).join("\n");
   const selectors = new Set<string>();

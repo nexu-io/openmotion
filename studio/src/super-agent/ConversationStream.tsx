@@ -6,6 +6,9 @@ import type { GameCard } from '../../../shared/game-contract';
 import type { Model } from '../../../shared/gateway';
 import type { LocalAgent } from '../../../shared/local-agents';
 import {
+  classifyBillingErrorCode,
+} from '../../../shared/workspace-collab';
+import {
   modeToSuperAgentIntent,
   superAgentIntentMeta,
   type SuperAgentArtifact,
@@ -238,9 +241,22 @@ export function ConversationStream({
     mediaModelsRef.current = models;
   }, []);
 
+  const handledBillingErrorRef = useRef<string | null>(null);
   useEffect(() => {
     setBrowsingEngine(selection.engine);
   }, [selection.engine]);
+
+  useEffect(() => {
+    if (!chat?.error || !collab) {
+      handledBillingErrorRef.current = null;
+      return;
+    }
+    if (!classifyBillingErrorCode(chat.error)) return;
+    const errorKey = `${chat.id}:${chat.updatedAt}:${chat.error}`;
+    if (handledBillingErrorRef.current === errorKey) return;
+    handledBillingErrorRef.current = errorKey;
+    void collab.handleBillingError(chat.error);
+  }, [chat?.error, chat?.id, chat?.updatedAt, collab]);
 
   const appliedDraftSeedRef = useRef<number | null>(null);
   const pendingHiddenInstructionsRef = useRef<string | undefined>(undefined);
@@ -446,12 +462,17 @@ export function ConversationStream({
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    const activeLifecycle = collab?.snapshot?.activeWorkspace?.lifecycleState;
     if (
-      collab?.snapshot?.signedIn &&
-      collab.snapshot.activeWorkspace?.lifecycleState === 'locked'
+      collab?.snapshot?.signedIn
+      && (activeLifecycle === 'locked'
+        || activeLifecycle === 'billing_past_due'
+        || collab.snapshot.quota?.hasAvailableFunds === false)
     ) {
-      collab.setBillingGate({ kind: 'balance' });
-      return;
+      const preflight = await collab.checkPreflightNow();
+      if ((preflight && !preflight.funded) || activeLifecycle === 'locked') {
+        return;
+      }
     }
     if (activeMode?.id === 'game' && !chat?.messages.length && !attachments.some(att => att.kind === 'game-project')) {
       const selectedTemplate = modeOptions.gameTemplate;

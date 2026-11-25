@@ -12,7 +12,13 @@ import { contentBatchesFor } from './gateway/content-batch.ts';
 import { triggersFor } from './gateway/triggers.ts';
 import { closeWebPublishFor, webPublishFor } from './gateway/web-publish.ts';
 import { workspaceCollabFor } from './gateway/workspace-collab.ts';
-import type { CommentSyncState, ProjectVisibility, WorkspaceCloudDestination, WorkspaceInviteRowInput } from './shared/workspace-collab.ts';
+import { messageCenterFor, MessageCenterRequestError } from './gateway/message-center.ts';
+import { touchpointsFor, TouchpointRequestError } from './gateway/touchpoints.ts';
+import { whatsNewFor } from './gateway/whats-new.ts';
+import { collectUnifiedLibraryIndex } from './gateway/library-index.ts';
+import { isValidLibraryCategory, isValidLibraryOrigin, isValidLibrarySort } from './shared/library-index.ts';
+import { collectUnifiedWorkspaceProjects } from './gateway/workspace-projects.ts';
+import { workspaceProjectKinds, type CommentSyncState, type ProjectVisibility, type WorkspaceCloudDestination, type WorkspaceInviteRowInput, type WorkspaceProjectKind } from './shared/workspace-collab.ts';
 import { closeDesignDeployFor } from './gateway/design-deploy.ts';
 import { AdaptivePoller } from './shared/lifecycle.ts';
 import { mapWebPublishError, resolveWebPublishTarget } from './gateway/web-publish-ops.ts';
@@ -909,6 +915,39 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       }
       return json(res, 405, { error: 'Unsupported Super Agent request' });
     }
+    if (motionRequest && url.pathname === '/api/library/index') {
+      if (req.method !== 'GET') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+      const rawCategory = url.searchParams.get('category');
+      const rawOrigin = url.searchParams.get('origin');
+      const rawSort = url.searchParams.get('sort');
+      const rawQuery = url.searchParams.get('query');
+      const rawOffset = url.searchParams.get('offset');
+      const rawLimit = url.searchParams.get('limit');
+      const category = rawCategory === null ? 'all' : isValidLibraryCategory(rawCategory) ? rawCategory : null;
+      const origin = rawOrigin === null ? 'all' : isValidLibraryOrigin(rawOrigin) ? rawOrigin : null;
+      const sort = rawSort === null ? 'newest' : isValidLibrarySort(rawSort) ? rawSort : null;
+      if (!category) return json(res, 400, { error: 'INVALID_LIBRARY_CATEGORY' });
+      if (!origin) return json(res, 400, { error: 'INVALID_LIBRARY_ORIGIN' });
+      if (!sort) return json(res, 400, { error: 'INVALID_LIBRARY_SORT' });
+      const offset = rawOffset !== null ? Number(rawOffset) : 0;
+      const limit = rawLimit !== null ? Number(rawLimit) : 100;
+      if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return json(res, 400, { error: 'INVALID_LIBRARY_PAGINATION' });
+      }
+      if (rawQuery && rawQuery.length > 200) return json(res, 400, { error: 'INVALID_LIBRARY_QUERY' });
+      return json(
+        res,
+        200,
+        await collectUnifiedLibraryIndex(store, {
+          category,
+          origin,
+          sort,
+          query: rawQuery ?? undefined,
+          offset,
+          limit,
+        }),
+      );
+    }
     if (motionRequest && url.pathname.startsWith('/api/assets/conversations')) {
       const chats = assetConversations(store);
       if (url.pathname === '/api/assets/conversations') {
@@ -1120,10 +1159,27 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') return json(res, 200, await gateway.account.openSubscription());
       return json(res, 404, { error: 'Settings endpoint not found' });
     }
+    if (motionRequest && url.pathname === '/api/workspace/projects' && req.method === 'GET') {
+      const account = gatewayFor(store, context.tracking).account;
+      const collab = workspaceCollabFor(account);
+      return json(res, 200, await collectUnifiedWorkspaceProjects(store, collab));
+    }
     if (motionRequest && (url.pathname === '/api/workspace/collab' || url.pathname.startsWith('/api/workspace/collab/'))) {
       const collab = workspaceCollabFor(gatewayFor(store, context.tracking).account);
       if (url.pathname === '/api/workspace/collab' && req.method === 'GET') {
         return json(res, 200, await collab.getSnapshot({ refresh: url.searchParams.get('refresh') === 'true' }));
+      }
+      if (url.pathname === '/api/workspace/collab/members' && req.method === 'GET') {
+        return json(res, 200, await collab.listWorkspaceMembers(url.searchParams.get('workspaceId') ?? undefined));
+      }
+      if (url.pathname === '/api/workspace/collab/preflight' && req.method === 'GET') {
+        return json(res, 200, await collab.preflightWorkspace({
+          model: url.searchParams.get('model') ?? undefined,
+          workspaceId: url.searchParams.get('workspaceId') ?? undefined,
+        }));
+      }
+      if (url.pathname === '/api/workspace/collab/concurrency' && req.method === 'GET') {
+        return json(res, 200, await collab.getRequestConcurrency(url.searchParams.get('workspaceId') ?? undefined));
       }
       if (url.pathname === '/api/workspace/collab/switch' && req.method === 'POST') {
         const body = await input(req);
@@ -1156,9 +1212,22 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (moveMatch && req.method === 'POST') {
         const body = await input(req);
         if (typeof body.workspaceId !== 'string') return json(res, 400, { error: 'workspaceId is required' });
+        const kind = typeof body.kind === 'string' && (workspaceProjectKinds as readonly string[]).includes(body.kind)
+          ? (body.kind as WorkspaceProjectKind)
+          : undefined;
+        const title = typeof body.title === 'string' ? body.title : undefined;
         return json(res, 200, await collab.moveProjectToWorkspace(
           decodeURIComponent(moveMatch[1]),
           body.workspaceId,
+          body.skipConfirm === true,
+          { ...(kind ? { kind } : {}), ...(title ? { title } : {}) },
+        ));
+      }
+      const removeFromTeamMatch = url.pathname.match(/^\/api\/workspace\/collab\/projects\/([^/]+)\/remove-from-team$/);
+      if (removeFromTeamMatch && req.method === 'POST') {
+        const body = await input(req).catch(() => ({} as Record<string, unknown>));
+        return json(res, 200, await collab.removeProjectFromTeam(
+          decodeURIComponent(removeFromTeamMatch[1]),
           body.skipConfirm === true,
         ));
       }
@@ -1191,10 +1260,57 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         const body = await input(req);
         return json(res, 200, await collab.updatePreferences({
           skipMoveToTeamConfirm: typeof body.skipMoveToTeamConfirm === 'boolean' ? body.skipMoveToTeamConfirm : undefined,
+          skipRemoveFromTeamConfirm: typeof body.skipRemoveFromTeamConfirm === 'boolean' ? body.skipRemoveFromTeamConfirm : undefined,
           dismissBanner: typeof body.dismissBanner === 'string' ? body.dismissBanner : undefined,
         }));
       }
       return json(res, 404, { error: 'Workspace collaboration endpoint not found' });
+    }
+    if (motionRequest && url.pathname.startsWith('/api/message-center')) {
+      try {
+        const messageCenter = messageCenterFor(gatewayFor(store, context.tracking).account);
+        if (url.pathname === '/api/message-center/messages' && req.method === 'GET') {
+          return json(res, 200, await messageCenter.listMessages(url.searchParams.get('locale') ?? 'en'));
+        }
+        if (url.pathname === '/api/message-center/read-all' && req.method === 'POST') {
+          return json(res, 200, await messageCenter.markAllRead());
+        }
+        const readMatch = url.pathname.match(/^\/api\/message-center\/messages\/([^/]+)\/read$/);
+        if (readMatch && req.method === 'POST') {
+          return json(res, 200, await messageCenter.markRead(decodeURIComponent(readMatch[1])));
+        }
+        return json(res, 404, { error: 'Message center endpoint not found' });
+      } catch (error) {
+        if (error instanceof MessageCenterRequestError) {
+          return json(res, error.status, { error: error.code, message: error.message });
+        }
+        return json(res, 502, { error: 'message_center_unavailable' });
+      }
+    }
+    if (motionRequest && url.pathname.startsWith('/api/touchpoints')) {
+      try {
+        const touchpoints = touchpointsFor(gatewayFor(store, context.tracking).account);
+        if (url.pathname === '/api/touchpoints/production' && req.method === 'GET') {
+          return json(res, 200, await touchpoints.getProductionTouchpoint({
+            placementKey: url.searchParams.get('placementKey') ?? '',
+            locale: url.searchParams.get('locale') ?? 'en',
+            activeDecisionId: url.searchParams.get('activeDecisionId') ?? undefined,
+          }));
+        }
+        if (url.pathname === '/api/touchpoints/events' && req.method === 'POST') {
+          const body = await input(req, 16 * 1024);
+          return json(res, 200, await touchpoints.reportTouchpointEvent(body));
+        }
+        return json(res, 404, { error: 'Touchpoint endpoint not found' });
+      } catch (error) {
+        if (error instanceof TouchpointRequestError) {
+          return json(res, error.status, { error: error.code, message: error.message });
+        }
+        return json(res, 502, { error: 'touchpoint_unavailable' });
+      }
+    }
+    if (motionRequest && url.pathname === '/api/whats-new' && req.method === 'GET') {
+      return json(res, 200, await whatsNewFor().readWhatsNew());
     }
     if (motionRequest && (url.pathname.startsWith('/api/models') || url.pathname.startsWith('/api/generations'))) {
       const gateway = gatewayFor(store, context.tracking);

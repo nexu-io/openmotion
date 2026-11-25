@@ -17,6 +17,7 @@ import { Popover } from './ui/Popover';
 import { Select } from './ui/Select';
 import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
 import { CommentSyncBanner } from '../motion/collab/CommentSyncBanner';
+import { SocialShareCard } from '../motion/collab/SocialShareCard';
 import type { ProjectVisibility } from '../../../shared/workspace-collab';
 import { WebPublishApiError, webPublishClient } from './webPublishClient';
 import './webPublishPopover.css';
@@ -441,6 +442,7 @@ export function WebPublishPopover({
                     <span>{t(activeOp === 'publish' ? 'Deploying update…' : 'Update live link')}</span>
                   </Button>
                 )}
+                <SocialShareCard title={title} shareUrl={pub.url} onNotify={onNotify} />
               </>
             ) : isStopped ? (
               <>
@@ -526,6 +528,7 @@ export function WebPublishPopover({
                 <RemixIcon name={copied ? 'check-line' : 'link'} size={15} />
                 <span>{t(copied ? 'Share link copied' : 'Copy share link')}</span>
               </Button>
+              <SocialShareCard title={title} shareUrl={pub.url} onNotify={onNotify} />
             </>
           )}
 
@@ -621,10 +624,53 @@ export function WebPublishPopover({
         const snap = collab?.snapshot;
         const activeWs = snap?.activeWorkspace;
         const projectWsId = snap?.projectMeta[targetId]?.workspaceId;
-        const teamWs =
-          (projectWsId && snap?.workspaces.find(w => w.workspaceId === projectWsId && w.workspaceType === 'team')) ||
-          (activeWs?.workspaceType === 'team' ? activeWs : null);
-        if (!collab || !teamWs) return null;
+        const projectTeamWs = projectWsId
+          ? snap?.workspaces.find(w => w.workspaceId === projectWsId && w.workspaceType === 'team') ?? null
+          : null;
+        const activeTeamWs =
+          activeWs?.workspaceType === 'team'
+            ? activeWs
+            : snap?.workspaces.find(w => w.workspaceType === 'team' && w.memberStatus === 'active' && w.lifecycleState === 'active') ?? null;
+        if (!collab || (!projectTeamWs && !activeTeamWs)) return null;
+        const resolvedKind = targetKind === 'design' || targetKind === 'game' ? targetKind : 'motion';
+        const resolvedTitle = title || status?.title || targetId;
+        if (!projectTeamWs && activeTeamWs) {
+          return (
+            <div className="om-web-publish-collab-section" data-testid="share-workspace-collab">
+              <div className="om-web-publish-row-text">
+                <strong>{t('Workspace access')}</strong>
+                <span>{t('Personal · Only you. Share to {team} so teammates can view and comment.', { team: activeTeamWs.workspaceName })}</span>
+              </div>
+              <div className="om-web-publish-collab-row">
+                <Button
+                  variant="plain"
+                  type="button"
+                  className="om-collab-tonal-btn"
+                  onClick={() => {
+                    setOpen(false);
+                    collab.requestMoveToTeam({ id: targetId, title: resolvedTitle, kind: resolvedKind });
+                  }}
+                >
+                  <RemixIcon name="group-line" size={13} />
+                  <span>{t('Share to team')}</span>
+                </Button>
+                <Button
+                  variant="plain"
+                  type="button"
+                  className="om-collab-tonal-btn"
+                  onClick={() => {
+                    setOpen(false);
+                    collab.openProjectSharing({ projectId: targetId, kind: resolvedKind, title: resolvedTitle });
+                  }}
+                >
+                  <span>{t('Manage…')}</span>
+                </Button>
+              </div>
+              <CommentSyncBanner projectId={targetId} compact />
+            </div>
+          );
+        }
+        const teamWs = projectTeamWs!;
         const visibility: ProjectVisibility = snap?.projectMeta[targetId]?.visibility ?? 'workspace';
         return (
           <div className="om-web-publish-collab-section" data-testid="share-workspace-collab">
@@ -642,20 +688,18 @@ export function WebPublishPopover({
                 ]}
                 onCommit={next => void collab.setProjectVisibility(targetId, next as ProjectVisibility)}
               />
-              {snap?.permissions.canInviteMembers && (
-                <Button
-                  variant="plain"
-                  type="button"
-                  className="om-collab-tonal-btn"
-                  onClick={() => {
-                    setOpen(false);
-                    collab.setInviteDialogOpen(true);
-                  }}
-                >
-                  <RemixIcon name="group-line" size={13} />
-                  <span>{t('Invite')}</span>
-                </Button>
-              )}
+              <Button
+                variant="plain"
+                type="button"
+                className="om-collab-tonal-btn"
+                onClick={() => {
+                  setOpen(false);
+                  collab.openProjectSharing({ projectId: targetId, kind: resolvedKind, title: resolvedTitle });
+                }}
+              >
+                <RemixIcon name="group-line" size={13} />
+                <span>{t('Manage…')}</span>
+              </Button>
             </div>
             <CommentSyncBanner projectId={targetId} compact />
           </div>

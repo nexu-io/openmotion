@@ -3,7 +3,9 @@ import { Button } from 'open-design-ui/button';
 import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
 import { useOptionalWorkspaceCollab } from '../WorkspaceCollabContext';
-import { CollabDialog } from './CollabDialog';
+import { ArtifactUpgradeDialog } from './ArtifactUpgradeDialog';
+import { BalanceGateDialog } from './BalanceGateDialog';
+import { ConcurrencyGateDialog } from './ConcurrencyGateDialog';
 
 export function UpgradeCard() {
   const { t } = useI18n();
@@ -53,7 +55,15 @@ export function UpgradeCard() {
         </span>
       </div>
       <div className="om-upgrade-card-body">
-        <p className="om-upgrade-card-desc">{description}</p>
+        <p className="om-upgrade-card-desc">
+          {description}
+          {isOwner && collab.topUpPolling && (
+            <>
+              {' · '}
+              <span>{t('Checking balance…')}</span>
+            </>
+          )}
+        </p>
         <div className="om-upgrade-card-actions">
           {isOwner ? (
             <Button
@@ -61,7 +71,10 @@ export function UpgradeCard() {
               type="button"
               disabled={Boolean(collab.openingCloudDestination)}
               aria-busy={openingOwnerLink || undefined}
-              onClick={() => void collab.openCloudLink(ownerDestination)}
+              onClick={() => {
+                collab.startTopUpPolling();
+                void collab.openCloudLink(ownerDestination);
+              }}
             >
               <span>{t(isLocked ? 'Restore billing' : 'Upgrade or top up')}</span>
               <RemixIcon
@@ -103,64 +116,11 @@ export function UpgradeCard() {
 }
 
 export function BillingGateDialog() {
-  const { t } = useI18n();
-  const collab = useOptionalWorkspaceCollab();
-  const gate = collab?.billingGate ?? null;
-  const snapshot = collab?.snapshot;
-  const active = snapshot?.activeWorkspace;
-  if (!collab || !gate || !snapshot || !active) return null;
-
-  const isOwner = snapshot.permissions.canManageBilling;
-  const title =
-    gate.kind === 'artifact-upgrade'
-      ? t('Upgrade required for {feature}', { feature: gate.featureLabel || t('this capability') })
-      : isOwner
-        ? t('Workspace balance required')
-        : t('Ask your workspace owner to continue');
-
-  const body =
-    gate.kind === 'artifact-upgrade'
-      ? isOwner
-        ? t('Upgrade your OpenDesign workspace plan to unlock {feature}.', {
-            feature: gate.featureLabel || t('this capability'),
-          })
-        : t('This workspace plan does not include {feature}. Contact your workspace owner to upgrade.', {
-            feature: gate.featureLabel || t('this capability'),
-          })
-      : isOwner
-        ? t('Credits for {name} are exhausted. Open OpenDesign billing to upgrade or add credits.', {
-            name: active.workspaceName,
-          })
-        : t('Credits for {name} are exhausted. Contact your workspace owner to add credits.', {
-            name: active.workspaceName,
-          });
-
   return (
-    <CollabDialog open={Boolean(gate)} title={title} onClose={() => collab.setBillingGate(null)}>
-      <p className="om-muted">{body}</p>
-      <div className="om-collab-dialog-footer">
-        <Button
-          variant="plain"
-          type="button"
-          className="om-collab-tonal-btn"
-          onClick={() => collab.setBillingGate(null)}
-        >
-          {t('Close')}
-        </Button>
-        {isOwner && (
-          <Button
-            variant="primary"
-            type="button"
-            onClick={() => {
-              collab.setBillingGate(null);
-              void collab.openCloudLink(gate.kind === 'artifact-upgrade' ? 'plans' : 'billing');
-            }}
-          >
-            <span>{t(gate.kind === 'artifact-upgrade' ? 'View plans' : 'Manage billing')}</span>
-            <RemixIcon name="external-link-line" size={14} />
-          </Button>
-        )}
-      </div>
-    </CollabDialog>
+    <>
+      <BalanceGateDialog />
+      <ConcurrencyGateDialog />
+      <ArtifactUpgradeDialog />
+    </>
   );
 }

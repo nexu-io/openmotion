@@ -1,5 +1,5 @@
 import { Button } from 'open-design-ui/button';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { DesignExportFormat } from '../../../shared/design-project';
 import type { SuperAgentArtifact } from '../../../shared/super-agent';
 import type { WebPublishTargetKind } from '../../../shared/web-publish';
@@ -8,6 +8,9 @@ import { WebPublishPopover } from '../components/WebPublishPopover';
 import { designClient } from '../design/designClient';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
+import { SocialShareCard } from '../motion/collab/SocialShareCard';
+import { emitArtifactDelivered } from '../motion/collab/artifactDeliveryBus';
+import { WORKSPACE_LOCATION_CHANGED } from '../utils/workspaceHistory';
 
 export type DeliverableTone = 'agent' | 'coding' | 'image' | 'video' | 'audio';
 
@@ -255,7 +258,14 @@ export function ArtifactDeliverableCard({
   const { t } = useI18n();
   const [exportBusy, setExportBusy] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [thumbFailed, setThumbFailed] = useState(false);
+
+  useEffect(() => {
+    const closeShare = () => setShareOpen(false);
+    window.addEventListener(WORKSPACE_LOCATION_CHANGED, closeShare);
+    return () => window.removeEventListener(WORKSPACE_LOCATION_CHANGED, closeShare);
+  }, []);
 
   const meta = artifactDeliverableMeta(artifact);
   const rawSub = (artifact.subtitle ?? '').trim();
@@ -281,6 +291,7 @@ export function ArtifactDeliverableCard({
         fallback,
       );
       onNotify?.(t('Exported {name}', { name: filename }), 'info');
+      emitArtifactDelivered({ kind: 'deliverable', label: artifact.title, sourceId: artifact.id });
     } catch (error) {
       onNotify?.(error instanceof Error ? error.message : t('Export failed'), 'error');
     } finally {
@@ -298,6 +309,7 @@ export function ArtifactDeliverableCard({
         filePath: artifact.entry ?? null,
       });
       onNotify?.(t('Exported {name}', { name: filename }), 'info');
+      emitArtifactDelivered({ kind: 'deliverable', label: artifact.title, sourceId: artifact.id });
     } catch (error) {
       onNotify?.(error instanceof Error ? error.message : t('Export failed'), 'error');
     } finally {
@@ -311,6 +323,7 @@ export function ArtifactDeliverableCard({
     try {
       const filename = await triggerFetchDownload(url, fallbackName);
       onNotify?.(t('Downloaded {name}', { name: filename }), 'info');
+      emitArtifactDelivered({ kind: 'deliverable', label: artifact.title, sourceId: artifact.id });
     } catch (error) {
       onNotify?.(error instanceof Error ? error.message : t('Download failed'), 'error');
     } finally {
@@ -327,13 +340,18 @@ export function ArtifactDeliverableCard({
 
   const isExternalWebUrl = artifact.kind === 'web' && Boolean(artifact.url && /^https?:\/\//i.test(artifact.url));
 
+  const handleOpenPreview = () => {
+    emitArtifactDelivered({ kind: 'deliverable', label: artifact.title, sourceId: artifact.id });
+    onOpenArtifactId(artifact.id);
+  };
+
   return (
     <div className="om-sa-deliverable-card" data-kind={artifact.kind}>
       <Button
         variant="plain"
         type="button"
         className="om-sa-deliverable-main"
-        onClick={() => onOpenArtifactId(artifact.id)}
+        onClick={handleOpenPreview}
       >
         <span className="om-sa-deliverable-icon" data-tone={meta.tone} aria-hidden="true">
           {thumbUrl ? (
@@ -364,7 +382,7 @@ export function ArtifactDeliverableCard({
           type="button"
           className="om-sa-deliverable-btn"
           data-primary
-          onClick={() => onOpenArtifactId(artifact.id)}
+          onClick={handleOpenPreview}
         >
           <RemixIcon name={meta.primaryActionIcon} size={13} />
           <span>{t(meta.primaryActionLabel)}</span>
@@ -553,6 +571,34 @@ export function ArtifactDeliverableCard({
             <span>{t('Open in browser')}</span>
           </Button>
         )}
+
+        <Popover
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          side="top"
+          align="end"
+          initialFocus={false}
+          className="om-social-share-popover om-selection-panel"
+          aria-label={t('Share to social')}
+          trigger={
+            <Button
+              variant="plain"
+              type="button"
+              className="om-sa-deliverable-btn"
+              data-active={shareOpen || undefined}
+              aria-label={t('Share')}
+            >
+              <RemixIcon name="share-forward-line" size={13} />
+              <span>{t('Share')}</span>
+            </Button>
+          }
+        >
+          <SocialShareCard
+            title={artifact.title}
+            shareUrl={isExternalWebUrl ? artifact.url : undefined}
+            onNotify={onNotify}
+          />
+        </Popover>
       </div>
     </div>
   );

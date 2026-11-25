@@ -8,6 +8,7 @@ import type { McpEntry } from './pageTracking';
 
 export type WorkspaceSurfaceKey =
   | 'explore'
+  | 'projects'
   | 'agent'
   | 'design'
   | 'motion'
@@ -33,6 +34,14 @@ export type WorkspaceChrome = {
   openAccountSettings?: () => void;
   openSubscriptionSettings?: () => void;
   openHome: () => void;
+  openProjects?: (options?: {
+    scope?: 'all' | 'personal' | 'team';
+    type?: 'all' | 'motion' | 'design' | 'game' | 'trash';
+    manageProject?: string;
+  }) => void;
+  projectsOpen?: boolean;
+  openBrandKit?: () => void;
+  brandKitOpen?: boolean;
   openAssets: () => void;
   openInSuperAgent?: (payload: SuperAgentHandoffPayload) => void;
   preloadSurface?: (surface: WorkspaceSurfaceKey) => void;

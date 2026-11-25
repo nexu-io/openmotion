@@ -12,17 +12,20 @@ export function ReferralEntryCard() {
 
   return (
     <aside className="om-referral-card" data-testid="referral-entry-card">
-      <div className="om-referral-card-copy">
-        <strong className="om-subtitle">
-          {t('Share OpenDesign · Earn reset cards')}
-        </strong>
-        <span className="om-muted">
-          {t('{invited}/{target} teammates joined · {cards} reset cards ready', {
-            invited: referral.invitedCount,
-            target: referral.inviteTarget,
-            cards: referral.resetCardsAvailable,
-          })}
-        </span>
+      <div className="om-referral-card-leading">
+        <span className="om-account-hub-reset-keycap" aria-hidden="true">reset</span>
+        <div className="om-referral-card-copy">
+          <strong className="om-subtitle">
+            {t('Share OpenDesign · Earn reset cards')}
+          </strong>
+          <span className="om-muted">
+            {t('{invited}/{target} teammates joined · {cards} reset cards ready', {
+              invited: referral.invitedCount,
+              target: referral.inviteTarget,
+              cards: referral.resetCardsAvailable,
+            })}
+          </span>
+        </div>
       </div>
       <Button
         variant="plain"

@@ -38,8 +38,17 @@ import { WorkspaceCollabBanner, resolvePriorityBanner } from './collab/Workspace
 import { WorkspaceRemovalBoundary } from './collab/WorkspaceRemovalBoundary';
 import { InviteMembersDialog } from './collab/InviteMembersDialog';
 import { MoveToTeamDialog } from './collab/MoveToTeamDialog';
+import { ProjectSharingDialog } from './collab/ProjectSharingDialog';
+import { RemoveFromTeamDialog } from './collab/RemoveFromTeamDialog';
+import { TeamMembersDialog } from './collab/TeamMembersDialog';
 import { BillingGateDialog } from './collab/UpgradeCard';
-import { ProjectScopeTabs, filterProjectsByScope, type ProjectScopeFilter } from './collab/ProjectScopeTabs';
+import { GrowthSurfacesProvider } from './collab/GrowthSurfacesContext';
+import { PriorityAnnouncementDialog } from './collab/PriorityAnnouncementDialog';
+import { ProductionCampaignModal } from './collab/ProductionCampaignModal';
+import { SupportDialog } from './collab/SupportDialog';
+import { WhatsNewCard } from './collab/WhatsNewCard';
+import { ExperienceSurveyCard } from './collab/ExperienceSurveyCard';
+import { gatewayRequest, loadModels } from './gatewayClient';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
@@ -254,6 +263,22 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const navigationCollapsed = !editorActive;
   const toggleSidebar = useCallback(() => setSidebarOpen(open => !open), []);
   const openEditor = () => { navigatePage({ motion: false, templates: false }); if (narrow) setSidebarOpen(false); };
+  const openProjects = useCallback((options?: {
+    scope?: 'all' | 'personal' | 'team';
+    type?: 'all' | 'motion' | 'design' | 'game' | 'trash';
+    manageProject?: string;
+  }) => {
+    navigatePage({
+      projects: true,
+      projectScope: options?.scope ?? null,
+      projectType: options?.type ?? null,
+      manageProject: options?.manageProject ?? null,
+      settings: null,
+      assets: false,
+      skills: false,
+      templates: false,
+    });
+  }, [navigatePage]);
   const openAssets = useCallback(() => { navigatePage({ assets: true, assetId: null, assetVersion: null, templates: false }); }, [navigatePage]);
   const openSkills = useCallback((skillCategory: SkillCategory | null = null, trigger?: HTMLElement) => {
     skillsTrigger.current = trigger ?? null;
@@ -353,7 +378,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     openProviderSettings: provider => navigatePage({ settings: 'providers', provider, assets: false, skills: false, templates: false }),
     openAccountSettings: () => openSettings('account'),
     openSubscriptionSettings: () => openSettings('subscription'),
-    openHome, openAssets, openInSuperAgent, preloadSurface: preloadWorkspaceSurface, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,
+    openHome, openProjects, projectsOpen: Boolean(page.projects) && !settings && !templatesPage, openBrandKit: () => openSettings('brand-kit'), brandKitOpen: settings === 'brand-kit' && !templatesPage, openAssets, openInSuperAgent, preloadSurface: preloadWorkspaceSurface, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,
     projectNavigation: !hostChrome && editorActive ? <span className="motion-project-navigation-trigger" hidden={sidebarOpen && !narrow}>
       <WorkspaceProjectsButton applicationRef={applicationRef} expanded={sidebarOpen} previewEnabled={!narrow && !sidebarOpen} onToggle={toggleSidebar}>
         {close => <WorkspaceSidebar archives={archives} currentId={projectId} close={close} expand={() => { close(); toggleSidebar(); }} onNavigate={close} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} openTemplates={openMotionTemplates} />}
@@ -523,15 +548,70 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const navEditorRoute = !navSettings && !isWorkspacePageOpen(navPage, navTemplatesPage);
   const navEditorActive = navEditorRoute && !navConnectionsOpen;
   const isExploreHome = Boolean(navPage.explore && !navPage.community && !navPage.medium && !navConnectionsOpen && !navSettings);
+  const isHomeSurface = Boolean(
+    !hostChrome &&
+      !presentation.embedded &&
+      (isExploreHome ||
+        (navEditorActive &&
+          !projectId &&
+          !navPage.projects &&
+          !navPage.superAgent &&
+          !navPage.motion &&
+          !navPage.designScene &&
+          !navPage.cinemaLanding)),
+  );
 
   return <WorkspaceChromeContext.Provider value={value}>
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
     <WorkspaceCollabProvider hasActiveTask={Boolean(editorState?.blocked || workspace.busy)}>
+    <GrowthFrameBridge
+      isHomeSurface={isHomeSurface}
+      onNavigateInternal={internalPath => {
+        try {
+          const parsed = new URL(internalPath, window.location.origin);
+          const target = readWorkspacePage(parsed.search, parsed.hash, parsed.pathname);
+          navigatePage({ ...target, settings: target.settings ?? null, assets: Boolean(target.assets), skills: Boolean(target.skills), templates: Boolean(target.templates) });
+        } catch {
+          // Ignore malformed internal action paths.
+        }
+      }}
+      onUseCampaignModel={(modelId, modelLabel) => {
+        void loadModels()
+          .then(models => {
+            const matched = models.find(item => item.id === modelId || item.modelId === modelId);
+            if (!matched) return;
+            return gatewayRequest(`models/routes/${matched.modality}`, 'PUT', { model: matched.id });
+          })
+          .catch(() => {});
+        navigatePage({
+          superAgent: true,
+          superAgentChat: null,
+          settings: null,
+          assets: false,
+          skills: false,
+          templates: false,
+          template: null,
+        });
+        navigationToast.showToast(
+          t('Switched to {model}', { model: modelLabel || modelId }),
+          'info',
+          'feedback',
+        );
+      }}
+    >
     {archives.manager}
     <InviteMembersDialog />
     <MoveToTeamDialog />
+    <RemoveFromTeamDialog />
+    <ProjectSharingDialog />
+    <TeamMembersDialog />
     <BillingGateDialog />
+    <PriorityAnnouncementDialog />
+    <ProductionCampaignModal />
+    <WhatsNewCard />
+    <SupportDialog />
+    <ExperienceSurveyCard />
     <Dialog.Root open={sidebarOpen && narrow && editorActive} onOpenChange={setSidebarOpen}>
     <WorkspaceApplicationShell
       applicationRef={applicationRef}
@@ -609,6 +689,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         openScenario={openScenario}
         openMotionEditor={openMotionEditor}
         openMotionProject={id => workspace.open('projects', id)}
+        onCreateMotionProject={() => { void workspace.create(); }}
+        onImportMotionZip={() => archives.chooseImport()}
         returnToExplore={returnToExplore}
         selectAssetRoute={selectAssetRoute}
       />
@@ -617,8 +699,43 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     </WorkspaceApplicationShell>
     </Dialog.Root>
     <OverlayLayer {...overlaySharedProps} placement="portal" />
+    </GrowthFrameBridge>
     </WorkspaceCollabProvider>
   </WorkspaceChromeContext.Provider>;
+}
+
+function GrowthFrameBridge({
+  isHomeSurface,
+  onNavigateInternal,
+  onUseCampaignModel,
+  children,
+}: {
+  isHomeSurface: boolean;
+  onNavigateInternal: (internalPath: string) => void;
+  onUseCampaignModel: (modelId: string, modelLabel: string | null) => void;
+  children: ReactNode;
+}) {
+  const collab = useOptionalWorkspaceCollab();
+  const higherModalOpen = Boolean(
+    collab?.snapshot?.removedFromWorkspace ||
+      collab?.billingGate ||
+      collab?.inviteDialogOpen ||
+      collab?.teamMembersDialogOpen ||
+      collab?.moveToTeamTarget ||
+      collab?.sharingProjectTarget ||
+      collab?.removeFromTeamTarget ||
+      collab?.switching,
+  );
+  return (
+    <GrowthSurfacesProvider
+      isHomeSurface={isHomeSurface}
+      higherModalOpen={higherModalOpen}
+      onNavigateInternal={onNavigateInternal}
+      onUseCampaignModel={onUseCampaignModel}
+    >
+      {children}
+    </GrowthSurfacesProvider>
+  );
 }
 
 function WorkspaceApplicationShell({
@@ -687,13 +804,14 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
   openTemplates: (trigger?: HTMLElement) => void;
 }) {
   const { t } = useI18n();
-  const { workspace, switchingDisabled } = useWorkspaceChrome();
+  const { workspace, switchingDisabled, openProjects } = useWorkspaceChrome();
   const collab = useOptionalWorkspaceCollab();
-  const [scope, setScope] = useState<ProjectScopeFilter>('all');
-  const personalIds = new Set((collab?.snapshot?.workspaces ?? []).filter(w => w.workspaceType === 'personal').map(w => w.workspaceId));
-  const teamIds = new Set((collab?.snapshot?.workspaces ?? []).filter(w => w.workspaceType === 'team').map(w => w.workspaceId));
-  const projects = filterProjectsByScope(workspace.projects, scope, collab?.snapshot?.projectMeta, personalIds, teamIds);
-  const filtered = projects.filter(project => project.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const teamMap = new Map(
+    (collab?.snapshot?.workspaces ?? [])
+      .filter(w => w.workspaceType === 'team' && w.memberStatus === 'active')
+      .map(w => [w.workspaceId, w.workspaceName]),
+  );
+  const filtered = workspace.projects.filter(project => project.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const loadingProjects = !workspace.status && !workspace.error && workspace.projects.length === 0;
   return <aside className="motion-sidebar" aria-label={t('Workspace navigation')}>
     <div className="motion-sidebar-brand">
@@ -704,6 +822,11 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
     <div className="motion-session-heading">
       <span>{t('Projects')}</span>
       <div className="motion-session-heading-actions">
+        {openProjects && (
+          <Tooltip label={t('Open Projects hub')}>
+            <IconButton variant="ghost" type="button" className="motion-icon-button" onClick={() => { openProjects({ type: 'motion' }); onNavigate?.(); }} aria-label={t('Open Projects hub')} icon={<RemixIcon name="arrow-right-up-line" size={16} />} />
+          </Tooltip>
+        )}
         <Tooltip label={t(archives.busy === 'import' ? 'Importing…' : 'Import projects')}>
           <IconButton variant="ghost" type="button" className="motion-icon-button" disabled={archives.locked} onClick={archives.chooseImport} aria-label={t(archives.busy === 'import' ? 'Importing…' : 'Import projects')} icon={<RemixIcon name="upload-2-line" size={16} />} />
         </Tooltip>
@@ -717,24 +840,35 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
       </div>
     </div>
     <label data-form-field="regular" className="motion-session-search"><MotionIcon name="search" /><FieldInput appearance="embedded" type="search" value={query} onChange={event => { if (searchStarted(query, event.target.value)) trackStudioClick('project_drawer', 'project_search', currentId); setQuery(event.target.value); }} placeholder={t('Search projects…')} aria-label={t('Search projects')} /></label>
-    <ProjectScopeTabs value={scope} onChange={setScope} />
     <nav className="motion-session-list" aria-label={t('Project list')} aria-busy={loadingProjects}>
       {loadingProjects && ['75%', '55%', '65%'].map(width => <div key={width} className="motion-session pointer-events-none" data-testid="project-list-skeleton" aria-hidden="true">
         <Skeleton style={{ width, height: 'var(--motion-space-16)' }} />
       </div>)}
       {workspace.status && !filtered.length && <p className="motion-session-empty">{t(query ? 'No matching projects' : 'Create a project with your Agent to start editing.')}</p>}
-      {filtered.map(project => <DisclosureRow key={project.id} className="om-project-sidebar-row" active={currentId === project.id}
-        action={<ProjectArchiveMenu projectId={project.id} title={project.title} archives={archives} />}>
-        <Tooltip label={project.title} wrap><Button variant="plain" aria-label={project.title} className="motion-session om-disclosure-row-label" aria-current={currentId === project.id ? 'page' : undefined}
-        disabled={switchingDisabled} onClick={event => {
-          if (project.id === currentId) return;
-          void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'open_project', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
-          void workspace.open('projects', project.id);
-          onNavigate?.();
-        }}>
-        <span className="motion-session-dot" aria-hidden="true" /><span><strong>{project.title}</strong></span>
-      </Button></Tooltip>
-      </DisclosureRow>)}
+      {filtered.map(project => {
+        const meta = collab?.snapshot?.projectMeta[project.id];
+        const sharedTeamName = meta?.workspaceId ? teamMap.get(meta.workspaceId) : undefined;
+        const isTeamSharedRow = Boolean(sharedTeamName && meta?.visibility !== 'private');
+        return (
+          <DisclosureRow key={project.id} className="om-project-sidebar-row" active={currentId === project.id}
+            action={<ProjectArchiveMenu projectId={project.id} title={project.title} archives={archives} />}>
+            <Tooltip label={isTeamSharedRow ? `${project.title} · ${t('Team · {name}', { name: sharedTeamName! })}` : project.title} wrap><Button variant="plain" aria-label={project.title} className="motion-session om-disclosure-row-label" aria-current={currentId === project.id ? 'page' : undefined}
+            disabled={switchingDisabled} onClick={event => {
+              if (project.id === currentId) return;
+              void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'open_project', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
+              void workspace.open('projects', project.id);
+              onNavigate?.();
+            }}>
+            <span className="motion-session-dot" aria-hidden="true" /><span><strong>{project.title}</strong></span>
+            {isTeamSharedRow && (
+              <span className="om-project-row-team-icon" aria-hidden="true">
+                <RemixIcon name="group-line" size={12} />
+              </span>
+            )}
+          </Button></Tooltip>
+          </DisclosureRow>
+        );
+      })}
     </nav>
     <div className="motion-sidebar-footer">
       <div className="motion-sidebar-footer-actions">

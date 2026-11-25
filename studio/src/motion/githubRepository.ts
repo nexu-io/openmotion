@@ -15,6 +15,16 @@ export function templateRepositoryUrl(template: GalleryTemplate): string {
   return `${GITHUB_REPOSITORY}/tree/main/library/templates`;
 }
 
+export function peekCachedRepositoryStars(): number | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(CACHE_KEY) ?? 'null') as StarsCache | null;
+    if (value && Number.isSafeInteger(value.count) && value.count >= 0 && Number.isFinite(value.at) && value.at <= Date.now()) {
+      return value.count;
+    }
+  } catch { /* Unavailable or invalid storage must not affect navigation. */ }
+  return null;
+}
+
 /** One public request shared by both headers; persisted successes survive reloads. */
 export function createRepositoryStarsReader() {
   let cached: StarsCache | undefined;

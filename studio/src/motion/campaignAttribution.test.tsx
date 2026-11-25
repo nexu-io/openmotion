@@ -41,6 +41,8 @@ it('builds a Pricing link that carries the OpenMotion entry the website keeps th
   });
   expect(new URL(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).pathname).toBe('/pricing/');
   expect(params(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).get('utm_medium')).toBe('header');
+  expect(params(campaignPricingUrl('en', 'openmotion_artifact_upgrade', 'x')).get('utm_medium')).toBe('artifact_upgrade');
+  expect(params(campaignPricingUrl('en', 'openmotion_artifact_upgrade', 'x')).get('od_entry_source')).toBe('openmotion_manage_subscription');
 });
 
 it('reports one banner impression per page load and joins each claim click to its Pricing link', async () => {

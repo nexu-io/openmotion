@@ -4,6 +4,7 @@ import { destinationTarget, reportCreativePageView } from './exploreTracking';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { assetVersion, type LibraryAsset } from '../../../shared/asset-library';
 import { resumableJob, type GenerationJob } from '../../../shared/gateway';
+import type { UnifiedLibraryItem } from '../../../shared/library-index';
 import { useI18n } from '../i18n/I18n';
 import { useVisibilityPolling } from '../hooks/useVisibilityPolling';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -25,6 +26,7 @@ import { peekCachedAssetHistory, saveCachedAssetHistory } from './assetCache';
 import { AssetUploadError } from './assetUploadError';
 import { assetUploadMessage, type AssetUploadSummary } from '../i18n/assetUploadMessages';
 import { AssetDetailWorkspace } from './AssetDetailWorkspace';
+import { LibraryHubNav } from './LibraryHubNav';
 import { ResizablePane } from './ResizablePane';
 import type { StudioCreation } from './CreativeWorkspace';
 import { sceneLayout } from './sceneShowcase';
@@ -39,9 +41,38 @@ import { isFeatureScene } from './creativeStudios';
 import { isSupportedReferenceMime, OPEN_DESIGN_MAX_REFERENCE_BYTES, prepareReferenceImage, ReferenceImageError } from './compressReferenceImage';
 import { imageModelLabel, isOpenDesignProvider } from './imageMenuModels';
 import { AssetGalleryToolbar } from './AssetGalleryToolbar';
+import { LibraryTimelineView } from './LibraryTimelineView';
+import { useUnifiedLibrary } from './useUnifiedLibrary';
 import { WorkspaceScopeNotice } from './collab/WorkspaceScopeNotice';
+import { openExternalUrl } from '../utils/platformHost';
 import './assets.css';
-export function AssetsPage({ active, hasProject = false, studio, routeId, routeVersion, onAssetRoute }: { routeId?: string | null; routeVersion?: string | null; onAssetRoute?: (id: string | null, version: string | null) => void; active: boolean; hasProject?: boolean; studio?: StudioCreation }) {
+export function AssetsPage({
+  active,
+  hasProject = false,
+  studio,
+  routeId,
+  routeVersion,
+  onAssetRoute,
+  onOpenMotionProject,
+  onOpenDesignProject,
+  onOpenGameProject,
+  onOpenBrandKit,
+  onOpenSuperAgentChat,
+  onOpenScenario,
+}: {
+  routeId?: string | null;
+  routeVersion?: string | null;
+  onAssetRoute?: (id: string | null, version: string | null) => void;
+  active: boolean;
+  hasProject?: boolean;
+  studio?: StudioCreation;
+  onOpenMotionProject?: (projectId: string) => void;
+  onOpenDesignProject?: (projectId: string, scenario?: string) => void;
+  onOpenGameProject?: (gameId: string) => void;
+  onOpenBrandKit?: (kitId?: string) => void;
+  onOpenSuperAgentChat?: (chatId: string) => void;
+  onOpenScenario?: (scenarioId: string, runId?: string) => void;
+}) {
   const { t } = useI18n(), toast = useToast();
   const initialHistory = peekCachedAssetHistory();
   const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(Boolean(studio) && !studio?.openCreate), [picking, setPicking] = useState(false), [pickerMulti, setPickerMulti] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>(() => initialHistory?.jobs ?? []), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
@@ -68,11 +99,21 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const selectionRequest = useRef(0);
   const selectedAsset = useRef<LibraryAsset | undefined>(undefined), assetReadRequest = useRef(0);
   const pendingWrites = useRef(new Set<string>()), [updatingAssets, setUpdatingAssets] = useState<Set<string>>(new Set());
+  const unifiedLibrary = useUnifiedLibrary({
+    active: active && !studio && !selected,
+    enabled: !studio && kind !== 'trash',
+    revision,
+  });
   const mediaGenerations = Boolean(studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video'));
-  const browser = useAssetBrowser({ kind, revision, active, lockedSource: mediaGenerations ? 'generated' : undefined });
+  const browser = useAssetBrowser({
+    kind,
+    revision,
+    active: active && (Boolean(studio) || Boolean(selected) || kind === 'trash' || !unifiedLibrary.supported),
+    lockedSource: mediaGenerations ? 'generated' : undefined,
+  });
   // Games made in Game Studio appear in the library view only, never inside a Studio form.
   const [gamesView, setGamesView] = useState(false);
-  const myGames = useMyGames(active && !studio);
+  const myGames = useMyGames(active && !studio && (gamesView || !unifiedLibrary.supported));
   // One page view each time the library is shown; the page stays mounted while hidden. Inside a Design, Cinema or
   // Sound Studio the same page is that Studio's form, so it reports the Studio and scene instead of the library.
   useEffect(() => {
@@ -297,8 +338,81 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     tracking.reportAssetsClick('asset_detail', 'edit_version', { modality: selected.modality });
     startDraft({ modality: selected.modality, prompt: version.prompt ?? '', model: version.model, parameters: version.parameters, target: { asset: selected, versionId }, references: selected.modality === 'image' ? [{ reference: { assetId: selected.id, versionId }, name: selected.name }] : [] });
   };
+  const openUnifiedAsset = useCallback(async (assetId: string, preferredVersionId?: string) => {
+    const cached = browser.data?.assets.find(item => item.id === assetId);
+    if (cached) {
+      open(cached, preferredVersionId ?? cached.currentVersionId);
+      return;
+    }
+    const request = ++selectionRequest.current;
+    try {
+      const { asset } = await assetRequest<{ asset: LibraryAsset }>({ action: 'get', assetId });
+      if (request !== selectionRequest.current) return;
+      open(asset, preferredVersionId ?? asset.currentVersionId);
+    } catch (error) {
+      if (request === selectionRequest.current) {
+        onError(error instanceof Error ? error.message : t('Asset unavailable'));
+      }
+    }
+  }, [browser.data?.assets, onError, open, t]);
+  const triggerUnifiedDownload = useCallback((item: UnifiedLibraryItem) => {
+    if (!item.downloadUrl) return;
+    const anchor = document.createElement('a');
+    anchor.href = item.downloadUrl;
+    anchor.download = item.filename || item.title || 'download';
+    anchor.rel = 'noopener noreferrer';
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    toast.showToast(t('Download started'), 'info');
+  }, [t, toast.showToast]);
+  const copyUnifiedLink = useCallback(async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.showToast(t('Link copied'), 'info');
+    } catch {
+      toast.showToast(t('Could not copy link'), 'error');
+    }
+  }, [t, toast.showToast]);
+  const handleOpenUnifiedItem = useCallback((item: UnifiedLibraryItem) => {
+    const { target } = item;
+    switch (target.kind) {
+      case 'asset':
+        tracking.reportAssetsClick('assets_library', 'open_asset', { modality: item.category === 'videos' ? 'video' : item.category === 'audio' ? 'audio' : 'image' });
+        void openUnifiedAsset(target.assetId, target.versionId);
+        return;
+      case 'motion-project':
+        onOpenMotionProject?.(target.projectId);
+        return;
+      case 'motion-export':
+        if (target.projectId && onOpenMotionProject) onOpenMotionProject(target.projectId);
+        else triggerUnifiedDownload(item);
+        return;
+      case 'design-project':
+        onOpenDesignProject?.(target.projectId, target.scenario);
+        return;
+      case 'game-project':
+        onOpenGameProject?.(target.gameId);
+        return;
+      case 'brand-kit':
+        onOpenBrandKit?.(target.kitId);
+        return;
+      case 'workflow-run':
+        onOpenScenario?.(target.scenarioId, target.runId);
+        return;
+      case 'super-agent':
+        onOpenSuperAgentChat?.(target.chatId);
+        return;
+    }
+  }, [onOpenBrandKit, onOpenDesignProject, onOpenGameProject, onOpenMotionProject, onOpenScenario, onOpenSuperAgentChat, openUnifiedAsset, triggerUnifiedDownload]);
   const create = () => {
-    const modality = kind === 'video' || kind === 'audio' ? kind : 'image';
+    const modality = kind === 'video' || kind === 'audio'
+      ? kind
+      : !studio && unifiedLibrary.supported && unifiedLibrary.category === 'videos'
+        ? 'video'
+        : !studio && unifiedLibrary.supported && unifiedLibrary.category === 'audio'
+          ? 'audio'
+          : 'image';
     tracking.reportAssetsClick('assets_library', 'create_asset', { modality });
     startDraft({ modality, prompt: '', references: [] });
   };
@@ -644,10 +758,15 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     {creating && studio && <ResizablePane className="om-creator-pane" storageKey="motion-studio-controls-width" initial={378} min={310} max={650} edge="right" label={t('Resize creator')}>{composer}</ResizablePane>}
     <main ref={gallery} className="om-assets-main" onDragOver={e => { if (!mediaGenerations && e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (!mediaGenerations && e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
       {audioStudio?.openCreate ? <AudioStudioLanding destination={audioStudio.destination} active={active} onPrompt={audioStudio.openCreate} onCreate={() => audioStudio.openCreate?.()} /> : <>
+      {!studio && (
+        <div className="om-library-hub-bar">
+          <LibraryHubNav activeTab="timeline" />
+        </div>
+      )}
       {studio ? <header className="om-assets-heading">{hasGuide ? <div className="om-choice-tabs" role="group" aria-label={t('Guide & assets')}>
         <Button variant="plain" className="om-nav-item" aria-pressed={guide} onClick={() => setStudioTab('guide')}>{t('How it works')}</Button>
         <Button variant="plain" className="om-nav-item" aria-pressed={!guide} onClick={() => setStudioTab('library')}>{t('Generations')}{activePlaceholderCount > 0 && <span className="om-badge om-tab-count" role="status">{activePlaceholderCount}</span>}</Button>
-      </div> : <h2 className="om-subtitle">{t('Generations')}</h2>}{!mediaGenerations && <div className="om-asset-actions">{taskMenu}</div>}</header> : <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button><Button variant="ghost" className="om-button h-auto" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</Button></div></header>}
+      </div> : <h2 className="om-subtitle">{t('Generations')}</h2>}{!mediaGenerations && <div className="om-asset-actions">{taskMenu}</div>}</header> : <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : unifiedLibrary.supported ? 'Library' : 'Workspace assets')}</h1><p className="om-muted">{t(kind === 'trash' ? 'Removed assets remain recoverable until deleted permanently.' : unifiedLibrary.supported ? 'All creations across Super Agent, Studios, Editors, Workflows, and MCP in one timeline.' : 'One library for every creation.')}</p></div><div className="om-asset-actions">{kind === 'trash' && unifiedLibrary.supported && <Button variant="ghost" className="om-button h-auto" onClick={() => setKind('all')}><RemixIcon name="arrow-left-line" size={16} />{t('Back to Library')}</Button>}{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button><Button variant="ghost" className="om-button h-auto" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</Button></div></header>}
       {!studio && <WorkspaceScopeNotice surface="assets" />}
 
       {guide && studio ? <StudioIdeas destination={studio.destination} active={active} onPrompt={applyPrompt} /> : studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video') ? (
@@ -669,6 +788,40 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
           onResumeJob={resumeJob}
           onDismissJob={dismissJob}
           onDownload={() => { tracking.reportAssetsClick('assets_library', 'download_asset', { modality: studio.destination.scene.modality }); toast.showToast(t('Download started'), 'info'); }}
+        />
+      ) : !studio && unifiedLibrary.supported && kind !== 'trash' ? (
+        <LibraryTimelineView
+          items={unifiedLibrary.items}
+          counts={unifiedLibrary.counts}
+          total={unifiedLibrary.total}
+          nextOffset={unifiedLibrary.nextOffset}
+          category={unifiedLibrary.category}
+          onCategoryChange={unifiedLibrary.setCategory}
+          origin={unifiedLibrary.origin}
+          onOriginChange={unifiedLibrary.setOrigin}
+          sort={unifiedLibrary.sort}
+          onSortChange={unifiedLibrary.setSort}
+          query={unifiedLibrary.query}
+          onQueryChange={unifiedLibrary.setQuery}
+          viewMode={unifiedLibrary.viewMode}
+          onViewModeChange={unifiedLibrary.setViewMode}
+          loading={unifiedLibrary.loading}
+          loadingMore={unifiedLibrary.loadingMore}
+          error={unifiedLibrary.error}
+          onRetry={unifiedLibrary.retry}
+          onLoadMore={() => { void unifiedLibrary.loadMore(); }}
+          onResetFilters={unifiedLibrary.resetFilters}
+          onOpenTrash={() => { tracking.reportAssetsClick('assets_library', 'trash_view', { asset_kind: 'trash' }); setGamesView(false); setKind('trash'); }}
+          onOpenItem={handleOpenUnifiedItem}
+          onOpenSourceChat={onOpenSuperAgentChat}
+          onOpenSourceWorkflow={onOpenScenario}
+          onDownloadItem={triggerUnifiedDownload}
+          onCopyExternalUrl={url => { void copyUnifiedLink(url); }}
+          onOpenExternalUrl={url => { void openExternalUrl(url); }}
+          onTrashAsset={assetId => { void update(assetId, { trashed: true }); }}
+          leadingBanner={showLibraryPlaceholders && leadingPlaceholderTiles ? <div className="om-library-pending-strip om-asset-grid">{leadingPlaceholderTiles}</div> : undefined}
+          onEmptyCreate={create}
+          onEmptyUpload={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}
         />
       ) : !studio && gamesView ? <section aria-label={t('Games')}>{libraryToolbar}<div className="om-asset-results"><GameAssetsGrid data={myGames} query={browser.query} /></div></section> : <AssetBrowserContent browser={browser} hoverPreview={active} leadingTiles={leadingPlaceholderTiles} emptyContent={studioEmpty} toolbar={studio ? (blankCanvas ? <></> : undefined) : <>{libraryToolbar}{kind === 'all' && !browser.query && browser.source === 'all' && <GameAssetsRow data={myGames} onViewAll={() => setGamesView(true)} />}</>} onOpen={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }} onCreate={studio ? undefined : modality => { tracking.reportAssetsClick('assets_library', 'create_asset', { modality }); startDraft({ modality, prompt: '', references: [] }); }} />}
       </>}

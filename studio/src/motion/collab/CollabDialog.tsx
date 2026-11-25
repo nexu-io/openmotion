@@ -7,12 +7,14 @@ import { RemixIcon } from '../../icons/RemixIcons';
 export function CollabDialog({
   open,
   title,
+  description,
   onClose,
   children,
   className = '',
 }: {
   open: boolean;
   title: string;
+  description?: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
@@ -34,7 +36,10 @@ export function CollabDialog({
           onKeyDown={event => event.stopPropagation()}
         >
           <header className="om-collab-dialog-head">
-            <Dialog.Title className="om-subtitle">{title}</Dialog.Title>
+            <div className="om-collab-dialog-head-copy">
+              <Dialog.Title className="om-collab-dialog-title">{title}</Dialog.Title>
+              {description && <Dialog.Description className="om-collab-dialog-desc">{description}</Dialog.Description>}
+            </div>
             <Dialog.Close
               render={
                 <IconButton

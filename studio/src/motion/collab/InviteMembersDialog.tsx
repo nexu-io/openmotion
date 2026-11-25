@@ -5,6 +5,7 @@ import { Select } from '../../components/ui/Select';
 import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
 import {
+  buildWorkspacePermissions,
   isValidInviteEmail,
   type WorkspaceInviteRole,
   type WorkspaceInviteRowResult,
@@ -61,22 +62,39 @@ export function InviteMembersDialog() {
   const { t } = useI18n();
   const collab = useOptionalWorkspaceCollab();
   const open = Boolean(collab?.inviteDialogOpen);
-  const active = collab?.snapshot?.activeWorkspace;
-  const canInviteAdmins = Boolean(collab?.snapshot?.permissions.canInviteAdmins);
+  const snapshot = collab?.snapshot;
+  const active = snapshot?.activeWorkspace;
 
+  const invitableTeams = (snapshot?.workspaces ?? []).filter(
+    ws => ws.workspaceType === 'team' && buildWorkspacePermissions(ws).canInviteMembers,
+  );
+  const defaultTargetId =
+    active?.workspaceType === 'team' && buildWorkspacePermissions(active).canInviteMembers
+      ? active.workspaceId
+      : invitableTeams[0]?.workspaceId ?? active?.workspaceId ?? '';
+
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState(defaultTargetId);
   const [rows, setRows] = useState<InviteDraftRow[]>(() => [makeEmptyRow()]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
+      setTargetWorkspaceId(defaultTargetId);
       setRows([makeEmptyRow()]);
       setFormError(null);
       setSubmitting(false);
     }
-  }, [open]);
+  }, [open, defaultTargetId]);
 
   if (!collab || !active) return null;
+
+  const targetWorkspace =
+    invitableTeams.find(ws => ws.workspaceId === targetWorkspaceId) ??
+    (active.workspaceType === 'team' && buildWorkspacePermissions(active).canInviteMembers ? active : invitableTeams[0] ?? null);
+  const targetPerms = targetWorkspace ? buildWorkspacePermissions(targetWorkspace) : null;
+  const canInviteAdmins = Boolean(targetPerms?.canInviteAdmins);
+  const referral = snapshot?.referral ?? null;
 
   const roleOptions = canInviteAdmins
     ? [
@@ -137,7 +155,7 @@ export function InviteMembersDialog() {
         role: canInviteAdmins ? item.role : ('member' as const),
         idempotencyKey: item.idempotencyKey,
       }));
-      const response = await collab.sendInvites(payloadRows, active.workspaceId);
+      const response = await collab.sendInvites(payloadRows, targetWorkspace?.workspaceId ?? active.workspaceId);
       const byEmail = new Map(response.results.map(item => [item.email.toLowerCase(), item]));
       setRows(prev =>
         prev.map(row => {
@@ -164,97 +182,157 @@ export function InviteMembersDialog() {
   return (
     <CollabDialog
       open={open}
-      title={t('Invite to {name}', { name: active.workspaceName })}
+      title={targetWorkspace ? t('Invite to {name}', { name: targetWorkspace.workspaceName }) : t('Invite teammates')}
+      description={targetWorkspace ? t('Seats are free. Teammates share workspace projects, assets, and brand kits.') : undefined}
       onClose={() => collab.setInviteDialogOpen(false)}
       className="om-collab-dialog-wide"
     >
-      <p className="om-muted">
-        {t('Seats are free. Teammates share workspace projects, assets, and brand kits.')}
-      </p>
+      {targetWorkspace ? (
+        <>
+          {invitableTeams.length > 1 && (
+            <label className="om-label">
+              <span>{t('Destination workspace')}</span>
+              <Select
+                label={t('Destination workspace')}
+                value={targetWorkspace.workspaceId}
+                disabled={submitting}
+                options={invitableTeams.map(team => ({ value: team.workspaceId, label: team.workspaceName }))}
+                onCommit={setTargetWorkspaceId}
+              />
+            </label>
+          )}
 
-      <div className="om-invite-rows">
-        {rows.map((row, index) => {
-          const succeeded = Boolean(row.result?.ok);
-          const failed = Boolean(row.result && !row.result.ok);
-          return (
-            <div key={row.id}>
-              <div className="om-invite-row">
-                <label className="om-field">
-                  <input
-                    type="email"
-                    value={row.email}
-                    disabled={submitting || succeeded}
-                    aria-invalid={failed || undefined}
-                    aria-label={t('Teammate email {index}', { index: index + 1 })}
-                    placeholder="colleague@company.com"
-                    onChange={event => {
-                      const val = event.target.value;
-                      setRows(prev =>
-                        prev.map(item =>
-                          item.id === row.id
-                            ? { ...item, email: val, result: undefined, idempotencyKey: crypto.randomUUID() }
-                            : item,
-                        ),
-                      );
-                    }}
-                  />
-                </label>
-                <Select
-                  label={t('Role')}
-                  value={canInviteAdmins ? row.role : 'member'}
-                  disabled={submitting || succeeded || !canInviteAdmins}
-                  options={roleOptions}
-                  onCommit={next =>
-                    setRows(prev =>
-                      prev.map(item =>
-                        item.id === row.id ? { ...item, role: next as WorkspaceInviteRole } : item,
-                      ),
-                    )
-                  }
-                />
-                <IconButton
-                  variant="ghost"
-                  size="sm"
-                  aria-label={t('Remove row')}
-                  disabled={submitting || rows.length <= 1}
-                  onClick={() => setRows(prev => prev.filter(item => item.id !== row.id))}
-                  icon={<RemixIcon name="delete-bin-line" size={15} />}
-                />
-              </div>
-              {row.result && (
-                <div className="om-invite-row-status" data-ok={row.result.ok}>
-                  <RemixIcon
-                    name={row.result.ok ? 'checkbox-circle-line' : 'error-warning-line'}
-                    size={13}
-                  />
-                  <span>{row.result.ok ? t('Invitation sent') : t(row.result.message || 'Could not send invitation')}</span>
+          <div className="om-invite-rows">
+            {rows.map((row, index) => {
+              const succeeded = Boolean(row.result?.ok);
+              const failed = Boolean(row.result && !row.result.ok);
+              const removable = rows.length > 1;
+              return (
+                <div key={row.id}>
+                  <div className="om-invite-row" data-removable={removable || undefined}>
+                    <label className="om-field">
+                      <input
+                        type="email"
+                        value={row.email}
+                        disabled={submitting || succeeded}
+                        aria-invalid={failed || undefined}
+                        aria-label={t('Teammate email {index}', { index: index + 1 })}
+                        placeholder="colleague@company.com"
+                        onChange={event => {
+                          const val = event.target.value;
+                          setRows(prev =>
+                            prev.map(item =>
+                              item.id === row.id
+                                ? { ...item, email: val, result: undefined, idempotencyKey: crypto.randomUUID() }
+                                : item,
+                            ),
+                          );
+                        }}
+                      />
+                    </label>
+                    <Select
+                      label={t('Role')}
+                      value={canInviteAdmins ? row.role : 'member'}
+                      disabled={submitting || succeeded || !canInviteAdmins}
+                      options={roleOptions}
+                      onCommit={next =>
+                        setRows(prev =>
+                          prev.map(item =>
+                            item.id === row.id ? { ...item, role: next as WorkspaceInviteRole } : item,
+                          ),
+                        )
+                      }
+                    />
+                    {removable && (
+                      <IconButton
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('Remove row')}
+                        disabled={submitting}
+                        onClick={() => setRows(prev => prev.filter(item => item.id !== row.id))}
+                        icon={<RemixIcon name="delete-bin-line" size={15} />}
+                      />
+                    )}
+                  </div>
+                  {row.result && (
+                    <div className="om-invite-row-status" data-ok={row.result.ok}>
+                      <RemixIcon
+                        name={row.result.ok ? 'checkbox-circle-line' : 'error-warning-line'}
+                        size={13}
+                      />
+                      <span>{row.result.ok ? t('Invitation sent') : t(row.result.message || 'Could not send invitation')}</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      {rows.length < 10 && !allSent && (
-        <div>
-          <Button
-            variant="plain"
-            type="button"
-            className="om-collab-tonal-btn"
-            data-compact="true"
-            disabled={submitting}
-            onClick={() => setRows(prev => [...prev, makeEmptyRow()])}
-          >
-            <RemixIcon name="add-line" size={14} />
-            <span>{t('Add another')}</span>
-          </Button>
+          {rows.length < 10 && !allSent && (
+            <div className="om-invite-add-row">
+              <Button
+                variant="plain"
+                type="button"
+                className="om-invite-add-btn"
+                disabled={submitting}
+                onClick={() => setRows(prev => [...prev, makeEmptyRow()])}
+              >
+                <RemixIcon name="add-line" size={14} />
+                <span>{t('Add another')}</span>
+              </Button>
+            </div>
+          )}
+
+          {formError && (
+            <p className="om-field-error" role="alert">
+              {formError}
+            </p>
+          )}
+        </>
+      ) : (
+        <div className="om-collab-tonal-card">
+          <p className="om-muted">
+            {t('Seats are free. Teammates share workspace projects, assets, and brand kits.')}
+          </p>
+          <div>
+            <Button
+              variant="primary"
+              type="button"
+              disabled={Boolean(collab.openingCloudDestination)}
+              onClick={() => void collab.openCloudLink('create-workspace')}
+            >
+              <RemixIcon name="add-line" size={14} />
+              <span>{t('Create team workspace')}</span>
+              <RemixIcon name="external-link-line" size={14} />
+            </Button>
+          </div>
         </div>
       )}
 
-      {formError && (
-        <p className="om-field-error" role="alert">
-          {formError}
-        </p>
+      {referral?.available && (
+        <div className="om-invite-reset-banner" data-testid="invite-dialog-reset-tip">
+          <span className="om-account-hub-reset-keycap" aria-hidden="true">reset</span>
+          <div className="om-invite-reset-copy">
+            <strong>{t('Share OpenDesign · Earn reset cards')}</strong>
+            <span>
+              {t('{invited}/{target} teammates joined · {cards} reset cards ready', {
+                invited: referral.invitedCount,
+                target: referral.inviteTarget,
+                cards: referral.resetCardsAvailable,
+              })}
+            </span>
+          </div>
+          <Button
+            variant="plain"
+            type="button"
+            className="om-invite-reset-cta"
+            disabled={Boolean(collab.openingCloudDestination)}
+            onClick={() => void collab.openCloudLink('referral')}
+          >
+            <span>{t('View referral link')}</span>
+            <RemixIcon name="external-link-line" size={13} />
+          </Button>
+        </div>
       )}
 
       <div className="om-collab-dialog-footer">
@@ -264,9 +342,9 @@ export function InviteMembersDialog() {
           className="om-collab-tonal-btn"
           onClick={() => collab.setInviteDialogOpen(false)}
         >
-          {t(allSent ? 'Done' : 'Cancel')}
+          {t(allSent || !targetWorkspace ? 'Done' : 'Cancel')}
         </Button>
-        {hasFailures ? (
+        {targetWorkspace && (hasFailures ? (
           <Button
             variant="primary"
             type="button"
@@ -285,7 +363,7 @@ export function InviteMembersDialog() {
           >
             <span>{t(submitting ? 'Sending…' : 'Send invitations')}</span>
           </Button>
-        ) : null}
+        ) : null)}
       </div>
     </CollabDialog>
   );

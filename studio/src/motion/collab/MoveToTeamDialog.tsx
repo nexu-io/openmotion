@@ -36,7 +36,10 @@ export function MoveToTeamDialog() {
     if (!resolvedTeam || busy) return;
     setBusy(true);
     try {
-      await collab.moveProjectToTeam(target.projectId, resolvedTeam.workspaceId, skipFutureConfirm);
+      await collab.moveProjectToTeam(target.projectId, resolvedTeam.workspaceId, skipFutureConfirm, {
+        kind: target.kind,
+        title: target.title,
+      });
       collab.setMoveToTeamTarget(null);
     } catch (err) {
       collab.notify(err instanceof Error ? err.message : t('Could not move project'), 'error');

@@ -16,7 +16,17 @@ import { workspaceHistoryIndex, writeWorkspaceHistory } from '../utils/workspace
 import { preloadAllWorkspacePages } from '../router/lazyPages';
 
 const editor = vi.hoisted(() => ({ mounts: 0, fail: false, wait: async () => {} }));
-vi.mock('./AssetsPage', () => ({ AssetsPage: ({ studio }: { studio?: StudioCreation }) => <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} /> }));
+vi.mock('./AssetsPage', async () => {
+  const { LibraryHubNav } = await import('./LibraryHubNav');
+  return {
+    AssetsPage: ({ studio }: { studio?: StudioCreation }) => (
+      <>
+        {!studio && <LibraryHubNav activeTab="timeline" />}
+        <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} />
+      </>
+    ),
+  };
+});
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: { projectId: string } }) => {
   const { registerEditor } = useWorkspaceChrome();
@@ -77,6 +87,16 @@ beforeEach(() => {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   fetcher = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, location.origin), projectId = url.searchParams.get('projectId') ?? first;
+    if (url.pathname.endsWith('/workspace/projects') && !init?.method) {
+      return Response.json({
+        activeWorkspaceId: null,
+        activeWorkspaceName: null,
+        activeWorkspaceType: null,
+        projects: [],
+        trashed: [],
+        counts: { total: 0, personal: 0, teamShared: 0, teamPrivate: 0, motion: 0, design: 0, game: 0, trashed: 0 },
+      });
+    }
     if (url.pathname.endsWith('/projects') && !init?.method) return Response.json(catalog);
     if (url.pathname.includes('/sessions/')) return Response.json(catalog.sessions.find(item => url.pathname.endsWith(item.id)));
     if (url.pathname.includes('/projects/') && url.pathname.endsWith('/open')) return Response.json({ projectId: url.pathname.split('/').at(-2), revision: 'r' });
@@ -470,24 +490,29 @@ it('keeps Assets and editor drafts mounted across page history and restores the 
   await mount();
   const draft = container.querySelector<HTMLInputElement>('[aria-label="Editor draft"]')!;
   draft.value = 'Keep editor draft';
-  const folder = container.querySelector<HTMLButtonElement>('.om-app-header-actions [aria-label="Workspace assets"]')!;
-  const brandKit = container.querySelector<HTMLButtonElement>('.om-app-header-actions [aria-label="Brand Kit"]')!;
-  const actions = [...container.querySelectorAll('.om-app-header-actions button')];
-  expect(actions[actions.indexOf(brandKit) + 1]).toBe(folder);
+  expect(container.querySelector('.om-app-header-actions :is([aria-label="Workspace assets"], [aria-label="Brand Kit"])')).toBeNull();
   expect(container.querySelector('.om-app-rail :is([aria-label="Brand Kit"], [aria-label="Skills"], [aria-label="Template library"])')).toBeNull();
   expect(container.querySelector('.om-app-rail :is([aria-label="Workspace assets"], [aria-label="MCP · Connect Agent"])')).toBeNull();
-  await act(async () => folder.click());
-  expect(folder.getAttribute('aria-current')).toBe('page');
+  const libraryNav = container.querySelector<HTMLButtonElement>('.om-app-header .om-library-nav-link[aria-label="Library"]')!;
+  expect(libraryNav).not.toBeNull();
+  await act(async () => libraryNav.click());
+  expect(libraryNav.getAttribute('aria-current')).toBe('page');
   expect(page().assets).toBe(true);
   const assetDraft = container.querySelector<HTMLInputElement>('[aria-label="Asset draft"]')!;
   assetDraft.value = 'Keep asset prompt';
-  await act(async () => brandKit.click());
-  expect(brandKit.getAttribute('aria-current')).toBe('page');
+  const projectsTab = container.querySelector<HTMLButtonElement>('[data-testid="library-hub-tab-projects"]')!;
+  await act(async () => projectsTab.click());
+  expect(page()).toMatchObject({ projects: true, assets: false });
+  expect(libraryNav.getAttribute('aria-current')).toBe('page');
+  const brandKitsTab = container.querySelector<HTMLButtonElement>('[data-testid="library-hub-tab-brand-kits"]')!;
+  await act(async () => brandKitsTab.click());
+  expect(libraryNav.getAttribute('aria-current')).toBe('page');
   expect(page()).toMatchObject({ assets: false, settings: 'brand-kit' });
   expect(container.querySelector<HTMLElement>('.om-assets-host')?.hidden).toBe(true);
   await click('New Brand Kit');
   expect(page().brandKit).toBe('new');
-  await click('All brand kits'); await click('Close Brand Kit'); await click('Workspace assets');
+  await click('All brand kits'); await click('Close Brand Kit');
+  await act(async () => libraryNav.click());
   expect(page()).toMatchObject({ assets: true, settings: null, brandKit: null });
   expect(container.querySelector('[aria-label="Asset draft"]')).toBe(assetDraft);
   expect(assetDraft.value).toBe('Keep asset prompt');
@@ -1428,7 +1453,7 @@ it('lists each primary destination once in order, with the Image mega menu and t
   await mount();
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['Explore', 'Workflows', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
+  expect(destinations).toEqual(['Explore', 'Library', 'Workflows', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node =>
     [node.getAttribute('aria-label'), document.getElementById(node.getAttribute('aria-describedby')!)?.textContent]);
   expect(badges).toEqual([['Workflows', 'New'], ['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
@@ -1509,7 +1534,11 @@ it('localizes every top navigation Studio label in Chinese while keeping English
   await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['探索', '工作流', '图片', '视频', '音频', 'MCP', 'Super Agent', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
+  expect(destinations).toEqual(['探索', '资源库', '工作流', '图片', '视频', '音频', 'MCP', 'Super Agent', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
+  await act(async () => {
+    nav.querySelector<HTMLButtonElement>('.om-library-nav-link')?.click();
+  });
+  expect(location.pathname).toBe('/assets');
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node => {
     const badge = document.getElementById(node.getAttribute('aria-describedby')!);
     return [node.getAttribute('aria-label'), badge?.textContent, badge?.getAttribute('lang')];

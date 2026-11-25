@@ -45,6 +45,8 @@ describe('createAppRouter semantic route handles', () => {
   const cases: readonly [string, WorkspaceRouteId, boolean, boolean][] = [
     ['/explore', 'explore', true, true],
     ['/explore/product-films', 'explore', true, true],
+    ['/projects', 'projects', false, true],
+    ['/projects/motion', 'projects', false, true],
     ['/create/text-to-image', 'studio', false, true],
     ['/motion', 'motion', false, true],
     ['/cinema', 'cinema', false, true],

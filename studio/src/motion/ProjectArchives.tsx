@@ -497,8 +497,15 @@ export function ProjectArchiveMenu({ projectId, title, trashed = false, archives
   const activeTeams = (collab?.snapshot?.workspaces ?? []).filter(
     w => w.workspaceType === 'team' && w.memberStatus === 'active' && w.lifecycleState === 'active',
   );
-  const currentWsId = collab?.snapshot?.projectMeta[projectId]?.workspaceId;
-  const inTeamWorkspace = Boolean(currentWsId && activeTeams.some(team => team.workspaceId === currentWsId));
+  const projectMeta = collab?.snapshot?.projectMeta[projectId];
+  const currentTeamWs = projectMeta?.workspaceId
+    ? activeTeams.find(team => team.workspaceId === projectMeta.workspaceId)
+    : undefined;
+  const inTeamWorkspace = Boolean(currentTeamWs);
+  const isOwner =
+    !currentTeamWs ||
+    !projectMeta?.ownerMemberId ||
+    projectMeta.ownerMemberId === currentTeamWs.workspaceMemberId;
   const canMoveToTeam = Boolean(collab?.snapshot?.signedIn && activeTeams.length > 0 && !inTeamWorkspace);
   return <Menu modal={false} align="end" presentation="panel" aria-label={t('Actions for {title}', { title })} trigger={<IconButton variant="plain" ref={trigger} type="button" className="motion-icon-button om-nav-row-action" disabled={archives.locked} aria-label={t('Actions for {title}', { title })} icon={<RemixIcon name="more-2-line" size={16} />} />}>
     {trashed ? <>
@@ -510,8 +517,36 @@ export function ProjectArchiveMenu({ projectId, title, trashed = false, archives
       <MenuItem icon={<RemixIcon name="download-2-line" size={14} />} onClick={() => void archives.exportProject(projectId)}>{t('Export project')}</MenuItem>
       <MenuItem icon={<RemixIcon name="folder-open-line" size={14} />} onClick={() => void archives.projectAction('reveal', projectId, title)}>{t(revealLabel)}</MenuItem>
       <MenuItem icon={<RemixIcon name="clipboard-line" size={14} />} onClick={() => void archives.projectAction('info', projectId, title)}>{t('Copy path')}</MenuItem>
+      {collab?.snapshot?.signedIn && (
+        <MenuItem
+          icon={<RemixIcon name="group-line" size={14} />}
+          onClick={() => collab.openProjectSharing({ projectId, kind: 'motion', title })}
+        >
+          {t('Share & collaborators…')}
+        </MenuItem>
+      )}
       {canMoveToTeam && (
-        <MenuItem icon={<RemixIcon name="group-line" size={14} />} onClick={() => collab?.requestMoveToTeam({ id: projectId, title })}>{t('Move to team')}</MenuItem>
+        <MenuItem
+          icon={<RemixIcon name="share-forward-line" size={14} />}
+          onClick={() => collab?.requestMoveToTeam({ id: projectId, title, kind: 'motion' })}
+        >
+          {t('Share to team')}
+        </MenuItem>
+      )}
+      {inTeamWorkspace && isOwner && currentTeamWs && (
+        <MenuItem
+          icon={<RemixIcon name="arrow-go-back-line" size={14} />}
+          tone="danger"
+          onClick={() =>
+            collab?.requestRemoveFromTeam({
+              id: projectId,
+              title,
+              workspaceName: currentTeamWs.workspaceName,
+            })
+          }
+        >
+          {t('Remove from team')}
+        </MenuItem>
       )}
       <MenuItem icon={<RemixIcon name="delete-bin-line" size={14} />} tone="danger" onClick={() => void archives.projectAction('trash', projectId, title)}>{t('Move to trash')}</MenuItem>
     </>}

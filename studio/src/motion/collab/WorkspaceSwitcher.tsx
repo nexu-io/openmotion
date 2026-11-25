@@ -139,6 +139,28 @@ export function WorkspaceSwitcher() {
         variant="plain"
         type="button"
         className="om-ws-popover-option"
+        onClick={() => {
+          setOpen(false);
+          collab.setInviteDialogOpen(true);
+        }}
+      >
+        <span className="om-ws-popover-option-main">
+          <RemixIcon name="group-line" size={15} />
+          <span className="om-ws-popover-option-copy">
+            <strong>{t('Invite teammates')}</strong>
+          </span>
+        </span>
+        {snapshot.referral?.available && (
+          <span className="om-header-invite-reward">
+            <RemixIcon name="sparkling-fill" size={11} />
+            <span>{t('Reset card')}</span>
+          </span>
+        )}
+      </Button>
+      <Button
+        variant="plain"
+        type="button"
+        className="om-ws-popover-option"
         disabled={Boolean(collab.openingCloudDestination)}
         aria-busy={collab.openingCloudDestination === 'create-workspace' || undefined}
         onClick={() => {
