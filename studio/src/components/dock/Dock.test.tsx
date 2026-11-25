@@ -734,10 +734,16 @@ it("fits the MVP timeline to content and preserves deliberate divider resizing",
   act(() => { api.layout(1400, 800); vi.advanceTimersByTime(32); });
   expect(useDockLayoutStore.getState().collapsedZones).toEqual(expect.arrayContaining(["left", "right"]));
   const timeline = api.getPanel("timeline")!.group;
-  act(() => { controller.setTimelineContentHeight!(176); vi.advanceTimersByTime(32); });
+  act(() => { controller.setTimelineContentHeight!(176, "index.html"); vi.advanceTimersByTime(32); });
   expect(timeline.height).toBe(176);
-  act(() => { controller.setTimelineContentHeight!(400); vi.advanceTimersByTime(32); });
+  act(() => { controller.setTimelineContentHeight!(400, "index.html"); vi.advanceTimersByTime(32); });
   expect(timeline.height).toBe(224);
+  const preview = api.getPanel("preview")!.group;
+  const previewHeight = preview.height;
+  for (const [height, source] of [[128, "intro.html"], [176, "intro.html"], [480, "gallery.html"]] as const) {
+    act(() => { controller.setTimelineContentHeight!(height, source); vi.advanceTimersByTime(32); });
+    expect([timeline.height, preview.height]).toEqual([224, previewHeight]);
+  }
   const sash = host.querySelector<HTMLElement>('.dv-sash[aria-orientation="horizontal"]')!;
   act(() => {
     sash.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientY: 624, button: 0 }));
@@ -749,7 +755,9 @@ it("fits the MVP timeline to content and preserves deliberate divider resizing",
   act(() => { api.layout(1400, 1000); for (const observer of liveObservers) if (observer.target?.classList.contains("hf-dock")) (observer.callback as (entries: unknown[]) => void)([{ target: observer.target, contentRect: { width: 1400, height: 1000 } }]); vi.advanceTimersByTime(32); });
   expect(timeline.height).toBe(360);
   expect(readStudioUiPreferences(undefined, "compact").workspaceLayout?.timelineHeight).toBe(360);
-  act(() => { controller.setTimelineContentHeight!(176); controller.fitTimeline!(); vi.advanceTimersByTime(32); });
+  act(() => { controller.setTimelineContentHeight!(176, "outro.html"); vi.advanceTimersByTime(32); });
+  expect(timeline.height).toBe(360);
+  act(() => { controller.fitTimeline!(); vi.advanceTimersByTime(32); });
   expect(timeline.height).toBe(176);
   expect(readStudioUiPreferences(undefined, "compact").workspaceLayout?.timelineHeight).toBeNull();
 });

@@ -78,7 +78,6 @@ export function TimelinePane({
   splitShortcut,
 }: TimelinePaneProps) {
   const { t } = useI18n();
-  const sizing = useTimelineDockSizing();
   const {
     projectId,
     seek,
@@ -103,6 +102,7 @@ export function TimelinePane({
       new URL(frame.src).pathname === new URL(previewUrl, window.location.href).pathname;
   });
   const activeSource = compositionStack.length > 1 ? compositionStack.at(-1)!.id : "index.html";
+  const sizing = useTimelineDockSizing(activeSource);
   const authoredReady = usePlayerStore(state => state.timelineProjectId === projectId && state.authoredTimelinePath === activeSource);
   const timelineDisabled = !authoredReady && (!timelineReady || (compositionLoading && !currentManifestReady));
 

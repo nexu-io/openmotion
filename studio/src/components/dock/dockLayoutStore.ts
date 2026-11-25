@@ -24,7 +24,7 @@ export interface DockController {
   resetSideWidths?: () => void;
   applyWorkspacePreset?: (preset: "edit" | "preview") => void;
   fitTimeline?: () => void;
-  setTimelineContentHeight?: (height: number) => void;
+  setTimelineContentHeight?: (height: number, source: string) => void;
   rememberWorkspace?: () => void;
   reset: () => void;
 }

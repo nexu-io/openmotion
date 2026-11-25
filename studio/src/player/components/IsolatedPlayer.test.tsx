@@ -19,7 +19,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function mountPlayer(showInitialLoading = true) {
+function mountPlayer(showInitialLoading = true, suppressLoadingOverlay = false) {
   const origin = "https://preview.test";
   let grant = 0;
   const retry = vi.fn<() => Promise<void>>();
@@ -33,7 +33,7 @@ function mountPlayer(showInitialLoading = true) {
   const root = createRoot(host);
   const ready = vi.fn();
   const error = vi.fn();
-  const render = (parked = false) => act(() => root.render(<IsolatedPlayer parked={parked} projectId="p" origin={origin} onLoad={ready} onPreviewError={error} showInitialLoading={showInitialLoading} />));
+  const render = (parked = false) => act(() => root.render(<IsolatedPlayer parked={parked} projectId="p" origin={origin} onLoad={ready} onPreviewError={error} showInitialLoading={showInitialLoading} suppressLoadingOverlay={suppressLoadingOverlay} />));
   render();
   const frame = host.querySelector("iframe")!;
   Object.defineProperty(frame, "contentWindow", { value: window });
@@ -46,6 +46,20 @@ function mountPlayer(showInitialLoading = true) {
 }
 
 const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+it("covers a newly navigated frame even when the loading mark is suppressed", () => {
+  const player = mountPlayer(true, true);
+  try {
+    const cover = player.host.querySelector('[data-testid="composition-loading-overlay"]');
+    expect(cover).not.toBeNull();
+    expect(cover!.querySelector(".motion-preview-loading-mark")).toBeNull();
+    player.notify("timeline-state", undefined, "loading");
+    expect(player.host.contains(cover)).toBe(true);
+    player.notify("timeline-state", undefined, "ready");
+    advance(40);
+    expect(player.host.contains(cover)).toBe(false);
+  } finally { player.unmount(); }
+});
 
 it("reattaches the same painted document without renewing or letting parked events update Studio", () => {
   const player = mountPlayer();

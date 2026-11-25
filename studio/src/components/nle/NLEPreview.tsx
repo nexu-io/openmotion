@@ -156,7 +156,7 @@ export const NLEPreview = memo(function NLEPreview({
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
@@ -186,8 +186,11 @@ export const NLEPreview = memo(function NLEPreview({
   const onCompositionSizeChangeRef = useRef(onCompositionSizeChange);
   onCompositionSizeChangeRef.current = onCompositionSizeChange;
 
-  const updateCompositionSizeFromPreview = useCallback(() => {
+  const updateCompositionSizeFromPreview = useCallback((settled = false) => {
     const next = readPreviewCompositionSize(previewIframeRef.current);
+    // The incoming iframe can load about:blank before its authored document.
+    // Keep the current stage until we measure the new size or the frame is ready.
+    if (!next && !settled) return;
     // Pure updater; the effect below notifies the parent (Strict Mode may run updaters twice).
     setCompositionSize((prev) =>
       prev?.width === next?.width && prev?.height === next?.height ? prev : next,
@@ -492,7 +495,10 @@ export const NLEPreview = memo(function NLEPreview({
           applyInitialZoom();
         }}
         onCompositionLoadingChange={onCompositionLoadingChange}
-        onReadyToShowChange={poster.onLiveReadyToShowChange}
+        onReadyToShowChange={(ready) => {
+          if (ready) updateCompositionSizeFromPreview(true);
+          poster.onLiveReadyToShowChange(ready);
+        }}
         onPreviewError={poster.onPreviewError}
         onPainted={(details) => {
           reportPreviewFirstFrame(slot, details);
