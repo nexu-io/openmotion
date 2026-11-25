@@ -64,6 +64,17 @@ it('records only the HTML actually assembled, including descendants resolved rel
   assert.deepEqual(await htmlSources({ ...files, 'index.html': scene('<aside>Solo</aside>') }), ['index.html']);
 });
 
+it('certifies only unique sibling leaves for painting during a gesture', async () => {
+  const files = {
+    'index.html': scene(['a', 'b', 'parent', 'repeat', 'repeat'].map((p, i) => mount(p + '.html', p + i)).join('')),
+    'a.html': scene('<p>A</p>', 'a'), 'b.html': scene('<p>B</p>', 'b'),
+    'parent.html': scene(mount('nested.html', 'nested'), 'parent'),
+    'nested.html': scene('<p>Nested</p>', 'nested'), 'repeat.html': scene('<p>Duplicate</p>', 'repeat'),
+  };
+  assert.deepEqual((await previewConfig(files)).independentSceneFiles?.sort(), ['a.html', 'b.html']);
+  assert.equal((await previewConfig({ ...files, 'a.html': scene('<script>observe()</script>', 'a') })).independentSceneFiles, undefined);
+});
+
 it('retains full refresh for dynamic or unknown inputs, including those inside a nested template', async () => {
   for (const dynamic of ['<script>fetch("more.html")</script>', '<img src="image.png" onload="loadMore()">',
     '<iframe src="frame.html"></iframe>', '<style>@import "style.css"</style>', '<img src="photo.html">']) {

@@ -76,6 +76,8 @@ A Studio drop submits the host composition edit and its catalog component name i
 
 ### Ordered Studio writes
 
+See the [Studio preview and edit reconciliation plan](preview-edit-reconciliation.md) for how local gestures, save receipts and Agent edits reach the mounted player.
+
 Hosted Studio queues completed edits for a project in the order the user made them. It reserves a place before reading a missing file or waiting for an earlier save. The browser fetches only the direct inputs it needs. Binary dependencies require their file version. Pointer samples paint locally. The first change to a file in a packet carries its known version, or `null` for a new file. A later change to that file in the same packet points to the previous operation that wrote it. The transport sends after 100 ms of inactivity, at capacity, or one second after the first waiting edit when available. A following packet uses the previous receipt. The user can keep editing throughout. Each completed action retains its own operation ID and undo semantics.
 
 An edit can also read a file written by an earlier step. For example, when a user edits an SVG and immediately places it on the timeline, the placement references the SVG write in the same packet or its confirmed version in the next. A subsequent replacement of the SVG by another client produces a conflict.

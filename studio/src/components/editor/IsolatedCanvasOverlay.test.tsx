@@ -1,4 +1,4 @@
-import { isStudioEditSaving } from "../../utils/studioPendingEdits";
+import { isStudioEditSaving, studioPendingEditBlocks } from "../../utils/studioPendingEdits";
 // @vitest-environment happy-dom
 
 import React, { act } from "react";
@@ -110,6 +110,8 @@ it("keeps the released drag pending through a later selection click and its save
   expect(isStudioEditSaving()).toBe(true);
   await reply("finish", result, drag);
   expect(isStudioEditSaving()).toBe(true);
+  expect(studioPendingEditBlocks(scope => scope.frame === frame && scope.paths.length === 1 && scope.paths[0] === result.sourceFile)).toBe(false);
+  expect(studioPendingEditBlocks(scope => !scope.paths.includes(result.sourceFile))).toBe(true);
   await act(async () => { save.resolve({ durable: true, changed: true }); });
   expect(isStudioEditSaving()).toBe(false);
 });

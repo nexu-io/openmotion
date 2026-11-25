@@ -15,6 +15,8 @@ import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { formatTime } from '../player/lib/time';
 import type { useAssetBrowser } from './AssetBrowser';
+import { AssetsGuestEmptyState } from './EntitlementTouchpointCards';
+import { openEntitlementModal } from './entitlementModalBus';
 import type { AssetDraft } from './AssetComposer';
 import type { StudioCreation } from './CreativeWorkspace';
 import { emptyParameters, type ParameterDraft } from './GenerationParameters';
@@ -43,9 +45,6 @@ import {
 } from './soundTabs';
 import { ComingSoonGuide } from './ComingSoonGuide';
 import { dayKey } from './generationLabels';
-import { buildLoginUrl } from './AccountSettings';
-import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
-import { isDesktopApp, startDesktopBrowserLogin } from '../utils/platformHost';
 import { GeneratingWaveform, InteractiveWaveform } from './SoundWaveforms';
 import { useAudioWaveforms } from './useAudioWaveforms';
 import { useVoiceAudition } from './voicePreviews';
@@ -446,6 +445,8 @@ export function SoundStudioWorkspace({
   onDownload: () => void;
 }) {
   const { t, formatDate } = useI18n();
+  const guestLibrary = browser.authRequired || studio.guestPreview;
+  const requestLibrarySignIn = () => openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
   const activeTab: SoundTabId = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
   const tabDef = findSoundTab(activeTab) ?? SOUND_TABS[0];
   const isSoonTab = tabDef.status === 'soon';
@@ -515,7 +516,6 @@ export function SoundStudioWorkspace({
     });
   }, [jobs]);
 
-  const useCloudWebModeHook = useCloudWebMode();
   const featuredRecipe = SOUND_MUSIC_RECIPES[0];
   const featuredDemoTrack: SoundPlayableTrack = useMemo(() => ({
     id: `demo:${featuredRecipe.id}`,
@@ -1170,7 +1170,8 @@ export function SoundStudioWorkspace({
             setDragActive(false);
             if (!isSoonTab && event.dataTransfer.files.length) {
               event.preventDefault();
-              onDropFiles(Array.from(event.dataTransfer.files));
+              if (guestLibrary) requestLibrarySignIn();
+              else onDropFiles(Array.from(event.dataTransfer.files));
             }
           }}
         >
@@ -1245,22 +1246,7 @@ export function SoundStudioWorkspace({
                     variant="ghost"
                     className="om-button h-auto"
                     disabled={uploading}
-                    onClick={() => {
-                      if (browser.authRequired) {
-                        if (useCloudWebModeHook && hasEntitlementModalListeners()) {
-                          openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
-                          return;
-                        }
-                        const loginUrl = buildLoginUrl();
-                        if (isDesktopApp()) {
-                          void startDesktopBrowserLogin({ loginUrl });
-                          return;
-                        }
-                        window.location.assign(loginUrl);
-                        return;
-                      }
-                      onUploadClick();
-                    }}
+                    onClick={guestLibrary ? requestLibrarySignIn : onUploadClick}
                   >
                     <RemixIcon name="upload-2-line" size={15} />
                     <span>{t(uploading ? 'Uploading…' : 'Upload')}</span>
@@ -1270,34 +1256,7 @@ export function SoundStudioWorkspace({
 
               <main className="om-sound-content">
                 <section className="om-sound-section om-sound-library-section" aria-label={t('Audio library')}>
-                  {browser.authRequired && streamEntries.length === 0 ? (
-                    <div className="om-empty om-asset-empty om-sound-state-box" data-guest-auth-guide="true">
-                      <RemixIcon name="lock-line" size={32} />
-                      <h2 className="om-subtitle">{t('Sign in to view your assets')}</h2>
-                      <p className="om-muted">{t('Sign in with OpenDesign to view, upload, and manage your personal asset library.')}</p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="om-button h-auto"
-                        data-primary
-                        onClick={() => {
-                          if (useCloudWebModeHook && hasEntitlementModalListeners()) {
-                            openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
-                            return;
-                          }
-                          const loginUrl = buildLoginUrl();
-                          if (isDesktopApp()) {
-                            void startDesktopBrowserLogin({ loginUrl });
-                            return;
-                          }
-                          window.location.assign(loginUrl);
-                        }}
-                      >
-                        <RemixIcon name="login-box-line" size={16} />
-                        {t('Sign in with OpenDesign')}
-                      </Button>
-                    </div>
-                  ) : browser.error && streamEntries.length === 0 ? (
+                  {guestLibrary ? <AssetsGuestEmptyState /> : browser.error && streamEntries.length === 0 ? (
                     <div className="om-empty om-sound-state-box">
                       <RemixIcon name="error-warning-line" size={28} />
                       <p>{t('Could not load assets')}</p>
@@ -1539,7 +1498,7 @@ export function SoundStudioWorkspace({
                       variant="plain"
                       className="om-sound-drop-cue"
                       disabled={uploading}
-                      onClick={onUploadClick}
+                      onClick={guestLibrary ? requestLibrarySignIn : onUploadClick}
                     >
                       <RemixIcon name="upload-2-line" size={15} />
                       <span>{t('Drop audio files here')}</span>

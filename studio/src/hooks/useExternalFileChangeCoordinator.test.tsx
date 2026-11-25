@@ -11,6 +11,11 @@ import { acceptFileEditReceipt } from "../utils/rebasedFileEdit";
 import { markStudioWriteToken, resetStudioWriteTokens, studioFileContentVersion } from "../utils/studioFileVersion";
 import { markSelfWrite, resetSelfWriteRegistry } from "./sdkSelfWriteRegistry";
 import { subscribeProjectActivity } from "../motion/workspaceRefresh";
+import { useStudioExternalFileChanges } from "./useStudioExternalFileChanges";
+import * as peer from "../player/peerTimingPreview";
+import * as remote from "./remoteFileReads";
+import { trackStudioPendingEdit } from "../utils/studioPendingEdits";
+import { rememberPreviewHtmlSources } from "../player/lib/previewHtmlSources";
 import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import {
   clearClientCompositionCaptureCacheForTest,
@@ -90,6 +95,50 @@ describe("external file change coordinator", () => {
     setCachedCloudDisklessMode(null);
     clearClientCompositionCaptureCacheForTest();
     vi.unstubAllGlobals();
+  });
+
+  it("presents independent revisions before the write drain and does not replay old events when file views resume", async () => {
+    const project = "scoped-drain", edited = "input.html", path = "peer.html";
+    const frame = document.body.appendChild(document.createElement("iframe"));
+    Object.defineProperty(frame, "contentDocument", { value: null });
+    const player = usePlayerStore.getState();
+    player.beginTimelineSession(project);
+    rememberSource(project, path, { content: "base", version: "v1" });
+    rememberPreviewHtmlSources(frame, project, undefined, [edited, path]);
+    peer.rememberPeerTimingDocument(frame, "grant", undefined, "doc", { position: true }, false, { [path]: "v1" });
+    const paint = vi.spyOn(peer, "applyCommittedPeerChanges").mockResolvedValue("applied");
+    const read = vi.spyOn(remote, "createRemoteFileReader").mockReturnValue((_project, payload) => async () => ({
+      content: "accepted", version: (payload as { fileVersions: Record<string, string> }).fileVersions[path], missing: false,
+    }));
+    const hold = Promise.withResolvers<void>();
+    trackStudioPendingEdit(hold.promise, { frame, paths: [edited] });
+    const refreshOpenSource = vi.fn(), reloadPreview = vi.fn();
+    const root = createRoot(document.createElement("div"));
+    roots.push(root);
+    const options: Parameters<typeof useStudioExternalFileChanges>[0] = {
+      projectId: project, activeCompPath: "index.html", masterCompPath: "index.html", previewIframeRef: { current: frame },
+      pendingTimelineEditPathRef: { current: new Set() }, reloadPreview,
+      fileManager: { editingFile: null, flushPendingSourceSave: vi.fn(async () => ({status: "clean" as const})),
+        discardPendingSourceSave: vi.fn(), getPendingSourceCandidate: vi.fn(), overwriteExternalConflict: vi.fn(),
+        readProjectFile: vi.fn(), updateEditingFileContent: vi.fn(), refreshOpenSource, refreshFileTree: vi.fn() },
+      previewPersistence: { drainPendingDomEditSaves: () => hold.promise.then(() => ({status: "clean" as const})), resetDomEditSaveQueueBreaker: vi.fn() },
+    };
+    function Probe() { useStudioExternalFileChanges(options); return null; }
+    try {
+      await act(async () => root.render(<Probe />));
+      for (const version of ["v2", "v3"]) {
+        await act(async () => { handler!({ path, fileVersions: { [path]: version }, fileTreeChanged: false, writeToken: version }); });
+        await vi.waitFor(() => expect(paint.mock.calls.at(-1)?.[1].current.version).toBe(version));
+      }
+      expect(refreshOpenSource).not.toHaveBeenCalled();
+      await act(async () => hold.resolve());
+      await vi.waitFor(() => expect(refreshOpenSource).toHaveBeenCalledTimes(2));
+      expect(paint.mock.calls.map(call => call[1].current.version)).toEqual(["v2", "v3"]);
+      expect(reloadPreview).not.toHaveBeenCalled();
+    } finally {
+      hold.resolve(); paint.mockRestore(); read.mockRestore();
+      forgetSource(project, path); frame.remove(); player.reset();
+    }
   });
 
   it("refreshes a rebased no-op even if its own SSE echo was already suppressed", async () => {

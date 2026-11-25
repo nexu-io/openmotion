@@ -68,7 +68,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const { t } = useI18n(), toast = useToast();
   const cloudWeb = useCloudWebMode();
   const { account } = useAccountSummary({ eager: cloudWeb });
-  const isCloudGuest = cloudWeb && account?.state === 'signed-out';
+  const isCloudGuest = studio?.guestPreview || (cloudWeb && account?.state === 'signed-out');
   const cloudGuestAssets = !studio && isCloudGuest;
   const initialStandaloneDraft = useMemo(() => (studio ? undefined : readStandaloneAssetDraft()), [Boolean(studio)]);
   const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(() => (studio ? !studio.openCreate : Boolean(initialStandaloneDraft))), [picking, setPicking] = useState(false), [pickerMulti, setPickerMulti] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());

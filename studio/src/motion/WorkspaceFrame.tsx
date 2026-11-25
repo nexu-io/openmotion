@@ -689,7 +689,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     guestMode,
     onGuestTemplateSignIn: (templateId: string, requestId: string) =>
       startGuestSignIn({ action: 'use_template', templateId, idempotencyKey: requestId }),
-    workspaceError: workspace.error,
+    workspaceError: guestMode && workspace.errorSource === 'connection' ? '' : workspace.error,
     cardPreview,
     libraryTrigger,
     collectionSkillTrigger,

@@ -46,6 +46,7 @@ test('only an author-reviewed script set opts into position and media timing upd
   const html = await bundlePreviewInMemory(project, {bridgeOrigin:'https://preview.test', studioOrigin:'https://studio.test',skipDeterministicFonts:true});
   const settings = JSON.parse(parseHTMLContent(html!).querySelector('script[data-openmotion-preview]')!.getAttribute('data-openmotion-preview')!);
   assert.deepEqual(settings.liveEdits, capabilities);
+  assert.ok(['compositions/editor.html', 'compositions/reel.html'].every(path => settings.independentSceneFiles?.includes(path)));
   const index = project.readText('index.html')!;
   const moved = index.replace('src="assets/soundtrack.m4a" data-start="0"', 'src="assets/soundtrack.m4a" data-start="2"');
   assert.notEqual(moved, index);

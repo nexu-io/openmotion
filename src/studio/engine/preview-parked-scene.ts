@@ -9,7 +9,7 @@ export const PREVIEW_PARKED_SCENE = `
   }
 
   // The runtime keeps the compiled HTML in a private cache and replaces the scene host
-  // when parking or remounting it. Reapply only confirmed position deltas to a fresh host.
+  // when parking or remounting it. Reapply only confirmed geometry and literal captions to a fresh host.
   const scenePlacements = new Map();
   let placementObserver;
   function forgetScenePlacement(path) {
@@ -22,6 +22,33 @@ export const PREVIEW_PARKED_SCENE = `
     if (file.version === before) file.version = after;
     else forgetScenePlacement(path);
   }
+  function applyRememberedPlacements(host, path) {
+    const file = scenePlacements.get(path);
+    if (!file) return;
+    const pending = !sourceVersions[path] && pendingForSource(path)[0];
+    if ((sourceVersions[path] || pending?.confirmedVersion || pending?.sha256) !== file.version) return;
+    for (const [selector, {tag, styles, text, id}] of file.targets) {
+      const nodes = Array.from(host.querySelectorAll(selector)).filter(node =>
+        node.localName === tag && sourceFileForElement(node) === path);
+      if (nodes.length !== 1) continue;
+      if (text && (!id || nodes[0].id === id)) stageText(nodes[0], text, false)?.(true);
+      for (const [name, [from, to]] of styles) {
+        const style = nodes[0].style;
+        if (style.getPropertyValue(name) !== from || (typeof style.getPropertyPriority === 'function' && style.getPropertyPriority(name))) continue;
+        if (to) style.setProperty(name, to);
+        else style.removeProperty(name);
+      }
+    }
+  }
+  // Validate a parked leaf against the player's own compiled markup and its accepted edits.
+  function parkedPlacementSource(path) {
+    const placeholder = uniqueSceneHost(path);
+    if (!placeholder?.hasAttribute('data-hf-parked-scene')) return null;
+    const host = window.__hfParkedSceneMarkup?.(placeholder);
+    if (!host || host.isConnected || host.getAttribute('data-composition-file') !== path) return null;
+    applyRememberedPlacements(host, path);
+    return host;
+  }
   function restoreScenePlacements(records) {
     for (const record of records) for (const host of record.addedNodes) {
       if (host.nodeType !== 1 || host.hasAttribute('data-hf-parked-scene')) continue;
@@ -30,24 +57,7 @@ export const PREVIEW_PARKED_SCENE = `
         old.nodeType === 1 && old.hasAttribute('data-hf-parked-scene') && old.getAttribute('data-hf-scene') === scene)) continue;
       const paths = new Set([host, ...host.querySelectorAll('[data-composition-file],[data-composition-src]')]
         .map(el => el.getAttribute('data-composition-file') || el.getAttribute('data-composition-src')));
-      for (const path of paths) {
-        const file = scenePlacements.get(path);
-        if (!file) continue;
-        const pending = !sourceVersions[path] && pendingForSource(path)[0];
-        if ((sourceVersions[path] || pending?.confirmedVersion || pending?.sha256) !== file.version) continue;
-        for (const [selector, {tag, styles}] of file.targets) {
-          const nodes = Array.from(host.querySelectorAll(selector)).filter(node =>
-            node.localName === tag && sourceFileForElement(node) === path);
-          if (nodes.length !== 1) continue;
-          const node = nodes[0];
-          for (const [name, [from, to]] of styles) {
-            const style = node.style;
-            if (style.getPropertyValue(name) !== from || (typeof style.getPropertyPriority === 'function' && style.getPropertyPriority(name))) continue;
-            if (to) style.setProperty(name, to);
-            else style.removeProperty(name);
-          }
-        }
-      }
+      for (const path of paths) applyRememberedPlacements(host, path);
     }
   }
   function rememberScenePlacement(node, path, selector, change, version) {
@@ -60,12 +70,17 @@ export const PREVIEW_PARKED_SCENE = `
     }
     const file = scenePlacements.get(path) || {version, targets:new Map()};
     const target = file.targets.get(selector) || {tag:change.tag, styles:new Map()};
-    for (const [name, from, to] of change.styles) {
+    for (const [name, from, to] of change.styles || []) {
       const first = target.styles.get(name)?.[0] ?? from;
       if (first === to) target.styles.delete(name);
       else target.styles.set(name, [first, to]);
     }
-    if (target.styles.size) file.targets.set(selector, target);
+    if (change.text) {
+      const first = target.text?.[0] ?? change.text[0], to = change.text[1];
+      target.id = change.id;
+      target.text = samePreviewText(first, to) ? undefined : [first, to];
+    }
+    if (target.styles.size || target.text) file.targets.set(selector, target);
     else file.targets.delete(selector);
     if (file.targets.size) scenePlacements.set(path, file);
     else forgetScenePlacement(path);
@@ -82,8 +97,7 @@ export const PREVIEW_PARKED_SCENE = `
 
   async function readSceneSnapshot(file, signal) {
     const url = new URL(location.href);
-    url.searchParams.delete('sceneFile');
-    if (file) url.searchParams.set('sceneFile', file);
+    url.searchParams.set('sceneFile', file);
     const response = await fetch(url.href, {cache:'no-cache', redirect:'error', signal});
     if (!response.ok) return null;
     const html = await response.text();
@@ -128,12 +142,13 @@ export const PREVIEW_PARKED_SCENE = `
     if (files.every(([path, version]) => appliedSceneVersions.get(path) === sourceVersions[path] &&
         sourceIdentity(sourceVersions[path]).fileVersion === version)) return true;
     const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
-    const compact = files.length === 1;
-    const snapshot = await readSceneSnapshot(compact ? files[0][0] : null, signal);
+    const firstPath = files[0][0];
+    const snapshot = await readSceneSnapshot(firstPath, signal);
     const incoming = snapshot?.settings, versions = incoming?.sourceVersions;
     if (incoming?.projectId !== projectId || incoming.compositionPath !== compositionPath ||
         incoming.canRebindTiming !== settings.canRebindTiming || JSON.stringify(incoming.liveEdits) !== JSON.stringify(settings.liveEdits) ||
-        JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) || !versions ||
+        JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) ||
+        JSON.stringify(incoming.independentSceneFiles) !== JSON.stringify(settings.independentSceneFiles) || !versions ||
         !files.every(([path, version]) => sourceIdentity(versions[path]).fileVersion === version)) return false;
     const oldParts = sceneParts(document), newParts = snapshot.parts;
     if (!oldParts || !newParts || oldParts.shared !== newParts.shared || !current()) return false;
@@ -144,34 +159,17 @@ export const PREVIEW_PARKED_SCENE = `
       if (path === compositionPath || typeof versions[path] !== 'string' ||
           !addTarget(path, sourceIdentity(versions[path]).fileVersion)) return false;
     }
-    if (!sameOtherEntries(sourceVersions, versions, targets) || !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
-        !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key))) return false;
-    let html = snapshot.html;
-    if (siblings.length) {
-      // A nested scene cannot be swapped independently of its parent.
-      if (Array.from(targets.values()).some(t => t.host.parentElement?.closest('[data-hf-scene]'))) return false;
-      let complete = snapshot.doc;
-      if (compact) {
-        const sibling = siblings.length === 1 ? siblings[0] : null;
-        const extra = await readSceneSnapshot(sibling, signal);
-        // Never combine scene bodies from different revisions or compilations.
-        if (!extra || extra.config !== snapshot.config || JSON.stringify(extra.parts) !== JSON.stringify(newParts)) return false;
-        if (sibling) {
-          for (const el of Array.from(extra.doc.body.children)) {
-            if (el.getAttribute('data-hf-scene') === targets.get(sibling).scene) complete.body.append(complete.importNode(el, true));
-          }
-          html = '<!doctype html>' + complete.documentElement.outerHTML;
-        } else {
-          complete = extra.doc;
-          html = extra.html;
-        }
-      }
-      for (const [path, target] of targets) {
-        const host = uniqueSceneHost(path, complete);
-        if (host?.getAttribute('data-hf-scene') !== target.scene || host.parentElement?.closest('[data-hf-scene]')) return false;
-      }
+    // A confirmed placement changes the mounted source, not the runtime's compiled
+    // scene fingerprint. Bring its actual body into the swap; never exempt the hash.
+    for (const [path, placement] of scenePlacements) {
+      if (targets.has(path) || !settings.independentSceneFiles?.includes(path) ||
+          placement.version !== versions[path] || placement.version !== sourceVersions[path]) continue;
+      const scene = uniqueSceneHost(path)?.getAttribute('data-hf-scene');
+      if (scene && newParts.scenes?.[scene] !== oldParts.scenes?.[scene] && !addTarget(path, sourceIdentity(versions[path]).fileVersion)) return false;
     }
-    if (!current()) return false;
+    if (!sameOtherEntries(sourceVersions, versions, targets) || !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
+         !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key))) return false;
+    if (targets.size > 1 && Array.from(targets.values()).some(t => t.host.parentElement?.closest('[data-hf-scene]'))) return false;
     const confirm = () => {
       if (!Array.from(targets).every(([path, target]) => sourceVersions[path] === target.base)) return false;
       for (const path of targets.keys()) {
@@ -181,7 +179,22 @@ export const PREVIEW_PARKED_SCENE = `
       }
       return true;
     };
-    if (!Array.from(scenes).some(key => newParts.scenes[key] !== oldParts.scenes[key])) return confirm();
+    const changed = Array.from(targets).filter(([, target]) => oldParts.scenes[target.scene] !== newParts.scenes[target.scene]);
+    if (!changed.length) return confirm();
+    const fragments = await Promise.all(changed.map(([path]) => path === firstPath ? snapshot : readSceneSnapshot(path, signal)));
+    const complete = snapshot.doc;
+    for (const [i, [path, target]] of changed.entries()) {
+      const fragment = fragments[i];
+      // Never mix bodies from different compilations, even if the individual file version matches.
+      if (!fragment || fragment.config !== snapshot.config || JSON.stringify(fragment.parts) !== JSON.stringify(newParts)) return false;
+      const host = uniqueSceneHost(path, fragment.doc);
+      if (host?.getAttribute('data-hf-scene') !== target.scene || host.parentElement !== fragment.doc.body) return false;
+      if (path !== firstPath) for (const el of Array.from(fragment.doc.body.children)) {
+        if (el.getAttribute('data-hf-scene') === target.scene) complete.body.append(complete.importNode(el, true));
+      }
+    }
+    if (!current() || !sameOtherEntries(sourceVersions, versions, targets)) return false;
+    const html = changed.length === 1 && changed[0][0] === firstPath ? snapshot.html : '<!doctype html>' + complete.documentElement.outerHTML;
     const update = {targets, versions, ready: null};
     applyingSceneUpdate = update;
     let expire;

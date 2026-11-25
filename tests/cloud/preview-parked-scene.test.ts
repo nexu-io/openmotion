@@ -45,15 +45,15 @@ function fixture(batch = false, separateReceipts = false) {
   meta.setAttribute('name', 'hf-scene-parts');
   meta.setAttribute('content', JSON.stringify(parts('old intro')));
   document.head.append(meta);
-  const settings = {projectId: 'p', compositionPath: 'index.html'};
+  const settings = {projectId: 'p', compositionPath: 'index.html', independentSceneFiles: batch ? [file, other] : undefined};
   const fresh = { ...settings, sourceVersions: { ...oldVersions, [file]: after }};
   const nextParts = parts('new intro');
   if (batch) {
     fresh.sourceVersions[other] = digest('updated outro');
     nextParts.scenes.outro = 'new outro';
   }
-  function templ(fragment: string | null) {
-    const body = separateReceipts && fragment ? document.querySelector('[data-composition-file="' + fragment + '"]')!.outerHTML : '';
+  function templ(fragment: string) {
+    const body = document.querySelector('[data-composition-file="' + fragment + '"]')!.outerHTML;
     return `<html><head><meta name="hf-scene-parts" content='${JSON.stringify(nextParts)}'><script data-openmotion-preview='${JSON.stringify(fresh)}'></script></head><body>${body}</body></html>`;
   }
   const counts = { reads: 0, swaps: 0, confirms: 0 };
@@ -64,7 +64,7 @@ function fixture(batch = false, separateReceipts = false) {
   const currentVersions = { ...oldVersions };
   let duringSwap: (() => Promise<void>) | undefined;
   const siblingText = document.createElement('span');
-  const bridge = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_PARKED_SCENE + PREVIEW_SCENE_GESTURES + '\n({refreshParkedScene, sceneInlineText})', {
+  const bridge = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_PARKED_SCENE + PREVIEW_SCENE_GESTURES + '\n({refreshParkedScene, sceneInlineText, rememberScenePlacement})', {
     canvasPointHit: () => siblingText,
     describe: () => ({sourceFile: other}),
     inspectorElement: () => siblingText,
@@ -72,26 +72,30 @@ function fixture(batch = false, separateReceipts = false) {
     settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: currentVersions, projectId: 'p',
     document, location: {href: 'https://preview.example/current?pt=test'}, URL, AbortSignal,
     drag: null, pendingDrags: new Map(), inlineText: null,
+    MutationObserver: class { observe() {} disconnect() {} },
     DOMParser: class { parseFromString(html: string) { return parseHTMLContent(html); } },
     fetch: async (url: string) => {
       const fragment = new URL(url).searchParams.get('sceneFile');
-      if (!separateReceipts) assert.equal(fragment, batch ? null : file);
+      assert.ok(fragment, 'scene recovery must not download the full project HTML');
       reads.push(fragment);
       counts.reads++;
       duringRead();
       return new Response(templ(fragment));
     },
-    window: { __hfSwapScenes: async (html: string) => {
-      if (separateReceipts) {
-        const swapped = parseHTMLContent(html);
-        assert.deepEqual(Array.from(swapped.querySelectorAll('section'), el => el.getAttribute('data-composition-file')), [file, other]);
-      } else assert.equal(html, templ(null));
+    window: { __hfParkedSceneMarkup() {}, __hfSwapScenes: async (html: string) => {
+      const swapped = parseHTMLContent(html);
+      assert.deepEqual(Array.from(swapped.querySelectorAll('section'), el => el.getAttribute('data-composition-file')), batch ? [file, other] : [file]);
       counts.swaps++;
       await duringSwap?.();
     } },
     confirmCanvasVersion: (path: string, value: string) => { assert.ok(path === file || batch && path === other); assert.equal(value, fresh.sourceVersions[path]); currentVersions[path] = value; counts.confirms++; },
   });
-  return { document, counts, request, fresh, nextParts, reads, run: (message = request) => bridge.refreshParkedScene(message),
+  return { document, counts, request, fresh, nextParts, reads, currentVersions, run: (message = request) => bridge.refreshParkedScene(message),
+    placeSibling: (version: string) => {
+      document.querySelector('[data-composition-file="' + other + '"]')!.append(siblingText);
+      bridge.rememberScenePlacement(siblingText, other, '#title', {tag:'span', styles:[['left','0px','20px']]}, version);
+      currentVersions[other] = version;
+    },
     pickSibling: () => bridge.sceneInlineText({phase: 'pick', editId: 'text-1', x: 0, y: 0}),
     onSwap: (fn: () => Promise<void>) => { duringSwap = fn; }, onRead: (fn: () => void) => {duringRead = fn;} };
 }
@@ -102,14 +106,44 @@ it('updates the parked template through the runtime only after validating the fr
   assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
 });
 
-it('mounts two cold scenes from one compilation after checking both file versions', async () => {
+it('mounts a batch from compact scene fragments after checking both file versions', async () => {
   const f = fixture(true);
   assert.equal(await f.run(), true);
-  assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 2});
+  assert.deepEqual(f.reads, [file, other]);
+  assert.deepEqual(f.counts, {reads: 2, swaps: 1, confirms: 2});
   const stale = fixture(true);
   stale.fresh.sourceVersions[other] = digest('concurrent edit');
   assert.equal(await stale.run(), false);
   assert.deepEqual(stale.counts, {reads: 1, swaps: 0, confirms: 0});
+});
+
+it('includes the compiled body of an independently placed sibling when its source is already confirmed', async () => {
+  const f = fixture(true, true);
+  f.placeSibling(f.fresh.sourceVersions[other]);
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.reads, [file, other]);
+  assert.deepEqual(f.counts, {reads: 2, swaps: 1, confirms: 2});
+});
+
+it('does not confirm either file when the runtime refuses to restart one of the scene scripts', async () => {
+  const f = fixture(true);
+  f.onSwap(async () => { throw new Error('scene intro cannot be swapped: its script uses .then('); });
+  assert.equal(await f.run(), false);
+  assert.deepEqual(f.reads, [file, other]);
+  assert.deepEqual(f.currentVersions, oldVersions);
+  assert.equal(f.counts.confirms, 0);
+});
+
+it('does not waive a changed sibling fingerprint for a stale placement, unknown edit or uncertified file', async () => {
+  for (const reason of ['stale placement', 'missing placement', 'uncertified', 'changed independence']) {
+    const f = fixture(true, true);
+    if (reason !== 'missing placement') f.placeSibling(reason === 'stale placement' ? digest('stale') : f.fresh.sourceVersions[other]);
+    f.currentVersions[other] = f.fresh.sourceVersions[other];
+    if (reason === 'uncertified') f.fresh.independentSceneFiles!.pop(); // Both compilations only certify the first file.
+    if (reason === 'changed independence') f.fresh.independentSceneFiles = [file];
+    assert.equal(await f.run(), false, reason);
+    assert.deepEqual(f.counts, {reads: 1, swaps: 0, confirms: 0});
+  }
 });
 
 it('reuses both compact scene bodies when two independent saves arrive in adjacent receipts', async () => {

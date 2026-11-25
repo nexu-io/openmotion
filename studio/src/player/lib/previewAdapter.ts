@@ -50,6 +50,8 @@ export type PreviewBridgeMessageType =
 const documents = new WeakMap<HTMLIFrameElement, string>();
 const DOCUMENT_LEFT = "hf-preview-document-left";
 
+export function previewDocumentIdentity(frame: HTMLIFrameElement) { return documents.get(frame); }
+
 export function observePreviewDocument(frame: HTMLIFrameElement, id: string, leaving: boolean) {
   const previous = documents.get(frame);
   if (leaving && previous !== id) return;

@@ -30,6 +30,52 @@ export function canPatchPresentationValue(name: string, value: string): boolean 
 export const PRESENTATION_TAGS = ["div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6"] as const;
 export const MAX_PREVIEW_TEXT_LENGTH = 4096;
 
+/** Newlines in a text node and authored BR elements have different layout and identity. */
+export type PreviewText = string | { lines: string[]; breaks: (string | null)[] };
+
+export function validPreviewText(value: PreviewText): boolean {
+  if (typeof value === 'string') return value.length <= MAX_PREVIEW_TEXT_LENGTH;
+  if (!value || !Array.isArray(value.lines) || !Array.isArray(value.breaks) || !value.breaks.length ||
+      value.breaks.length > 64 || value.lines.length !== value.breaks.length + 1) return false;
+  let length = value.breaks.length;
+  for (const line of value.lines) {
+    if (typeof line !== 'string' || (length += line.length) > MAX_PREVIEW_TEXT_LENGTH) return false;
+  }
+  const ids = new Set<string>();
+  for (const id of value.breaks) {
+    if (id === null) continue;
+    if (typeof id !== 'string' || !/^hf-[a-z0-9]{4}$/.test(id) || ids.has(id)) return false;
+    ids.add(id);
+  }
+  return true;
+}
+
+export function readPreviewText(node: Element): PreviewText | null {
+  const lines = [''], breaks: (string | null)[] = [];
+  let length = 0;
+  for (const child of node.childNodes) {
+    if (child.nodeType === 3) {
+      const text = child.nodeValue ?? '';
+      if ((length += text.length) > MAX_PREVIEW_TEXT_LENGTH) return null;
+      lines[lines.length - 1] += text;
+    } else {
+      const br = child as Element;
+      if (br.nodeType !== 1 || br.localName !== 'br' || br.namespaceURI !== 'http://www.w3.org/1999/xhtml' ||
+          br.firstChild || br.attributes.length > Number(br.hasAttribute('data-hf-id')) || breaks.length === 64) return null;
+      breaks.push(br.getAttribute('data-hf-id'));
+      lines.push('');
+    }
+  }
+  const value = breaks.length ? { lines, breaks } : lines[0]!;
+  return validPreviewText(value) ? value : null;
+}
+
+export function samePreviewText(a: PreviewText, b: PreviewText): boolean {
+  if (typeof a === 'string' || typeof b === 'string') return a === b;
+  return a.breaks.length === b.breaks.length && a.lines.every((line, i) => line === b.lines[i]) &&
+    a.breaks.every((id, i) => id === b.breaks[i]);
+}
+
 /** The bundler preserves identified, numeric, direct visual leaves. No executable markup crosses the bridge. */
 export type VisualClipInsert = {
   owner: string;
@@ -47,7 +93,7 @@ export interface PreviewChange {
   styles?: [typeof PRESENTATION_STYLES[number], string, string][];
   /** A first canvas move captures the author's translate for Reset; undo removes the marker. */
   captureOriginalTranslate?: boolean;
-  text?: [string, string];
+  text?: [PreviewText, PreviewText];
   /** Remove the verified visual leaf directly owned by this composition. */
   removeFromComposition?: string;
   insert?: VisualClipInsert;
@@ -100,6 +146,26 @@ export function isPixelBoxChange(change: PreviewChange, cssLayoutOffset = false)
       return ["left", "top", "width", "height"].includes(name) &&
         [from, to].every(value => typeof value === "string" && (value === "" || /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value)));
     });
+}
+
+/** A pinned nested source can confirm a caption together with its intervening pixel placements. */
+export function isMountedCaptionBatch(changes: PreviewChange[], allowPosition: boolean, cssOffset: boolean): boolean {
+  return Array.isArray(changes) && changes.some(c => c?.text) && changes.every(c => {
+    if (!c || !Array.isArray(c.attributes) || c.attributes.length || c.insert || c.group || c.removeFromComposition ||
+        c.captureOriginalTranslate !== undefined) return false;
+    if (c.text && (!(PRESENTATION_TAGS as readonly string[]).includes(c.tag) || !Array.isArray(c.text) ||
+        c.text.length !== 2 || !validPreviewText(c.text[0]) || !validPreviewText(c.text[1]))) return false;
+    if (!c.styles) return !!c.text;
+    if (!Array.isArray(c.styles) || !c.styles.length) return false;
+    // A first move of a static box may also establish its relative position.
+    const geometry = { ...c, text: undefined };
+    if (isPixelBoxChange(geometry, cssOffset)) return true;
+    if (!allowPosition) return false;
+    const dimensions = c.styles.filter(([key]) => key === 'height' || key === 'width');
+    const move = c.styles.filter(([key]) => key !== 'height' && key !== 'width');
+    return isLivePositionEdit([{ ...geometry, styles: move }]) &&
+      (!dimensions.length || isPixelBoxChange({ ...geometry, styles: dimensions }));
+  });
 }
 
 /** These inline style changes leave the measured box, hierarchy and source coordinates intact. */

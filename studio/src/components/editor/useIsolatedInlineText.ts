@@ -6,7 +6,8 @@ import { SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwap";
 import { useLivePreviewIframe } from "../../player/store/previewIframeStore";
 import { useStudioShellContext } from "../../contexts/StudioContext";
 import { inlineTextBatches, isInlineTextTarget, type InlineTextTarget } from "./isolatedInlineTextPatch";
-import { beginStudioManualEditGesture, endStudioManualEditGesture, countStudioManualEditSave } from "./manualEditsDom";
+import { beginStudioManualEditGesture, endStudioManualEditGesture, countStudioManualEditSave, scopeStudioManualEditGesture } from "./manualEditsDom";
+import { trackStudioPendingEdit } from "../../utils/studioPendingEdits";
 
 interface TextSession {
   id: string;
@@ -56,7 +57,9 @@ export function useIsolatedInlineText(
       void countStudioManualEditSave(session.adapter.iframe, async () => {
         const batches = await inlineTextBatches(projectId, target, event.data.html, event.data.text);
         if (active.current !== session || !isCurrentFrame(session, preview.current)) return;
-        const result = await commitDomEditPatchBatches(batches, { label: "Edit text", coalesceKey: session.id });
+        const save = commitDomEditPatchBatches(batches, { label: "Edit text", coalesceKey: session.id });
+        trackStudioPendingEdit(save, { frame: session.adapter.iframe, paths: batches.map(batch => batch.sourceFile) });
+        const result = await save;
         close(session, result.durable);
       }).catch(error => {
         if (active.current !== session) return;
@@ -85,6 +88,7 @@ export function useIsolatedInlineText(
       }
       session.target = target;
       session.hold = beginStudioManualEditGesture(iframe, "edit");
+      scopeStudioManualEditGesture(iframe, session.hold, target.binding ? [target.sourceFile, target.binding.sourceFile] : [target.sourceFile]);
       setEditing(true);
       adapter.send("inline-text", { phase: "open", editId: session.id });
     } catch { close(session, false); }

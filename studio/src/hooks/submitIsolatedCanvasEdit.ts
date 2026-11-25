@@ -73,13 +73,15 @@ export async function submitIsolatedCanvasEdit(
   });
   const presentChanged = group?.state.changed || result.changedPaths.length > 0;
   if (frame && frame === frameRef.current && !result.divergent.length && result.changedPaths.length) {
-    const changes = result.changedPaths.map(file => {
+    const changes = result.changedPaths.flatMap(file => {
       const current = confirmedSource(project, file);
+      // The queue accepted this write, but a later local or peer revision owns its presentation.
+      if (current && current.version !== result.versions[file]) return [];
       // A first edit can resolve its displayed source while preparing the patch. Reuse those bytes to present its receipt.
       const previous = (path === file && group ? group.state.previous : bases.get(file)) ?? result.observedSources?.get(file);
-      return { path: file, previous, current: result.versions[file] === current?.version ? current : undefined };
+      return [{ path: file, previous, current }];
     });
-    scheduleCommittedPreview(frame, project, changes, refresh, { gestureId });
+    if (changes.length) scheduleCommittedPreview(frame, project, changes, refresh, { gestureId });
   }
   return { ...result, deferPresentation: !last, presentChanged: last && presentChanged };
 }

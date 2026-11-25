@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
-import { diffMountedPreview, diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, refreshPeerScenes, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
+import welcomeEditor from '../../../template-library/openmotion-welcome/compositions/editor.html?raw';
+import { applyCommittedPeerChanges, diffMountedPreview, diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, refreshPeerScenes, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
 
 const source = '<!doctype html><main data-composition-id="root" data-duration="15"><audio id="a" data-start="2" data-duration="3"></audio><script>window.run(1)</script></main>';
 
@@ -63,6 +64,30 @@ describe("peer timing classification", () => {
       expect(diffPreviewChanges(before, unsupported)).toBeNull();
     }
     expect(diffPreviewChanges('<script id="x">a()</script>', '<script id="x">b()</script>')).toBeNull();
+  });
+
+  it('diffs the actual Welcome caption and pending geometry without hiding other changes in its template', async () => {
+    const stamped = ensureHfIds(welcomeEditor);
+    const caption = /Editable source\.<br data-hf-id="(hf-[a-z0-9]+)">Endless possibilities\./;
+    const breakId = stamped.match(caption)?.[1];
+    expect(breakId).toBeTruthy();
+    const next = stamped.replace(caption, 'Receipt &amp; &lt;verified&gt;')
+      .replace('id="editor-picture"', 'id="editor-picture" style="position:relative;left:16px;top:-8px;width:1160px;height:650px"')
+      .replace('id="editor-name"', 'id="editor-name" style="position:relative;left:18px;top:5px"');
+    const caps = { mounted: true, position: true };
+    const changes = await diffMountedPreview(welcomeEditor, next, caps);
+    expect(changes?.map(c => c.id)).toEqual(['editor-name', 'editor-picture', 'editor-caption']);
+    expect(changes?.at(-1)?.text).toEqual([{ lines: ['Editable source.', 'Endless possibilities.'], breaks: [breakId] }, 'Receipt & <verified>']);
+    expect(diffPreviewChanges(next, stamped, caps)?.at(-1)?.text).toEqual([...changes!.at(-1)!.text!].reverse());
+    // Changed BR metadata, script, markup, CSS priority and unrelated source IDs require recovery.
+    for (const unsafe of [stamped.replace(breakId!, 'hf-zzzz'), stamped.replace('<br ', '<br class="styled" '),
+      next.replace('Receipt', '<em>Receipt</em>'), next.replace('16px', '16px !important'),
+      next.replace('WelcomeArt.ready.then', 'OtherArt.ready.then'), next.replace('id="editor-name"', 'id="other-name"')]) {
+      expect(diffPreviewChanges(stamped, unsafe, caps)).toBeNull();
+    }
+    for (const inserted of ['<br onclick="run()">', '<br style="display:none">', '<br id="meaningful">',
+      '<!--comment--><br>', '<br>'.repeat(65), 'x'.repeat(4097)])
+      expect(diffPreviewChanges(next, next.replace('Receipt &amp; &lt;verified&gt;', inserted), caps)).toBeNull();
   });
 
   it("recognizes only the exact IDs mounted by the preview bundler on the first nested edit", async () => {
@@ -211,6 +236,71 @@ it("derives every changed element in a large source without changing the rest of
   expect(diffPreviewChanges(original, next + '<script>boot()</script>')).toBeNull();
 });
 
+describe("committed peer paint outcomes", () => {
+  const path = "scene.html";
+  const update = { path, previous: { content: '<p id="title">First</p>', version: "v1" },
+    current: { content: '<p id="title">Second</p>', version: "v2" } };
+
+  function player(onRequest: (type: string, reply: (result: unknown, ok?: boolean) => void) => void) {
+    const frame = document.createElement("iframe");
+    const origin = "https://preview.test";
+    frame.src = origin + "/api/projects/p/preview?pt=active";
+    const requests: string[] = [];
+    const postMessage = (message: { type: string; documentId: string; path: string }) => {
+      requests.push(message.type);
+      expect(message).toMatchObject({ documentId: "document", path });
+      onRequest(message.type, (result, ok = true) => {
+        window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, origin,
+          data: { ...message, source: "openmotion-preview-bridge", type: "response", result, ok } }));
+      });
+    };
+    Object.defineProperty(frame, "contentWindow", { value: { postMessage } });
+    rememberPeerTimingDocument(frame, "active", "document", undefined, {}, false, { [path]: "v1" });
+    return { frame, requests };
+  }
+
+  it.each([
+    ["v2", "applied"], ["v1", "requires-scene-rebuild"], [null, "unconfirmed"],
+  ] as const)("checks the mounted version once after a lost ACK (%s → %s)", async (version, outcome) => {
+    const { frame, requests } = player((type, reply) => { if (type === "mounted-file-version") reply(version); });
+    expect(await applyCommittedPeerChanges(frame, update, () => true)).toBe(outcome);
+    expect(requests).toEqual(["peer-presentation", "mounted-file-version"]);
+    expect(mountedPeerFileVersion(frame, path)).toBe(version === "v2" ? "v2" : "v1");
+  });
+
+  it("does not treat a failed version probe as a refusal", async () => {
+    const { frame, requests } = player((_, reply) => reply(undefined, false));
+    expect(await applyCommittedPeerChanges(frame, update, () => true)).toBe("unconfirmed");
+    expect(requests).toEqual(["peer-presentation", "mounted-file-version"]);
+  });
+
+  it("allows recovery for an unsupported change or an explicit player refusal", async () => {
+    const { frame, requests } = player((_, reply) => reply(false));
+    const scripted = { ...update, current: { ...update.current, content: "<script>restart()</script>" } };
+    expect(await applyCommittedPeerChanges(frame, scripted, () => true)).toBe("requires-scene-rebuild");
+    expect(requests).toEqual([]);
+    expect(await applyCommittedPeerChanges(frame, update, () => true)).toBe("requires-scene-rebuild");
+    expect(requests).toEqual(["peer-presentation"]);
+  });
+
+  it("does not authorize recovery for an obsolete paint even when the probe finds its old base", async () => {
+    let current = true;
+    const { frame } = player((type, reply) => {
+      if (type === "peer-presentation") reply(undefined, false);
+      else { current = false; reply("v1"); }
+    });
+    expect(await applyCommittedPeerChanges(frame, update, () => current)).toBe("superseded");
+  });
+
+  it("does not paint or recover a replacement document after the source diff", async () => {
+    const { frame, requests } = player((_, reply) => reply(true));
+    const pending = applyCommittedPeerChanges(frame, update, () => true);
+    rememberPeerTimingDocument(frame, "active", "replacement");
+    expect(await pending).toBe("superseded");
+    expect(requests).toEqual([]);
+  });
+});
+
 it.each(["patch", "scene swap"])("records a superseded %s without letting a late reply overwrite the mounted version", async kind => {
   const frame = document.createElement("iframe");
   frame.src = "https://preview.test/api/projects/p/preview?pt=active";
@@ -222,7 +312,7 @@ it.each(["patch", "scene swap"])("records a superseded %s without letting a late
   let current = true;
   const send = (from: string, to: string) => kind === "scene swap"
     ? refreshPeerScenes(frame, [[path, to]], () => current)
-    : tryApplyPeerChanges(frame, { path, previous: file(from), current: file(to) }, () => current);
+    : applyCommittedPeerChanges(frame, { path, previous: file(from), current: file(to) }, () => current);
   const ack = (index: number) => {
     const sent = child.postMessage.mock.calls[index]![0];
     window.dispatchEvent(new MessageEvent("message", {source: child as unknown as Window,
@@ -232,14 +322,15 @@ it.each(["patch", "scene swap"])("records a superseded %s without letting a late
   await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(1));
   current = false;
   ack(0);
-  expect(await first).toBe(false);
+  expect(await first).toBe(kind === "scene swap" ? false : "superseded");
   expect(mountedPeerFileVersion(frame, path)).toBe("v2");
   current = true;
   const second = send("v2", "v3"), third = send("v3", "v4");
   await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(3));
   ack(2);
-  expect(await third).toBe(true);
+  expect(await third).toBe(kind === "scene swap" ? true : "applied");
   ack(1);
-  await second;
+  const older = await second;
+  if (kind === "patch") expect(older).toBe("superseded");
   expect(mountedPeerFileVersion(frame, path)).toBe("v4");
 });

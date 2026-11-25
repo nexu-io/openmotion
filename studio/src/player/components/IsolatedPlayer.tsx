@@ -166,7 +166,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         }
         if (event.data.type === "preview-ready") {
           if (!receivedHtmlSources) {
-            rememberPreviewHtmlSources(iframe!, event.data.projectId, event.data.htmlSources);
+            rememberPreviewHtmlSources(iframe!, event.data.projectId, event.data.htmlSources, event.data.independentSceneFiles);
             receivedHtmlSources = true;
           }
           rememberPeerTimingDocument(iframe!, bridge.token, event.data.timingDocumentId, event.data.styleDocumentId, event.data.liveEdits,

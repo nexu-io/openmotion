@@ -67,6 +67,25 @@ it("reuses the source read by a cold canvas edit when presenting its receipt", a
   }
 });
 
+it("keeps a newer confirmed peer revision when the canvas write response arrives late", async () => {
+  const project = "peer-before-canvas-receipt";
+  const server = delayedCloud(project, '<div id="picture"></div>');
+  const frame = document.createElement("iframe");
+  const present = vi.spyOn(committedPreview, "scheduleCommittedPreview").mockImplementation(() => {});
+  try {
+    const save = submitIsolatedCanvasEdit(project, [{ kind: "moveCanvasElement", compositionPath: path,
+      target: { id: "picture" }, delta: { x: 12, y: 0 } }], { [path]: "v0" }, undefined, { current: frame }, () => {});
+    await vi.waitFor(() => expect(server.operations).toHaveLength(1));
+    rememberSource(project, path, { content: '<div id="picture">Peer edit</div>', version: "peer" });
+    server.release();
+    expect((await save).changedPaths).toEqual([path]);
+    expect(present).not.toHaveBeenCalled();
+  } finally {
+    server.release();
+    present.mockRestore();
+  }
+});
+
 it("adds a target id with its tween and projects another animation before the first response", async () => {
   const project = "ordered-gsap-burst";
   const markup =

@@ -65,11 +65,36 @@ export function beginStudioManualEditGesture(
 }
 
 const GESTURE_ENDED = "hf-manual-edit-gesture-ended";
+const GESTURE_SCOPED = "hf-manual-edit-gesture-scoped";
+const gestureFiles = new WeakMap<HTMLElement, { token: string; paths: readonly string[] }>();
+
+/** Pointer-down is unscoped until the mounted document identifies the picked source. */
+export function scopeStudioManualEditGesture(element: HTMLElement, token: string, paths: readonly string[]) {
+  if (!isStudioManualEditGestureCurrent(element, token)) return;
+  gestureFiles.set(element, { token, paths });
+  const doc = element.ownerDocument;
+  doc.dispatchEvent(new (doc.defaultView?.Event ?? Event)(GESTURE_SCOPED));
+}
+
+export function studioManualEditGestureFiles(element: HTMLElement) {
+  const scope = gestureFiles.get(element);
+  return scope && isStudioManualEditGestureCurrent(element, scope.token) ? scope.paths : undefined;
+}
+
+export function subscribeStudioGestureRelease(doc: Document, listener: () => void) {
+  doc.addEventListener(GESTURE_ENDED, listener);
+  doc.addEventListener(GESTURE_SCOPED, listener);
+  return () => {
+    doc.removeEventListener(GESTURE_ENDED, listener);
+    doc.removeEventListener(GESTURE_SCOPED, listener);
+  };
+}
 
 export function endStudioManualEditGesture(element: HTMLElement, token?: string): void {
   if (token && element.getAttribute(STUDIO_MANUAL_EDIT_GESTURE_ATTR) !== token) return;
   if (!element.hasAttribute(STUDIO_MANUAL_EDIT_GESTURE_ATTR)) return;
   element.removeAttribute(STUDIO_MANUAL_EDIT_GESTURE_ATTR);
+  gestureFiles.delete(element);
   element.removeAttribute(STUDIO_EDIT_MOMENT_ATTR);
   const doc = element.ownerDocument;
   doc.dispatchEvent(new (doc.defaultView?.Event ?? Event)(GESTURE_ENDED));

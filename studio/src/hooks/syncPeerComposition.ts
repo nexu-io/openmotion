@@ -27,7 +27,29 @@ type VersionedFiles = {
   versions: Readonly<Record<string, string | null>> | null;
   treeChanged: boolean;
   refresh: (paths: readonly string[]) => void;
+  alreadyQueued?: (path: string, version: string | null) => boolean;
 };
+
+export function queuePeerPreviewFiles(
+  frame: HTMLIFrameElement, projectId: string, files: readonly string[], versions: NonNullable<VersionedFiles["versions"]>,
+  read: RemoteFileRead, refresh: VersionedFiles["refresh"], activePath?: string | null, activeSource?: KnownCompositionSource | null, treeChanged = false,
+) {
+  scheduleCommittedPreview(frame, projectId, files.map(file => {
+    const known = confirmedSource(projectId, file) ?? (file === activePath ? activeSource ?? undefined : undefined);
+    const version = versions[file] ?? undefined;
+    const pinned = mountedPeerFileVersion(frame, file);
+    const before = !pinned || known?.version === pinned ? known : undefined;
+    return {
+      path: file, previous: before, version, treeChanged,
+      readPrevious: !before && pinned ? async () => await readMountedSource(projectId, pinned) ?? undefined : undefined,
+      read: async () => {
+        const result = await read(projectId, file);
+        return version && result?.version === version && typeof result.content === "string"
+          ? { content: result.content, version } : undefined;
+      },
+    };
+  }), refresh);
+}
 
 /** Project timeline rows immediately while the mounted preview reconciles the changed files. */
 export function syncPeerComposition(
@@ -40,23 +62,8 @@ export function syncPeerComposition(
   const versions = batch?.versions;
   if (frame && !frame.contentDocument && batch && versions && paths?.length &&
       paths.every(file => /\.html?$/i.test(file) && Object.hasOwn(versions, file))) {
-    const affected = paths.filter(file => !isUnrelatedPreviewHtmlChange(frame, projectId, path, [file], batch.treeChanged));
-    const changes = affected.map(file => {
-      const known = confirmedSource(projectId, file) ?? (file === path ? previous ?? undefined : undefined);
-      const version = versions[file] ?? undefined;
-      const pinned = mountedPeerFileVersion(frame, file);
-      const before = !pinned || known?.version === pinned ? known : undefined;
-      return {
-        path: file, previous: before, version,
-        readPrevious: !before && pinned ? async () => await readMountedSource(projectId, pinned) ?? undefined : undefined,
-        read: async () => {
-          const result = await read(projectId, file);
-          return version && result?.version === version && typeof result.content === "string"
-            ? { content: result.content, version } : undefined;
-        },
-      };
-    });
-    scheduleCommittedPreview(frame, projectId, changes, batch.refresh);
+    const affected = paths.filter(file => !batch.alreadyQueued?.(file, versions[file] ?? null) && !isUnrelatedPreviewHtmlChange(frame, projectId, path, [file], batch.treeChanged));
+    queuePeerPreviewFiles(frame, projectId, affected, versions, read, batch.refresh, path, previous, batch.treeChanged);
     syncMountedComposition(projectId, path, paths, read, frameRef, previous, true);
     return Promise.resolve(true);
   }

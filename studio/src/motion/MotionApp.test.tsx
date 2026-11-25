@@ -8,6 +8,7 @@ import { resolveWorkspaceProject } from './resolveWorkspaceRoute';
 import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { I18nProvider, translate } from '../i18n/I18n';
 import { trackMotion } from './tracking';
+import { subscribeEntitlementModal } from './entitlementModalBus';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
 
 vi.mock('./MotionProjectEditor', () => ({ preloadMotionProjectEditor: vi.fn() }));
@@ -18,6 +19,69 @@ const id = '11111111-1111-1111-1111-111111111111';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeAll(() => preloadAllWorkspacePages());
 afterEach(() => { vi.unstubAllGlobals(); vi.mocked(preloadMotionProjectEditor).mockClear(); });
+it.each(['/templates', '/?templates=1&embed=1'])('lets a guest open and navigate public templates at %s without an editor failure', async path => {
+  history.replaceState(null, '', path);
+  const items = ['first', 'second'].map(id => ({ id, title: id, kind: 'builtin', tags: [], author: 'OpenMotion', hasHtmlProject: true }));
+  const writes: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') writes.push(url);
+    if (url.includes('/template-catalog')) return Response.json({ items, total: items.length, next: null, catalogVersion: 'guest' });
+    return Response.json({ error: 'Sign in required' }, { status: 401 });
+  }));
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-template-id="first"] button')!.click());
+    expect(host.querySelector('dialog[open] h2.om-media-detail-title')?.textContent).toBe('first');
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Next template"]')!.click());
+    expect(host.querySelector('dialog[open] h2.om-media-detail-title')?.textContent).toBe('second');
+    if (path === '/templates') expect(location.pathname).toBe('/templates');
+    expect(host.querySelector('.om-recovery-screen, [role="alert"]')).toBeNull();
+    expect(writes.filter(url => /\/preview\/open|\/sessions|\/artifacts/.test(url))).toEqual([]);
+  } finally {
+    act(() => root.unmount()); host.remove(); sessionStorage.clear(); history.replaceState(null, '', '/');
+  }
+});
+
+it.each([
+  ['/create/text-to-image', 'GPT Image', 'Quality'],
+  ['/create/text-to-video', 'Seedance', 'Resolution'],
+  ['/audio/music', 'Eleven Music', 'Duration'],
+  ['/audio/speech', 'Eleven v3', 'Voice'],
+])('shows a public model preview and sign-in action at %s', async (path, model, parameter) => {
+  history.replaceState(null, '', path);
+  const requests: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    requests.push(`${init?.method ?? 'GET'} ${url}`);
+    return Response.json({ error: 'Sign in required' }, { status: 401 });
+  }));
+  const modal = vi.fn();
+  const unsubscribe = subscribeEntitlementModal(modal);
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    const cta = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+    expect(cta).toBeTruthy();
+    expect(cta.disabled).toBe(false);
+    expect(container.textContent).toContain(model);
+    expect(container.textContent).toContain(parameter);
+    expect(container.textContent).not.toContain('Retry loading models');
+    await act(async () => cta.click());
+    expect(modal).toHaveBeenCalledWith({ mode: 'guest', hookId: 'studio_generate' });
+    if (path.startsWith('/audio/')) {
+      expect(container.querySelector('.om-assets-guest-empty')).not.toBeNull();
+      expect(container.querySelector('.om-sound-track-skeleton')).toBeNull();
+      await act(async () => container.querySelector<HTMLButtonElement>('.om-sound-toolbar-actions button')!.click());
+      expect(modal).toHaveBeenCalledWith({ mode: 'guest', hookId: 'assets_empty' });
+    }
+    expect(requests.some(request => request.includes('POST') && request.includes('/generate'))).toBe(false);
+  } finally {
+    act(() => root.unmount()); unsubscribe(); container.remove(); sessionStorage.clear(); history.replaceState(null, '', '/');
+  }
+});
+
 it.each([false, true])('prepares only existing projects while browsing, and creates only the selected template (existing=%s)', async existing => {
   history.replaceState(null, '', '/?templates=1&embed=1');
   sessionStorage.clear();
