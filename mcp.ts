@@ -124,7 +124,7 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
       embedded: message.params.arguments.embedded !== false,
     }, undefined, undefined, host);
   }
-  if (name === 'motion_media_use' && value && !value.isError && args?.action === 'inspect' && content?._upgradeLinkResult) {
+  if (name === 'motion_media_use' && value && !value.isError && ['inspect', 'wait_sign_in', 'open_upgrade'].includes(args?.action) && content?._upgradeLinkResult) {
     const { _upgradeLinkResult, ...visible } = content;
     tracking.track('upgrade_link_result', _upgradeLinkResult, undefined, undefined, host);
     value.structuredContent = visible;

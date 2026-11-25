@@ -249,15 +249,16 @@ it.each(['en', 'zh-CN'] as const)('copies the complete media onboarding flow in 
   const card = [...document.querySelectorAll('article')].find(node => node.querySelector('h3')?.textContent === (locale === 'en' ? 'Generate images, video, music and voice' : '生成图片、视频、音乐与配音'))!;
   await act(async () => card.querySelector('button')!.click());
   const instruction = copy.mock.calls[0][0];
-  for (const entry of ['agent_media_upgrade_go', 'agent_media_upgrade_free', 'agent_media_signed_out', 'agent_media_key_rejected']) {
+  for (const entry of ['agent_media_upgrade_go', 'agent_media_upgrade_free', 'agent_media_key_rejected']) {
     expect(instruction).toContain('entry=' + entry);
   }
   expect(instruction).toContain('target=providers');
-  expect(instruction).toContain(locale === 'en' ? 'Upgrade to Plus directly on the opened OpenDesign page' : '直接在已打开的模型供应商 → OpenDesign 页面点击「升级到 Plus」');
+  for (const action of ['action=sign_in', 'action=wait_sign_in', 'action=open_upgrade', 'authorizationUrl', 'userCode']) expect(instruction).toContain(action);
+  expect(instruction).toContain(locale === 'en' ? 'Do not ask me to confirm sign-in or payment in chat' : '不要让我在对话里确认登录或付款');
   expect(instruction).not.toContain('install.md');
   expect(instruction).not.toContain('quick-start');
-  expect(instruction).toContain(locale === 'en' ? 'inspect again' : '再次检查配置');
-  expect(instruction).toContain(locale === 'en' ? 'original request' : '原来的需求');
+  expect(instruction).toContain(locale === 'en' ? 'inspect again' : '再次 inspect');
+  expect(instruction).toContain(locale === 'en' ? 'original request' : '原始请求');
   expect(document.querySelector('.motion-feedback-layer [role=status]')?.textContent).toContain(locale === 'en' ? 'Copied to clipboard' : '已复制');
 });
 

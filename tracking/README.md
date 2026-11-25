@@ -295,6 +295,17 @@ payment records can be joined to the OpenMotion entry. This measures link
 generation, not a click or payment; URLs and account information are never event
 fields.
 
+Agent browser checkout (`action=wait_sign_in` or `action=open_upgrade`) reuses
+`upgrade_link_result` with `entry_from=agent_sign_in_upgrade` and
+`browser_opened=true|false`. Automatic checkout emits once when the browser-open
+attempt is reserved (at most once per account per 30 minutes); explicit
+`open_upgrade` emits on every attempt. `outcome` records safe fallback-link
+creation, while `browser_opened` records launch success. Polling and payment
+checks alone do not emit another event. These events remain stdio MCP-only;
+`_upgradeLinkResult` is removed from the Agent-visible MCP result. URLs, login
+intents and account identifiers are never reported. `account_sign_in_result`
+uses the existing `hook_id=mcp_oauth` for Agent-initiated sign-in.
+
 Agent upgrade links contain no one-time sign-in credentials: they skip account
 intents and point directly to the console dashboard, which requests browser
 sign-in when needed.

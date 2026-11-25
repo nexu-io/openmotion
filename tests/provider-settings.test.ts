@@ -1007,8 +1007,8 @@ test('media setup discovery rechecks saved and removed keys without executing a 
   gateway.options.fetcher = async () => { throw new Error('Setup must not call a paid model'); };
   const inspect = () => mediaUse(store, { action: 'inspect' });
   const before = await inspect();
-  assert.deepEqual(before.settingsHandoff, { tool: 'openmotion_open_preview', arguments: { target: 'providers', entry: 'agent_media_signed_out' } });
-  assert.match(before.settings, /Model providers > OpenDesign to sign in or upgrade to Plus/);
+  assert.deepEqual(before.settingsHandoff, { tool: 'openmotion_media_use', arguments: { action: 'sign_in' } });
+  assert.match(before.settings, /sign_in then wait_sign_in.*Settings > Model providers > OpenDesign remains a fallback/);
   assert.equal(before.providers.some(provider => provider.available), false);
   await gateway.configureProvider('atlascloud', { apiKey: 'synthetic-onboarding-key' });
   const saved = await inspect();
@@ -1085,7 +1085,7 @@ test('media inspection refreshes advisory billing without disabling account mode
   await gateway.configureProvider('atlascloud', { apiKey: null });
   await writeFile(path.join(account.home, 'fixture-mode'), 'billing-401');
   const expired = await inspect();
-  assert.deepEqual(expired.settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_signed_out' });
+  assert.deepEqual(expired.settingsHandoff, { tool: 'openmotion_media_use', arguments: { action: 'sign_in' } });
   const rejected = expired.providers.find(p => p.id === 'account')!;
   assert.equal(rejected.available, false); assert.equal(Object.hasOwn(rejected, 'mediaEntitlement'), false);
   assert.equal((await account.summary()).state, 'reauth-required');

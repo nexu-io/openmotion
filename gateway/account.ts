@@ -29,7 +29,7 @@ export function systemBrowserCommand(url: string, platform: string) {
   if (platform === 'win32') return { command: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url] };
   return { command: 'xdg-open', args: [url] };
 }
-async function openSystemBrowser(url: string) {
+export async function openSystemBrowser(url: string) {
   const { command, args } = systemBrowserCommand(url, process.platform);
   await execute(command, args, { timeout: 10_000, windowsHide: true });
 }
