@@ -43,6 +43,9 @@ export async function motionApi<T>(path: string, init?: MotionApiRequestInit, pr
   } catch {
     // Non-JSON error body.
   }
+  if (fetchInit.signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
   if (!response.ok) {
     if (response.status === 401) clearPrivateSwrCache();
     const message = typeof data.error === 'string' ? data.error : 'Workspace connection failed';
@@ -288,6 +291,8 @@ export function useWorkspace(
       setAuthRequired(false);
       setCatalogLoaded(false);
       setCatalogVerified(false);
+      setStatusRead(previous => previous.error ? { ...previous, error: '' } : previous);
+      setCatalogRead(previous => previous.error ? { ...previous, error: '' } : previous);
       setAccountEpoch(value => value + 1);
     };
     window.addEventListener('motion:account-changed', handleAccountChanged);

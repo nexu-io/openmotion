@@ -2,10 +2,11 @@
 import { StrictMode, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { invalidateGatewayCache, loadGateway, type Model } from './gatewayClient';
+import { invalidateGatewayCache, loadGateway, setGatewayCacheEnabledForTest, type Model } from './gatewayClient';
 import { useMediaCatalog } from './useMediaCatalog';
 import { guestMediaCatalog } from './guestMediaCatalog';
-import { resetAccountSummaryCacheForTest, useAccountSummary } from './AccountSettings';
+import { publishSignedOutAccountSummary, resetAccountSummaryCacheForTest, useAccountSummary } from './AccountSettings';
+import { useProviderDirectory } from './useProviderDirectory';
 import { clearPrivateSwrCache, getPrivateSwrIdentity, setPrivateSwrIdentity } from './swrCache';
 import { WorkspaceChromeContext, type WorkspaceChrome } from './WorkspaceChromeContext';
 
@@ -289,6 +290,76 @@ describe('useMediaCatalog guest and auth-resolving behavior', () => {
     });
     expect(latest?.catalog?.models).toEqual([modelB]);
   });
+
+  it('invalidates the 5-second loadGateway TTL cache on motion:account-changed and clears useProviderDirectory synchronously', async () => {
+    setGatewayCacheEnabledForTest(true);
+    try {
+      const modelA: Model = { ...liveModel, id: 'opendesign:ttl-a', modelId: 'ttl-a', label: 'TTL A' };
+      const modelB: Model = { ...liveModel, id: 'opendesign:ttl-b', modelId: 'ttl-b', label: 'TTL B' };
+      let workspace: 'A' | 'B' = 'A';
+      const fetcher = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.endsWith('/models/status')) {
+          return Response.json({
+            providers: [{ id: 'opendesign', label: 'OpenDesign', protocol: 'account', category: 'account', kinds: ['image'], configured: true, enabled: true, available: true, plan: workspace === 'A' ? 'pro' : 'free' }],
+            agents: [],
+            routes: {},
+            capabilities: [],
+          });
+        }
+        return Response.json({ models: [workspace === 'A' ? modelA : modelB], mode: 'opendesign', defaults: {} });
+      });
+      vi.stubGlobal('fetch', fetcher);
+
+      const first = await loadGateway();
+      expect(first.models).toEqual([modelA]);
+      // Within 5s TTL, repeated call serves cached result without fetching.
+      const cached = await loadGateway();
+      expect(cached.models).toEqual([modelA]);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+
+      // Account change invalidates the 5s TTL cache so the next call fetches Workspace B.
+      workspace = 'B';
+      window.dispatchEvent(new Event('motion:account-changed'));
+      const second = await loadGateway();
+      expect(second.models).toEqual([modelB]);
+      expect(fetcher).toHaveBeenCalledTimes(4);
+
+      // Verify useProviderDirectory clears prior workspace data immediately and discards stale responses.
+      const pendingB = Promise.withResolvers<Response>();
+      let dirCalls = 0;
+      vi.stubGlobal('fetch', vi.fn((input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.endsWith('/models/status')) {
+          return Promise.resolve(Response.json({ providers: [{ id: 'opendesign', plan: dirCalls === 1 ? 'pro' : 'free' }], agents: [], routes: {}, capabilities: [] }));
+        }
+        dirCalls++;
+        if (dirCalls === 1) return Promise.resolve(Response.json({ models: [modelA], mode: 'opendesign', defaults: { image: modelA.id } }));
+        return pendingB.promise;
+      }));
+
+      let dirState: ReturnType<typeof useProviderDirectory> | undefined;
+      function DirectoryProbe() {
+        dirState = useProviderDirectory();
+        return null;
+      }
+      await act(async () => { root.render(<DirectoryProbe />); });
+      expect(dirState?.data?.billing?.plan).toBe('pro');
+
+      // Account change clears Workspace A's data immediately while Workspace B is still pending.
+      await act(async () => { window.dispatchEvent(new Event('motion:account-changed')); });
+      expect(dirState?.data).toBeNull();
+
+      await act(async () => {
+        pendingB.resolve(Response.json({ models: [modelB], mode: 'opendesign', defaults: { image: modelB.id } }));
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(dirState?.data?.billing?.plan).toBe('free');
+    } finally {
+      setGatewayCacheEnabledForTest(null);
+      invalidateGatewayCache();
+    }
+  });
 });
 
 describe('useAccountSummary in-flight deduplication', () => {
@@ -397,6 +468,17 @@ describe('useAccountSummary in-flight deduplication', () => {
     });
     expect(firstState?.account?.activeWorkspace?.id).toBe('ws-b');
     expect(getPrivateSwrIdentity()).toBe('u1:ws-b');
+
+    // Header logout publishes signed-out immediately so a 503 on post-logout summary refresh never leaves ws-b visible.
+    fetcher.mockImplementationOnce(async () => Response.json({ error: 'Service unavailable' }, { status: 503 }));
+    await act(async () => {
+      clearPrivateSwrCache();
+      publishSignedOutAccountSummary();
+      window.dispatchEvent(new Event('motion:account-changed'));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(firstState?.account?.state).toBe('signed-out');
+    expect(firstState?.account?.activeWorkspace).toBeUndefined();
     resetAccountSummaryCacheForTest();
     clearPrivateSwrCache();
   });

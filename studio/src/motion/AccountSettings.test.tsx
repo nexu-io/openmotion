@@ -155,6 +155,49 @@ it('switches once through the workspace dropdown and updates the active workspac
   expect(document.querySelector('.hf-toast-viewport [role="status"]')?.textContent).toBe('Workspace switched');
 });
 
+it('invalidates workspace and gateway consumers immediately on switch success while billing refresh is still pending', async () => {
+  const page = await open(cookieAccount);
+  const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  const [target] = await workspaceOptions(trigger);
+
+  const switchResponse = Promise.withResolvers<Record<string, unknown>>();
+  const billingResponse = Promise.withResolvers<Record<string, unknown>>();
+  const originalImpl = hooks.request.getMockImplementation()!;
+  hooks.request.mockImplementation((path: string, method = 'GET', body?: Record<string, unknown>) => {
+    if (path === 'account/workspaces/switch') return switchResponse.promise;
+    if (path === 'account/summary?refresh=true') return billingResponse.promise;
+    return originalImpl(path, method, body);
+  });
+
+  let accountEvents = 0;
+  const onAccountChanged = () => { accountEvents++; };
+  window.addEventListener('motion:account-changed', onAccountChanged);
+  try {
+    await act(async () => { target.click(); });
+    expect(accountEvents).toBe(0);
+    expect(getPrivateSwrIdentity()).toBe('u1:ws-1');
+
+    // Switch succeeds while billing refresh stays pending: SWR identity and motion:account-changed
+    // must fire immediately BEFORE billing resolves so workspace-A reads are aborted at once.
+    await act(async () => {
+      switchResponse.resolve({ ok: true });
+      await Promise.resolve();
+    });
+    expect(accountEvents).toBe(1);
+    expect(getPrivateSwrIdentity()).toBe('u1:ws-2');
+
+    // Completing the billing refresh must update Studio B without firing a redundant reload.
+    await act(async () => {
+      billingResponse.resolve({ consoleUrl: 'https://open-design.ai/cloud', ...cookieAccount, activeWorkspace: studioB });
+      await Promise.resolve();
+    });
+    expect(accountEvents).toBe(1);
+    expect(trigger.textContent).toBe('Studio B');
+  } finally {
+    window.removeEventListener('motion:account-changed', onAccountChanged);
+  }
+});
+
 it('keeps the current workspace and enables another choice after a rejected switch', async () => {
   const page = await open(cookieAccount);
   const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;

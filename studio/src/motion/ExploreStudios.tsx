@@ -418,8 +418,10 @@ function ExploreCollection({ community, root, firstPages, blackFridayHero, ...pr
   const medium = community ? null : filters.medium;
   const home = !community && !medium;
   const showModelStories = !community && medium !== 'audio';
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [modelCatalogRequested, setModelCatalogRequested] = useState(() => typeof IntersectionObserver === 'undefined');
-  const requestModelCatalog = () => { if (active) setModelCatalogRequested(true); };
+  const requestModelCatalog = () => { if (activeRef.current) setModelCatalogRequested(true); };
   const seedanceSectionRef = useRef<HTMLElement>(null);
   const gptImageSectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -432,7 +434,7 @@ function ExploreCollection({ community, root, firstPages, blackFridayHero, ...pr
     if (!targets.length) return;
     let disposed = false;
     const observer = new IntersectionObserver(entries => {
-      if (disposed || !entries.some(entry => entry.isIntersecting)) return;
+      if (disposed || !activeRef.current || !entries.some(entry => entry.isIntersecting)) return;
       disposed = true;
       observer.disconnect();
       setModelCatalogRequested(true);

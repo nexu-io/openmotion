@@ -3,9 +3,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { observeStudioSavedAt } from '../utils/studioSaveState';
-import { useWorkspace } from './useWorkspace';
+import { motionApi, useWorkspace } from './useWorkspace';
 import { notifyProjectActivity } from './workspaceRefresh';
-import { clearPrivateSwrCache, readSwrCache, setPrivateSwrIdentity, setSwrCacheEnabledForTests, writeSwrCache } from './swrCache';
+import { clearPrivateSwrCache, getPrivateSwrIdentity, readSwrCache, setPrivateSwrIdentity, setSwrCacheEnabledForTests, writeSwrCache } from './swrCache';
 import { I18nProvider, useI18n } from '../i18n/I18n';
 import { languages, translate } from '../i18n/messages';
 
@@ -682,6 +682,51 @@ it('discards stale workspace-A /projects responses across identity change and se
       window.dispatchEvent(new Event('motion:account-changed'));
     });
     expect(workspace.status).toBeNull();
+  } finally {
+    clearPrivateSwrCache();
+    setSwrCacheEnabledForTests(null);
+  }
+});
+
+it('does not wipe new-workspace SWR identity on an aborted 401 response and clears stale connectionError on identity change', async () => {
+  setSwrCacheEnabledForTests(true);
+  try {
+    clearPrivateSwrCache();
+    setPrivateSwrIdentity({ userId: 'u1', workspaceId: 'ws-b' });
+    const controller = new AbortController();
+    const pendingJson = Promise.withResolvers<Record<string, unknown>>();
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: () => pendingJson.promise,
+    } as unknown as Response)));
+
+    const req = motionApi('/projects', { signal: controller.signal });
+    await Promise.resolve();
+    controller.abort();
+    pendingJson.reject(new DOMException('Aborted', 'AbortError'));
+    await expect(req).rejects.toMatchObject({ name: 'AbortError' });
+    expect(getPrivateSwrIdentity()).toBe('u1:ws-b');
+
+    // Stale connectionError from Workspace A clears immediately when motion:account-changed fires.
+    let fail = true;
+    const pendingB = Promise.withResolvers<Response>();
+    vi.stubGlobal('fetch', vi.fn(() => (fail ? Promise.reject(new Error('Network down')) : pendingB.promise)));
+    function Harness() {
+      workspace = useWorkspace(async () => {}, undefined, undefined, undefined, {
+        allowUnscopedStatusFallback: true,
+        deferUnscopedStatusUntilCatalog: true,
+      });
+      return null;
+    }
+    await act(async () => root.render(<Harness />));
+    expect(workspace.connectionError).toContain('Network down');
+
+    fail = false;
+    await act(async () => {
+      window.dispatchEvent(new Event('motion:account-changed'));
+    });
+    expect(workspace.connectionError).toBe('');
   } finally {
     clearPrivateSwrCache();
     setSwrCacheEnabledForTests(null);

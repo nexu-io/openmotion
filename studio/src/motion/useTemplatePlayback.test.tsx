@@ -265,6 +265,36 @@ describe('useTemplatePlaybackPool (bounded LRU warm-pause pool)', () => {
     expect(hoverVideo.hasAttribute('src')).toBe(false);
   });
 
+  it('routes AssetHoverVideo warm-resume 15s stall timeouts through the single retry before failing permanently', async () => {
+    vi.useFakeTimers();
+    try {
+      let autoPlaySucceeds = true;
+      vi.mocked(HTMLMediaElement.prototype.play).mockImplementation(async function (this: HTMLMediaElement) {
+        if (autoPlaySucceeds) this.dispatchEvent(new Event('playing'));
+      });
+
+      await act(async () => root.render(<AssetHoverVideo src="/stall.mp4" active />));
+      const hoverVideo = host.querySelector<HTMLVideoElement>('video.om-asset-hover-video')!;
+      expect(hoverVideo.getAttribute('src')).toBe('/stall.mp4');
+
+      // Warm pause, then resume with a stalled stream that never fires playing or error.
+      await act(async () => root.render(<AssetHoverVideo src="/stall.mp4" active={false} />));
+      autoPlaySucceeds = false;
+      await act(async () => root.render(<AssetHoverVideo src="/stall.mp4" active />));
+
+      // First 15s timeout spends the single retry (reloads src and retries play).
+      await act(async () => { vi.advanceTimersByTime(15_000); });
+      expect(hoverVideo.getAttribute('src')).toBe('/stall.mp4');
+      expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(3);
+
+      // Second 15s timeout after retry is spent fails permanently and releases src.
+      await act(async () => { vi.advanceTimersByTime(15_000); });
+      expect(hoverVideo.hasAttribute('src')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('releases SkillMedia video src immediately when onError detaches the video while retained, and recovers from warm-pause errors', async () => {
     const skill = {
       id: 'skill-1',

@@ -174,6 +174,7 @@ export function RouteViewport({
     />
   );
 
+  const exploreSlotActive = page.explore && !templatesPage;
   // A single always-mounted Suspense boundary lets React's startTransition keep
   // the currently visible route painted while the next lazy chunk resolves,
   // avoiding blank flashes or skeleton flickers on in-app navigation.
@@ -181,7 +182,7 @@ export function RouteViewport({
     <Suspense fallback={<RouteLoadingFallback />}>
       <KeepAliveSlot
         routeId="explore"
-        active={page.explore && !templatesPage}
+        active={exploreSlotActive}
         visited={keepAliveVisited}
         className="om-explore-host"
       >
@@ -217,7 +218,7 @@ export function RouteViewport({
             onOpenScenarioHub={workflowsEnabled ? () => openScenarioHub(true) : undefined}
             filters={lastExplore}
             onChooseStudio={studio => chooseStudio(studio, undefined, true)}
-            active={page.explore && !connectionsOpen}
+            active={exploreSlotActive && !connectionsOpen}
             onNavigate={openStudioFromPage}
             onSkill={openSkill}
           />

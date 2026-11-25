@@ -10,7 +10,14 @@ export type CloudApiError = Error & {
 };
 
 const GATEWAY_CACHE_TTL_MS = 5_000;
-const cacheEnabled = typeof process === 'undefined' || (!process.env?.VITEST && process.env?.NODE_ENV !== 'test');
+const defaultCacheEnabled = typeof process === 'undefined' || (!process.env?.VITEST && process.env?.NODE_ENV !== 'test');
+let cacheEnabledOverride: boolean | null = null;
+const isGatewayCacheEnabled = () => cacheEnabledOverride ?? defaultCacheEnabled;
+
+/** Test hook: override gateway TTL cache enablement inside isolated unit tests. */
+export function setGatewayCacheEnabledForTest(enabled: boolean | null): void {
+  cacheEnabledOverride = enabled;
+}
 
 let cacheGeneration = 0;
 let cachedGateway: { value: { status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }; expiresAt: number } | null = null;
@@ -116,7 +123,7 @@ function isLegacyRouteNotFound(err: unknown): boolean {
 
 export async function loadGateway(): Promise<{ status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }> {
   ensureGatewayInvalidationListener();
-  if (cacheEnabled && cachedGateway && cachedGateway.expiresAt > Date.now()) {
+  if (isGatewayCacheEnabled() && cachedGateway && cachedGateway.expiresAt > Date.now()) {
     return cachedGateway.value;
   }
   if (inflightGateway) return inflightGateway;
@@ -140,7 +147,7 @@ export async function loadGateway(): Promise<{ status: GatewayStatus; models: Mo
       models: Array.isArray(catalog.models) ? catalog.models : [],
       mode: catalog.mode,
     };
-    if (cacheEnabled && generation === cacheGeneration) {
+    if (isGatewayCacheEnabled() && generation === cacheGeneration) {
       cachedGateway = { value: result, expiresAt: Date.now() + GATEWAY_CACHE_TTL_MS };
     }
     return result;

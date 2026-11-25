@@ -7,7 +7,7 @@ const errors: Ring = { entries: [], bytes: 0 }, activity: Ring = { entries: [], 
 const encoder = new TextEncoder();
 const losses = { rateLimited: 0, repeated: 0, evicted: 0, delivery: 0 };
 const recent = new Map<string, number>();
-let loaded = false, active = false, remoteBlockedByAuth = false, authGeneration = 0, timer: ReturnType<typeof setTimeout> | undefined, sending: Promise<void> | undefined;
+let loaded = false, active = false, remoteBlockedByAuth = true, authGeneration = 0, timer: ReturnType<typeof setTimeout> | undefined, sending: Promise<void> | undefined;
 let windowStart = 0, errorCount = 0, activityCount = 0;
 let sequence = 0;
 const session = crypto.randomUUID();
@@ -47,8 +47,10 @@ function schedule() {
   if (!remoteBlockedByAuth && !timer && !sending && pending.entries.length) timer = setTimeout(() => { void flushBrowserDiagnostics(); }, 5000);
 }
 export function setDiagnosticsAuthState(authenticated: boolean) {
+  const nextBlocked = !authenticated;
+  if (nextBlocked === remoteBlockedByAuth) return;
   authGeneration++;
-  remoteBlockedByAuth = !authenticated;
+  remoteBlockedByAuth = nextBlocked;
   if (remoteBlockedByAuth) {
     clearTimeout(timer);
     timer = undefined;

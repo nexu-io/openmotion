@@ -32,6 +32,8 @@ export function useTemplatePlaybackPool(
 ): TemplatePlaybackPool {
   const [pool, setPool] = useState<TemplatePlaybackPool>(EMPTY_POOL);
   const controls = useRef({ autoplay, priority });
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const retainedOrder = useRef(new Set<string>());
   const refresh = useRef<() => void>(() => {});
   useEffect(() => { controls.current = { autoplay, priority }; refresh.current(); }, [autoplay, priority]);
@@ -49,7 +51,7 @@ export function useTemplatePlaybackPool(
     const visible = new Map<string, number>();
     const knownIds = new Set<string>();
     const update = () => {
-      if (disposed) return;
+      if (disposed || !enabledRef.current) return;
       const { autoplay, priority } = controls.current;
       const allowed = autoplay && !document.hidden && !media.matches;
       const candidates = [...visible].sort((a, b) => Number(b[0] === priority) - Number(a[0] === priority) || b[1] - a[1]);
@@ -99,7 +101,7 @@ export function useTemplatePlaybackPool(
     refresh.current = update;
     const observer = typeof IntersectionObserver !== 'undefined'
       ? new IntersectionObserver(entries => {
-          if (disposed) return;
+          if (disposed || !enabledRef.current) return;
           for (const entry of entries) {
             const { playbackId, templateId } = (entry.target as HTMLElement).dataset;
             const id = playbackId ?? templateId!;

@@ -261,6 +261,26 @@ export function invalidateAccountSummaryCache(): void {
   inflightAccountSummary = null;
 }
 
+/** Publish signed-out state immediately at logout so a failing post-logout refresh cannot leave prior account data visible. */
+export function publishSignedOutAccountSummary(): void {
+  invalidateAccountSummaryCache();
+  publishAccountSummary({
+    state: 'signed-out',
+    consoleUrl: cachedAccountSummary?.consoleUrl || DEFAULT_CONSOLE_URL,
+    authMode: cachedAccountSummary?.authMode ?? 'oidc',
+  });
+}
+
+function dispatchSelfAccountChanged(): void {
+  const event = new Event('motion:account-changed');
+  selfDispatchedAccountChangeEvent = event;
+  try {
+    window.dispatchEvent(event);
+  } finally {
+    if (selfDispatchedAccountChangeEvent === event) selfDispatchedAccountChangeEvent = null;
+  }
+}
+
 /** Test hook: clear cached account summary between isolated component tests. */
 export function resetAccountSummaryCacheForTest(): void {
   invalidateAccountSummaryCache();
@@ -298,13 +318,7 @@ function loadSharedAccountSummary(billing: boolean, options?: { force?: boolean 
         );
         publishAccountSummary(normalized);
         if (scopeChanged) {
-          const event = new Event('motion:account-changed');
-          selfDispatchedAccountChangeEvent = event;
-          try {
-            window.dispatchEvent(event);
-          } finally {
-            if (selfDispatchedAccountChangeEvent === event) selfDispatchedAccountChangeEvent = null;
-          }
+          dispatchSelfAccountChanged();
         }
         return { error: false };
       } catch (err) {
@@ -496,11 +510,17 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     setSwitchingWorkspace(true);
     try {
       await gatewayRequest('account/workspaces/switch', 'POST', { workspaceId });
-      clearPrivateSwrCache();
+      // Server cookie is already switched: bind SWR to the target workspace and immediately
+      // invalidate old workspace/gateway reads before awaiting the billing refresh.
+      setPrivateSwrIdentity({
+        userId: account?.userId ?? account?.user?.email ?? 'signed-in',
+        workspaceId,
+      });
+      setDiagnosticsAuthState(false);
       invalidateAccountSummaryCache();
+      dispatchSelfAccountChanged();
       await state.refresh(true, { force: true });
       notifyProvidersChanged();
-      window.dispatchEvent(new Event('motion:account-changed'));
       toast.showToast(t('Workspace switched'), 'info');
     } catch (error) {
       toast.showToast(error instanceof Error ? error.message : t('Could not switch workspace'), 'error');

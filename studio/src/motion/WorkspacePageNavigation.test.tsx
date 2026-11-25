@@ -2226,6 +2226,39 @@ it('opens the same libraries from the Explore header, shelf actions and Skills f
   }
 });
 
+it('hides Explore and stops previews and queued Design fetches while Template Library is open', async () => {
+  const observed = new Map<Element, (visible: boolean) => void>();
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) {
+      observed.set(target, visible => this.callback([{ target, isIntersecting: visible, intersectionRatio: Number(visible) }]));
+    }
+    disconnect() {}
+  });
+  await mount(); await click('Explore');
+  const card = container.querySelector<HTMLElement>('.om-feed-group [data-playback-id]')!;
+  const designSection = container.querySelector<HTMLElement>('section[data-studio="design"]')!;
+  const designTrigger = observed.get(designSection)!;
+  await act(async () => { observed.get(card)!(true); });
+  expect(card.querySelector('video[src]')).toBeTruthy();
+
+  const designTemplateReads = () => fetcher.mock.calls.filter(([input]) => String(input).includes('/design/catalog/templates')).length;
+  expect(designTemplateReads()).toBe(0);
+
+  // Opening Template Library hides the Explore KeepAliveSlot and deactivates LazyExploreStudios.
+  const templatesButton = container.querySelector<HTMLButtonElement>('.om-explore-nav button')!;
+  await act(async () => templatesButton.click());
+  expect(container.querySelector<HTMLElement>('.om-explore-host')?.hidden).toBe(true);
+  expect(card.querySelector('video[src]')).toBeNull();
+
+  // Queued Design observer callback behind the Template Library must not fetch Design templates.
+  await act(async () => {
+    designTrigger(true);
+    await Promise.resolve();
+  });
+  expect(designTemplateReads()).toBe(0);
+});
+
 it('opens Creators in the shared Explore shell and keeps its search and history', async () => {
   const reveal = stubExploreVisibility();
   const fallback = fetcher.getMockImplementation()!;

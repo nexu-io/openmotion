@@ -33,13 +33,15 @@ export function ExploreDesignSection({
   const { info: integrationInfo } = useIntegrationInfo();
   const toast = useToast();
   const sectionRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const templatesLoadedRef = useRef(false);
   const [templatesRequested, setTemplatesRequested] = useState(false);
   const [templates, setTemplates] = useState<DesignTemplateSummary[]>([]);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const [remixing, setRemixing] = useState(false);
   const previewTrigger = useRef<HTMLButtonElement>(null);
-  const requestTemplates = () => { if (active) setTemplatesRequested(true); };
+  const requestTemplates = () => { if (activeRef.current) setTemplatesRequested(true); };
 
   useEffect(() => {
     if (!active || templatesRequested) return;
@@ -53,7 +55,7 @@ export function ExploreDesignSection({
     let disposed = false;
     const root = scrollRoot?.current ?? node.closest('.om-explore');
     const observer = new IntersectionObserver(entries => {
-      if (disposed || !entries.some(entry => entry.isIntersecting)) return;
+      if (disposed || !activeRef.current || !entries.some(entry => entry.isIntersecting)) return;
       disposed = true;
       observer.disconnect();
       setTemplatesRequested(true);

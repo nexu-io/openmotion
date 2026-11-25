@@ -11,6 +11,7 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('ok')));
   diagnostics = await import('./diagnostics'); request = await import('./diagnosticRequests');
   stop = diagnostics.initializeDiagnostics();
+  diagnostics.setDiagnosticsAuthState(true);
   await diagnostics.flushBrowserDiagnostics(); vi.clearAllMocks();
 });
 afterEach(() => { stop(); vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -121,49 +122,63 @@ it('measures polling overhead without network or storage side effects', async ()
   process.stdout.write('DIAGNOSTIC_OVERHEAD ' + JSON.stringify({ scope: 'mocked healthy request, median of 5 x 2000 calls; not a playback benchmark', baselineMs, instrumentedMs, addedMs: instrumentedMs - baselineMs }) + '\n');
 });
 
-it('pauses remote diagnostic uploads when unauthenticated or after 401, ignores sign-out events, and ignores stale 401s after re-auth', async () => {
-  diagnostics.setDiagnosticsAuthState(false);
-  diagnostics.recordBrowserDiagnostic('failure', 'guest-error');
-  await vi.advanceTimersByTimeAsync(10_000);
-  await diagnostics.flushBrowserDiagnostics();
-  expect(fetch).not.toHaveBeenCalled();
-  expect(diagnostics.browserDiagnostics().some(event => event.message === 'guest-error')).toBe(true);
+it('starts remote diagnostic uploads blocked before auth verification and lets repeated same-session auth confirmations still honor 401', async () => {
+  // Verify startup default in a clean module BEFORE any setDiagnosticsAuthState(true):
+  stop();
+  vi.resetModules();
+  const fresh = await import('./diagnostics');
+  const stopFresh = fresh.initializeDiagnostics();
+  try {
+    fresh.recordBrowserDiagnostic('failure', 'guest-before-auth-probe');
+    window.dispatchEvent(new Event('pagehide'));
+    await vi.advanceTimersByTimeAsync(10_000);
+    await fresh.flushBrowserDiagnostics();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(fresh.browserDiagnostics().some(event => event.message === 'guest-before-auth-probe')).toBe(true);
 
-  // Dispatching motion:account-changed (which logout also emits) must NOT blindly unblock remote uploads.
-  window.dispatchEvent(new Event('motion:account-changed'));
-  diagnostics.recordBrowserDiagnostic('failure', 'post-logout-event-error');
-  await vi.advanceTimersByTimeAsync(10_000);
-  expect(fetch).not.toHaveBeenCalled();
+    // Dispatching motion:account-changed (e.g. logout) must NOT blindly unblock remote uploads.
+    window.dispatchEvent(new Event('motion:account-changed'));
+    fresh.recordBrowserDiagnostic('failure', 'post-logout-event-error');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetch).not.toHaveBeenCalled();
 
-  // Verified authentication resumes remote uploads; a 401 from the current generation stops subsequent uploads.
-  vi.mocked(fetch)
-    .mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
-    .mockResolvedValueOnce(new Response('ok', { status: 202 }));
-  diagnostics.setDiagnosticsAuthState(true);
-  diagnostics.recordBrowserDiagnostic('failure', 'expired-session-error');
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(fetch).toHaveBeenCalledTimes(1);
+    // Verified authentication enables uploads; a repeated same-session setDiagnosticsAuthState(true)
+    // while a 401 is in flight must NOT bump the generation or mask that 401.
+    const sameSession401 = Promise.withResolvers<Response>();
+    vi.mocked(fetch).mockReturnValueOnce(sameSession401.promise);
+    fresh.setDiagnosticsAuthState(true);
+    fresh.recordBrowserDiagnostic('failure', 'session-expiring-error');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetch).toHaveBeenCalledTimes(1);
 
-  diagnostics.recordBrowserDiagnostic('failure', 'second-error-while-logged-out');
-  await vi.advanceTimersByTimeAsync(10_000);
-  expect(fetch).toHaveBeenCalledTimes(1);
+    fresh.setDiagnosticsAuthState(true);
+    sameSession401.resolve(new Response('unauthorized', { status: 401 }));
+    await Promise.resolve();
+    await Promise.resolve();
 
-  // A stale 401 from an earlier auth generation arriving AFTER verified re-auth must NOT re-block the new session.
-  const staleUnauthorized = Promise.withResolvers<Response>();
-  vi.mocked(fetch)
-    .mockReturnValueOnce(staleUnauthorized.promise)
-    .mockResolvedValueOnce(new Response('ok', { status: 202 }));
-  diagnostics.setDiagnosticsAuthState(true);
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(fetch).toHaveBeenCalledTimes(2);
+    fresh.recordBrowserDiagnostic('failure', 'blocked-after-same-session-401');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
 
-  // New session verifies while the prior upload is still in flight, then the prior upload resolves 401.
-  diagnostics.setDiagnosticsAuthState(true);
-  staleUnauthorized.resolve(new Response('unauthorized', { status: 401 }));
-  await Promise.resolve();
-  await Promise.resolve();
+    // A stale 401 from an earlier session arriving AFTER logout + new verified session must NOT block the new session.
+    const staleUnauthorized = Promise.withResolvers<Response>();
+    vi.mocked(fetch)
+      .mockReturnValueOnce(staleUnauthorized.promise)
+      .mockResolvedValueOnce(new Response('ok', { status: 202 }));
+    fresh.setDiagnosticsAuthState(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetch).toHaveBeenCalledTimes(2);
 
-  diagnostics.recordBrowserDiagnostic('failure', 'new-session-error');
-  await vi.advanceTimersByTimeAsync(5000);
-  expect(fetch).toHaveBeenCalledTimes(3);
+    fresh.setDiagnosticsAuthState(false);
+    fresh.setDiagnosticsAuthState(true);
+    staleUnauthorized.resolve(new Response('unauthorized', { status: 401 }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    fresh.recordBrowserDiagnostic('failure', 'new-session-error');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  } finally {
+    stopFresh();
+  }
 });
