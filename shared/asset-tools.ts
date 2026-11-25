@@ -1,4 +1,5 @@
 import { brandKitToolArguments } from './brand-kit-tool.ts';
+import { MAX_GENERATION_PROMPT_LENGTH } from './asset-limits.ts';
 import { transcriptToolArguments, transcriptToolDescription } from './transcript-tool.ts';
 import { scenarioToolArguments, scenarioToolDescription } from './scenario-runs.ts';
 
@@ -15,7 +16,7 @@ export const assetLibraryTool = {
     name: { type: 'string', minLength: 1, maxLength: 200, description: 'Readable display name: preserve meaningful user/source names; for generated, derived or unnamed media use content plus optional purpose, in the project namingLanguage. Supply with generate/import; import_to_project defaults to the saved library name and accepts a name only for explicit renames or missing-name repairs. Keep UUIDs in IDs and the full prompt in prompt.' }, sourcePath: { type: 'string', minLength: 1, maxLength: 4096 },
     modality: { enum: ['image', 'video', 'audio'] }, audioKind: { enum: ['music', 'sfx', 'speech', 'upload'] }, source: { enum: ['upload', 'generated'] }, query: { type: 'string', maxLength: 200 },
     trash: { type: 'boolean' }, sort: { enum: ['newest', 'oldest', 'name'] }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 },
-    model: { type: 'string', minLength: 1, maxLength: 300 }, prompt: { type: 'string', minLength: 1, maxLength: 20000 },
+    model: { type: 'string', minLength: 1, maxLength: 300 }, prompt: { type: 'string', minLength: 1, maxLength: MAX_GENERATION_PROMPT_LENGTH },
     mode: { enum: ['text-to-image', 'text-to-video', 'text-to-audio', 'text-to-speech'] }, parameters: { type: 'object', additionalProperties: true },
     references: { type: 'array', items: reference, description: 'Pinned image versions in prompt order. The selected model limits the count: image edits up to its maxInputImages; video models with maxInputImages take one first frame.' }, conversationId: id,
     changes: object({ name: { type: 'string', minLength: 1, maxLength: 200 }, trashed: { type: 'boolean' }, currentVersionId: id }),

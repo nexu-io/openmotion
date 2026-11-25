@@ -3,6 +3,7 @@ import * as tracking from './pageTracking';
 import { destinationTarget, reportCreativePageView } from './exploreTracking';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { assetVersion, type LibraryAsset } from '../../../shared/asset-library';
+import { assetPromptForReuse } from './assetPromptForReuse';
 import { resumableJob, type GenerationJob } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -386,7 +387,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         if (!assetVersion(asset, job.library.parentVersionId)) throw new Error(t('A referenced version is no longer available.'));
         target = { asset, versionId: job.library.parentVersionId };
       }
-      const nextDraft: AssetDraft = { modality: job.modality, prompt: job.prompt, model: job.model.id, parameters: job.parameters, references, target };
+      const prompt = isFeatureScene(studioForm?.destination.scene) ? assetPromptForReuse(job.prompt, job.modality) : job.prompt;
+      const nextDraft: AssetDraft = { modality: job.modality, prompt, model: job.model.id, parameters: job.parameters, references, target };
       if (request !== selectionRequest.current) return;
       setDraft(nextDraft); setPromptAppliedToken(0); setTaskId(task.id);
       setTaskEpoch(value => value + 1); setCreating(true); setMobileView('create');

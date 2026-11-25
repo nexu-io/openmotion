@@ -6,6 +6,7 @@ import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { Tooltip } from '../components/ui/Tooltip';
 import { WorkingIndicator } from './AssetCreationVisuals';
+import { assetPromptForReuse } from './assetPromptForReuse';
 import { formatElapsed, modelDisplayLabel } from './generationLabels';
 import { formatGenerationJobError, jobBillingAction } from './jobErrors';
 import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
@@ -202,7 +203,7 @@ export function AssetGenerationPlaceholder({
                 </Button>
               )}
               {job.prompt && onReusePrompt && (
-                <Button variant="plain" className="om-gen-action-pill" onClick={() => onReusePrompt(job.prompt)}>
+                <Button variant="plain" className="om-gen-action-pill" onClick={() => onReusePrompt(assetPromptForReuse(job.prompt, job.modality))}>
                   <RemixIcon name="refresh-line" size={12} />{t('Reuse prompt')}
                 </Button>
               )}

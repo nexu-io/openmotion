@@ -44,6 +44,7 @@ import {
 } from '../../shared/integration.ts';
 import { loadLibrarySkills, skillNextStep } from '../../shared/library-skill-catalog.ts';
 import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts';
+import { MAX_GENERATION_PROMPT_LENGTH } from '../../shared/asset-limits.ts';
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
@@ -596,8 +597,8 @@ function createCloudMediaJobsPort(deps: {
       });
     }
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
-    if (!prompt || prompt.length > 20_000) {
-      throw new CloudError('INVALID_ARGUMENT', 'prompt must contain 1-20000 characters', {
+    if (!prompt || prompt.length > MAX_GENERATION_PROMPT_LENGTH) {
+      throw new CloudError('INVALID_ARGUMENT', `prompt must contain 1-${MAX_GENERATION_PROMPT_LENGTH} characters`, {
         status: 400,
         applied: false,
       });

@@ -3,6 +3,7 @@ import * as tracking from './pageTracking';
 import { Tooltip } from "../components/ui/Tooltip";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type Dispatch, type DragEvent, type SetStateAction } from 'react';
 import { assetMediaUrl, type AssetReference, type LibraryAsset } from '../../../shared/asset-library';
+import { MAX_GENERATION_PROMPT_LENGTH } from '../../../shared/asset-limits';
 import { modelReferenceLimit, type GenerationJob } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { CreationModelPicker, GenerationModelPickers } from './GenerationModelPickers';
@@ -21,8 +22,8 @@ import { useMediaCatalog } from './useMediaCatalog';
 import type { StudioCreation } from './CreativeWorkspace';
 import { studioExamples } from './sceneShowcase';
 import { isFeatureScene, needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
-import { imageFeaturePrompt, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
-import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
+import { imageFeaturePrompt, imageFeaturePromptPrefix, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
+import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, videoFeaturePromptPrefix, videoFeatures } from '../../../shared/video-features';
 import { FieldTextarea } from '../components/ui/FormField';
 import { Select } from '../components/ui/Select';
 import { attachableReferenceLimit, creationModels } from './creationModels';
@@ -237,7 +238,11 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const inputImageRatio = selected && parameterInputImageRatio(selected, parameters, draft.references.length > 0);
   const kind = creationKinds.find(k => k.id === draft.modality)!;
   const latest = jobs.find(job => job.id === taskId);
-  const promptReady = Boolean(draft.prompt.trim() || featureRule?.promptOptional);
+  const prefix = feature ? imageFeaturePromptPrefix(feature, draft.relight)
+    : videoFeature ? videoFeaturePromptPrefix(videoFeature, draft.videoChoices) : '';
+  const promptLimit = MAX_GENERATION_PROMPT_LENGTH - prefix.length;
+  const promptTooLong = draft.prompt.length > promptLimit;
+  const promptReady = !promptTooLong && Boolean(draft.prompt.trim() || featureRule?.promptOptional);
   const submit = async () => {
     if (!selected || !promptReady || busy || uploadingReferences || invalidReferences) return; setBusy(true);
     const studioContext = studio ? { studio: studio.destination.studio.id, scene: studio.destination.scene.id, model: selected.id } : undefined;
@@ -277,10 +282,14 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const modelHeading = <div className="om-creation-row"><span className="om-eyebrow">{t('Generation model')}</span>{providerSettingsButton}</div>;
   const studioModelHeading = <span className="om-eyebrow">{t('Generation model')}</span>;
   const speechPrompt = scene?.id === 'speech' || selected?.mode === 'text-to-speech';
+  const promptCountId = `${promptId}-count`;
+  const promptCount = <span id={promptCountId} className="om-eyebrow">{draft.prompt.length.toLocaleString()} / {promptLimit.toLocaleString()}</span>;
   const promptInput: ComponentProps<'textarea'> = {
     id: promptId,
-    maxLength: 20000,
+    maxLength: promptLimit,
     'aria-label': imageWorkspace ? undefined : t('Asset prompt'),
+    'aria-describedby': !imageWorkspace || featureMode ? promptCountId : undefined,
+    'aria-invalid': promptTooLong || undefined,
     placeholder: t(featureRule?.promptOptional ? 'Optional: add anything the model should know.' : scene?.hint ?? (speechPrompt ? 'Write the words you want spoken.' : kind.hint)),
     value: draft.prompt,
     onChange: event => {
@@ -293,13 +302,14 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     <div className="om-field" data-form-field="intrinsic" data-prompt-applied={promptHighlight}>
       <FieldTextarea ref={promptRef} {...promptInput} appearance="embedded" className="om-image-prompt" />
     </div>
+    {featureMode && promptCount}
   </div> : <div className="om-creation-prompt" data-prompt-applied={promptHighlight}>
     <label className="om-eyebrow" htmlFor={promptId}><RemixIcon name="pen-nib-line" size={14} />{t(speechPrompt ? 'Speech text' : 'Your idea')}</label>
     <textarea ref={promptRef} {...promptInput} />
     {!scene && (maximumReferences > 0 || draft.references.length > 0) && references}
     <div className="om-creation-prompt-footer">
       <span className="om-eyebrow">{t(draft.references.length ? 'References stay linked to their versions' : 'Start with a few words. Make it your own.')}</span>
-      <span className="om-eyebrow">{draft.prompt.length.toLocaleString()} / 20k</span>
+      {promptCount}
     </div>
   </div>;
 

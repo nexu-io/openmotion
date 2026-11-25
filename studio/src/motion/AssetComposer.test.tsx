@@ -6,6 +6,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
 import { resetAccountSummaryCacheForTest } from './AccountSettings';
 import type { Model } from '../../../shared/gateway';
+import { imageFeaturePrompt } from '../../../shared/image-features';
+import { videoFeaturePrompt } from '../../../shared/video-features';
+import { assetPromptForReuse } from './assetPromptForReuse';
 const { generate, loadGateway, gatewayRequest, chrome } = vi.hoisted(() => ({
   generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(),
   chrome: { openModelSettings: vi.fn(), openProviderSettings: vi.fn(), openAccountSettings: vi.fn(), openSubscriptionSettings: vi.fn() },
@@ -900,7 +903,7 @@ it('relights one image with Seedream 5.5 by default and writes the chosen light 
   expect(promptInput.labels?.[0]?.textContent).toBe('Detailed description');
   expect(promptInput.parentElement?.getAttribute('data-form-field')).toBe('intrinsic');
   expect([...promptInput.parentElement!.children]).toEqual([promptInput]);
-  expect(promptInput.maxLength).toBe(20000);
+  expect(promptInput.maxLength + imageFeaturePrompt('relight', 'x', { direction: 'back', temperature: 'cool', mood: 'neon' }).length - 1).toBe(20_000);
   expect(container.querySelector('button[aria-label="Generation model"]')?.textContent).toContain('Seedream 5.5');
   // One reference is the limit, so the picker offers no second one.
   expect(container.querySelector('.om-source-actions')).toBeNull();
@@ -954,6 +957,100 @@ it('seeds 10s duration and composes camera/multi-shot prompts on video feature s
   expect(request.parameters).toMatchObject({ duration: 10 });
   expect(request.prompt).toContain('3-shot narrative sequence');
   expect(request.prompt).toContain('An astronaut crossing a silver ridge');
+});
+
+async function renderVideoPrompt(scene: 'text-to-video' | 'video-camera-control' | 'video-multi-shot', prompt: string, videoChoices?: AssetDraft['videoChoices']) {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const catalog = cloudState([cloudVideo('doubao-seedance-2-5-260628')]);
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt, videoChoices, references: [] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: sceneDestination(studioScenes.find(item => item.id === scene)!),
+  }} />));
+}
+
+it.each([
+  ['video-camera-control', 'camera-control', { movement: 'pan', pace: 'dynamic' }, { movement: 'push-in', pace: 'slow' }],
+  ['video-multi-shot', 'multi-shot', { shots: '2', style: 'match' }, { shots: '3', style: 'narrative' }],
+] as const)('OPEND-5716 uses only the active %s controls after refill', async (scene, feature, before, after) => {
+  const description = '黄昏时穿过城市街道。';
+  generate.mockResolvedValue({ job: { id: 'video-job' } });
+  await renderVideoPrompt(scene, description, before);
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  await act(async () => submit().click());
+  const firstPrompt = generate.mock.calls[0][0].prompt;
+  expect(firstPrompt).toBe(videoFeaturePrompt(feature, description, before));
+
+  await renderVideoPrompt(scene, assetPromptForReuse(firstPrompt, 'video'), after);
+  expect(container.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe(description);
+  await act(async () => submit().click());
+  expect(generate.mock.calls[1][0].prompt).toBe(videoFeaturePrompt(feature, description, after));
+});
+
+it.each([
+  ['text-to-video', undefined, undefined],
+  ['video-camera-control', 'camera-control', { movement: 'static', pace: 'dynamic' }],
+  ['video-multi-shot', 'multi-shot', { shots: '2', style: 'match' }],
+] as const)('OPEND-5740 matches the submitted limit in %s', async (scene, feature, choices) => {
+  generate.mockResolvedValue({ job: { id: 'video-job' } });
+  const compose = (prompt: string) => feature ? videoFeaturePrompt(feature, prompt, choices) : prompt;
+  const limit = 20_000 - (compose('x').length - 1);
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  const input = () => container.querySelector<HTMLTextAreaElement>('textarea')!;
+
+  await renderVideoPrompt(scene, 'x'.repeat(19_995), choices);
+  expect(input().maxLength).toBe(limit);
+  expect(submit().disabled).toBe(Boolean(feature));
+  expect(container.querySelector('.om-creation-prompt-footer')!.textContent).toContain(`${(19_995).toLocaleString()} / ${limit.toLocaleString()}`);
+  await renderVideoPrompt(scene, 'x'.repeat(limit + 1), choices);
+  expect(submit().disabled).toBe(true);
+  await act(async () => submit().click());
+  expect(generate).not.toHaveBeenCalled();
+
+  const valid = 'x'.repeat(limit);
+  await renderVideoPrompt(scene, valid, choices);
+  expect(submit().disabled).toBe(false);
+  await act(async () => submit().click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: compose(valid) }));
+  expect(generate.mock.calls[0][0].prompt).toHaveLength(20_000);
+});
+
+it('updates the camera prompt budget when the selected camera movement changes', async () => {
+  const prompt = 'x'.repeat(20_000 - videoFeaturePrompt('camera-control', 'x').length + 1);
+  const input = () => container.querySelector<HTMLTextAreaElement>('textarea')!;
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  await renderVideoPrompt('video-camera-control', prompt);
+  expect(submit().disabled).toBe(false);
+  await renderVideoPrompt('video-camera-control', prompt, { movement: 'static' });
+  expect(input().maxLength).toBeLessThan(prompt.length);
+  expect(input().value).toBe(prompt);
+  expect(input().getAttribute('aria-invalid')).toBe('true');
+  expect(submit().disabled).toBe(true);
+});
+
+it.each(['remove-background', 'relight', 'character'] as const)('honors the assembled prompt budget for %s', async feature => {
+  const note = '保留细节。';
+  const references = [reference('subject')];
+  const relight = { direction: 'back', temperature: 'cool', mood: 'neon' };
+  const limit = 20_000 - imageFeaturePrompt(feature, 'x', relight).length + 1;
+  const text = note.padEnd(limit, '中');
+  const submitted = imageFeaturePrompt(feature, text, relight);
+  generate.mockResolvedValue({ job: { id: 'image-job' } });
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+
+  await renderFeature(feature, { prompt: text + '中', references, relight });
+  expect(submit().disabled).toBe(true);
+  await act(async () => submit().click());
+  expect(generate).not.toHaveBeenCalled();
+
+  await renderFeature(feature, { prompt: assetPromptForReuse(submitted, 'image'), references, relight });
+  const input = container.querySelector<HTMLTextAreaElement>('.om-image-prompt')!;
+  expect(input.maxLength).toBe(limit);
+  expect(input.value).toBe(text);
+  expect(document.getElementById(input.getAttribute('aria-describedby')!)!.textContent).toBe(`${limit.toLocaleString()} / ${limit.toLocaleString()}`);
+  expect(submit().disabled).toBe(false);
+  await act(async () => submit().click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: submitted }));
+  expect(submitted).toHaveLength(20_000);
 });
 
 it('exposes the native audio toggle on Text to video and preserves user control over generate_audio', async () => {
