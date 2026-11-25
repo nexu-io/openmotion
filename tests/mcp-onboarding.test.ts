@@ -119,7 +119,9 @@ test('the documented element edit works alone or inside one atomic batch', () =>
   assert.ok(guide.includes(projectEditExample));
   const args = { ...JSON.parse(projectEditExample.slice('openmotion_edit_project('.length, -1)),
     projectId: 'project', expectedRevision: 'a'.repeat(64) };
-  const schema = phase1Tools.find(tool => tool.name === 'openmotion_edit_project')!.inputSchema;
+  const tool = phase1Tools.find(tool => tool.name === 'openmotion_edit_project')!;
+  assert.ok(tool.description.includes(projectEditExample), 'Remote agents must be able to see the validated example in tools/list');
+  const schema = tool.inputSchema;
   validateInput(schema, args);
   const batch = (commands: unknown[]) => ({ ...args, edit: { kind: 'batch', commands } });
   validateInput(schema, batch([args.edit, { ...args.edit, compositionPath: 'compositions/title.html' }]));
