@@ -71,7 +71,7 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   ${PREVIEW_ASSET_READINESS}
   function assetState(duration){
     if(isCaptureMode) return {status:'ready',completed:0,total:0,failed:[]};
-    if(!(duration>0)) return {status:'loading',completed:0,total:0,failed:[]};
+    if(!(duration>0)) return bootAssetState();
     return ensureAssetTracker(function(snapshot){ post('asset-readiness',snapshot); }).snapshot();
   }
   function mediaTimingWindow(node){
@@ -401,6 +401,10 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   document.addEventListener('DOMContentLoaded',announceDurationIfReady);
   if(isCaptureMode) loadSnapdom().catch(function(){});
   if(!announceDurationIfReady()){
+    if(!isCaptureMode){
+      var initialAssets=bootAssetState();
+      if(initialAssets.pendingAsset) post('asset-readiness',initialAssets);
+    }
     var bootPollTicks=0;
     bootPoll=setInterval(function(){
       if(announceDurationIfReady() || ++bootPollTicks>=160){

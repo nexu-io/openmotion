@@ -6,7 +6,10 @@ import { usePlayerStore } from "../store/playerStore";
 import { PreviewCompositionLoading } from "./PreviewCompositionLoading";
 
 const filename = "夜の街 — opening shot.mp4";
+const title = "Preparing preview assets";
+const firstFrameTitle = "Preparing the first preview frame";
 const genericHint = "The preview will appear when it is ready.";
+const editingHint = "You can keep editing while the preview loads.";
 const downloadHint = "Downloading this file for playback.";
 
 afterEach(() => {
@@ -20,7 +23,8 @@ it("updates the same live status when the player starts a generation after mount
   const status = host.querySelector('[role="status"]')!;
   const label = document.getElementById(status.getAttribute("aria-labelledby")!)!;
   expect(status.getAttribute("aria-live")).toBe("polite");
-  expect(label.textContent).toBe("Loading preview…");
+  expect(label.textContent).toBe(firstFrameTitle);
+  expect(label.nextElementSibling?.textContent).toBe(genericHint);
   expect(label.closest(".sr-only")).toBeNull();
 
   act(() => {
@@ -29,12 +33,13 @@ it("updates the same live status when the player starts a generation after mount
       status: "loading", total: 2, completed: 1, failed: [], pendingAsset: filename,
     }, generation.current);
   });
-  expect(label.textContent).toBe("Preparing preview assets");
+  expect(label.textContent).toBe(title);
   expect(label.nextElementSibling?.textContent).toBe(filename);
   expect(label.nextElementSibling?.closest(".sr-only")).toBeNull();
 
   act(() => usePlayerStore.getState().skipAssetReadiness());
-  expect(status.textContent).toBe(`Loading preview…${genericHint}`);
+  expect(status.textContent).toBe(`${firstFrameTitle}${genericHint}`);
+  expect(label.nextElementSibling?.textContent).toBe(genericHint);
 });
 
 it.each([
@@ -45,7 +50,8 @@ it.each([
 ] as const)("uses the generic status for $current, $phase, '$name'", ({ current, phase, name }) => {
   usePlayerStore.setState({ assetReadinessGeneration: 1, assetReadinessPhase: phase, assetReadinessPendingAsset: name });
   const host = mountHost(<PreviewCompositionLoading canEditWhileLoading assetGeneration={current === undefined ? undefined : { current }} />);
-  expect(host.textContent).toBe(`Loading preview…${genericHint}`);
+  expect(host.textContent).toBe(`${firstFrameTitle}${editingHint}`);
+  expect(host.querySelector('[dir="auto"]')).toBeNull();
 });
 
 it("keeps the status and download hint screen-reader-only during a quiet switch", () => {
@@ -53,14 +59,15 @@ it("keeps the status and download hint screen-reader-only during a quiet switch"
   const host = mountHost(<PreviewCompositionLoading showMark={false} assetGeneration={{ current: 1 }} />);
   const status = host.querySelector('[role="status"]')!;
   expect(status.querySelector(".motion-preview-loading-mark")).toBeNull();
-  expect(status.querySelector(".sr-only")?.textContent).toBe(`Preparing preview assets${filename}${downloadHint}`);
+  expect(status.querySelector(".sr-only")?.textContent).toBe(`${title}${filename}${downloadHint}`);
 });
 
 it.each([true, false])("uses Studio theme tokens for the entire cover with showMark=%s", showMark => {
-  const host = mountHost(<PreviewCompositionLoading showMark={showMark} />);
+  usePlayerStore.setState({ assetReadinessGeneration: 1, assetReadinessPendingAsset: filename });
+  const host = mountHost(<PreviewCompositionLoading showMark={showMark} assetGeneration={{ current: 1 }} />);
   const status = host.querySelector('[role="status"]')!;
   expect(status.classList.contains("inset-0")).toBe(true);
-  expect(status.classList.contains("bg-[var(--motion-panel)]")).toBe(true);
+  expect(status.classList.contains("bg-[var(--motion-canvas)]")).toBe(true);
   expect(status.classList.contains("text-[color:var(--motion-strong)]")).toBe(true);
   const file = status.querySelector('[dir="auto"]')!;
   expect(file.classList.contains("text-[color:var(--motion-text)]")).toBe(true);

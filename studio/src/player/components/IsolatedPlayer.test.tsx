@@ -132,7 +132,7 @@ it("keeps loading local through a timeout and manual retry, then uncovers the fi
   const player = mountPlayer();
   const loading = () => player.host.querySelector('[data-testid="composition-loading-overlay"]');
   try {
-    expect(loading()?.textContent).toContain("Loading preview…");
+    expect(loading()?.textContent).toContain("Preparing the first preview frame");
     player.notify("timeline-state", "wrong-grant");
     expect(loading()).not.toBeNull();
     advance(15_001);
@@ -202,6 +202,15 @@ it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
   Object.defineProperty(frame, "contentWindow", { value: window });
   try {
     expect(usePlayerStore.getState().assetReadinessPhase).toBe("loading");
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        origin, source: frame.contentWindow,
+        data: { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, projectId: "p", token: "grant-" + grant,
+          type: "asset-readiness", status: "loading", completed: 0, total: 0, failed: [], pendingAsset: "Opening shot.jpg" },
+      }));
+    });
+    expect(usePlayerStore.getState().assetReadinessPendingAsset).toBe("Opening shot.jpg");
+    expect(frame.dataset.clipPainted).toBeUndefined();
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {

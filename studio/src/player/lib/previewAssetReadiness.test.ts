@@ -152,6 +152,37 @@ describe("previewAssetReadiness helpers", () => {
       embedded.dispose();
     }
   });
+
+  it.each([
+    ["img", "Portrait.jpg", "proxy", "Portrait.jpg"],
+    ["img", "opaque", "Gallery%20cover.jpg", "Gallery cover.jpg"],
+    ["srcset", "Fallback.jpg", "Selected.jpg", "Selected.jpg"],
+    ["srcset", "Fallback.jpg", "proxy", undefined],
+    ["source", "Opening%20scene.mp4", "proxy", "Opening scene.mp4"],
+    ["source", "opaque", "Selected.mp4", "Selected.mp4"],
+    ["sources", "Unselected.mp4", "Selected.mp4", "Selected.mp4"],
+    ["sources", "Unselected.mp4", "proxy", undefined],
+  ] as const)("names %s with src=%s and currentSrc=%s without guessing a candidate", (kind, src, selected, expected) => {
+    const doc = makeDocument();
+    const el = kind === "img" || kind === "srcset" ? makeImg(doc, src).img : makeMedia(doc, "video", src).el;
+    if (kind === "srcset") el.setAttribute("srcset", "opaque 2x");
+    if (kind === "source" || kind === "sources") {
+      el.removeAttribute("src");
+      el.innerHTML = `<source src="${src}">` + (kind === "sources" ? '<source src="opaque">' : '');
+    }
+    const currentSrc = selected === "proxy" ? `derived/${"b".repeat(64)}/proxy.mp4?sig=secret` : selected;
+    Object.defineProperty(el, "currentSrc", { value: `https://storage.test/${currentSrc}` });
+    let progress: PreviewAssetProgress | undefined;
+    const tracker = trackDocumentAssetReadiness(doc, window, next => { progress = next; });
+    const embedded = new Function("document", "window", `${PREVIEW_ASSET_READINESS}\nreturn createAssetTracker();`)(doc, window);
+    try {
+      expect(progress?.pendingAsset).toBe(expected);
+      expect(embedded.snapshot()).toEqual(progress);
+    } finally {
+      tracker.dispose();
+      embedded.dispose();
+    }
+  });
 });
 
 describe("trackDocumentAssetReadiness", () => {

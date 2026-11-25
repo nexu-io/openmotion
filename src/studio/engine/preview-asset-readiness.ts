@@ -1,3 +1,5 @@
+import { isDisplayablePreviewAssetName, previewAssetName } from '../../../shared/preview-asset-name.ts';
+
 /**
  * Embedded in the isolated preview bridge. Tracks readiness of all external
  * assets referenced by the active composition (fonts, images, audio,
@@ -7,6 +9,8 @@
 export const PREVIEW_ASSET_READINESS = String.raw`
   var ASSET_TIMEOUT_MS=10000, ASSET_RETRY_DELAYS=[500,1500], MAX_VIDEO_PRELOADS=3;
   var assetTracker=null;
+  const isDisplayablePreviewAssetName=${isDisplayablePreviewAssetName.toString()};
+  const previewAssetName=${previewAssetName.toString()};
   function assetBase(){ return (document.baseURI && document.baseURI!=='about:blank') ? document.baseURI : location.href; }
   function assetLabel(raw,fallback){
     if(!raw || /^(?:data|blob):/i.test(raw)) return fallback;
@@ -26,28 +30,26 @@ export const PREVIEW_ASSET_READINESS = String.raw`
       return u.href;
     } catch(_){ return null; }
   }
-  function pendingAssetName(raw){
-    var source=raw.trim();
-    if(!source || /^(?:[?#]|data:|blob:)/i.test(source)) return;
-    try {
-      var url=new URL(source,'http://localhost/');
-      if(url.protocol!=='http:' && url.protocol!=='https:') return;
-      var name=decodeURIComponent(url.pathname.split('/').pop() || '');
-      if(name.length>120 || !/^[\p{L}\p{M}\p{N} _.'()’-]+$/u.test(name)) return;
-      var match=/^(.+)\.(?:png|jpe?g|webp|gif|svg|avif|ico|bmp|tiff?|heic|mp4|mov|webm|mkv|m4v|ogv|mp3|wav|m4a|aac|ogg|oga|opus|flac|aiff?)$/i.exec(name);
-      if(!match || !/^[\p{L}\p{N}]/u.test(match[1])) return;
-      var stem=match[1];
-      if(/(?:[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}|[a-f\d]{12,}|(?=[a-z\d]*\d)[a-z\d]{16,}|[a-z\d]{24,})/i.test(stem) ||
-         /^(?:\d+|(?:untitled|unnamed|temp|tmp|file|asset|image|img|audio|video|download)(?:[ _-]?\d+)?)$/i.test(stem)) return;
-      return name;
-    } catch(_) { return; }
-  }
   function assetSource(el){
     if(el.tagName==='IMG') return el.getAttribute('src')||el.currentSrc||'';
     var d=el.getAttribute('src');
     if(d) return d;
     var s=el.querySelector && el.querySelector('source[src]');
     return (s && s.getAttribute('src')) || el.currentSrc || '';
+  }
+  // Before duration is known, observe parsed media without promoting lazy images or starting preloads.
+  function bootAssetState(){
+    var state={status:'loading',completed:0,total:0,failed:[]};
+    var nodes=document.querySelectorAll('img[src],img[srcset],audio,video');
+    for(var el of nodes){
+      if(el.hasAttribute('data-hf-clip-hidden') || (el.closest && el.closest('[data-hyperframes-ignore]'))) continue;
+      if(el.tagName==='IMG'){
+        if(el.complete || el.loading==='lazy') continue;
+      } else if(el.error || el.networkState!==2 /* NETWORK_LOADING */ || el.readyState>=(el.tagName==='VIDEO'?2:3)) continue;
+      var name=previewAssetName(el);
+      if(name){ state.pendingAsset=name; break; }
+    }
+    return state;
   }
   function applyAssetSource(el,url){
     if(el.tagName==='IMG'){ el.src=url; return; }
@@ -126,7 +128,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
       if(img.loading==='lazy') img.loading='eager';
       var ok=img.complete && img.naturalWidth>0;
       var it={id:'img-'+idx,label:assetLabel(orig,'image-'+(idx+1)),kind:'image',settled:ok,failedReason:null,retry:null};
-      if(!ok) it.pendingAsset=pendingAssetName(img.currentSrc || orig);
+      if(!ok) it.pendingAsset=previewAssetName(img);
       items.push(it);
       if(ok) return;
       function watch(retryIdx,auto,checkExisting,doneCb){
@@ -239,7 +241,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
     }).forEach(function(el,idx){
       var orig=assetSource(el), ok=!el.error && el.readyState>=3;
       var it={id:'audio-'+idx,label:assetLabel(orig,'audio-'+(idx+1)),kind:'audio',settled:ok,failedReason:null,retry:null};
-      if(!ok) it.pendingAsset=pendingAssetName(el.currentSrc || orig) || pendingAssetName(el.getAttribute('src') || '');
+      if(!ok) it.pendingAsset=previewAssetName(el);
       items.push(it);
       if(!ok) watchMedia(el,it,orig,3);
     });
@@ -248,7 +250,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
     }).forEach(function(el,idx){
       var orig=assetSource(el), ok=!el.error && el.readyState>=2;
       var it={id:'video-'+idx,label:assetLabel(orig,'video-'+(idx+1)),kind:'video',settled:ok,failedReason:null,retry:null};
-      if(!ok) it.pendingAsset=pendingAssetName(el.currentSrc || orig) || pendingAssetName(el.getAttribute('src') || '');
+      if(!ok) it.pendingAsset=previewAssetName(el);
       items.push(it);
       if(!ok) videoQueue.push(function(){ watchMedia(el,it,orig,2,function(){ activeVideos=Math.max(0,activeVideos-1); pumpVideos(); }); });
     });

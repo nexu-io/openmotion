@@ -41,7 +41,9 @@ function parseBridgeAssetProgress(raw: unknown): PreviewAssetProgress | null {
           reason: item.reason === "timeout" ? "timeout" : "error",
         }))
     : [];
-  const pendingAsset = status === "loading" && completed < total && isDisplayablePreviewAssetName(record.pendingAsset)
+  // Before duration is known the bridge can see a pending file, but the tracker has no totals yet.
+  const unknownTotal = record.total === 0 && record.completed === 0;
+  const pendingAsset = status === "loading" && (completed < total || unknownTotal) && isDisplayablePreviewAssetName(record.pendingAsset)
     ? record.pendingAsset : undefined;
   return { status, completed, total, failed, pendingAsset };
 }

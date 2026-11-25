@@ -15,7 +15,9 @@
     "Refresh thumbnail": "重新生成缩略图",
     "Downloading this file for playback. You can keep editing.": "正在下载此文件以供播放，你可以继续编辑。",
     "Downloading this file for playback.": "正在下载此文件以供播放。",
-    "The preview will appear when it is ready.": "预览就绪后会自动显示。"
+    "The preview will appear when it is ready.": "预览就绪后会自动显示。",
+    "You can keep editing while the preview loads.": "预览加载期间，你可以继续编辑。",
+    "Preparing the first preview frame": "正在准备预览首帧"
   },
   "ja": {
     "Preparing project assets": "プロジェクト素材を準備中",
@@ -33,7 +35,9 @@
     "Refresh thumbnail": "サムネイルを再生成",
     "Downloading this file for playback. You can keep editing.": "再生用のファイルをダウンロードしています。そのまま編集を続けられます。",
     "Downloading this file for playback.": "再生用のファイルをダウンロードしています。",
-    "The preview will appear when it is ready.": "準備ができるとプレビューが表示されます。"
+    "The preview will appear when it is ready.": "準備ができるとプレビューが表示されます。",
+    "You can keep editing while the preview loads.": "プレビューの読み込み中も編集を続けられます。",
+    "Preparing the first preview frame": "プレビューの最初のフレームを準備中"
   },
   "ko": {
     "Preparing project assets": "프로젝트 에셋 준비 중",
@@ -51,7 +55,9 @@
     "Refresh thumbnail": "썸네일 새로고침",
     "Downloading this file for playback. You can keep editing.": "재생을 위해 이 파일을 다운로드하고 있습니다. 편집을 계속할 수 있습니다.",
     "Downloading this file for playback.": "재생을 위해 이 파일을 다운로드하고 있습니다.",
-    "The preview will appear when it is ready.": "준비가 되면 미리보기가 표시됩니다."
+    "The preview will appear when it is ready.": "준비가 되면 미리보기가 표시됩니다.",
+    "You can keep editing while the preview loads.": "미리보기를 불러오는 동안에도 계속 편집할 수 있습니다.",
+    "Preparing the first preview frame": "미리보기의 첫 프레임 준비 중"
   },
   "de": {
     "Preparing project assets": "Projektmedien werden vorbereitet",
@@ -69,7 +75,9 @@
     "Refresh thumbnail": "Vorschaubild aktualisieren",
     "Downloading this file for playback. You can keep editing.": "Diese Datei wird zur Wiedergabe heruntergeladen. Du kannst weiter bearbeiten.",
     "Downloading this file for playback.": "Diese Datei wird zur Wiedergabe heruntergeladen.",
-    "The preview will appear when it is ready.": "Die Vorschau erscheint, sobald sie bereit ist."
+    "The preview will appear when it is ready.": "Die Vorschau erscheint, sobald sie bereit ist.",
+    "You can keep editing while the preview loads.": "Während die Vorschau lädt, kannst du weiterarbeiten.",
+    "Preparing the first preview frame": "Erstes Vorschaubild wird vorbereitet"
   },
   "fr": {
     "Preparing project assets": "Préparation des médias du projet",
@@ -87,7 +95,9 @@
     "Refresh thumbnail": "Actualiser la miniature",
     "Downloading this file for playback. You can keep editing.": "Téléchargement du fichier pour la lecture. Vous pouvez continuer le montage.",
     "Downloading this file for playback.": "Téléchargement du fichier pour la lecture.",
-    "The preview will appear when it is ready.": "L’aperçu s’affichera dès qu’il sera prêt."
+    "The preview will appear when it is ready.": "L’aperçu s’affichera dès qu’il sera prêt.",
+    "You can keep editing while the preview loads.": "Vous pouvez poursuivre le montage pendant le chargement de l’aperçu.",
+    "Preparing the first preview frame": "Préparation de la première image de l’aperçu"
   },
   "ru": {
     "Preparing project assets": "Подготовка материалов проекта",
@@ -105,7 +115,9 @@
     "Refresh thumbnail": "Обновить миниатюру",
     "Downloading this file for playback. You can keep editing.": "Файл загружается для воспроизведения. Можно продолжать редактирование.",
     "Downloading this file for playback.": "Файл загружается для воспроизведения.",
-    "The preview will appear when it is ready.": "Предпросмотр появится, когда будет готов."
+    "The preview will appear when it is ready.": "Предпросмотр появится, когда будет готов.",
+    "You can keep editing while the preview loads.": "Пока загружается предпросмотр, можно продолжать редактирование.",
+    "Preparing the first preview frame": "Подготовка первого кадра предпросмотра"
   },
   "es": {
     "Preparing project assets": "Preparando los recursos del proyecto",
@@ -123,7 +135,9 @@
     "Refresh thumbnail": "Actualizar miniatura",
     "Downloading this file for playback. You can keep editing.": "Descargando este archivo para reproducirlo. Puedes seguir editando.",
     "Downloading this file for playback.": "Descargando este archivo para reproducirlo.",
-    "The preview will appear when it is ready.": "La vista previa aparecerá cuando esté lista."
+    "The preview will appear when it is ready.": "La vista previa aparecerá cuando esté lista.",
+    "You can keep editing while the preview loads.": "Puedes seguir editando mientras se carga la vista previa.",
+    "Preparing the first preview frame": "Preparando el primer fotograma de la vista previa"
   },
   "pt-BR": {
     "Preparing project assets": "Preparando os recursos do projeto",
@@ -141,7 +155,9 @@
     "Refresh thumbnail": "Atualizar miniatura",
     "Downloading this file for playback. You can keep editing.": "Baixando este arquivo para reprodução. Você pode continuar editando.",
     "Downloading this file for playback.": "Baixando este arquivo para reprodução.",
-    "The preview will appear when it is ready.": "A prévia aparecerá quando estiver pronta."
+    "The preview will appear when it is ready.": "A prévia aparecerá quando estiver pronta.",
+    "You can keep editing while the preview loads.": "Você pode continuar editando enquanto a prévia carrega.",
+    "Preparing the first preview frame": "Preparando o primeiro quadro da prévia"
   },
   "it": {
     "Preparing project assets": "Preparazione delle risorse del progetto",
@@ -159,7 +175,9 @@
     "Refresh thumbnail": "Aggiorna miniatura",
     "Downloading this file for playback. You can keep editing.": "Download del file per la riproduzione. Puoi continuare a modificare il progetto.",
     "Downloading this file for playback.": "Download del file per la riproduzione.",
-    "The preview will appear when it is ready.": "L’anteprima apparirà quando sarà pronta."
+    "The preview will appear when it is ready.": "L’anteprima apparirà quando sarà pronta.",
+    "You can keep editing while the preview loads.": "Puoi continuare a modificare il progetto mentre si carica l’anteprima.",
+    "Preparing the first preview frame": "Preparazione del primo fotogramma di anteprima"
   },
   "tr": {
     "Preparing project assets": "Proje varlıkları hazırlanıyor",
@@ -177,6 +195,8 @@
     "Refresh thumbnail": "Küçük resmi yenile",
     "Downloading this file for playback. You can keep editing.": "Bu dosya oynatılmak üzere indiriliyor. Düzenlemeye devam edebilirsiniz.",
     "Downloading this file for playback.": "Bu dosya oynatılmak üzere indiriliyor.",
-    "The preview will appear when it is ready.": "Önizleme hazır olduğunda gösterilecek."
+    "The preview will appear when it is ready.": "Önizleme hazır olduğunda gösterilecek.",
+    "You can keep editing while the preview loads.": "Önizleme yüklenirken düzenlemeye devam edebilirsiniz.",
+    "Preparing the first preview frame": "Önizlemenin ilk karesi hazırlanıyor"
   }
 }

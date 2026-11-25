@@ -424,7 +424,7 @@ describe("ready to show", () => {
   it("covers the live canvas immediately until a displayable frame, without covering a hot reload", async () => {
     const { host, player } = await mountPlayer({ showInitialLoading: true });
     const cover = () => host.querySelector('[data-testid="composition-loading-overlay"]');
-    expect(cover()?.textContent).toContain("Loading preview…");
+    expect(cover()?.textContent).toContain("Preparing the first preview frame");
     loadAndReady(player);
     await twoFrames();
     expect(cover()).not.toBeNull();
@@ -533,7 +533,7 @@ describe("ready to show", () => {
       onCompositionLoadingChange,
     });
     expect(host.textContent).not.toContain("Preparing preview assets");
-    expect(host.textContent).not.toContain("Loading preview…");
+    expect(host.textContent).not.toContain("Preparing the first preview frame");
     expect(onCompositionLoadingChange).toHaveBeenLastCalledWith(true);
   });
 

@@ -1,4 +1,6 @@
 import { isLottieAnimationLoaded } from "@hyperframes/core/runtime/lottie-readiness";
+import { previewAssetName } from "../../../../shared/preview-asset-name";
+export { isDisplayablePreviewAssetName } from "../../../../shared/preview-asset-name";
 
 export type PreviewAssetKind = "image" | "video" | "audio" | "font" | "lottie";
 
@@ -81,29 +83,6 @@ export function assetLabelFromUrl(rawUrl: string | null | undefined, fallback: s
     return decoded.length > 48 ? `${decoded.slice(0, 45)}...` : decoded;
   } catch {
     return fallback;
-  }
-}
-
-/** Accept a readable media filename after URL decoding, including at the iframe boundary. */
-export function isDisplayablePreviewAssetName(value: unknown): value is string {
-  if (typeof value !== "string" || value.length > 120 || !/^[\p{L}\p{M}\p{N} _.'()’-]+$/u.test(value)) return false;
-  const match = /^(.+)\.(?:png|jpe?g|webp|gif|svg|avif|ico|bmp|tiff?|heic|mp4|mov|webm|mkv|m4v|ogv|mp3|wav|m4a|aac|ogg|oga|opus|flac|aiff?)$/i.exec(value);
-  if (!match || !/^[\p{L}\p{N}]/u.test(match[1])) return false;
-  const stem = match[1];
-  return !/(?:[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}|[a-f\d]{12,}|(?=[a-z\d]*\d)[a-z\d]{16,}|[a-z\d]{24,})/i.test(stem) &&
-    !/^(?:\d+|(?:untitled|unnamed|temp|tmp|file|asset|image|img|audio|video|download)(?:[ _-]?\d+)?)$/i.test(stem);
-}
-
-function pendingAssetName(raw: string): string | undefined {
-  const source = raw.trim();
-  if (!source || /^(?:[?#]|data:|blob:)/i.test(source)) return undefined;
-  try {
-    const url = new URL(source, "http://localhost/");
-    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
-    const name = decodeURIComponent(url.pathname.split("/").pop() || "");
-    return isDisplayablePreviewAssetName(name) ? name : undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -304,7 +283,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `img-${index}`,
       label: assetLabelFromUrl(originalSrc, `image-${index + 1}`),
-      pendingAsset: readyNow ? undefined : pendingAssetName(img.currentSrc || originalSrc),
+      pendingAsset: readyNow ? undefined : previewAssetName(img),
       kind: "image",
       settled: readyNow,
       failedReason: null,
@@ -580,7 +559,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `audio-${index}`,
       label: assetLabelFromUrl(originalSrc, `audio-${index + 1}`),
-      pendingAsset: readyNow ? undefined : pendingAssetName(audio.currentSrc || originalSrc) ?? pendingAssetName(audio.getAttribute("src") ?? ""),
+      pendingAsset: readyNow ? undefined : previewAssetName(audio),
       kind: "audio",
       settled: readyNow,
       failedReason: null,
@@ -615,7 +594,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `video-${index}`,
       label: assetLabelFromUrl(originalSrc, `video-${index + 1}`),
-      pendingAsset: readyNow ? undefined : pendingAssetName(video.currentSrc || originalSrc) ?? pendingAssetName(video.getAttribute("src") ?? ""),
+      pendingAsset: readyNow ? undefined : previewAssetName(video),
       kind: "video",
       settled: readyNow,
       failedReason: null,
