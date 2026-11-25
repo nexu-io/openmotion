@@ -443,7 +443,8 @@ export function mountDesktopHandoffRoutes(
       state: c.req.query('state'),
     });
     if (!validated.ok) {
-      return c.json({ code: 'INVALID_REQUEST', error: validated.error }, 400);
+      const errorMessage = 'error' in validated ? validated.error : 'Invalid start parameters';
+      return c.json({ code: 'INVALID_REQUEST', error: errorMessage }, 400);
     }
 
     const switchAccount = c.req.query('switch') === '1';
@@ -580,7 +581,8 @@ export function mountDesktopHandoffRoutes(
 
     const parsed = parseExchangeBody(rawJson);
     if (!parsed.ok) {
-      return c.json({ code: 'INVALID_REQUEST', error: parsed.error }, 400);
+      const errorMessage = 'error' in parsed ? parsed.error : 'Invalid exchange request body';
+      return c.json({ code: 'INVALID_REQUEST', error: errorMessage }, 400);
     }
 
     const { code, codeVerifier, redirectUri } = parsed.body;

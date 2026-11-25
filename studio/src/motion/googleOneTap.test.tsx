@@ -14,7 +14,7 @@ import {
   MOTION_ONETAP_DELAY_MS,
   MotionGoogleOneTap,
   ONETAP_ANCHOR_ID,
-  ONETAP_ATTRIBUTION_STORAGE_KEY,
+  ONETAP_ATTRIBUTION_STORAGE_ENTRY,
   ONETAP_SUPPRESSED_ONCE_KEY,
   ONETAP_SYNC_STORAGE_KEY,
   persistOneTapLandingAttribution,
@@ -499,7 +499,7 @@ it('resolves full od_* product entry attribution by URL -> localStorage -> od_at
     },
   });
   expect(unconsented.attribution.odEntry).not.toHaveProperty('odDeviceId');
-  const unconsentedStored = localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY);
+  const unconsentedStored = localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY);
   expect(unconsentedStored).toBeTruthy();
   expect(unconsentedStored).not.toContain('dev_123');
 

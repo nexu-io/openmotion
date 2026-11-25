@@ -13,7 +13,7 @@ export const ONETAP_SUPPRESSED_ONCE_KEY = 'od_onetap_suppressed_once' as const;
 export const ONETAP_SUPPRESS_QUERY_PARAM = 'od_onetap_suppress' as const;
 export const ONETAP_SYNC_STORAGE_KEY = 'om_onetap_logout_sync' as const;
 export const ONETAP_SYNC_CHANNEL_NAME = 'om_onetap_sync' as const;
-export const ONETAP_ATTRIBUTION_STORAGE_KEY = 'om_onetap_attribution_v1' as const;
+export const ONETAP_ATTRIBUTION_STORAGE_ENTRY = 'om_onetap_attribution_v1' as const;
 export const ONETAP_RETRY_EVENT = 'motion:onetap-retry' as const;
 export const ONETAP_ANCHOR_ID = 'od-onetap-anchor' as const;
 export const ONETAP_DESKTOP_MIN_WIDTH = 768;
@@ -527,13 +527,13 @@ export function persistOneTapLandingAttribution(): void {
     : { ...fromUrl, odDeviceId: undefined };
   if (Object.values(safeFromUrl).every(v => v === undefined)) return;
   try {
-    const existing = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY));
+    const existing = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY));
     const merged: StoredAttribution = {
       ...existing,
       ...safeFromUrl,
       ...(isMotionTrackingConsented() ? {} : { odDeviceId: undefined }),
     };
-    window.localStorage.setItem(ONETAP_ATTRIBUTION_STORAGE_KEY, JSON.stringify(merged));
+    window.localStorage.setItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY, JSON.stringify(merged));
   } catch {
     // Ignore storage unavailability.
   }
@@ -551,7 +551,7 @@ export function collectOneTapAttribution() {
   let fromStorage: StoredAttribution = {};
   let fromOdAttrStorage: StoredAttribution = {};
   try {
-    fromStorage = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY));
+    fromStorage = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY));
     fromOdAttrStorage = parseStoredAttribution(window.localStorage.getItem('od_attr'));
   } catch {
     // Ignore storage unavailability.

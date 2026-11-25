@@ -100,15 +100,15 @@ test('P0-5 suspends loopback HTTP response until PKCE exchange and session deliv
   }
 });
 
-test('P0-5 returns 302 for interactive Go (with test pricing domain) and 200 HTML for Plus+, unknown, non-interactive fast-path, and untrusted pricing URLs', async () => {
+test('P0-5 returns 302 for interactive Go and 200 HTML for Plus+, unknown, non-interactive fast-path, and untrusted pricing URLs', async () => {
   const cases = [
     {
-      label: 'interactive Go on test studio origin -> 302 test pricing',
-      studioOrigin: 'https://motion.open-design.powerformer.net',
+      label: 'interactive Go on studio origin -> 302 pricing',
+      studioOrigin: 'https://motion.open-design.ai',
       pricingUrl: undefined,
       payload: { planTier: 'go', interactiveLogin: true },
       expectedStatus: 302,
-      expectedLocation: 'https://open-design.powerformer.net/pricing',
+      expectedLocation: 'https://open-design.ai/pricing',
     },
     {
       label: 'non-interactive Free fast-path -> 200 success HTML (never 302)',
@@ -306,14 +306,10 @@ test('P0-5 returns retryable error HTML on session delivery failure, exchange ti
   }
 });
 
-test('resolveSafeDesktopPricingUrl enforces HTTPS open-design/powerformer allowlist and pricing path prefixes', () => {
+test('resolveSafeDesktopPricingUrl enforces HTTPS open-design allowlist and pricing path prefixes', () => {
   assert.equal(
     resolveSafeDesktopPricingUrl(undefined, 'https://motion.open-design.ai'),
     'https://open-design.ai/pricing',
-  );
-  assert.equal(
-    resolveSafeDesktopPricingUrl(undefined, 'https://motion.open-design.powerformer.net'),
-    'https://open-design.powerformer.net/pricing',
   );
   assert.equal(
     resolveSafeDesktopPricingUrl('https://open-design.ai/zh/pricing?utm_source=desktop', 'https://motion.open-design.ai'),
