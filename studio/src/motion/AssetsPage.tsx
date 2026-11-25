@@ -140,6 +140,10 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       'info',
     );
   };
+  const reusePrompt = (prompt: string) => {
+    const scene = studio?.destination.scene;
+    applyPrompt(isFeatureScene(scene) ? assetPromptForReuse(prompt, scene!.modality) : prompt);
+  };
   const gallery = useRef<HTMLElement>(null), galleryScroll = useRef<{ top: number; key: string } | undefined>(undefined);
   useLayoutEffect(() => {
     if (selected || !gallery.current || !browser.data || !galleryScroll.current) return;
@@ -460,7 +464,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         onView={viewJob}
         onRetrySave={retrySave}
         onResume={resumeJob}
-        onReusePrompt={applyPrompt}
+        onReusePrompt={reusePrompt}
         onDismiss={dismissJob}
       />
     ))
@@ -729,7 +733,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
           emptyContent={studioEmpty}
           blankCanvas={blankCanvas}
           onOpenDetail={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }}
-          onReusePrompt={applyPrompt}
+          onReusePrompt={reusePrompt}
           onUseReference={studio.destination.scene.modality === 'image' ? attachReference : undefined}
           onUseFirstFrame={studio.useAsFirstFrame}
           onCancelJob={cancelJob}

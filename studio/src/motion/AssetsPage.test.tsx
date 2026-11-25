@@ -835,6 +835,47 @@ it.each([
   expect(applied().getAttribute('data-prompt-applied-token')).toBe('3');
 });
 
+it.each([
+  ['text-to-video', 'video', videoFeaturePrompt('camera-control', '向前走。', { movement: 'pan', pace: 'dynamic' })],
+  ['text-to-image', 'image', imageFeaturePrompt('remove-background', '')],
+] as const)('preserves user-authored prompts verbatim when reusing from non-feature scene %s', async (sceneId, modality, stored) => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('plain');
+  asset.modality = modality;
+  Object.assign(asset.versions[0], { source: 'generated', prompt: stored });
+  records = new Map([[asset.id, asset]]);
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === sceneId)!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+    initialDraft: { modality, prompt: 'Replace this draft', references: [] },
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />));
+  await flush();
+  await click('Generations');
+  await click('More actions');
+  const menuItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Reuse prompt')!;
+  await act(async () => menuItem.click());
+  await flush();
+  const applied = () => container.querySelector('input[aria-label="Creation draft"]')!;
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
+
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-gen-open')!.click());
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
+
+  const failedJob: import('../../../shared/gateway').GenerationJob = {
+    id: 'plain-failure', modality, prompt: stored, state: 'failed',
+    model: { id: 'opendesign:test', label: 'Test model', provider: 'opendesign' },
+    createdAt: 300, updatedAt: 300,
+  };
+  await act(async () => lastComposerOnCreated?.(failedJob));
+  await flush();
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
+});
+
 it('renders justified equal-height Generations flows for both Image and Video with human model names and unclipped Cinema Lightbox', async () => {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const imageStudio = {

@@ -1020,11 +1020,45 @@ it('updates the camera prompt budget when the selected camera movement changes',
   const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
   await renderVideoPrompt('video-camera-control', prompt);
   expect(submit().disabled).toBe(false);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
   await renderVideoPrompt('video-camera-control', prompt, { movement: 'static' });
   expect(input().maxLength).toBeLessThan(prompt.length);
   expect(input().value).toBe(prompt);
   expect(input().getAttribute('aria-invalid')).toBe('true');
   expect(submit().disabled).toBe(true);
+  const alert = container.querySelector('[role="alert"]');
+  expect(alert?.textContent).toBe('Remove {count} characters to stay within the {limit}-character limit.');
+  expect(input().getAttribute('aria-describedby')).toContain(alert!.id);
+
+  // One character over shows the singular recovery message.
+  const staticLimit = 20_000 - videoFeaturePrompt('camera-control', 'x', { movement: 'static' }).length + 1;
+  await renderVideoPrompt('video-camera-control', 'x'.repeat(staticLimit + 1), { movement: 'static' });
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe('Remove 1 character to stay within the {limit}-character limit.');
+  expect(submit().disabled).toBe(true);
+
+  // Outer whitespace trimmed before submission must not trigger a false over-limit block.
+  generate.mockResolvedValue({ job: { id: 'trimmed-boundary-job' } });
+  const paddedBoundary = `\n${'x'.repeat(staticLimit)}\n`;
+  await renderVideoPrompt('video-camera-control', paddedBoundary, { movement: 'static' });
+  expect(input().getAttribute('aria-invalid')).toBeNull();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(submit().disabled).toBe(false);
+  await act(async () => submit().click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    prompt: videoFeaturePrompt('camera-control', paddedBoundary, { movement: 'static' }),
+  }));
+  expect(generate.mock.calls[0][0].prompt).toHaveLength(20_000);
+});
+
+it('accepts outer whitespace on a 20,000-character plain video prompt and submits the trimmed text', async () => {
+  generate.mockResolvedValue({ job: { id: 'plain-trimmed-job' } });
+  const padded = `\n${'x'.repeat(20_000)}\n`;
+  await renderVideoPrompt('text-to-video', padded);
+  const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(submit.disabled).toBe(false);
+  await act(async () => submit.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: 'x'.repeat(20_000) }));
 });
 
 it.each(['remove-background', 'relight', 'character'] as const)('honors the assembled prompt budget for %s', async feature => {

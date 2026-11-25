@@ -13,7 +13,6 @@ import { VideoFrameThumbnail } from '../components/ui/VideoFrameThumbnail';
 import { MediaDurationBadge } from '../components/sidebar/MediaDurationBadge';
 import { AssetHoverVideo } from './AssetHoverVideo';
 import { AssetGenerationPlaceholder } from './AssetGenerationPlaceholder';
-import { assetPromptForReuse } from './assetPromptForReuse';
 import { GallerySearchField } from './GalleryFilters';
 import type { useAssetBrowser } from './AssetBrowser';
 import { buildLoginUrl } from './AccountSettings';
@@ -189,7 +188,7 @@ function GenerationLightbox({
           </div>
           <div className="om-asset-actions">
             {promptText && (
-              <Button variant="ghost" className="om-button h-auto" onClick={() => { onReusePrompt(assetPromptForReuse(promptText, asset.modality)); onClose(); }}>
+              <Button variant="ghost" className="om-button h-auto" onClick={() => { onReusePrompt(promptText); onClose(); }}>
                 <RemixIcon name="refresh-line" size={15} />
                 {t('Reuse prompt')}
               </Button>
@@ -490,7 +489,7 @@ export function MediaGenerationHistory({
               }
             >
               {promptText && (
-                <MenuItem icon={<RemixIcon name="refresh-line" size={14} />} onClick={() => onReusePrompt(assetPromptForReuse(promptText, asset.modality))}>
+                <MenuItem icon={<RemixIcon name="refresh-line" size={14} />} onClick={() => onReusePrompt(promptText)}>
                   {t('Reuse prompt')}
                 </MenuItem>
               )}

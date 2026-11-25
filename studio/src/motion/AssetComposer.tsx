@@ -241,8 +241,16 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const prefix = feature ? imageFeaturePromptPrefix(feature, draft.relight)
     : videoFeature ? videoFeaturePromptPrefix(videoFeature, draft.videoChoices) : '';
   const promptLimit = MAX_GENERATION_PROMPT_LENGTH - prefix.length;
-  const promptTooLong = draft.prompt.length > promptLimit;
-  const promptReady = !promptTooLong && Boolean(draft.prompt.trim() || featureRule?.promptOptional);
+  const composedPrompt = (feature
+    ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
+    : videoFeature
+      ? videoFeaturePrompt(videoFeature, draft.prompt, draft.videoChoices)
+      : draft.prompt
+  ).trim();
+  const trimmedPromptLength = draft.prompt.trim().length;
+  const promptExcess = Math.max(0, composedPrompt.length - MAX_GENERATION_PROMPT_LENGTH);
+  const promptTooLong = promptExcess > 0;
+  const promptReady = !promptTooLong && Boolean(trimmedPromptLength || featureRule?.promptOptional);
   const submit = async () => {
     if (!selected || !promptReady || busy || uploadingReferences || invalidReferences) return; setBusy(true);
     const studioContext = studio ? { studio: studio.destination.studio.id, scene: studio.destination.scene.id, model: selected.id } : undefined;
@@ -258,9 +266,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       : undefined;
     try {
       const parsed = requestParameters(parameters, selected, draft.references.length > 0, studioDefaultValues(selected));
-      const prompt = feature ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
-        : videoFeature ? videoFeaturePrompt(videoFeature, draft.prompt, draft.videoChoices)
-        : draft.prompt;
+      const prompt = composedPrompt;
       const submittedParameters = { ...parsed, ...featureRule?.parameters };
       const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt, model: selected.id, mode: selected.mode, parameters: submittedParameters,
         ...(draft.target ? { assetId: draft.target.asset.id, parentVersionId: draft.target.versionId } : {}), references: draft.references.map(r => r.reference) });
@@ -283,12 +289,24 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const studioModelHeading = <span className="om-eyebrow">{t('Generation model')}</span>;
   const speechPrompt = scene?.id === 'speech' || selected?.mode === 'text-to-speech';
   const promptCountId = `${promptId}-count`;
-  const promptCount = <span id={promptCountId} className="om-eyebrow">{draft.prompt.length.toLocaleString()} / {promptLimit.toLocaleString()}</span>;
+  const promptErrorId = `${promptId}-error`;
+  const promptCount = <span id={promptCountId} className="om-eyebrow" data-invalid={promptTooLong || undefined}>{trimmedPromptLength.toLocaleString()} / {promptLimit.toLocaleString()}</span>;
+  const promptError = promptTooLong ? (
+    <p id={promptErrorId} className="om-prompt-error" role="alert">
+      {promptExcess === 1
+        ? t('Remove 1 character to stay within the {limit}-character limit.', { limit: promptLimit.toLocaleString() })
+        : t('Remove {count} characters to stay within the {limit}-character limit.', { count: promptExcess.toLocaleString(), limit: promptLimit.toLocaleString() })}
+    </p>
+  ) : null;
+  const promptDescribedBy = [
+    !imageWorkspace || featureMode ? promptCountId : undefined,
+    promptTooLong ? promptErrorId : undefined,
+  ].filter(Boolean).join(' ') || undefined;
   const promptInput: ComponentProps<'textarea'> = {
     id: promptId,
     maxLength: promptLimit,
     'aria-label': imageWorkspace ? undefined : t('Asset prompt'),
-    'aria-describedby': !imageWorkspace || featureMode ? promptCountId : undefined,
+    'aria-describedby': promptDescribedBy,
     'aria-invalid': promptTooLong || undefined,
     placeholder: t(featureRule?.promptOptional ? 'Optional: add anything the model should know.' : scene?.hint ?? (speechPrompt ? 'Write the words you want spoken.' : kind.hint)),
     value: draft.prompt,
@@ -303,6 +321,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       <FieldTextarea ref={promptRef} {...promptInput} appearance="embedded" className="om-image-prompt" />
     </div>
     {featureMode && promptCount}
+    {promptError}
   </div> : <div className="om-creation-prompt" data-prompt-applied={promptHighlight}>
     <label className="om-eyebrow" htmlFor={promptId}><RemixIcon name="pen-nib-line" size={14} />{t(speechPrompt ? 'Speech text' : 'Your idea')}</label>
     <textarea ref={promptRef} {...promptInput} />
@@ -311,6 +330,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       <span className="om-eyebrow">{t(draft.references.length ? 'References stay linked to their versions' : 'Start with a few words. Make it your own.')}</span>
       {promptCount}
     </div>
+    {promptError}
   </div>;
 
   const cloudWeb = useCloudWebMode();
