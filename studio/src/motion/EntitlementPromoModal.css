@@ -517,9 +517,9 @@
     gap: 10px;
   }
   .om-epm-models {
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 6px;
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
   .om-epm-cta {
     width: 100%;

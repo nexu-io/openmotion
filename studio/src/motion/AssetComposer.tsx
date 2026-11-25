@@ -14,6 +14,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { AssetTaskHistory } from './AssetTaskHistory';
 import { AssetGenerationCard, creationKinds } from './AssetCreationVisuals';
 import { GenerationParameters, emptyParameters, parameterInputImageRatio, requestParameters, shotParameters, type ParameterDraft } from './GenerationParameters';
+import { generationOptions, resolveGenerationParameters } from '../../../shared/generation-options';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { useMediaCatalog } from './useMediaCatalog';
@@ -335,23 +336,33 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
   const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
-  const effectiveParameters = (() => {
+  const resolvedParameters = (() => {
     if (!selected) return undefined;
-    try { return requestParameters(parameters, selected, draft.references.length > 0, activeDefaultValues); }
-    catch { return undefined; }
+    try {
+      const explicit = requestParameters(parameters, selected, draft.references.length > 0, activeDefaultValues);
+      return resolveGenerationParameters(selected, explicit, draft.references.length > 0);
+    } catch {
+      return undefined;
+    }
   })();
-  const resolutionFieldKey: 'resolution' | 'size' = (() => {
-    const fields = selected?.generationOptions?.fields ?? [];
-    if (fields.some(field => field.key === 'resolution')) return 'resolution';
-    if (fields.some(field => field.key === 'size')) return 'size';
-    if (selected?.defaults && 'size' in selected.defaults && !('resolution' in selected.defaults)) return 'size';
-    if (effectiveParameters && 'size' in effectiveParameters && !('resolution' in effectiveParameters)) return 'size';
-    return 'resolution';
-  })();
+  const resolvedFields = selected ? generationOptions(selected, draft.references.length > 0)?.fields ?? [] : [];
+  const resolutionField =
+    resolvedFields.find(field => field.key === 'resolution') ??
+    resolvedFields.find(field => field.key === 'size');
+  const resolutionFieldKey: 'resolution' | 'size' = resolutionField?.key === 'size'
+    ? 'size'
+    : resolutionField?.key === 'resolution'
+      ? 'resolution'
+      : selected?.defaults && 'size' in selected.defaults && !('resolution' in selected.defaults)
+        ? 'size'
+        : resolvedParameters && 'size' in resolvedParameters && !('resolution' in resolvedParameters)
+          ? 'size'
+          : 'resolution';
   const activeResolution =
-    effectiveParameters?.[resolutionFieldKey] ??
+    resolvedParameters?.[resolutionFieldKey] ??
     parameters.values[resolutionFieldKey] ??
     draft.parameters?.[resolutionFieldKey] ??
+    resolutionField?.default ??
     selected?.defaults?.[resolutionFieldKey];
   const planResCap = isHostedSelected && !hostedPlanUpgrade && draft.modality === 'image'
     ? imageResolutionCap(account, selected?.modelId)
