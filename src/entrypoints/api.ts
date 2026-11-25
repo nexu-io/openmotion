@@ -1014,7 +1014,17 @@ function createCloudMediaJobsPort(deps: {
     jobId: string,
     requestId: string,
   ): Promise<Record<string, unknown>> => {
-    validateStableRequestId(requestId);
+    try {
+      validateStableRequestId(requestId);
+    } catch {
+      throw new CloudError(
+        'INVALID_ARGUMENT',
+        requestId.trim().length === 0
+          ? 'requestId is required for retry_save'
+          : 'Valid stable requestId is required for retry_save',
+        { status: 400, applied: false },
+      );
+    }
     if (!isUuid(jobId)) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }

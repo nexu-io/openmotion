@@ -604,9 +604,15 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
     }
 
     if (!pollResult || pollResult.status !== 'succeeded') {
-      throw new CloudError('SERVICE_UNAVAILABLE', 'Upstream media generation timed out; use resume to continue polling', {
-        status: 504,
-      });
+      throw new CloudError(
+        'SERVICE_UNAVAILABLE',
+        retrySave
+          ? 'Timed out retrieving upstream media result; use retry_save to retry saving'
+          : 'Upstream media generation timed out; use resume to continue polling',
+        {
+          status: 504,
+        },
+      );
     }
 
     const outputs = pollResult.outputs ?? [];

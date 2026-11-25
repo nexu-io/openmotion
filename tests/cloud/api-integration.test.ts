@@ -1266,6 +1266,103 @@ describe('Cloud media generation and library save', () => {
     assert.equal(recovered.stage, 'saving');
     assert.equal(recovered.failureStage, undefined);
   });
+
+  it('returns 400 INVALID_ARGUMENT with applied=false when openmotion_media_use retry_save omits requestId', async () => {
+    const { app } = createApiFixture();
+    const res = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_media_use',
+        arguments: { action: 'retry_save', jobId: randomUUID() },
+      }),
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as {
+      code?: string;
+      message?: string;
+      applied?: unknown;
+    };
+    assert.equal(body.code, 'INVALID_ARGUMENT');
+    assert.equal(body.applied, false);
+    assert.match(body.message ?? '', /requestId is required for retry_save/i);
+  });
+
+  it('emits a retry_save-specific timeout hint when retry_save_generation exhausts its poll window', async (t) => {
+    const { app, db, gateway, config, storage, eventBus, pgClient } = createApiFixture();
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Initial CAS save failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Silver lake',
+        requestId: 'generate-retry-save-timeout',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Initial CAS save failure/);
+
+    const retry1 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-save-poll-timeout-1' },
+      }),
+    });
+    assert.equal(retry1.status, 200);
+
+    t.mock.method(gateway, 'pollTask', async (_ctx: unknown, input: { remoteTaskId: string }) => ({
+      remoteTaskId: input.remoteTaskId,
+      status: 'running' as const,
+    }));
+
+    await assert.rejects(
+      processMediaGenerateJob({ ...worker, pollIntervalMs: 5, maxPollMs: 15 }, 'retry_save_generation', payload),
+      /use retry_save/i,
+    );
+
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(status.status, 200);
+    const { job: timedOut } = (await status.json()) as {
+      job: { state: string; savePending: boolean; failureStage?: string; error?: string };
+    };
+    const dbRow = pgClient.rows('jobs').find((row) => row.id === jobId)!;
+    assert.equal(timedOut.state, 'failed');
+    assert.equal(timedOut.savePending, true);
+    assert.equal(timedOut.failureStage, 'saving');
+    assert.match(String(timedOut.error ?? dbRow.error_message ?? ''), /retry_save/i);
+    assert.doesNotMatch(String(timedOut.error ?? dbRow.error_message ?? ''), /use resume/i);
+
+    const resumeAttempt = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'resume', jobId, requestId: 'resume-after-retry-save-timeout' },
+      }),
+    });
+    assert.equal(resumeAttempt.status, 409);
+
+    const retry2 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-save-poll-timeout-2' },
+      }),
+    });
+    assert.equal(retry2.status, 200);
+  });
 });
 
 it('logs registered project read/write routes without recording request paths or query strings', async () => {
