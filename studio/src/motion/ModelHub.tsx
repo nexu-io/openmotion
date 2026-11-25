@@ -13,20 +13,45 @@ import { findModelHub } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
 import { reportHubClick, reportHubPageView } from './exploreTracking';
 import { BackToExploreButton } from './BackToExploreButton';
+import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
+import { isDesktopApp } from '../utils/platformHost';
 
 /** Aggregates one model family: what it is, what to make with it, and whether this workspace can use it. */
-export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings, onStartScenario, hasProject = false }: {
-  id: string; hasProject?: boolean; onExplore: () => void; onProvider: (provider: string) => void; onModel: (id: string) => void;
+export function ModelHub({ id, onExplore, onProvider, onOpenMcp, onModel, onUse, onSettings, onStartScenario, hasProject = false }: {
+  id: string; hasProject?: boolean; onExplore: () => void; onProvider: (provider: string) => void; onOpenMcp?: () => void; onModel: (id: string) => void;
   onUse: () => void; onSettings: (section: 'account' | 'subscription') => void; onStartScenario?: () => void;
 }) {
   const { t } = useI18n();
+  const cloudWeb = useCloudWebMode();
   const [query, setQuery] = useState('');
+  const [mcpConnected, setMcpConnected] = useState(false);
   const search = useRef<HTMLInputElement>(null);
   const searchShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
   const hub = findModelHub(id);
   const { catalog, failed, retry } = useMediaCatalog(Boolean(hub));
   const account = useAccountSummary();
   const signedIn = account.account?.state === 'signed-in';
+  useEffect(() => {
+    if (!signedIn) {
+      setMcpConnected(false);
+      return;
+    }
+    let cancelled = false;
+    void fetch('/motion-api/oauth/connections', { credentials: 'same-origin' })
+      .then(res => (res.ok ? res.json() : null))
+      .then((data: { connections?: Array<{ activeTokenCount?: number }> } | null) => {
+        if (cancelled) return;
+        const connected = Boolean(
+          Array.isArray(data?.connections) &&
+            data.connections.some(item => typeof item?.activeTokenCount === 'number' && item.activeTokenCount > 0),
+        );
+        setMcpConnected(connected);
+      })
+      .catch(() => {
+        if (!cancelled) setMcpConnected(false);
+      });
+    return () => { cancelled = true; };
+  }, [signedIn]);
   const viewed = useRef(false);
   const accountKnown = account.account !== null || account.error;
   useEffect(() => {
@@ -64,15 +89,55 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
         <h1>{hub.latestModel}</h1>
         <p>{t(hub.summary)}</p>
         <div className="om-model-hub-actions">
-          {signedIn
-            ? <>
-              <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={() => { track('hub_hero', 'open_in_studio'); onUse(); }}>{t('Open in {studio}', { studio: t('Motion Studio') })}<RemixIcon name="arrow-right-line" size={16} /></Button>
-              <Button variant="plain" className="om-button om-model-hub-connected" onClick={() => { track('hub_hero', 'manage_connection'); onProvider('opendesign'); }} title={t('Model gateway')}><RemixIcon name="checkbox-circle-fill" size={16} />{t('Connected to {provider}', { provider: gateway?.label ?? 'OpenDesign' })}</Button>
-            </>
-            : <>
-              <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={() => { track('hub_hero', 'sign_in'); onSettings('account'); }}>{t('Sign in to use {model} now', { model: hub.latestModel })}<RemixIcon name="arrow-right-line" size={16} /></Button>
-              <Button variant="ghost" className="om-button h-auto" onClick={() => { track('hub_hero', 'manage_connection'); onProvider('opendesign'); }}><RemixIcon name="brain-line" size={16} />{t('Model gateway')}</Button>
-            </>}
+          <Button
+            variant="ghost"
+            className="om-button h-auto"
+            data-primary="media"
+            onClick={() => {
+              if (signedIn) {
+                track('hub_hero', 'open_in_studio');
+                onUse();
+                return;
+              }
+              track('hub_hero', 'sign_in');
+              if (cloudWeb && !isDesktopApp() && hasEntitlementModalListeners()) {
+                openEntitlementModal({ mode: 'guest', hookId: 'header_signin' });
+                return;
+              }
+              onSettings('account');
+            }}
+          >
+            {t('Open in {studio}', { studio: t('Motion Studio') })}
+            <RemixIcon name="arrow-right-line" size={16} />
+          </Button>
+          {signedIn && mcpConnected ? (
+            <Button
+              variant="plain"
+              className="om-button om-model-hub-connected"
+              onClick={() => {
+                track('hub_hero', 'manage_connection');
+                if (onOpenMcp) onOpenMcp();
+                else onProvider('opendesign');
+              }}
+              title={t('Connect MCP')}
+            >
+              <RemixIcon name="checkbox-circle-fill" size={16} />
+              {t('Connected to {provider}', { provider: gateway?.label ?? 'OpenDesign' })} · MCP
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              className="om-button h-auto"
+              onClick={() => {
+                track('hub_hero', 'manage_connection');
+                if (onOpenMcp) onOpenMcp();
+                else onProvider('opendesign');
+              }}
+            >
+              <RemixIcon name="plug-line" size={16} />
+              {t('Connect MCP')}
+            </Button>
+          )}
           {onStartScenario && (
             <Button variant="ghost" type="button" className="om-button h-auto" onClick={() => { track('hub_hero', 'open_in_studio'); onStartScenario(); }}>
               <RemixIcon name="route-line" size={16} />{t('Start Gemini 4 Neon workflow')}

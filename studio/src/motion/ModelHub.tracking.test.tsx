@@ -34,7 +34,7 @@ it('reports one hub view and its hero, filter, video and detail actions by id on
   await act(async () => root.render(<I18nProvider initialLocale="en"><ModelHub id="gemini-4" hasProject onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onSettings={() => {}} /></I18nProvider>));
   expect(of('page_view').map(row => row.properties)).toEqual([expect.objectContaining({ page_name: 'model_hub', hub_id: 'gemini-4', signed_in: false, has_project: true })]);
 
-  await act(async () => button('Model gateway', container.querySelector('.om-model-hub-hero')!).click());
+  await act(async () => button('Connect MCP', container.querySelector('.om-model-hub-hero')!).click());
   expect(clicks().at(-1)).toMatchObject({ page_name: 'model_hub', area: 'hub_hero', element: 'manage_connection', hub_id: 'gemini-4', signed_in: false });
 
   const filters = container.querySelectorAll<HTMLButtonElement>('.om-hub-video-filters button');
