@@ -1201,6 +1201,71 @@ describe('Cloud media generation and library save', () => {
     assert.equal(publishedEvents.some((evt) => evt.state === 'cancelled'), true);
     assert.equal(pgClient.rows('assets').length, 0);
   });
+
+  it('rolls back retry_save to failed with savePending=true when enqueueMediaGenerate rejects once', async (t) => {
+    const { app, db, gateway, config, storage, eventBus, queues } = createApiFixture();
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Transient CAS failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Cedar lantern',
+        requestId: 'generate-enqueue-rollback',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Transient CAS failure/);
+
+    const origEnqueue = queues.enqueueMediaGenerate.bind(queues);
+    t.mock.method(queues, 'enqueueMediaGenerate', async (...args: Parameters<typeof origEnqueue>) => {
+      throw new Error('Redis queue down');
+    }, { times: 1 });
+
+    const failedEnqueue = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-enqueue-fails' },
+      }),
+    });
+    assert.equal(failedEnqueue.status, 500);
+
+    const statusAfterRollback = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(statusAfterRollback.status, 200);
+    const { job: rolledBack } = (await statusAfterRollback.json()) as {
+      job: { state: string; savePending: boolean; failureStage?: string };
+    };
+    assert.equal(rolledBack.state, 'failed');
+    assert.equal(rolledBack.savePending, true);
+    assert.equal(rolledBack.failureStage, 'saving');
+
+    // A subsequent retry_save with a fresh requestId must succeed cleanly instead of hitting 409.
+    const nextRetry = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-enqueue-recovers' },
+      }),
+    });
+    assert.equal(nextRetry.status, 200);
+    const { job: recovered } = (await nextRetry.json()) as {
+      job: { state: string; stage: string; failureStage?: string };
+    };
+    assert.equal(recovered.state, 'queued');
+    assert.equal(recovered.stage, 'saving');
+    assert.equal(recovered.failureStage, undefined);
+  });
 });
 
 it('logs registered project read/write routes without recording request paths or query strings', async () => {
@@ -4160,6 +4225,7 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
       remote_id: 'mit_unknown_timeout',
       remote_terminal: false,
       save_pending: false,
+      failure_stage: 'generate',
       error_code: 'request_state_unknown',
       error_message: 'OpenDesign could not confirm whether this request ran, so it was not resubmitted. Inspect the original task before retrying.',
       result_json: { error: { code: 'request_state_unknown', outcomeUnknown: true } },
@@ -4178,9 +4244,12 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
 
     const resumableRes = await app.request(`/motion-api/models/jobs/${resumableJobId}`);
     assert.equal(resumableRes.status, 200);
-    const resumableBody = (await resumableRes.json()) as { job: { remoteTerminal?: boolean; errorCode?: string } };
+    const resumableBody = (await resumableRes.json()) as {
+      job: { remoteTerminal?: boolean; errorCode?: string; failureStage?: string };
+    };
     assert.equal(resumableBody.job.remoteTerminal, false);
     assert.equal(resumableBody.job.errorCode, 'request_state_unknown');
+    assert.equal(resumableBody.job.failureStage, 'generate');
 
     const phase1ListRes = await app.request('/motion-api/phase1/call', {
       method: 'POST',
@@ -4211,7 +4280,14 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
       }),
     });
     assert.equal(resumeActiveRes.status, 200);
-    const resumed = (await resumeActiveRes.json()) as { job: { state: string } };
+    const resumed = (await resumeActiveRes.json()) as { job: { state: string; failureStage?: string } };
     assert.equal(resumed.job.state, 'queued');
+    assert.equal(resumed.job.failureStage, undefined);
+
+    const statusAfterResume = await app.request(`/motion-api/models/jobs/${resumableJobId}`);
+    assert.equal(statusAfterResume.status, 200);
+    const resumedStatus = (await statusAfterResume.json()) as { job: { state: string; failureStage?: string } };
+    assert.equal(resumedStatus.job.state, 'queued');
+    assert.equal(resumedStatus.job.failureStage, undefined);
   });
 });

@@ -986,6 +986,7 @@ function createCloudMediaJobsPort(deps: {
         asUpdate(jobs, {
           state: 'queued',
           stage: 'resuming',
+          failureStage: null,
           errorCode: null,
           errorMessage: null,
           terminalAt: null,
@@ -1051,19 +1052,7 @@ function createCloudMediaJobsPort(deps: {
         { jobId, workspaceId: auth.workspaceId },
         { jobId: buildRetrySaveQueueJobId(existing) },
       );
-      const [replayedRow] = await deps.db
-        .update(jobs)
-        .set(asUpdate(jobs, { updatedAt: sql`now()` }))
-        .where(
-          and(
-            eq(jobs.workspaceId, auth.workspaceId),
-            eq(jobs.id, jobId),
-            eq(jobs.state, 'queued'),
-            eq(jobs.stage, 'saving'),
-          ),
-        )
-        .returning();
-      return { job: serializeJob(replayedRow ?? existing) };
+      return { job: serializeJob(existing) };
     }
     if (!existing.savePending || !existing.remoteId || existing.state !== 'failed') {
       throw new CloudError('INVALID_ARGUMENT', 'Media job does not have a pending save to retry.', {
@@ -1153,7 +1142,7 @@ function createCloudMediaJobsPort(deps: {
             eq(jobs.workspaceId, auth.workspaceId),
             eq(jobs.id, jobId),
             eq(jobs.state, 'queued'),
-            eq(jobs.updatedAt, updated.updatedAt),
+            eq(jobs.stage, 'saving'),
           ),
         )
         .catch(() => {});
