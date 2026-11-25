@@ -36,11 +36,33 @@ import { isFeatureScene } from './creativeStudios';
 import { isSupportedReferenceMime, OPEN_DESIGN_MAX_REFERENCE_BYTES, prepareReferenceImage, ReferenceImageError } from './compressReferenceImage';
 import { imageModelLabel, isOpenDesignProvider } from './imageMenuModels';
 import { AssetGalleryToolbar } from './AssetGalleryToolbar';
+import { clearPersistedStudioDraft, readPersistedStudioDrafts, savePersistedStudioDraft } from './authRecoveryStore';
 import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { useAccountSummary } from './AccountSettings';
 import { openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { AssetsGuestEmptyState } from './EntitlementTouchpointCards';
 import './assets.css';
+
+const STANDALONE_ASSET_DRAFT_KEY = 'assets/standalone';
+
+function readStandaloneAssetDraft(): AssetDraft | undefined {
+  const saved = readPersistedStudioDrafts<AssetDraft>()[STANDALONE_ASSET_DRAFT_KEY];
+  if (!saved || typeof saved !== 'object') return undefined;
+  const hasContent = (typeof saved.prompt === 'string' && saved.prompt.trim().length > 0)
+    || (Array.isArray(saved.references) && saved.references.length > 0);
+  if (!hasContent) return undefined;
+  return {
+    modality: saved.modality === 'video' || saved.modality === 'audio' ? saved.modality : 'image',
+    prompt: typeof saved.prompt === 'string' ? saved.prompt : '',
+    references: Array.isArray(saved.references) ? saved.references : [],
+    ...(saved.relight ? { relight: saved.relight } : {}),
+    ...(saved.videoChoices ? { videoChoices: saved.videoChoices } : {}),
+    ...(saved.shotPreferences ? { shotPreferences: saved.shotPreferences } : {}),
+    ...(saved.preferredModel ? { preferredModel: saved.preferredModel } : {}),
+    ...(saved.model ? { model: saved.model } : {}),
+    ...(saved.parameters ? { parameters: saved.parameters } : {}),
+  };
+}
 
 export function AssetsPage({ active, hasProject = false, studio, routeId, routeVersion, onAssetRoute }: { routeId?: string | null; routeVersion?: string | null; onAssetRoute?: (id: string | null, version: string | null) => void; active: boolean; hasProject?: boolean; studio?: StudioCreation }) {
   const { t } = useI18n(), toast = useToast();
@@ -48,8 +70,9 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const { account } = useAccountSummary({ eager: cloudWeb });
   const isCloudGuest = cloudWeb && account?.state === 'signed-out';
   const cloudGuestAssets = !studio && isCloudGuest;
-  const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(Boolean(studio) && !studio?.openCreate), [picking, setPicking] = useState(false), [pickerMulti, setPickerMulti] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
-  const [draft, setDraft] = useState<AssetDraft>(() => studio?.initialDraft ?? { modality: studio?.destination.scene.modality ?? 'image', prompt: '', references: [] });
+  const initialStandaloneDraft = useMemo(() => (studio ? undefined : readStandaloneAssetDraft()), [Boolean(studio)]);
+  const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(() => (studio ? !studio.openCreate : Boolean(initialStandaloneDraft))), [picking, setPicking] = useState(false), [pickerMulti, setPickerMulti] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
+  const [draft, setDraft] = useState<AssetDraft>(() => studio?.initialDraft ?? initialStandaloneDraft ?? { modality: studio?.destination.scene.modality ?? 'image', prompt: '', references: [] });
   const [draftKeyState, setDraftKeyState] = useState(studio?.draftKey);
   const promptAppliedSeq = useRef(0);
   const [promptAppliedToken, setPromptAppliedToken] = useState(0);
@@ -64,13 +87,26 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const [taskId, setTaskId] = useState<string | undefined>(), [taskEpoch, setTaskEpoch] = useState(0);
   const [historyLoading, setHistoryLoading] = useState(true), [historyError, setHistoryError] = useState<string>(), [historyRetry, setHistoryRetry] = useState(0), [selectingTask, setSelectingTask] = useState(false);
   const studioForm = studio && !selected ? studio : undefined;
-  const scoped = Boolean(studio), lastStudioDraft = useRef(draft);
+  const scoped = Boolean(studio), lastStudioDraft = useRef(draft), submittedDraftRef = useRef<AssetDraft | undefined>(undefined);
+  const markDraftSubmitted = useCallback((storageKey: string) => {
+    clearPersistedStudioDraft(storageKey);
+    // Capture the post-submit draft after Composer's queued setDraft(current => ({ ...current, model, parameters }))
+    // runs in the same React batch, so useLayoutEffect suppresses persisting the submitted draft without masking later edits.
+    setDraft(current => {
+      submittedDraftRef.current = current;
+      return current;
+    });
+  }, []);
   useLayoutEffect(() => {
+    if (submittedDraftRef.current === draft) return;
+    submittedDraftRef.current = undefined;
     if (studioForm && (!studioForm.draftKey || studioForm.draftKey === draftKeyState) && !draft.target && draft.modality === studioForm.destination.scene.modality) {
       lastStudioDraft.current = draft;
       studioForm.remember(draft);
+    } else if (!studio && creating && !draft.target) {
+      savePersistedStudioDraft(STANDALONE_ASSET_DRAFT_KEY, draft);
     }
-  }, [studioForm, draft, draftKeyState]);
+  }, [studioForm, studio, creating, draft, draftKeyState]);
   const selectionRequest = useRef(0);
   const selectedAsset = useRef<LibraryAsset | undefined>(undefined), assetReadRequest = useRef(0);
   const pendingWrites = useRef(new Set<string>()), [updatingAssets, setUpdatingAssets] = useState<Set<string>>(new Set());
@@ -156,9 +192,18 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     return () => { selectionRequest.current++; };
   }, [active, routeId, routeVersion, onAssetRoute, onError, clearPreview, selectVersion, missingVersion]);
   useEffect(() => {
-    if (!active) return; let cancelled = false, pending = false;
+    if (!active) return;
+    let cancelled = false, pending = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const stopPolling = () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
     const poll = async () => {
-      if (pending || document.hidden) return; pending = true;
+      if (pending || document.hidden) return;
+      pending = true;
       try {
         const result = await assetRequest<{ jobs: GenerationJob[] }>({ action: 'jobs' });
         if (cancelled) return;
@@ -169,9 +214,36 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
           knownJobs.current = next; setJobs(next);
           if (outputsChanged) refresh();
         }
-      } catch { if (!cancelled) setHistoryError('Could not load task history'); } finally { pending = false; if (!cancelled) setHistoryLoading(false); }
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 401) {
+          // Signed-out guest state: do not surface a task-history failure pill or keep polling on 401.
+          setHistoryError(undefined);
+          stopPolling();
+          return;
+        }
+        setHistoryError('Could not load task history');
+      } finally {
+        pending = false;
+        if (!cancelled) setHistoryLoading(false);
+      }
     };
-    void poll(); const timer = setInterval(() => void poll(), 2500); return () => { cancelled = true; clearInterval(timer); };
+    const startPolling = () => {
+      stopPolling();
+      void poll();
+      timer = setInterval(() => void poll(), 2500);
+    };
+    const onAccountChanged = () => {
+      if (!cancelled) startPolling();
+    };
+    startPolling();
+    window.addEventListener('motion:account-changed', onAccountChanged);
+    return () => {
+      cancelled = true;
+      stopPolling();
+      window.removeEventListener('motion:account-changed', onAccountChanged);
+    };
   }, [active, refresh, historyRetry]);
   useEffect(() => {
     if (!active || !selected) return; let cancelled = false;
@@ -543,6 +615,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} promptAppliedToken={promptAppliedToken} jobs={jobs} showCurrentJob={mediaGenerations ? false : !showLibraryPlaceholders} taskId={taskId} history={history} selectingTask={selectingTask}
     onNew={() => startDraft({ modality: draft.modality, prompt: '', references: [] })}
     onCancel={cancelJob} onRetrySave={retrySave} onResume={resumeJob} onView={viewJob} uploadingReferences={uploadingReferences} onUploadReference={studioForm ? () => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } referenceUpload.current?.click(); } : undefined} onUploadFiles={studioForm ? (files, source) => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } void uploadReferenceFiles(files, source === 'paste' ? 'other' : 'library_drop'); } : undefined} onReference={() => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } openReferencePicker(); }} onCreated={job => {
+      markDraftSubmitted(studio?.draftKey ?? STANDALONE_ASSET_DRAFT_KEY);
       knownJobs.current = mergeAssetJobs(knownJobs.current, [job]); setJobs(knownJobs.current); setTaskId(job.id);
       setSessionJobIds(prev => prev.includes(job.id) ? prev : [...prev, job.id]);
       setDismissedJobIds(prev => { if (!prev.has(job.id)) return prev; const next = new Set(prev); next.delete(job.id); return next; });
@@ -553,7 +626,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       if (browser.page > 0) browser.setPage(0);
       if (gallery.current) gallery.current.scrollTo({ top: 0, behavior: 'smooth' });
       refresh(); toast.showToast(t(studio ? 'Added to Generations' : 'Generation started. Track it in Tasks.'), 'info');
-    }} onError={onError} onInfo={onInfo} onClose={() => { selectionRequest.current++; setSelectingTask(false); setPromptAppliedToken(0); setCreating(false); }} />;
+    }} onError={onError} onInfo={onInfo} onClose={() => { if (!studio) clearPersistedStudioDraft(STANDALONE_ASSET_DRAFT_KEY); selectionRequest.current++; setSelectingTask(false); setPromptAppliedToken(0); setCreating(false); }} />;
   const soundWorkbench = studio?.destination.scene.modality === 'audio' && !audioStudio;
   const libraryToolbar = <AssetGalleryToolbar browser={browser} games={gameStudioEnabled && gamesView} onGames={gameStudioEnabled ? () => { setGamesView(true); if (kind === 'trash') setKind('all'); } : undefined} onKindChange={next => {
     if (next !== kind || gamesView) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next });
@@ -619,6 +692,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         onResumeJob={resumeJob}
         onViewJob={viewJob}
         onCreated={job => {
+          if (studio.draftKey) markDraftSubmitted(studio.draftKey);
           knownJobs.current = mergeAssetJobs(knownJobs.current, [job]); setJobs(knownJobs.current); setTaskId(job.id);
           refresh();
         }}

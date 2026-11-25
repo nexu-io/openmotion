@@ -428,3 +428,40 @@ it('renders /404 directly with only the Back to Explore action and without loadi
     setCachedCloudDisklessMode(null);
   }
 });
+
+it('shows the desktop guide on narrow mobile viewports when opening an editor route', async () => {
+  const userAgent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148 Safari/604.1');
+  const originalWidth = window.innerWidth;
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.endsWith('/projects')) return Response.json({ activeId: id, projects: [{ id, title: 'Sample' }] });
+    return Response.json({ projectId: id, revision: 'r1' });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  setCachedCloudDisklessMode(true);
+  history.replaceState(null, '', `/editor/${id}`);
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+    expect(container.querySelector('.om-mobile-editor-guide-title')?.textContent).toBe('Edit on desktop');
+    expect(container.querySelector('.motion-workspace-content')?.hasAttribute('hidden')).toBe(true);
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('.om-mobile-editor-guide-actions button')];
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0].textContent).toContain('Copy link');
+    expect(buttons[1].textContent).toContain('Back to Explore');
+
+    await act(async () => buttons[1].click());
+    expect(location.pathname).toBe('/explore');
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: originalWidth });
+    userAgent.mockRestore();
+    history.replaceState(null, '', '/');
+    setCachedCloudDisklessMode(null);
+  }
+});

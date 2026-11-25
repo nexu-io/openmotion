@@ -125,15 +125,36 @@ function parseErrorBody(rawText: string): { code?: string; retryable?: boolean }
   }
 }
 
-function normalizePlanTier(raw: unknown): {
+function normalizePlanTier(
+  raw: unknown,
+  options?: {
+    hasKnownBalance?: boolean;
+    subscriptionEntitlementStatus?: unknown;
+  },
+): {
   plan: string;
   mediaEntitlement: 'included' | 'not-included' | 'unknown';
 } {
+  const entitlementStatus =
+    typeof options?.subscriptionEntitlementStatus === 'string'
+      ? options.subscriptionEntitlementStatus.trim().toLowerCase()
+      : null;
+  if (entitlementStatus && entitlementStatus !== 'active') {
+    return { plan: 'free', mediaEntitlement: 'not-included' };
+  }
   if (typeof raw !== 'string' || !raw.trim()) {
+    // AMR `/api/internal/billing/summary/:appUserId` returns `membershipTier: null`
+    // for accounts on the Free tier without an active paid subscription.
+    if (options?.hasKnownBalance) {
+      return { plan: 'free', mediaEntitlement: 'not-included' };
+    }
     return { plan: 'unknown', mediaEntitlement: 'unknown' };
   }
   const tier = raw.trim().toLowerCase();
-  if (['plus', 'pro', 'max', 'team', 'enterprise'].includes(tier)) {
+  if (
+    ['plus', 'pro', 'max', 'team', 'enterprise'].includes(tier) ||
+    tier.startsWith('team_')
+  ) {
     return { plan: tier, mediaEntitlement: 'included' };
   }
   if (['free', 'go'].includes(tier)) {
@@ -766,7 +787,10 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
     throw new GatewayError('provider_error', 'Output contains no downloadable source');
   }
 
-  async getBillingSummary(ctx: GatewayCallContext): Promise<GatewayBillingSummary> {
+  async getBillingSummary(
+    ctx: GatewayCallContext,
+    _options?: { refresh?: boolean },
+  ): Promise<GatewayBillingSummary> {
     if (!this.billingSyncEnabled) {
       return {
         plan: 'cloud',
@@ -787,7 +811,6 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
         headers: this.buildHeaders(ctx),
         signal,
       });
-      const tier = normalizePlanTier(body.membershipTier ?? body.plan);
       const rawBalance =
         body.totalAvailableCreditsUsd ??
         body.balanceUsd ??
@@ -799,17 +822,23 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
           ? String(rawBalance)
           : null;
       const numericBalance = balanceStr !== null ? Number(balanceStr) : NaN;
+      const tier = normalizePlanTier(body.membershipTier ?? body.plan, {
+        hasKnownBalance: balanceStr !== null,
+        subscriptionEntitlementStatus: body.subscriptionEntitlementStatus,
+      });
       return {
         plan: tier.plan,
         mediaEntitlement: tier.mediaEntitlement,
         hasBalance: Number.isFinite(numericBalance) ? numericBalance > 0 : undefined,
         balanceUsd: balanceStr,
       };
-    } catch {
+    } catch (error) {
+      const errorStatus = error instanceof GatewayError ? error.status : undefined;
       return {
         plan: 'unknown',
         mediaEntitlement: 'unknown',
         unavailable: true,
+        ...(errorStatus ? { errorStatus } : {}),
       };
     }
   }

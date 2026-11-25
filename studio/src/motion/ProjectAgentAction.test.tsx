@@ -6,15 +6,18 @@ import { I18nProvider } from '../i18n/I18n';
 import { ProjectAgentAction } from './ProjectAgentAction';
 
 const state = vi.hoisted(() => ({
-  projectId: 'project-a', blocked: false,
+  projectId: 'project-a', statusProjectId: 'project-a', rendering: false, workspaceBusy: false, restoring: false, writeBlockedReason: '',
   save: vi.fn<() => Promise<void>>(), connect: vi.fn(),
   info: { name: 'OpenMotion', previewUrl: 'http://127.0.0.1:4567', dataDirectory: '/fixture/workspace',
     transport: { env: { SECRET: 'must-not-copy' } } },
 }));
-vi.mock('../contexts/StudioContext', () => ({ useStudioShellContext: () => ({ projectId: state.projectId }) }));
+vi.mock('../contexts/StudioContext', () => ({ useStudioShellContext: () => ({
+  projectId: state.projectId, waitForPendingDomEditSaves: state.save, writeBlockedReason: state.writeBlockedReason,
+}) }));
+vi.mock('./MotionHistoryState', () => ({ useMotionHistoryOperation: () => ({ busy: state.restoring }) }));
 vi.mock('./WorkspaceChromeContext', () => ({ useWorkspaceChrome: () => ({
-  workspace: { status: { projectId: state.projectId }, projects: [{ id: state.projectId, title: `Title ${state.projectId}` }] },
-  switchingDisabled: state.blocked, beforeViewChange: state.save, openConnections: state.connect,
+  workspace: { busy: state.workspaceBusy, status: { projectId: state.statusProjectId }, projects: [{ id: state.projectId, title: `Title ${state.projectId}` }] },
+  switchingDisabled: state.rendering || state.workspaceBusy || state.restoring || Boolean(state.writeBlockedReason), openConnections: state.connect,
 }) }));
 vi.mock('./useIntegrationInfo', () => ({ useIntegrationInfo: () => ({ info: state.info, failed: false, retry: vi.fn() }) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -22,7 +25,8 @@ let root: Root;
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => (node.getAttribute('aria-label') || node.textContent?.trim()) === name)!;
 const render = () => act(async () => root.render(<I18nProvider initialLocale="en"><ProjectAgentAction /></I18nProvider>));
 beforeEach(async () => {
-  state.projectId = 'project-a'; state.blocked = false; state.save.mockReset().mockResolvedValue(); state.connect.mockReset();
+  state.projectId = state.statusProjectId = 'project-a'; state.rendering = state.restoring = state.workspaceBusy = false; state.writeBlockedReason = '';
+  state.save.mockReset().mockResolvedValue(); state.connect.mockReset();
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await render();
 });
@@ -97,16 +101,30 @@ it('cancels an unfinished handoff when the project changes', async () => {
   state.save.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
   const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
   await open(); await act(async () => button('Copy instruction').click());
-  state.projectId = 'project-b'; await render();
+  state.projectId = state.statusProjectId = 'project-b'; await render();
   await act(async () => finish());
   expect(copy).not.toHaveBeenCalled();
   await open();
   expect(document.body.textContent).toContain('Title project-b');
 });
 
-it('disables the trigger when the editor cannot hand off safely', async () => {
-  state.blocked = true; await render();
-  expect(button('MCP').disabled).toBe(true);
+it('opens during export and copies the current project while switching is disabled', async () => {
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  state.rendering = true; await render(); await open();
+  expect(button('MCP').getAttribute('aria-expanded')).toBe('true');
+  await act(async () => button('Copy instruction').click());
+  expect(state.save).toHaveBeenCalledOnce();
+  expect(copy).toHaveBeenCalledWith(expect.stringContaining('Project ID: project-a'));
+});
+
+it.each([
+  { statusProjectId: 'another-project' }, { workspaceBusy: true }, { restoring: true }, { writeBlockedReason: 'Conflict' },
+])('keeps help available and blocks copying when the project is unavailable (%o)', async (change) => {
+  Object.assign(state, change); await render(); await open();
+  expect(button('Copy instruction').disabled).toBe(true);
+  await act(async () => button('Connection help').click());
+  expect(state.connect).toHaveBeenCalledOnce();
+  expect(state.save).not.toHaveBeenCalled();
 });
 
 it('opens the existing connection guide without starting an Agent', async () => {

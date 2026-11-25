@@ -39,6 +39,16 @@ export const ASYMMETRIC_OIDC_ALGS = [
 
 export const SYMMETRIC_OIDC_ALGS = ['HS256'] as const;
 
+export const OIDC_CANCELLED_ERRORS: ReadonlySet<string> = new Set([
+  'access_denied',
+  'login_required',
+  'consent_required',
+  'interaction_required',
+  'account_selection_required',
+  'cancelled',
+  'canceled',
+]);
+
 export interface OidcDiscoveryDocument {
   issuer: string;
   authorization_endpoint: string;
@@ -274,6 +284,59 @@ export class OidcService {
       state,
       txCookieValue,
     };
+  }
+
+  /**
+   * Resolves an OIDC authorization error callback (such as `login_required` or `access_denied`
+   * when the user clicks "Cancel" on the IdP login screen).
+   *
+   * Security guarantees:
+   * - Always consumes the single-use `state` transaction in cache so it cannot be replayed.
+   * - Verifies the `om_oidc_tx` cookie binding (and optional RFC 9207 `iss`) before honoring `returnTo`.
+   * - Returns `{ returnTo }` only for known user-cancellation errors with a verified transaction;
+   *   otherwise throws 401 `CloudError('UNAUTHORIZED', ...)`.
+   */
+  async resolveCancelledCallback(input: {
+    state: string;
+    txCookieValue?: string | null;
+    iss?: string | null;
+    error: string;
+  }): Promise<{ returnTo: string }> {
+    const key = input.state ? oidcTxCacheKey(input.state) : null;
+    const rawTx = key ? await this.cache.get(key) : null;
+    if (key) {
+      await this.cache.del(key); // Single-use transaction — never allow replay after error callback
+    }
+
+    if (
+      !OIDC_CANCELLED_ERRORS.has(input.error) ||
+      !rawTx ||
+      !input.txCookieValue
+    ) {
+      throw new CloudError('UNAUTHORIZED', `OIDC authorization failed: ${input.error}`, {
+        status: 401,
+      });
+    }
+
+    let tx: OidcTransactionRecord;
+    try {
+      tx = JSON.parse(rawTx) as OidcTransactionRecord;
+    } catch {
+      throw new CloudError('UNAUTHORIZED', 'Corrupted OIDC state transaction', { status: 401 });
+    }
+
+    if (!timingSafeStringEqual(sha256Hex(input.txCookieValue), tx.txSecretHash)) {
+      throw new CloudError('UNAUTHORIZED', 'OIDC login state binding mismatch', { status: 401 });
+    }
+
+    if (input.iss) {
+      const expectedIssuer = this.cachedDiscovery?.doc.issuer ?? this.cfg.issuer;
+      if (input.iss !== expectedIssuer) {
+        throw new CloudError('UNAUTHORIZED', 'OIDC callback issuer mismatch', { status: 401 });
+      }
+    }
+
+    return { returnTo: assertSafeReturnTo(tx.returnTo) };
   }
 
   async completeCallback(

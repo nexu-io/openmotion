@@ -15,6 +15,8 @@ import { AssetHoverVideo } from './AssetHoverVideo';
 import { AssetGenerationPlaceholder } from './AssetGenerationPlaceholder';
 import { GallerySearchField } from './GalleryFilters';
 import type { useAssetBrowser } from './AssetBrowser';
+import { buildLoginUrl } from './AccountSettings';
+import { isDesktopApp, startDesktopBrowserLogin } from '../utils/platformHost';
 import {
   dayKey,
   formatAspectTag,
@@ -692,8 +694,30 @@ export function MediaGenerationHistory({
         </header>
       )}
 
-      <div className="om-asset-results" aria-busy={loading} inert={stale && !error}>
-        {error && !hasJobs ? (
+      <div className="om-asset-results" aria-busy={loading} inert={stale && !error && !browser.authRequired}>
+        {browser.authRequired && !hasJobs ? (
+          <div className="om-empty om-asset-empty" data-guest-auth-guide="true">
+            <RemixIcon name="lock-line" size={32} />
+            <h2 className="om-subtitle">{t('Sign in to view your assets')}</h2>
+            <p className="om-muted">{t('Sign in with OpenDesign to view, upload, and manage your personal asset library.')}</p>
+            <Button
+              variant="ghost"
+              className="om-button h-auto"
+              data-primary
+              onClick={() => {
+                const loginUrl = buildLoginUrl();
+                if (isDesktopApp()) {
+                  void startDesktopBrowserLogin({ loginUrl });
+                  return;
+                }
+                window.location.assign(loginUrl);
+              }}
+            >
+              <RemixIcon name="login-box-line" size={16} />
+              {t('Sign in with OpenDesign')}
+            </Button>
+          </div>
+        ) : error && !hasJobs ? (
           <div className="om-empty">
             <RemixIcon name="error-warning-line" size={32} />
             <p>{t('Could not load assets')}</p>

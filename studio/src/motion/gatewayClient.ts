@@ -31,7 +31,12 @@ function ensureGatewayInvalidationListener(): void {
   window.addEventListener('motion:gateway-changed', invalidateGatewayCache);
 }
 
-export async function gatewayRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function gatewayRequest<T>(
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  options?: { suppressAuthRecovery?: boolean },
+): Promise<T> {
   if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') invalidateGatewayCache();
   const response = await fetch('/motion-api/' + path, {
     method,
@@ -62,7 +67,10 @@ export async function gatewayRequest<T>(path: string, method = 'GET', body?: unk
     if (data.applied === false) error.applied = false;
     const authRecovery = classifyAuthHttpError(response.status, data, message);
     const isMutating = method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD';
-    if (authRecovery && (authRecovery.kind === 'auth_unavailable' || isMutating)) {
+    if (
+      authRecovery &&
+      (authRecovery.kind === 'auth_unavailable' || (isMutating && !options?.suppressAuthRecovery))
+    ) {
       notifyAuthRecovery(authRecovery);
     }
     throw error;

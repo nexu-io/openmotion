@@ -5,9 +5,18 @@ import type { useWorkspace } from './useWorkspace';
 import type { GalleryTemplate } from '../../../shared/catalog';
 import type { McpEntry } from './pageTracking';
 
+export type GuestSignInIntent = {
+  action: 'use_template' | 'create_project' | 'open_editor';
+  templateId?: string;
+  instruction?: string;
+  idempotencyKey?: string;
+};
+
 export type WorkspaceChrome = {
   workspace: ReturnType<typeof useWorkspace>;
   switchingDisabled: boolean;
+  guestMode?: boolean;
+  startGuestSignIn?: (intent: GuestSignInIntent) => void;
   saveState: string;
   openLibrary: (trigger?: HTMLElement, template?: GalleryTemplate, collection?: TemplateCollection) => void;
   /** Opens the MCP connection page; `entry` records which control opened it. */

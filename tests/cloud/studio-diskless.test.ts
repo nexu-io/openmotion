@@ -1403,6 +1403,43 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     }
   });
 
+  it('reads the latest SVG through a stable source URL before and after an ordered save', async () => {
+    const env = createStudioTestEnv();
+    const { projectId } = await env.workspace.createProject(env.auth);
+    const base = '/api/projects/' + projectId;
+    const path = 'images/shape #1.svg';
+    const url = base + '/file-source?path=' + encodeURIComponent(path);
+    const legacyUrl = base + '/files/' + encodeURIComponent(path);
+    const original = '<svg><title>Before</title></svg>';
+    const next = '<svg><title>After</title></svg>';
+    const read = async (path: string, init?: RequestInit) => {
+      const response = await env.studioApp.request(path, init);
+      assert.equal(response.headers.get('cache-control'), 'private, no-cache');
+      assert.equal(response.headers.get('cdn-cache-control'), 'no-store');
+      return response;
+    };
+    const missing = await read(url + '&optional=1');
+    assert.equal((await missing.json()).missing, true);
+    await env.files.commitChanges(env.auth, { projectId, ops: [{ op: 'upsert_text', path, content: original }] });
+    const before = await (await read(url)).json();
+    assert.equal(before.content, original);
+    assert.equal((await (await read(legacyUrl)).json()).version, before.version);
+    const committed = await env.studioApp.request(base + '/text-edits/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operations: [{ id: 'svg-change', files: [{ path, baseVersion: before.version, content: next }] }] }),
+    });
+    assert.equal(committed.status, 200);
+    const version = (await committed.json()).committed[0].versions[path];
+    const after = await read(url, { headers: { 'If-None-Match': before.version } });
+    assert.equal(after.status, 200);
+    assert.equal((await after.json()).content, next);
+    assert.equal(after.headers.get('etag'), version);
+    assert.equal((await (await read(url + '&view=metadata')).json()).version, version);
+    assert.equal((await read(url, { headers: { 'If-None-Match': version } })).status, 304);
+    assert.equal((await (await read(legacyUrl)).json()).content, next);
+    assert.equal((await read(base + '/file-source')).status, 400);
+  });
+
   it('enforces exact strong ETag "sha256:...", If-Match, 428, 409, ?optional=1, and DELETED_VERSION', async () => {
     const env = createStudioTestEnv();
     const created = await env.workspace.createProject(env.auth, { title: 'ETag Studio' });

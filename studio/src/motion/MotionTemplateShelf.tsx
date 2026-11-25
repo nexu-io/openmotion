@@ -19,7 +19,7 @@ const batchSize = 16;
 
 export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElement | null>; active: boolean }) {
   const { locale, t } = useI18n();
-  const { openLibrary, workspace, switchingDisabled } = useWorkspaceChrome();
+  const { openLibrary, workspace, switchingDisabled, guestMode, startGuestSignIn } = useWorkspaceChrome();
   const { catalog, firstPage, failed, retry } = useCoveredTemplates(locale, true, { showFirstPage: true, covered: false });
   const [collection, setCollection] = useState<TemplateCollection | null>(null);
   const [limit, setLimit] = useState(batchSize);
@@ -60,7 +60,11 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
             aria-label={t('New project')}
             onClick={event => {
               void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
-              void workspace.create();
+              if (guestMode && startGuestSignIn) {
+                startGuestSignIn({ action: 'create_project' });
+              } else {
+                void workspace.create();
+              }
             }}>
             <span className="om-studio-new-project-icon" aria-hidden="true"><RemixIcon name="add-line" size={24} /></span>
             <strong>{t('New project')}</strong>

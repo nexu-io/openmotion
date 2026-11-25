@@ -120,7 +120,9 @@ describe('P1 Infra Config Validation & Safety Latch', () => {
     assert.equal(config.PORT, 4173);
     assert.equal(config.AUTH_MODE, 'dev');
     assert.equal(config.MCP_MAX_BODY_BYTES, 10_485_760);
-    assert.equal(config.OPENDESIGN_BILLING_SYNC_ENABLED, false);
+    assert.equal(config.OPENDESIGN_BILLING_SYNC_ENABLED, true);
+    const billingDisabled = parseConfig(baseDevEnv({ OPENDESIGN_BILLING_SYNC_ENABLED: 'false' }));
+    assert.equal(billingDisabled.OPENDESIGN_BILLING_SYNC_ENABLED, false);
     assert.equal(config.ALLOW_DOH_FAKEIP_FALLBACK, false);
     assert.equal(config.S3_PRESIGN_PUT_TTL_SEC, 900);
     assert.equal(config.S3_PRESIGN_GET_TTL_SEC, 300);

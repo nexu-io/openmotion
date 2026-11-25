@@ -1023,20 +1023,42 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
       assert.equal(mismatchIss.status, 401);
       assert.equal(tokenCalls, 0);
 
-      const login2 = await app.request('/auth/login');
+      const login2 = await app.request('/auth/login?returnTo=%2Fcreate%2Fimage%3Ftab%3Ddraft');
       const state2 = new URL(login2.headers.get('location')!).searchParams.get('state')!;
       const tx2 = extractCookieValue(login2.headers.getSetCookie(), 'om_oidc_tx')!;
       const errorCb = await app.request(
         `/auth/callback?error=login_required&state=${encodeURIComponent(state2)}`,
         { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx2)}` } },
       );
-      assert.equal(errorCb.status, 401);
+      // User cancellation (login_required / access_denied) with verified state + tx cookie
+      // redirects back to the originating page instead of exposing raw 401 JSON,
+      // never sets a session cookie, and still consumes the single-use transaction.
+      assert.equal(errorCb.status, 302);
+      assert.equal(errorCb.headers.get('location'), '/create/image?tab=draft&auth_cancelled=1');
+      const cancelSetCookies = errorCb.headers.getSetCookie();
+      assert.ok(cancelSetCookies.some((c) => c.startsWith('om_oidc_tx=;')));
+      assert.ok(!cancelSetCookies.some((c) => c.startsWith('om_session=') && !c.startsWith('om_session=;')));
       // Consumed transaction cannot be replayed with a code
       const replayAfterError = await app.request(
         `/auth/callback?code=c4&state=${encodeURIComponent(state2)}`,
         { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx2)}` } },
       );
       assert.equal(replayAfterError.status, 401);
+      // Fatal non-cancel OIDC errors and forged/missing tx cookies still return 401.
+      const login3 = await app.request('/auth/login?returnTo=%2Fexplore');
+      const state3 = new URL(login3.headers.get('location')!).searchParams.get('state')!;
+      const tx3 = extractCookieValue(login3.headers.getSetCookie(), 'om_oidc_tx')!;
+      const serverErrCb = await app.request(
+        `/auth/callback?error=server_error&state=${encodeURIComponent(state3)}`,
+        { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(tx3)}` } },
+      );
+      assert.equal(serverErrCb.status, 401);
+      const login4 = await app.request('/auth/login?returnTo=%2Fexplore');
+      const state4 = new URL(login4.headers.get('location')!).searchParams.get('state')!;
+      const missingTxCb = await app.request(
+        `/auth/callback?error=login_required&state=${encodeURIComponent(state4)}`,
+      );
+      assert.equal(missingTxCb.status, 401);
       assert.equal(tokenCalls, 0);
     }
 
