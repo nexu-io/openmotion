@@ -134,12 +134,17 @@ it('removes the Black Friday hero and restores the previous Explore layout right
   expect(container.querySelector('h1.om-explore-title')).not.toBeNull();
 });
 
-it('keeps the Black Friday 3D corridor artwork deck bounded to lightweight WebP/AVIF covers and lazy-loads deeper rings', () => {
+it('keeps the Black Friday 3D corridor artwork deck bounded to OpenMotion-owned WebP/AVIF covers and lazy-loads deeper rings', () => {
+  expect(BLACK_FRIDAY_CORRIDOR_ARTWORKS.length).toBeGreaterThanOrEqual(18);
   expect(BLACK_FRIDAY_CORRIDOR_ARTWORKS.length).toBeLessThanOrEqual(24);
   for (const src of BLACK_FRIDAY_CORRIDOR_ARTWORKS) {
     expect(src).not.toMatch(/\.png(?:\?|$)/i);
+    expect(src).not.toContain('higgsfield.ai');
     expect(src).not.toContain('/api/app-image');
     expect(src).not.toContain('pbs.twimg.com');
+    if (/^https?:\/\//i.test(src)) {
+      expect(src).toMatch(/^https:\/\/releases\.open-design\.ai\//);
+    }
   }
 
   vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });

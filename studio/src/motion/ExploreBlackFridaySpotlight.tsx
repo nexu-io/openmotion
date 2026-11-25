@@ -34,7 +34,6 @@ interface FeaturedSlide {
 
 const SEEDANCE_HUB_ID = 'seedance-2-5';
 const GPT_IMAGE_HUB_ID = 'gpt-image-2-6';
-const seedanceHeroClip = 'https://cdn.higgsfield.ai/user_3Bu8iUt8Z18vHzF7CZ97RTvmPwE/hf_20260622_203156_b3512a1f-3311-4cd0-8ee1-9e80d09f656a_min.mp4';
 
 const slides: FeaturedSlide[] = [{
   id: GPT_IMAGE_HUB_ID,
@@ -57,7 +56,6 @@ const slides: FeaturedSlide[] = [{
 
   icon: 'film-line',
   poster: seedanceHeroPoster,
-  clip: seedanceHeroClip,
   hub: SEEDANCE_HUB_ID,
 }, {
   id: 'black-friday',

@@ -537,6 +537,21 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     else scheduleCollapseTimer();
   }, [clearCollapseTimer, scheduleCollapseTimer]);
 
+  // Invalidate cached hero bounds whenever collapse state or container scroll shifts the hero box.
+  useEffect(() => {
+    heroRectRef.current = null;
+    const heroEl = heroRef.current;
+    if (!heroEl) return;
+    const invalidate = () => { heroRectRef.current = null; };
+    const scroller = heroEl.closest('.om-explore') as HTMLElement | null;
+    heroEl.addEventListener('transitionend', invalidate);
+    scroller?.addEventListener('scroll', invalidate, { passive: true });
+    return () => {
+      heroEl.removeEventListener('transitionend', invalidate);
+      scroller?.removeEventListener('scroll', invalidate);
+    };
+  }, [collapsed]);
+
   // If the user manually drags the scrollbar before auto-collapse fires, keep below-the-fold cards at full opacity.
   useEffect(() => {
     if (collapsed) return;

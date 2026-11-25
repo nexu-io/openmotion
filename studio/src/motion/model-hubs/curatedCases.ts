@@ -167,18 +167,3 @@ export function buildGptImageShowcaseCases(destination: StudioDestination): HubS
     destination,
   }));
 }
-
-const CORRIDOR_EXCLUDED_IMAGE_IDS = new Set([28]);
-
-/** Interleaved HD poster URLs from the curated Seedance 2.5 and GPT Image 2.0 templates for the Explore 3D corridor. */
-export function buildCorridorArtworks(): string[] {
-  const videoPosters = V.map(([, , , mid, p]) => (mid ? `${PT}amplify_video_thumb/${mid}/img/${p}` : mediaUrl(p)));
-  const imagePosters = I.filter(([n]) => !CORRIDOR_EXCLUDED_IMAGE_IDS.has(n)).map(([, , , p]) => mediaUrl(p));
-  const out: string[] = [];
-  const total = Math.max(videoPosters.length, imagePosters.length);
-  for (let i = 0; i < total; i++) {
-    if (i < videoPosters.length) out.push(videoPosters[i]);
-    if (i < imagePosters.length) out.push(imagePosters[i]);
-  }
-  return out;
-}
