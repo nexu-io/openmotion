@@ -1203,6 +1203,28 @@ describe('Cloud media generation and library save', () => {
   });
 });
 
+it('logs registered project read/write routes without recording request paths or query strings', async () => {
+  const lines: string[] = [];
+  const logger = createLogger({ sink: (_, line) => lines.push(line) });
+  const { app } = createApiFixture({ deps: { logger } });
+  const prefix = '/api/projects/00000000-0000-4000-8000-000000000099/';
+  for (const [method, suffix, expected] of [
+    ['GET', 'file-source?path=private-name.html', 'file-source'],
+    ['GET', 'files/private-name.html', 'files/*'],
+    ['POST', 'text-edits', 'text-edits'],
+    ['POST', 'text-edits/batch', 'text-edits/batch'],
+    ['GET', 'preview/private-name.html', null],
+  ] as const) {
+    const res = await app.request(prefix + suffix, { method });
+    const record = lines.map(line => JSON.parse(line)).filter(log => log.msg === 'HTTP request completed').at(-1);
+    assert.equal(record.path, expected ? '/api/projects/:id/' + expected : '[REDACTED]');
+    assert.equal(record.status, res.status);
+    assert.equal(record.method, method);
+    assert.equal(typeof record.durationMs, 'number');
+    assert.ok(!JSON.stringify(record).includes('private-name'));
+  }
+});
+
 describe('Cloud API Entrypoint — Health Probes', () => {
   it('serves /api/health/live (200), /api/health/ready (200 healthy, 503 degraded), and /api/health', async () => {
     let pgOk = true;
