@@ -28,6 +28,7 @@ import { templateCatalogFor } from './prism-templates.ts';
 import { templateConfig } from './shared/template-config.ts';
 import { createMcpClientState, negotiateTemplatePresentation, showTemplateRecommendations, templatePresentationName } from './shared/mcp-template-recommendations.ts';
 import type { McpClientState } from './shared/mcp-template-recommendations.ts';
+import { gameToolAnnotations } from './shared/game-tools.ts';
 
 export function mcpRegistry(profile = releaseProfile) { return createToolRegistry(profile === 'phase1' ? phase1Tools : tools, profile); }
 export const releaseRegistry = mcpRegistry();
@@ -186,7 +187,8 @@ async function invokeRpc(message: any, store: WorkspaceStore, registry: ReturnTy
       const name = publicToolName(message.params?.name);
       const exposed = effectiveRegistry.tools.find(tool => tool.name === name);
       if (!exposed) throw new Error('MCP_TOOL_NOT_EXPOSED: ' + String(message.params?.name));
-      options?.authorizeToolCall?.(exposed, message.params?.arguments ?? {});
+      const actionAnnotations = gameToolAnnotations(name, message.params?.arguments);
+      options?.authorizeToolCall?.(actionAnnotations ? { ...exposed, annotations: actionAnnotations } : exposed, message.params?.arguments ?? {});
       if (name === templatePresentationName && clientState?.presentation) {
         validateInput(exposed.inputSchema, message.params.arguments ?? {});
         const value = showTemplateRecommendations(clientState.presentation, message.params.arguments);

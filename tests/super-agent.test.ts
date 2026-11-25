@@ -2920,6 +2920,60 @@ test('extractArtifactFromTool auto-presents created design and motion projects s
   await service.close();
 }));
 
+test('SuperAgentConversations starts a new Codex thread with the conversation when its tools changed since the thread began', () => fixture(async store => {
+  const requests: Array<{ method: string; params: any }> = [];
+  class ToolsCodexRpc {
+    private readonly onNotification: (msg: any) => void;
+    constructor(_bin: string, _cwd: string, onNotification: (msg: any) => void) { this.onNotification = onNotification; }
+    async request(method: string, params?: any) {
+      requests.push({ method, params });
+      if (method === 'initialize') return { capabilities: {} };
+      if (method === 'thread/start') return { thread: { id: `thr-${requests.filter(r => r.method === 'thread/start').length}` } };
+      if (method === 'thread/resume') return { thread: { id: params.threadId } };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          this.onNotification({ method: 'item/completed', params: { item: { id: `msg-${requests.length}`, type: 'agentMessage', text: 'ok' } } });
+          this.onNotification({ method: 'turn/completed', params: { turn: { id: `turn-${requests.length}`, status: 'completed' } } });
+        });
+        return { turn: { id: `turn-${requests.length}` } };
+      }
+      return {};
+    }
+    send() {}
+    close() {}
+    async closeAndWait() {}
+  }
+  const service = new SuperAgentConversations(store, { resolve: async () => '/usr/local/bin/codex', rpc: ToolsCodexRpc as unknown as typeof AssetAgentRpc });
+  const runtime = { origin: 'http://127.0.0.1:4120', phase1: () => ({} as Phase1Service) };
+  const chat = await service.create({ engine: 'codex', permissionMode: 'auto' });
+  const turn = async (requestId: string, text: string) => {
+    await service.start(chat.id, { requestId, text }, runtime);
+    let done = await service.waitForChat(chat.id);
+    for (let i = 0; i < 40 && done.state === 'running'; i++) { await new Promise(resolve => setTimeout(resolve, 25)); done = await service.get(chat.id); }
+  };
+  await turn('req-1', 'Make a stacking game');
+  const first = requests.find(r => r.method === 'thread/start')!;
+  assert.ok(first.params.dynamicTools.some((tool: any) => tool.name === 'openmotion_game_wechat'));
+  // A thread started before an upgrade: it does not have the tools this version offers.
+  const saved = await service.get(chat.id);
+  assert.equal(saved.threadId, 'thr-1');
+  await (service as any).persistChatState({ ...saved, threadTools: 'openmotion_game_get' });
+  requests.length = 0;
+  await turn('req-2', 'Publish it to WeChat');
+  assert.equal(requests.some(r => r.method === 'thread/resume'), false);
+  assert.ok(requests.some(r => r.method === 'thread/start'));
+  const carried = requests.find(r => r.method === 'turn/start')!.params.input[0].text;
+  assert.match(carried, /<openmotion-compacted-history>/);
+  assert.match(carried, /Make a stacking game/);
+  // Same tools afterwards: the new thread is resumed as usual.
+  requests.length = 0;
+  await turn('req-3', 'Next step');
+  assert.ok(requests.some(r => r.method === 'thread/resume'));
+  assert.equal(requests.some(r => r.method === 'thread/start'), false);
+  assert.doesNotMatch(requests.find(r => r.method === 'turn/start')!.params.input[0].text, /<openmotion-compacted-history>/);
+  await service.close();
+}));
+
 test('Codex subagent notifications do not prematurely abort or pollute root turns, and stop() reconciles building game status', () => fixture(async store => {
   for (const prompt of [SUPER_AGENT_INSTRUCTIONS, CLAUDE_SUPER_AGENT_INSTRUCTIONS]) {
     assert.ok(prompt.includes('openmotion_read_workflow'), 'Super Agent prompt must direct workflow reads through openmotion_read_workflow');

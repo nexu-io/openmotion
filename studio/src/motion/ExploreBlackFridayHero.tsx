@@ -1,48 +1,15 @@
 import { Button } from 'open-design-ui/button';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
 import { useI18n } from '../i18n/I18n';
-import cover01 from './corridor-covers/cover-01.webp?no-inline';
-import cover02 from './corridor-covers/cover-02.webp?no-inline';
-import cover03 from './corridor-covers/cover-03.webp?no-inline';
-import cover04 from './corridor-covers/cover-04.avif?no-inline';
-import cover05 from './corridor-covers/cover-05.webp?no-inline';
-import cover06 from './corridor-covers/cover-06.avif?no-inline';
-import cover07 from './corridor-covers/cover-07.webp?no-inline';
-import cover08 from './corridor-covers/cover-08.avif?no-inline';
-import cover09 from './corridor-covers/cover-09.webp?no-inline';
-import cover10 from './corridor-covers/cover-10.avif?no-inline';
-import cover11 from './corridor-covers/cover-11.avif?no-inline';
-import cover12 from './corridor-covers/cover-12.avif?no-inline';
-import cover13 from './corridor-covers/cover-13.webp?no-inline';
-import cover14 from './corridor-covers/cover-14.avif?no-inline';
-import cover15 from './corridor-covers/cover-15.avif?no-inline';
-import cover16 from './corridor-covers/cover-16.webp?no-inline';
-import cover17 from './corridor-covers/cover-17.avif?no-inline';
-import cover18 from './corridor-covers/cover-18.avif?no-inline';
-import cover19 from './corridor-covers/cover-19.webp?no-inline';
-import cover20 from './corridor-covers/cover-20.avif?no-inline';
-import cover21 from './corridor-covers/cover-21.webp?no-inline';
-import cover22 from './corridor-covers/cover-22.avif?no-inline';
-import cover23 from './corridor-covers/cover-23.avif?no-inline';
-import cover24 from './corridor-covers/cover-24.avif?no-inline';
-import cover25 from './corridor-covers/cover-25.avif?no-inline';
-import cover26 from './corridor-covers/cover-26.avif?no-inline';
-import cover27 from './corridor-covers/cover-27.avif?no-inline';
-import cover28 from './corridor-covers/cover-28.avif?no-inline';
-import cover29 from './corridor-covers/cover-29.avif?no-inline';
-import cover30 from './corridor-covers/cover-30.avif?no-inline';
-import cover31 from './corridor-covers/cover-31.webp?no-inline';
-import cover32 from './corridor-covers/cover-32.webp?no-inline';
-import cover34 from './corridor-covers/cover-34.webp?no-inline';
-import cover35 from './corridor-covers/cover-35.avif?no-inline';
-import cover36 from './corridor-covers/cover-36.webp?no-inline';
 import styles from './ExploreBlackFridayHero.module.css';
 import { MODEL_LOGO_ASSETS, type ModelLogoAsset } from './exploreModelLogos';
+import { buildCorridorArtworks } from './model-hubs/curatedCases';
 import {
   BLACK_FRIDAY_CAMPAIGN,
   blackFridayHeroActive,
   campaignPricingUrl,
   newCampaignEntryId,
+  pricingLinkTargetProps,
   readBlackFridayCountdown,
 } from './campaignAttribution';
 import { trackMotion } from './tracking';
@@ -52,45 +19,8 @@ const SIDE_ROWS = 3;
 const BASE_CRUISE_SPEED = 56; // px/sec forward glide along +Z
 const AUTO_COLLAPSE_DELAY_MS = 3200; // hold full-screen opening briefly, then glide to reveal Explore cards
 
-// 36 unique cinematic video covers lining the 3D corridor walls (4 rings x 9 tiles = 36 -> zero visible duplicates)
-const CORRIDOR_ARTWORKS = [
-  cover01,
-  cover02,
-  cover03,
-  cover04,
-  cover05,
-  cover06,
-  cover07,
-  cover08,
-  cover09,
-  cover10,
-  cover11,
-  cover12,
-  cover13,
-  cover14,
-  cover15,
-  cover16,
-  cover17,
-  cover18,
-  cover19,
-  cover20,
-  cover21,
-  cover22,
-  cover23,
-  cover24,
-  cover25,
-  cover26,
-  cover27,
-  cover28,
-  cover29,
-  cover30,
-  cover31,
-  cover32,
-  null,
-  cover34,
-  cover35,
-  cover36,
-] as const;
+// High-resolution covers sourced directly from the curated Seedance 2.5 + GPT Image 2.6 templates (8 rings x 9 tiles = 72 unique artworks)
+const CORRIDOR_ARTWORKS = buildCorridorArtworks();
 
 type TileSpec = {
   id: string;
@@ -119,25 +49,21 @@ function pickArtSlots(slotCount: number, artCount: number, seed: number): Set<nu
 }
 
 function buildCorridorRings(topCols: number) {
-  // Deterministic non-repeating deal: 9 artwork tiles per ring * 4 consecutive rings = 36 unique covers.
-  // Rings 4..7 mirror-offset wall order so even 4 rings apart a cover never lands on the same wall.
+  // Deterministic non-repeating deal: 9 artwork tiles per ring * 8 rings = 72 unique curated template covers.
   return Array.from({ length: RING_COUNT }, (_, ringIdx) => {
-    const cycleRing = ringIdx % 4;
-    const baseDeckOffset = cycleRing * 9;
-    const secondHalf = ringIdx >= 4;
+    const baseDeckOffset = ringIdx * 9;
 
     // 2 art on left, 2 art on right, 5 art split (2+3 or 3+2) across top & bottom = 9 total per ring
     const topArtCount = ringIdx % 2 === 0 ? 3 : 2;
     const bottomArtCount = 5 - topArtCount;
 
-    const leftSlots = pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 1);
+    // Keep the front-left center tile on the hero foreground ring (ring 6) as a clean model logo tile.
+    const leftSlots = ringIdx === 6 ? new Set([0, 2]) : pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 1);
     const rightSlots = pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 2);
     const topSlots = pickArtSlots(topCols, topArtCount, ringIdx * 3 + 1);
     const bottomSlots = pickArtSlots(topCols, bottomArtCount, ringIdx * 3 + 3);
 
-    // Assign the 9 unique covers for this ring; flip dealing order in rings 4..7 so same cover moves to opposite wall
-    const ringDeck = Array.from({ length: 9 }, (_, k) => CORRIDOR_ARTWORKS[(baseDeckOffset + k) % CORRIDOR_ARTWORKS.length]);
-    if (secondHalf) ringDeck.reverse();
+    const ringDeck = Array.from({ length: 9 }, (_, k) => CORRIDOR_ARTWORKS[(baseDeckOffset + k) % CORRIDOR_ARTWORKS.length] ?? null);
 
     let cursor = 0;
     let logoCursor = ringIdx * 5;
@@ -199,6 +125,9 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
   const [collapsed, setCollapsed] = useState(startedCollapsed);
   const collapsedRef = useRef(collapsed);
   collapsedRef.current = collapsed;
+  const collapseStartedAtRef = useRef<number | null>(null);
+  const [introActivated, setIntroActivated] = useState(() => active);
+  const introActivatedRef = useRef(active);
   const [ctaEngaged, setCtaEngaged] = useState(false);
   const [scrolledPastIntro, setScrolledPastIntro] = useState(false);
   const collapseRemainingRef = useRef(AUTO_COLLAPSE_DELAY_MS);
@@ -210,6 +139,22 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
   const [stageSize, setStageSize] = useState({ width: 1280, height: 660 });
   const [collapsedHeight, setCollapsedHeight] = useState<number | null>(null);
   const introStartRef = useRef<number>(typeof performance !== 'undefined' ? performance.now() : 0);
+
+  // Trigger the full-screen opening choreography the first time Explore actually becomes active,
+  // instead of burning through the intro/auto-collapse timer while Explore sits mounted behind another tab.
+  useEffect(() => {
+    if (!active || introActivatedRef.current) return;
+    introActivatedRef.current = true;
+    introStartRef.current = typeof performance !== 'undefined' ? performance.now() : 0;
+    collapseRemainingRef.current = AUTO_COLLAPSE_DELAY_MS;
+    setIntroActivated(true);
+  }, [active]);
+
+  useEffect(() => {
+    if (collapsed && collapseStartedAtRef.current === null) {
+      collapseStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : 0;
+    }
+  }, [collapsed]);
 
   const [visible, setVisible] = useState(() => !document.hidden);
   useEffect(() => {
@@ -286,10 +231,10 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     setCollapsed(true);
   };
 
-  // Present full-viewport opening for a few seconds on every load/refresh,
-  // pausing while the user hovers/focuses the CTA so the button never moves away under their cursor.
+  // Present full-viewport opening for a few seconds once Explore is active,
+  // pausing while hidden or while the user hovers/focuses the CTA so the button never moves away under their cursor.
   useEffect(() => {
-    if (collapsed || ctaEngaged) return;
+    if (!active || !introActivated || collapsed || ctaEngaged) return;
     const waitMs = Math.max(700, collapseRemainingRef.current);
     const startedAt = performance.now();
     const timer = window.setTimeout(() => {
@@ -301,7 +246,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
       window.clearTimeout(timer);
       collapseRemainingRef.current = Math.max(0, waitMs - (performance.now() - startedAt));
     };
-  }, [collapsed, ctaEngaged]);
+  }, [active, introActivated, collapsed, ctaEngaged]);
 
   // If the user manually drags the scrollbar before auto-collapse fires, keep below-the-fold cards at full opacity.
   useEffect(() => {
@@ -474,9 +419,16 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
       const introCamZ = -65 * (1 - easeOutExpo(introT / 1.1));
       const introRollDeg = -2.4 * (1 - easeOutQuart(introT / 1.15));
 
+      // Gentle momentum settle as the full-screen opening glides smoothly into the compact hero
+      const collapseT = collapseStartedAtRef.current !== null
+        ? Math.max(0, (now - collapseStartedAtRef.current) / 1000)
+        : null;
+      const collapseSpeedBoost = collapseT !== null ? 1.45 * Math.exp(-3.2 * collapseT) : 0;
+      const collapseSettleZ = collapseT !== null ? -18 * Math.sin(Math.min(1, collapseT / 1.05) * Math.PI) : 0;
+
       const baseSpeed = collapsedRef.current ? BASE_CRUISE_SPEED * 0.58 : BASE_CRUISE_SPEED;
       const cruiseBase = state.hoveringTile ? baseSpeed * 0.28 : baseSpeed;
-      const activeSpeed = cruiseBase * speedMultiplier + state.boostVelocity;
+      const activeSpeed = cruiseBase * (speedMultiplier + collapseSpeedBoost) + state.boostVelocity;
       state.scrollZ = (state.scrollZ + activeSpeed * dt) % totalDepth;
 
       if (stageRef.current) {
@@ -490,7 +442,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
         const rotX = state.pointerY * 2.8 * parallaxGain;
         const shiftX = -state.pointerX * 18 * parallaxGain;
         const shiftY = -state.pointerY * 12 * parallaxGain;
-        cam.style.transform = `translate3d(${shiftX.toFixed(2)}px, ${shiftY.toFixed(2)}px, ${introCamZ.toFixed(2)}px) rotateX(${rotX.toFixed(3)}deg) rotateY(${rotY.toFixed(3)}deg) rotateZ(${introRollDeg.toFixed(3)}deg)`;
+        cam.style.transform = `translate3d(${shiftX.toFixed(2)}px, ${shiftY.toFixed(2)}px, ${(introCamZ + collapseSettleZ).toFixed(2)}px) rotateX(${rotX.toFixed(3)}deg) rotateY(${rotY.toFixed(3)}deg) rotateZ(${introRollDeg.toFixed(3)}deg)`;
       }
 
       const wave = (introT - 0.06) / 0.78;
@@ -629,7 +581,15 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
           interactionRef.current.hoveringTile = false;
         }}
       >
-        <img src={tile.src} alt="" draggable={false} />
+        <img
+          src={tile.src}
+          alt=""
+          draggable={false}
+          loading="eager"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={event => { event.currentTarget.style.display = 'none'; }}
+        />
       </div>
     );
   };
@@ -646,6 +606,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
       className={heroClassName}
       data-bf-hero="true"
       data-script={script}
+      data-intro-active={introActivated ? 'true' : 'false'}
       data-collapsed={collapsed ? 'true' : 'false'}
       data-instant={startedCollapsed ? 'true' : undefined}
       data-curtain={collapsed || scrolledPastIntro ? 'open' : 'closed'}
@@ -746,8 +707,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
           <a
             className={styles.ctaBeam}
             href={pricingHref}
-            target="_blank"
-            rel="noopener noreferrer"
+            {...pricingLinkTargetProps()}
             onClick={claimOffer}
             onAuxClick={event => {
               if (event.button === 1) claimOffer(event);

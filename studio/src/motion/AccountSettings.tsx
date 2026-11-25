@@ -75,10 +75,10 @@ export function SignInGuide({ action }: { action: ReactNode }) {
 type UpgradeGuideProps = { plan: 'free' | 'go'; subscription: ReturnType<typeof useSubscriptionOpener> };
 
 const subscriptionImageModels = [
-  { id: 'gpt-image-2', name: 'GPT image 2.0' },
-  { id: 'nano-banana-2', name: 'Nano banana 2' },
-  { id: 'seedream-5.0', name: 'Seedream5.0' },
-  { id: 'seedream-5.5', name: 'Seedream5.5' },
+  { id: 'gpt-image-2', name: 'GPT Image 2.0' },
+  { id: 'nano-banana-2', name: 'Nano Banana 2' },
+  { id: 'seedream-5.0', name: 'Seedream 5.0' },
+  { id: 'seedream-5.5', name: 'Seedream 5.5' },
 ] as const;
 
 function SubscriptionGuide({ kind, visit, children }: { kind: 'sign-in' | 'upgrade'; visit: OfferVisit; children: ReactNode }) {
@@ -92,9 +92,9 @@ function SubscriptionGuide({ kind, visit, children }: { kind: 'sign-in' | 'upgra
   return <section ref={card} data-generation-offer={offerKind} className={offerStyles.subscriptionCard} data-guide={kind} aria-labelledby={headingId}>
     <div className={offerStyles.subscriptionHeading}>
       <h2 id={headingId}>{before}<span className={offerStyles.unlimitedText}>{t('7 days of unlimited use')}</span>{after}</h2>
-      {signedOut && <span className={offerStyles.dealTag}>
-        {t('Plus and above').split(/(Plus)/).map(part => part === 'Plus' ? <strong key={part}>{part}</strong> : part)}
-      </span>}
+      <span className={offerStyles.dealTag}>
+        {t('Annual Pro & Max')}
+      </span>
     </div>
     <div className={offerStyles.benefits}>
       <p className={offerStyles.modelSummary}>
@@ -258,7 +258,7 @@ function PlanUsagePanel({ account, upgradable, open }: { account: AccountSummary
   const planName = !account.plan ? '—' : account.plan === 'free' ? t('Free plan') : account.plan.charAt(0).toUpperCase() + account.plan.slice(1);
   const upgrade = upgradable && (console
     ? <Button variant="plain" className="om-plan-usage-upgrade" onClick={() => open('view_plans')}><RemixIcon name="sparkling-fill" size={14} />{t('Upgrade')}</Button>
-    : <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => open('view_plans')}><RemixIcon name="sparkling-line" size={16} />{t('Upgrade')}</Button>);
+    : <Button variant="ghost" className="om-button h-auto om-plan-usage-upgrade" data-primary onClick={() => open('view_plans')}><RemixIcon name="sparkling-line" size={16} />{t('Upgrade')}</Button>);
   return <section className="om-card om-plan-usage" data-look={console ? 'console' : 'studio'}>
     {console
       ? <div className="om-plan-usage-head" style={{ '--om-plan-art': `url(${planCardBackground})` } as CSSProperties}>
@@ -285,7 +285,7 @@ function PlanUsagePanel({ account, upgradable, open }: { account: AccountSummary
         <div className="om-plan-usage-figure"><strong>{formatUsd(account.balance)}</strong>
           {console
             ? <Button variant="plain" className="om-plan-usage-recharge" onClick={() => open('recharge')}>{t('Top up')}<RemixIcon name="external-link-line" size={15} /></Button>
-            : <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => open('recharge')}>{t('Top up')}<RemixIcon name="external-link-line" size={15} /></Button>}</div>
+            : <Button variant="ghost" className="om-button h-auto om-plan-usage-recharge" data-primary onClick={() => open('recharge')}>{t('Top up')}<RemixIcon name="external-link-line" size={15} /></Button>}</div>
       </div>
     </div>
   </section>;
