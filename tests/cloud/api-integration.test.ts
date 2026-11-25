@@ -841,6 +841,7 @@ describe('Cloud media generation and library save', () => {
         assert.equal(pgClient.rows('assets').length, 0);
         assert.equal(pgClient.rows('asset_versions').length, 0);
 
+        const initialClaimToken = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
         const firstRetry = await app.request('/motion-api/phase1/call', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -856,7 +857,25 @@ describe('Cloud media generation and library save', () => {
         assert.equal(queuedRetry.phase, 'saving');
         assert.equal(queuedRetry.savePending, true);
 
-        // Concurrent or duplicate retry while already queued must reject with 409 and not enqueue another job.
+        // Replaying the exact same requestId while queued is idempotent and uses the same BullMQ jobId
+        // (also recovers if an API process crashed between PG update and Redis enqueue).
+        const replaySameRequest = await app.request('/motion-api/phase1/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'openmotion_assets_use',
+            arguments: { action: 'retry_save', jobId, requestId: 'retry-image-save-1' },
+          }),
+        });
+        assert.equal(replaySameRequest.status, 200);
+        assert.deepEqual(enqueue.mock.calls[1].arguments, [
+          'retry_save_generation',
+          payload,
+          { jobId: `${jobId}__retry_save__${initialClaimToken}__retry-image-save-1` },
+        ]);
+        assert.deepEqual(enqueue.mock.calls[2].arguments, enqueue.mock.calls[1].arguments);
+
+        // Concurrent retry with a different requestId while already queued must reject with 409 and not enqueue.
         const secondRetry = await app.request('/motion-api/phase1/call', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -866,12 +885,7 @@ describe('Cloud media generation and library save', () => {
           }),
         });
         assert.equal(secondRetry.status, 409);
-        assert.equal(enqueue.mock.callCount(), 2);
-        assert.deepEqual(enqueue.mock.calls[1].arguments, [
-          'retry_save_generation',
-          payload,
-          { jobId: `${jobId}__retry_save__retry-image-save-1` },
-        ]);
+        assert.equal(enqueue.mock.callCount(), 3);
 
         // Even if two workers race on the same queued retry, atomic claim fencing commits exactly once.
         const results = await Promise.all([
@@ -936,7 +950,8 @@ describe('Cloud media generation and library save', () => {
       }),
     });
     assert.equal(retried.status, 200);
-    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__retry-before-cancel`);
+    const claimToken = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__${claimToken}__retry-before-cancel`);
 
     const cancelled = await app.request('/motion-api/phase1/call', {
       method: 'POST',
@@ -1076,33 +1091,115 @@ describe('Cloud media generation and library save', () => {
     const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
     await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /CAS failure #1/);
 
+    const claim1 = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
     const retry1 = await app.request('/motion-api/phase1/call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'openmotion_assets_use',
-        arguments: { action: 'retry_save', jobId, requestId: 'save-attempt-1' },
+        arguments: { action: 'retry_save', jobId, requestId: `save-${jobId}` },
       }),
     });
     assert.equal(retry1.status, 200);
     await assert.rejects(processMediaGenerateJob(worker, 'retry_save_generation', payload), /CAS failure #2/);
 
+    // Reusing the same Studio requestId (`save-${jobId}`) after a second failure gets a fresh BullMQ jobId
+    // via the new claimToken epoch, so it cannot be silently dropped while the previous BullMQ job finishes.
+    const claim2 = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    assert.notEqual(claim2, claim1);
     const retry2 = await app.request('/motion-api/phase1/call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'openmotion_assets_use',
-        arguments: { action: 'retry_save', jobId, requestId: 'save-attempt-2' },
+        arguments: { action: 'retry_save', jobId, requestId: `save-${jobId}` },
       }),
     });
     assert.equal(retry2.status, 200);
-    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__save-attempt-1`);
-    assert.equal(enqueue.mock.calls[2].arguments[2]?.jobId, `${jobId}__retry_save__save-attempt-2`);
+    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__${claim1}__save-${jobId}`);
+    assert.equal(enqueue.mock.calls[2].arguments[2]?.jobId, `${jobId}__retry_save__${claim2}__save-${jobId}`);
 
     const finalRes = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
     assert.equal(finalRes.state, 'completed');
     assert.equal(submitTask.mock.callCount(), 1);
     assert.equal(pgClient.rows('assets').length, 1);
+  });
+
+  it('does not overwrite a pending cancellation when an upstream poll returns failed', async (t) => {
+    const { app, db, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const publishedEvents: Array<Record<string, unknown>> = [];
+    const origPublish = eventBus.publish.bind(eventBus);
+    let dropCancelPub = false;
+    t.mock.method(eventBus, 'publish', async (channel: string, payload: unknown) => {
+      if (dropCancelPub && channel.startsWith('om:cancel:')) {
+        return 0;
+      }
+      if (channel.startsWith('om:job:') && payload && typeof payload === 'object') {
+        publishedEvents.push(payload as Record<string, unknown>);
+      }
+      return origPublish(channel, payload);
+    });
+    const origPoll = gateway.pollTask.bind(gateway);
+    let pollCalls = 0;
+    t.mock.method(gateway, 'pollTask', async (...args: Parameters<typeof origPoll>) => {
+      pollCalls += 1;
+      if (pollCalls === 1) return origPoll(...args);
+      dropCancelPub = true;
+      const cancelRes = await app.request('/motion-api/phase1/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'openmotion_assets_use',
+          arguments: { action: 'cancel', jobId },
+        }),
+      });
+      assert.equal(cancelRes.status, 200);
+      return {
+        remoteTaskId: args[1].remoteTaskId,
+        status: 'failed' as const,
+        error: { code: 'UPSTREAM_ERR', message: 'Upstream failed after cancel' },
+      };
+    });
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('First CAS write failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Snow pine',
+        requestId: 'generate-poll-fail-cancel-race',
+      }),
+    });
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /First CAS write failure/);
+
+    const retried = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-poll-cancel' },
+      }),
+    });
+    assert.equal(retried.status, 200);
+    publishedEvents.length = 0;
+
+    const result = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(result.state, 'cancelled');
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    const { job: finalJob } = await status.json();
+    assert.equal(finalJob.state, 'cancelled');
+    assert.equal(finalJob.savePending, false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'failed'), false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'cancelled'), true);
+    assert.equal(pgClient.rows('assets').length, 0);
   });
 });
 

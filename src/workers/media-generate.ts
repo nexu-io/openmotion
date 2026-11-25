@@ -536,7 +536,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
         const errorMessage =
           pollResult.error?.message ?? `Upstream generation task failed (${errorCode})`;
         const terminalNow = new Date();
-        await deps.db
+        const updatedFailed = await deps.db
           .update(jobs)
           .set(
             asUpdate(jobs, {
@@ -552,13 +552,49 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
               updatedAt: terminalNow,
             }),
           )
-          .where(and(eq(jobs.id, jobId), eq(jobs.workspaceId, workspaceId), eq(jobs.claimToken, claimToken)));
+          .where(
+            and(
+              eq(jobs.id, jobId),
+              eq(jobs.workspaceId, workspaceId),
+              eq(jobs.claimToken, claimToken),
+              eq(jobs.state, 'running'),
+            ),
+          )
+          .returning();
 
-        await publishProgress('failed', 'failed', 0, {
-          errorCode,
-          errorMessage,
-          remoteTerminal: !outcomeUnknown,
-        });
+        if (updatedFailed.length === 0) {
+          const updatedCancelled = await deps.db
+            .update(jobs)
+            .set(
+              asUpdate(jobs, {
+                state: 'cancelled',
+                stage: 'cancelled',
+                savePending: false,
+                terminalAt: terminalNow,
+                updatedAt: terminalNow,
+              }),
+            )
+            .where(
+              and(
+                eq(jobs.id, jobId),
+                eq(jobs.workspaceId, workspaceId),
+                eq(jobs.claimToken, claimToken),
+                eq(jobs.state, 'cancelling'),
+              ),
+            )
+            .returning();
+          if (updatedCancelled.length > 0) {
+            await publishProgress('cancelled', 'cancelled', 0);
+            terminalHandled = true;
+            return { jobId, state: 'cancelled', remoteId };
+          }
+        } else {
+          await publishProgress('failed', 'failed', 0, {
+            errorCode,
+            errorMessage,
+            remoteTerminal: !outcomeUnknown,
+          });
+        }
         terminalHandled = true;
         throw new CloudError('STORAGE_ERROR', errorMessage, { status: 502 });
       }
@@ -669,7 +705,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           if (currentRows.length === 0 || currentRows[0].claimToken !== claimToken) {
             throw new Error('CLAIM_TOKEN_LOST');
           }
-          if (currentRows[0].state === 'cancelling' || abortController.signal.aborted) {
+          if (currentRows[0].state === 'cancelling' || currentRows[0].state === 'cancelled' || abortController.signal.aborted) {
             const cancelNow = new Date();
             await tx
               .update(jobs)
