@@ -180,11 +180,10 @@ it("publishes timeline metadata while waiting for a decodable visible frame", ()
   } finally { player.unmount(); }
 });
 
-it("offers retry on first-frame media failure or a stalled first frame, ignoring late messages for the old load", () => {
+it("offers retry on first-frame media errors before and after editing unlocks, ignoring old grants", () => {
   const player = mountPlayer({ trackAssets: true });
   try {
-    player.notify("timeline-state", { firstFrame: "loading" });
-    advance(90_001);
+    player.notify("timeline-state", { firstFrame: "error" });
     expect(player.error).toHaveBeenCalledOnce();
     player.notify("timeline-state", { firstFrame: "ready" });
     expect(player.host.textContent).toContain("Retry preview");
@@ -198,6 +197,16 @@ it("offers retry on first-frame media failure or a stalled first frame, ignoring
     expect(player.host.textContent).toContain("Retry preview");
     expect(player.painted).not.toHaveBeenCalled();
     expect(player.readyToShow).not.toHaveBeenCalledWith(true);
+  } finally { player.unmount(); }
+});
+
+it("retains the first-frame timeout for an untracked preview without an editor grace", () => {
+  const player = mountPlayer();
+  try {
+    player.notify("timeline-state", { firstFrame: "loading" });
+    advance(90_001);
+    expect(player.error).toHaveBeenCalledOnce();
+    expect(player.host.textContent).toContain("Retry preview");
   } finally { player.unmount(); }
 });
 
@@ -400,16 +409,16 @@ it("counts from mount, not duration, and keeps buffering and paint independent o
   } finally { player.unmount(); }
 });
 
-it("keeps editing available across the old 90s deadline while the live bridge waits for media", () => {
+it("accepts a late first frame after editing unlocks and a hidden preview stops sending heartbeats", () => {
   const player = mountPlayer({ trackAssets: true });
   try {
     player.notify("timeline-state", { firstFrame: "loading" });
     advance(3_001);
     expect(usePlayerStore.getState().previewBooted).toBe(true);
     expect(player.compositionLoading).toHaveBeenLastCalledWith(false);
-    advance(60_000);
     player.notify("timeline-state", { firstFrame: "loading" });
-    advance(30_000);
+    // The bridge stops posting timeline-state while its document is hidden.
+    advance(120_000);
     expect(player.error).not.toHaveBeenCalled();
     expect(player.backdrop()).not.toBeNull();
     expect(player.readyToShow).not.toHaveBeenCalledWith(true);

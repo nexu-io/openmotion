@@ -93,10 +93,6 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       let startedAt = performance.now();
       let deadline: ReturnType<typeof setTimeout>;
       let editorGrace: ReturnType<typeof setTimeout>;
-      const armFrameDeadline = () => {
-        clearTimeout(deadline);
-        deadline = setTimeout(() => fail("The composition preview did not become ready."), 90_000);
-      };
       let skippedFirstFrame = false;
       let paintFrame = 0;
       let busyTimer: ReturnType<typeof setTimeout>;
@@ -224,20 +220,19 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           setSize(event.data.width, event.data.height);
           callbacks.current.onLoad();
           if (!passive) announcePreviewDocumentLoaded(iframe!);
-          armFrameDeadline();
+          deadline = setTimeout(() => fail("The composition preview did not become ready."), 90_000);
           if (tracksAssets && !passive) {
             // A verified runtime can initialize editing while its first visible media buffers.
             // Only a real paint may dismiss the backdrop or announce a displayable frame.
             editorGrace = setTimeout(() => {
               if (callbacks.current.parked || ready || skippedFirstFrame) return;
+              // Hidden previews pause heartbeats. Once editing is available, only an explicit frame error is fatal.
+              clearTimeout(deadline);
               usePlayerStore.getState().markPreviewBooted();
               callbacks.current.onCompositionLoadingChange?.(false);
             }, 3_000);
           }
           if (tracksAssets && !passive && usePlayerStore.getState().assetReadinessSkipped) skipFirstFrame();
-        } else if (tracksAssets && !passive && !skippedFirstFrame && event.data.firstFrame === "loading") {
-          // A live document still waiting on media has not failed. Detect a silent bridge instead.
-          armFrameDeadline();
         }
         if (event.data.firstFrame === "error") {
           if (skippedFirstFrame) {
