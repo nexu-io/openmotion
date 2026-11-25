@@ -1392,7 +1392,11 @@ it('keeps standalone persisted draft cleared after job creation until the user e
     model: { id: 'gpt-image-2', label: 'GPT Image 2', provider: 'opendesign' },
     createdAt: 300, updatedAt: 300,
   };
-  await act(async () => { lastComposerOnCreated?.(jobCreated); });
+  // Mirror AssetComposer / SoundComposer production order: queue model/parameter update right before onCreated.
+  await act(async () => {
+    lastComposerSetDraft?.(current => ({ ...current, model: 'gpt-image-2', parameters: { aspectRatio: '16:9' } }));
+    lastComposerOnCreated?.(jobCreated);
+  });
   await flush();
   expect(window.sessionStorage.getItem('openmotion.studio.drafts.v1')).toBeNull();
 

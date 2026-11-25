@@ -81,6 +81,15 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const [historyLoading, setHistoryLoading] = useState(true), [historyError, setHistoryError] = useState<string>(), [historyRetry, setHistoryRetry] = useState(0), [selectingTask, setSelectingTask] = useState(false);
   const studioForm = studio && !selected ? studio : undefined;
   const scoped = Boolean(studio), lastStudioDraft = useRef(draft), submittedDraftRef = useRef<AssetDraft | undefined>(undefined);
+  const markDraftSubmitted = useCallback((storageKey: string) => {
+    clearPersistedStudioDraft(storageKey);
+    // Capture the post-submit draft after Composer's queued setDraft(current => ({ ...current, model, parameters }))
+    // runs in the same React batch, so useLayoutEffect suppresses persisting the submitted draft without masking later edits.
+    setDraft(current => {
+      submittedDraftRef.current = current;
+      return current;
+    });
+  }, []);
   useLayoutEffect(() => {
     if (submittedDraftRef.current === draft) return;
     submittedDraftRef.current = undefined;
@@ -599,9 +608,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} promptAppliedToken={promptAppliedToken} jobs={jobs} showCurrentJob={mediaGenerations ? false : !showLibraryPlaceholders} taskId={taskId} history={history} selectingTask={selectingTask}
     onNew={() => startDraft({ modality: draft.modality, prompt: '', references: [] })}
     onCancel={cancelJob} onRetrySave={retrySave} onResume={resumeJob} onView={viewJob} uploadingReferences={uploadingReferences} onUploadReference={studioForm ? () => referenceUpload.current?.click() : undefined} onUploadFiles={studioForm ? (files, source) => { void uploadReferenceFiles(files, source === 'paste' ? 'other' : 'library_drop'); } : undefined} onReference={openReferencePicker} onCreated={job => {
-      submittedDraftRef.current = draft;
-      if (studio?.draftKey) clearPersistedStudioDraft(studio.draftKey);
-      else clearPersistedStudioDraft(STANDALONE_ASSET_DRAFT_KEY);
+      markDraftSubmitted(studio?.draftKey ?? STANDALONE_ASSET_DRAFT_KEY);
       knownJobs.current = mergeAssetJobs(knownJobs.current, [job]); setJobs(knownJobs.current); setTaskId(job.id);
       setSessionJobIds(prev => prev.includes(job.id) ? prev : [...prev, job.id]);
       setDismissedJobIds(prev => { if (!prev.has(job.id)) return prev; const next = new Set(prev); next.delete(job.id); return next; });
@@ -678,8 +685,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         onResumeJob={resumeJob}
         onViewJob={viewJob}
         onCreated={job => {
-          submittedDraftRef.current = draft;
-          if (studio.draftKey) clearPersistedStudioDraft(studio.draftKey);
+          if (studio.draftKey) markDraftSubmitted(studio.draftKey);
           knownJobs.current = mergeAssetJobs(knownJobs.current, [job]); setJobs(knownJobs.current); setTaskId(job.id);
           refresh();
         }}
