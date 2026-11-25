@@ -14,7 +14,12 @@ import { closeWebPublishFor, webPublishFor } from './gateway/web-publish.ts';
 import { closeDesignDeployFor } from './gateway/design-deploy.ts';
 import { AdaptivePoller } from './shared/lifecycle.ts';
 import { mapWebPublishError, resolveWebPublishTarget } from './gateway/web-publish-ops.ts';
-import { webPublishTargetKinds, type WebPublishMode, type WebPublishTargetKind } from './shared/web-publish.ts';
+import {
+  webPublishTargetKinds,
+  type WebPublishMode,
+  type WebPublishTargetKind,
+  type WebPublishVisibility,
+} from './shared/web-publish.ts';
 import { createAutomationHost } from './gateway/automation-host.ts';
 import { MCP_HTTP_PATH } from './shared/mcp-http.ts';
 import { superAgentConversations } from './gateway/super-agent.ts';
@@ -780,6 +785,11 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
             const sourcePath = typeof body?.sourcePath === 'string' ? body.sourcePath : undefined;
             const embedUrl = typeof body?.embedUrl === 'string' ? body.embedUrl : undefined;
             const title = typeof body?.name === 'string' ? body.name : typeof body?.title === 'string' ? body.title : undefined;
+            const visibility =
+              body?.visibility === 'public' || body?.visibility === 'unlisted'
+                ? (body.visibility as WebPublishVisibility)
+                : undefined;
+            const allowRemix = typeof body?.allowRemix === 'boolean' ? body.allowRemix : undefined;
             const target = await resolveWebPublishTarget(
               rootStore,
               { targetKind, targetId, sourcePath, filePath, title, embedUrl },
@@ -790,8 +800,31 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
               workspaceId: typeof body?.workspaceId === 'string' ? body.workspaceId : undefined,
               mode: body?.deployMode as WebPublishMode | undefined,
               name: title,
+              visibility,
+              allowRemix,
             });
             return json(res, 200, result);
+          }
+          if (req.method === 'PATCH') {
+            const body = await input(req, 16 * 1024).catch(() => ({}));
+            const visibility =
+              body?.visibility === 'public' || body?.visibility === 'unlisted'
+                ? (body.visibility as WebPublishVisibility)
+                : null;
+            if (!visibility) {
+              return json(res, 400, {
+                error: { code: 'INVALID_ARGUMENT', message: 'visibility must be "public" or "unlisted"' },
+              });
+            }
+            const filePath = typeof body?.filePath === 'string' ? body.filePath : undefined;
+            const sourcePath = typeof body?.sourcePath === 'string' ? body.sourcePath : undefined;
+            const embedUrl = typeof body?.embedUrl === 'string' ? body.embedUrl : undefined;
+            const allowRemix = typeof body?.allowRemix === 'boolean' ? body.allowRemix : undefined;
+            const target =
+              targetKind === 'html' && !sourcePath
+                ? { kind: 'html' as const, id: targetId, entryPath: filePath || 'index.html' }
+                : await resolveWebPublishTarget(rootStore, { targetKind, targetId, sourcePath, filePath, embedUrl, readOnly: true }, originUrl);
+            return json(res, 200, await publishService.setVisibility(target, { filePath, visibility, allowRemix }));
           }
           if (req.method === 'DELETE') {
             const body = await input(req, 16 * 1024).catch(() => ({}));

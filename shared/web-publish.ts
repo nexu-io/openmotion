@@ -12,6 +12,30 @@ export type WebPublishMode = 'publish' | 'resume' | 'new_link';
 export type WebPublishStatus = 'published' | 'stopped';
 export type WebPublishFreshness = 'fresh' | 'outdated' | 'unknown';
 export type WebPublishAccountState = 'signed-out' | 'authorizing' | 'signed-in' | 'reauth-required' | 'unavailable';
+export type WebPublishVisibility = 'public' | 'unlisted';
+export type WebPublishFeedStatus = 'pending' | 'approved' | 'featured' | 'rejected';
+
+export type WebPublishGameMeta = {
+  title: string;
+  description?: string;
+  genre?: string | null;
+  style?: string | null;
+  setting?: string | null;
+  orientation?: 'landscape' | 'portrait';
+  controls?: string;
+  coverPath?: string | null;
+  i18n?: Record<string, { title?: string; description?: string; controls?: string }> | null;
+  creatorName?: string | null;
+  templateId?: string | null;
+  remixOfSlug?: string | null;
+};
+
+/** Any paid OpenDesign plan (starting at `go`, up through `max` and `team_*`) unlocks unlisted/private game shares. */
+export function isPaidWebPublishPlan(plan?: string | null): boolean {
+  if (typeof plan !== 'string') return false;
+  const normalized = plan.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== 'free';
+}
 
 export type WebPublishTarget = {
   kind: WebPublishTargetKind;
@@ -24,6 +48,8 @@ export type WebPublishTarget = {
   /** Optional in-memory entry HTML used for read-only freshness checks without mutating disk cache. */
   virtualEntryHtml?: string;
   multiplayer?: boolean;
+  /** Structured game metadata passed to OpenDesign Cloud when publishing a game. */
+  gameMeta?: WebPublishGameMeta;
 };
 
 export type WebPublicationRecord = {
@@ -48,6 +74,13 @@ export type WebPublicationRecord = {
   versionId: string;
   status: WebPublishStatus;
   url: string | null;
+  /** Legacy artifact share URL preserved alongside community `/games/:slug` URLs. */
+  artifactUrl?: string | null;
+  /** Short SEO-friendly community URL (`/games/:slug`) for game shares. */
+  communityUrl?: string | null;
+  visibility?: WebPublishVisibility;
+  allowRemix?: boolean;
+  feedStatus?: WebPublishFeedStatus;
   publishedAt: number;
   updatedAt: number;
   fileCount: number;
@@ -68,6 +101,9 @@ export type WebPublishStatusResponse = {
   accountSignedIn: boolean;
   accountState?: WebPublishAccountState;
   accountEmail?: string;
+  accountPlan?: string;
+  /** True when the signed-in account can switch game visibility to `unlisted` (any paid plan, Go+). */
+  canUsePrivateShare?: boolean;
   freshness?: WebPublishFreshness;
   fileCount?: number;
   totalBytes?: number;
@@ -99,8 +135,8 @@ export const webPublishToolArguments = {
   required: ['command'],
   properties: {
     command: {
-      enum: ['publish', 'status', 'unpublish', 'list'],
-      description: 'Operation to run: publish/update a live HTTPS link, inspect status and content freshness, stop sharing, or list all publications.',
+      enum: ['publish', 'status', 'unpublish', 'list', 'visibility'],
+      description: 'Operation to run: publish/update a live HTTPS link, inspect status and content freshness, update visibility, stop sharing, or list all publications.',
     },
     targetKind: {
       enum: ['design', 'game', 'html', 'motion'],
@@ -149,6 +185,14 @@ export const webPublishToolArguments = {
     refresh: {
       type: 'boolean',
       description: 'When command="status", refresh live status from Open Design Cloud.',
+    },
+    visibility: {
+      enum: ['public', 'unlisted'],
+      description: 'Game share visibility: public (default, eligible for offline community curation) or unlisted (paid plans Go+, link-only and excluded from community feeds/SEO).',
+    },
+    allowRemix: {
+      type: 'boolean',
+      description: 'Whether viewers may use one-click Remix on this game share.',
     },
   },
 };

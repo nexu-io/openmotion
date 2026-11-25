@@ -427,6 +427,49 @@ export class OpenDesignAccount {
       signal,
     );
   }
+  async controlApiJson<T = Record<string, unknown>>(
+    apiPath: string,
+    options: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; workspaceId?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {},
+  ): Promise<T> {
+    const profile = await this.profile();
+    if (!signedInProfile(profile) || !profile?.controlKey) {
+      throw new Error('OPENDESIGN_SIGN_IN_REQUIRED: Sign in with OpenDesign first');
+    }
+    const rawBase = (profile.apiUrl?.trim() || productionApi).replace(/\/+$/, '');
+    const normalizedPath = apiPath.startsWith('/') ? apiPath : `/${apiPath}`;
+    const apiBase = normalizedPath.startsWith('/api/') && rawBase.endsWith('/api')
+      ? rawBase.slice(0, -4)
+      : rawBase;
+    const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 20_000);
+    const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+    const fetcher = this.options.fetcher ?? fetch;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${profile.controlKey}`,
+      Accept: 'application/json',
+      ...(options.workspaceId?.trim() ? { 'X-Workspace-Id': options.workspaceId.trim() } : {}),
+      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    };
+    const response = await fetcher(`${apiBase}${normalizedPath}`, {
+      method: options.method ?? 'GET',
+      headers,
+      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      redirect: 'error',
+      signal,
+    });
+    const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+    if (!response.ok) {
+      const errCode = typeof payload?.error === 'string' ? payload.error : `HTTP_${response.status}`;
+      if (response.status === 401) {
+        this.rejectedKeyId = profile.controlKeyId;
+        throw new Error(`OPENDESIGN_SIGN_IN_REQUIRED: ${errCode}`);
+      }
+      if (response.status === 403 && errCode === 'PRIVATE_SHARE_REQUIRES_PAID_PLAN') {
+        throw new Error('PRIVATE_SHARE_REQUIRES_PAID_PLAN: Unlisted/private game sharing requires a paid OpenDesign plan (Go or above).');
+      }
+      throw new Error(`DEPLOY_FAILED: OpenDesign API ${normalizedPath} failed (${response.status}: ${errCode})`);
+    }
+    return (payload ?? {}) as T;
+  }
   private async fetchWorkspaceRecords(profile: Profile, signal?: AbortSignal, timeoutMs = 15_000): Promise<Record<string, unknown>[]> {
     const apiBase = (profile.apiUrl?.trim() || productionApi).replace(/\/$/, '');
     const timeoutSignal = AbortSignal.timeout(timeoutMs);

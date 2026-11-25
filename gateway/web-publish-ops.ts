@@ -8,6 +8,7 @@ import {
   type WebPublishMode,
   type WebPublishTarget,
   type WebPublishTargetKind,
+  type WebPublishVisibility,
 } from '../shared/web-publish.ts';
 import type { WorkspaceStore } from '../workspace.ts';
 import { webPublishFor, type WebPublishService } from './web-publish.ts';
@@ -179,6 +180,28 @@ export async function resolveWebPublishTarget(
         const entryPath = input.filePath?.trim() || 'index.html';
         const entryStat = await stat(path.join(dir, entryPath)).catch(() => null);
         const sourceRevision = `${card.updatedAt}:${entryStat?.size ?? 0}:${entryStat?.mtimeMs ?? 0}`;
+        let coverPath: string | null = null;
+        if (card.cover) {
+          const playMarker = `/games/${card.id}/play/`;
+          const markerIndex = card.cover.indexOf(playMarker);
+          const candidate =
+            markerIndex >= 0
+              ? decodeURIComponent(card.cover.slice(markerIndex + playMarker.length).split(/[?#]/)[0] ?? '')
+              : !/^https?:\/\//i.test(card.cover) && !card.cover.startsWith('/')
+                ? card.cover
+                : '';
+          if (candidate && await stat(path.join(dir, candidate)).then(s => s.isFile(), () => false)) {
+            coverPath = candidate;
+          }
+        }
+        if (!coverPath) {
+          for (const fallback of ['cover.webp', 'cover.png', 'cover.jpg']) {
+            if (await stat(path.join(dir, fallback)).then(s => s.isFile(), () => false)) {
+              coverPath = fallback;
+              break;
+            }
+          }
+        }
         return {
           kind: 'game',
           id: card.id,
@@ -187,6 +210,19 @@ export async function resolveWebPublishTarget(
           sourceRevision,
           sourcePath: dir,
           multiplayer: card.multiplayer,
+          gameMeta: {
+            title: input.title?.trim() || card.title || card.id,
+            description: card.description || '',
+            genre: card.genre ?? null,
+            style: card.style ?? null,
+            setting: card.setting ?? null,
+            orientation: card.orientation === 'portrait' ? 'portrait' : 'landscape',
+            controls: card.controls || '',
+            coverPath,
+            i18n: card.i18n ?? null,
+            templateId: card.source === 'template' ? card.id : null,
+            remixOfSlug: card.remixOf ?? null,
+          },
         };
       }
     }
@@ -313,6 +349,13 @@ export function mapWebPublishError(error: unknown): { status: number; code: stri
       message: raw.replace(/^OPENDESIGN_SIGN_IN_REQUIRED:\s*/, ''),
     };
   }
+  if (raw.startsWith('PRIVATE_SHARE_REQUIRES_PAID_PLAN')) {
+    return {
+      status: 403,
+      code: 'PRIVATE_SHARE_REQUIRES_PAID_PLAN',
+      message: raw.replace(/^PRIVATE_SHARE_REQUIRES_PAID_PLAN:\s*/, ''),
+    };
+  }
   if (raw.startsWith('SHARE_STOPPED_RESUME_REQUIRED')) {
     return {
       status: 409,
@@ -393,12 +436,36 @@ export async function webPublishOperation(
       { targetKind, targetId, sourcePath, filePath, title, embedUrl },
       origin,
     );
+    const visibility =
+      input.visibility === 'public' || input.visibility === 'unlisted'
+        ? (input.visibility as WebPublishVisibility)
+        : undefined;
+    const allowRemix = typeof input.allowRemix === 'boolean' ? input.allowRemix : undefined;
     return await service.publish(resolved, {
       filePath,
       workspaceId: typeof input.workspaceId === 'string' ? input.workspaceId : undefined,
       mode: typeof input.deployMode === 'string' ? (input.deployMode as WebPublishMode) : undefined,
       name: title,
+      visibility,
+      allowRemix,
     });
+  }
+
+  if (command === 'visibility') {
+    const visibility =
+      input.visibility === 'public' || input.visibility === 'unlisted'
+        ? (input.visibility as WebPublishVisibility)
+        : null;
+    if (!visibility) {
+      throw new Error('INVALID_ARGUMENT: visibility must be "public" or "unlisted"');
+    }
+    const allowRemix = typeof input.allowRemix === 'boolean' ? input.allowRemix : undefined;
+    const resolved = await resolveWebPublishTarget(
+      store,
+      { targetKind, targetId, sourcePath, filePath, title, embedUrl, readOnly: true },
+      origin,
+    );
+    return await service.setVisibility(resolved, { filePath, visibility, allowRemix });
   }
 
   if (command === 'unpublish') {
