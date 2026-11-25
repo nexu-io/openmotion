@@ -965,7 +965,7 @@ export function useMotionGoogleOneTap({
                 });
                 const fallbackMessage =
                   errorCode === 'ACCOUNT_BANNED'
-                    ? data?.message || 'This account has been suspended and cannot sign in.'
+                    ? data?.message || 'Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.'
                     : 'Sign-in failed. Please try again or choose another sign-in method.';
                 onErrorRef.current?.(fallbackMessage, errorCode);
                 return;

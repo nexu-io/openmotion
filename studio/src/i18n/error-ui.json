@@ -71,7 +71,7 @@
     "Switching projects. Please try again shortly.": "正在切换项目，请稍后重试。",
     "Sign-in failed. Please try again or choose another sign-in method.": "登录失败，请重试或选择其他方式登录",
     "Go to sign in": "去登录",
-    "This account has been suspended and cannot sign in.": "该账号已被封禁，无法登录。",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "账号已临时停用：我们检测到该账号存在异常支付风险，已临时停用账号使用权限。如果你认为这是误判，请联系 support@open-design.ai，我们会协助核查。",
     "This account is frozen or scheduled for deletion.": "该账号已注销或冻结，无法登录。",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "检测到已有账号使用该邮箱，请使用原有方式登录后完成验证绑定。",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "当前邮箱域名暂不支持快捷登录，请选择其他方式登录。"
@@ -148,7 +148,7 @@
     "Switching projects. Please try again shortly.": "プロジェクトを切り替え中です。しばらくしてからもう一度お試しください。",
     "Sign-in failed. Please try again or choose another sign-in method.": "ログインに失敗しました。再試行するか、別のログイン方法を選択してください。",
     "Go to sign in": "ログインへ",
-    "This account has been suspended and cannot sign in.": "このアカウントは停止されているためログインできません。",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "アカウントが一時停止されました。このアカウントで異常な支払いリスクが検出されたため、アクセスを一時停止しています。誤判定と思われる場合は、support@open-design.ai までご連絡ください。確認いたします。",
     "This account is frozen or scheduled for deletion.": "このアカウントは凍結または削除予定のためログインできません。",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "同じメールアドレスのアカウントが存在します。従来の方法でログインして認証・連携してください。",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "このメールドメインではワンタップログインを利用できません。別の方法でログインしてください。"
@@ -225,7 +225,7 @@
     "Switching projects. Please try again shortly.": "프로젝트를 전환하는 중입니다. 잠시 후 다시 시도하세요.",
     "Sign-in failed. Please try again or choose another sign-in method.": "로그인에 실패했습니다. 다시 시도하거나 다른 로그인 방법을 선택해 주세요.",
     "Go to sign in": "로그인으로 이동",
-    "This account has been suspended and cannot sign in.": "이 계정은 정지되어 로그인할 수 없습니다.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "계정이 일시 정지되었습니다. 이 계정에서 비정상적인 결제 위험이 감지되어 계정 접근이 일시 정지되었습니다. 오탐이라고 생각되시면 support@open-design.ai로 문의해 주세요. 확인을 도와드리겠습니다.",
     "This account is frozen or scheduled for deletion.": "이 계정은 동결되었거나 삭제 예정입니다.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "이 이메일의 기존 계정이 있습니다. 기존 로그인 방법으로 인증 후 연결해 주세요.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "이 이메일 도메인은 원탭 로그인을 지원하지 않습니다. 다른 방법으로 로그인해 주세요."
@@ -302,7 +302,7 @@
     "Switching projects. Please try again shortly.": "Projekt wird gewechselt. Bitte versuchen Sie es gleich noch einmal.",
     "Sign-in failed. Please try again or choose another sign-in method.": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut oder wählen Sie eine andere Anmeldemethode.",
     "Go to sign in": "Zur Anmeldung",
-    "This account has been suspended and cannot sign in.": "Dieses Konto wurde gesperrt und kann sich nicht anmelden.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Konto vorübergehend gesperrt. Wir haben bei diesem Konto ein ungewöhnliches Zahlungsrisiko festgestellt und den Kontozugriff vorübergehend gesperrt. Wenn Sie glauben, dass dies ein Irrtum ist, wenden Sie sich bitte an support@open-design.ai, wir helfen Ihnen bei der Prüfung.",
     "This account is frozen or scheduled for deletion.": "Dieses Konto ist eingefroren oder zur Löschung vorgesehen.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Es existiert bereits ein Konto mit dieser E-Mail. Melden Sie sich mit Ihrer bisherigen Methode an, um es zu verknüpfen.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Diese E-Mail-Domain unterstützt keine Schnell-Anmeldung. Bitte nutzen Sie eine andere Anmeldemethode."
@@ -379,7 +379,7 @@
     "Switching projects. Please try again shortly.": "Changement de projet en cours. Veuillez réessayer dans un instant.",
     "Sign-in failed. Please try again or choose another sign-in method.": "Échec de la connexion. Réessayez ou choisissez une autre méthode de connexion.",
     "Go to sign in": "Se connecter",
-    "This account has been suspended and cannot sign in.": "Ce compte a été suspendu et ne peut pas se connecter.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Compte temporairement suspendu. Nous avons détecté un risque de paiement anormal sur ce compte et avons temporairement suspendu son accès. Si vous pensez qu’il s’agit d’une erreur, veuillez contacter support@open-design.ai et nous vous aiderons à vérifier.",
     "This account is frozen or scheduled for deletion.": "Ce compte est gelé ou en cours de suppression.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Un compte existe déjà avec cet e-mail. Connectez-vous avec votre méthode habituelle pour le vérifier et l’associer.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Ce domaine e-mail ne prend pas en charge la connexion rapide. Veuillez choisir une autre méthode."
@@ -456,7 +456,7 @@
     "Switching projects. Please try again shortly.": "Cambiando de proyecto. Inténtalo de nuevo en unos momentos.",
     "Sign-in failed. Please try again or choose another sign-in method.": "Error al iniciar sesión. Inténtalo de nuevo o elige otro método de inicio de sesión.",
     "Go to sign in": "Ir a iniciar sesión",
-    "This account has been suspended and cannot sign in.": "Esta cuenta ha sido suspendida y no puede iniciar sesión.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Cuenta suspendida temporalmente. Detectamos un riesgo de pago anormal en esta cuenta y hemos suspendido temporalmente el acceso. Si crees que es un error, contacta con support@open-design.ai y te ayudaremos a investigarlo.",
     "This account is frozen or scheduled for deletion.": "Esta cuenta está congelada o pendiente de eliminación.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Ya existe una cuenta con este correo. Inicia sesión con tu método anterior para verificarla y vincularla.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Este dominio de correo no admite inicio rápido. Elige otro método de inicio de sesión."
@@ -533,7 +533,7 @@
     "Switching projects. Please try again shortly.": "Alternando projetos. Tente novamente em instantes.",
     "Sign-in failed. Please try again or choose another sign-in method.": "Falha ao entrar. Tente novamente ou escolha outro método de login.",
     "Go to sign in": "Ir para login",
-    "This account has been suspended and cannot sign in.": "Esta conta foi suspensa e não pode entrar.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Conta suspensa temporariamente. Detectamos risco de pagamento anormal nesta conta e suspendemos temporariamente o acesso. Se você acredita que isso é um engano, entre em contato com support@open-design.ai e ajudaremos na verificação.",
     "This account is frozen or scheduled for deletion.": "Esta conta está congelada ou agendada para exclusão.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Já existe uma conta com este e-mail. Entre com seu método anterior para verificar e vincular.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Este domínio de e-mail não é compatível com login rápido. Escolha outro método de login."
@@ -610,7 +610,7 @@
     "Switching projects. Please try again shortly.": "Cambio progetto in corso. Riprova tra un momento.",
     "Sign-in failed. Please try again or choose another sign-in method.": "Accesso non riuscito. Riprova o scegli un altro metodo di accesso.",
     "Go to sign in": "Vai all’accesso",
-    "This account has been suspended and cannot sign in.": "Questo account è stato sospeso e non può accedere.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Account temporaneamente sospeso. Abbiamo rilevato un rischio di pagamento anomalo su questo account e abbiamo temporaneamente sospeso l’accesso. Se ritieni che si tratti di un errore, contatta support@open-design.ai e ti aiuteremo a verificare.",
     "This account is frozen or scheduled for deletion.": "Questo account è bloccato o in fase di eliminazione.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Esiste già un account con questa email. Accedi con il tuo metodo precedente per verificarlo e collegarlo.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Questo dominio email non supporta l’accesso rapido. Scegli un altro metodo di accesso."
@@ -687,7 +687,7 @@
     "Switching projects. Please try again shortly.": "Переключение проекта. Повторите попытку чуть позже.",
     "Sign-in failed. Please try again or choose another sign-in method.": "Не удалось войти. Попробуйте снова или выберите другой способ входа.",
     "Go to sign in": "Перейти ко входу",
-    "This account has been suspended and cannot sign in.": "Этот аккаунт заблокирован и не может войти.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Аккаунт временно приостановлен. Мы обнаружили аномальный платёжный риск в этом аккаунте и временно приостановили доступ. Если вы считаете, что это ошибка, свяжитесь с support@open-design.ai, и мы поможем разобраться.",
     "This account is frozen or scheduled for deletion.": "Этот аккаунт заморожен или запланирован к удалению.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Аккаунт с этим email уже существует. Войдите прежним способом, чтобы подтвердить и привязать аккаунт.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Этот домен почты не поддерживается для быстрого входа. Выберите другой способ входа."
@@ -764,7 +764,7 @@
     "Switching projects. Please try again shortly.": "Proje değiştiriliyor. Lütfen birazdan tekrar deneyin.",
     "Sign-in failed. Please try again or choose another sign-in method.": "Oturum açılamadı. Tekrar deneyin veya başka bir giriş yöntemi seçin.",
     "Go to sign in": "Giriş sayfasına git",
-    "This account has been suspended and cannot sign in.": "Bu hesap askıya alındı ve oturum açamıyor.",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Hesap geçici olarak askıya alındı. Bu hesapta anormal ödeme riski tespit ettik ve hesap erişimini geçici olarak askıya aldık. Bunun bir hata olduğunu düşünüyorsanız lütfen support@open-design.ai ile iletişime geçin, incelemenize yardımcı olalım.",
     "This account is frozen or scheduled for deletion.": "Bu hesap donduruldu veya silinmek üzere işaretlendi.",
     "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Bu e-posta ile mevcut bir hesap var. Doğrulamak ve bağlamak için mevcut yönteminizle giriş yapın.",
     "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Bu e-posta alan adı hızlı giriş için uygun değil. Lütfen başka bir giriş yöntemi seçin."

@@ -711,7 +711,11 @@ it('degrades silently on pre-display challenge failure, shows localized failure 
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
   });
-  expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('封禁');
+  const bannedAlertText = document.body.querySelector('[role="alert"]')?.textContent ?? '';
+  expect(bannedAlertText).toContain('账号已临时停用');
+  expect(bannedAlertText).toContain('异常支付风险');
+  expect(bannedAlertText).toContain('support@open-design.ai');
+  expect(bannedAlertText).toContain('去登录');
 
   // Draft and filter state stay 100% intact across failures
   expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Draft brief"]')?.value).toBe(

@@ -675,7 +675,7 @@ export function WorkspaceGoogleOneTap({
       }
       const displayMessage =
         errorCode === 'ACCOUNT_BANNED'
-          ? t('This account has been suspended and cannot sign in.')
+          ? t('Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.')
           : errorCode === 'ACCOUNT_FROZEN'
             ? t('This account is frozen or scheduled for deletion.')
             : errorCode === 'LINK_CONFIRM_REQUIRED'
