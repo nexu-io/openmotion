@@ -30,6 +30,8 @@ vi.mock('./useTemplatePlayback', () => ({
 }));
 vi.mock('../design/scenes/ExploreDesignSection', () => ({ ExploreDesignSection: () => null }));
 
+import { BLACK_FRIDAY_CORRIDOR_ARTWORKS } from './blackFridayCorridorArtworks';
+import { ExploreBlackFridaySpotlight } from './ExploreBlackFridaySpotlight';
 import { ExploreStudios } from './ExploreStudios';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -130,4 +132,45 @@ it('removes the Black Friday hero and restores the previous Explore layout right
   expect(container.querySelector('[data-bf-hero]')).toBeNull();
   expect(container.querySelector('[data-bf-spotlight]')).toBeNull();
   expect(container.querySelector('h1.om-explore-title')).not.toBeNull();
+});
+
+it('keeps the Black Friday 3D corridor artwork deck bounded to lightweight WebP/AVIF covers and lazy-loads deeper rings', () => {
+  expect(BLACK_FRIDAY_CORRIDOR_ARTWORKS.length).toBeLessThanOrEqual(24);
+  for (const src of BLACK_FRIDAY_CORRIDOR_ARTWORKS) {
+    expect(src).not.toMatch(/\.png(?:\?|$)/i);
+    expect(src).not.toContain('/api/app-image');
+    expect(src).not.toContain('pbs.twimg.com');
+  }
+
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+  vi.setSystemTime(BLACK_FRIDAY_HERO_STARTS_AT);
+  renderExplore();
+
+  const corridorImgs = [...container.querySelectorAll<HTMLImageElement>('[data-bf-hero] [data-corridor-tile="art"] img')];
+  expect(corridorImgs.length).toBeGreaterThan(0);
+  expect(corridorImgs.some(img => img.getAttribute('loading') === 'eager')).toBe(true);
+  expect(corridorImgs.some(img => img.getAttribute('loading') === 'lazy')).toBe(true);
+  expect(corridorImgs.every(img => img.getAttribute('fetchpriority') === 'low')).toBe(true);
+  expect(new Set(corridorImgs.map(img => img.getAttribute('src'))).size).toBeLessThanOrEqual(24);
+});
+
+it('does not schedule idle requestAnimationFrame loops in ExploreBlackFridaySpotlight until user interaction', () => {
+  const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+  try {
+    act(() => root.render(
+      <I18nProvider initialLocale="en">
+        <ExploreBlackFridaySpotlight
+          active
+          onNavigate={vi.fn()}
+          onOpenMotionEditor={vi.fn()}
+          motionEditorDisabled={false}
+          onOpenBlackFriday={vi.fn()}
+          onModelHub={vi.fn()}
+        />
+      </I18nProvider>,
+    ));
+    expect(rafSpy).not.toHaveBeenCalled();
+  } finally {
+    rafSpy.mockRestore();
+  }
 });

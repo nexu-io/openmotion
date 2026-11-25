@@ -1,10 +1,10 @@
 import { Button } from 'open-design-ui/button';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type MutableRefObject, type PointerEvent } from 'react';
 import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHost';
 import { useI18n } from '../i18n/I18n';
 import styles from './ExploreBlackFridayHero.module.css';
 import { MODEL_LOGO_ASSETS, type ModelLogoAsset } from './exploreModelLogos';
-import { buildCorridorArtworks } from './model-hubs/curatedCases';
+import { BLACK_FRIDAY_CORRIDOR_ARTWORKS } from './blackFridayCorridorArtworks';
 import {
   BLACK_FRIDAY_CAMPAIGN,
   blackFridayHeroActive,
@@ -15,19 +15,27 @@ import {
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import { trackMotion } from './tracking';
 
-const RING_COUNT = 8;
+const RING_COUNT = 6;
+const FOREGROUND_RING_INDEX = RING_COUNT - 2;
+const EAGER_RING_THRESHOLD = RING_COUNT - 3;
 const SIDE_ROWS = 3;
 const BASE_CRUISE_SPEED = 56; // px/sec forward glide along +Z
 const AUTO_COLLAPSE_DELAY_MS = 3200; // hold full-screen opening briefly, then glide to reveal Explore cards
-
-// High-resolution covers sourced directly from the curated Seedance 2.5 + GPT Image 2.6 templates (8 rings x 9 tiles = 72 unique artworks)
-const CORRIDOR_ARTWORKS = buildCorridorArtworks();
 
 type TileSpec = {
   id: string;
   src: string | null;
   logo?: ModelLogoAsset;
   rot?: number;
+};
+
+type CorridorRingSpec = {
+  index: number;
+  eager: boolean;
+  left: TileSpec[];
+  right: TileSpec[];
+  top: TileSpec[];
+  bottom: TileSpec[];
 };
 
 // Pick exactly `artCount` staggered slot indices out of `slotCount` so every wall has balanced rhythm
@@ -49,22 +57,27 @@ function pickArtSlots(slotCount: number, artCount: number, seed: number): Set<nu
   return chosen;
 }
 
-function buildCorridorRings(topCols: number) {
-  // Deterministic non-repeating deal: 9 artwork tiles per ring * 8 rings = 72 unique curated template covers.
+function buildCorridorRings(topCols: number): CorridorRingSpec[] {
+  const artworkCount = BLACK_FRIDAY_CORRIDOR_ARTWORKS.length;
+  // Deal front-to-back so the closest foreground rings receive bundled local AVIF/WebP covers first.
   return Array.from({ length: RING_COUNT }, (_, ringIdx) => {
-    const baseDeckOffset = ringIdx * 9;
+    const distanceFromFront = RING_COUNT - 1 - ringIdx;
+    const baseDeckOffset = distanceFromFront * 9;
 
     // 2 art on left, 2 art on right, 5 art split (2+3 or 3+2) across top & bottom = 9 total per ring
     const topArtCount = ringIdx % 2 === 0 ? 3 : 2;
     const bottomArtCount = 5 - topArtCount;
 
-    // Keep the front-left center tile on the hero foreground ring (ring 6) as a clean model logo tile.
-    const leftSlots = ringIdx === 6 ? new Set([0, 2]) : pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 1);
+    // Keep the front-left center tile on the hero foreground ring as a clean model logo tile.
+    const leftSlots = ringIdx === FOREGROUND_RING_INDEX ? new Set([0, 2]) : pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 1);
     const rightSlots = pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 2);
     const topSlots = pickArtSlots(topCols, topArtCount, ringIdx * 3 + 1);
     const bottomSlots = pickArtSlots(topCols, bottomArtCount, ringIdx * 3 + 3);
 
-    const ringDeck = Array.from({ length: 9 }, (_, k) => CORRIDOR_ARTWORKS[(baseDeckOffset + k) % CORRIDOR_ARTWORKS.length] ?? null);
+    const ringDeck = Array.from(
+      { length: 9 },
+      (_, k) => BLACK_FRIDAY_CORRIDOR_ARTWORKS[(baseDeckOffset + k) % artworkCount] ?? null,
+    );
 
     let cursor = 0;
     let logoCursor = ringIdx * 5;
@@ -85,6 +98,7 @@ function buildCorridorRings(topCols: number) {
 
     return {
       index: ringIdx,
+      eager: ringIdx >= EAGER_RING_THRESHOLD,
       left: fillWall(0, SIDE_ROWS, leftSlots),
       right: fillWall(1, SIDE_ROWS, rightSlots),
       top: fillWall(2, topCols, topSlots),
@@ -112,156 +126,29 @@ function easeOutExpo(t: number): number {
   return c >= 1 ? 1 : 1 - Math.pow(2, -10 * c);
 }
 
-export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: boolean; onExpire?: () => void } = {}) {
-  const { locale, t } = useI18n();
-  const script = locale.startsWith('zh') ? 'zh' : (locale === 'ja' || locale === 'ko') ? 'cjk' : 'latin';
+/** Isolated countdown clock so 1s ticks and opening digit roll never re-render the 3D corridor. */
+const BlackFridayCountdown = memo(function BlackFridayCountdown({
+  playing,
+  onExpire,
+}: {
+  playing: boolean;
+  onExpire?: () => void;
+}) {
+  const { t } = useI18n();
   const [time, setTime] = useState(() => readBlackFridayCountdown());
-  const [entryId, setEntryId] = useState(newCampaignEntryId);
   const [displayDigits, setDisplayDigits] = useState<[string, string, string] | null>(null);
-  const [startedCollapsed] = useState(() => (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  ));
-  const [collapsed, setCollapsed] = useState(startedCollapsed);
-  const collapsedRef = useRef(collapsed);
-  collapsedRef.current = collapsed;
-  const collapseStartedAtRef = useRef<number | null>(null);
-  const [introActivated, setIntroActivated] = useState(() => active);
-  const introActivatedRef = useRef(active);
-  const [ctaEngaged, setCtaEngaged] = useState(false);
-  const [scrolledPastIntro, setScrolledPastIntro] = useState(false);
-  const collapseRemainingRef = useRef(AUTO_COLLAPSE_DELAY_MS);
-
-  const heroRef = useRef<HTMLElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const cameraRef = useRef<HTMLDivElement>(null);
-  const ringRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const [stageSize, setStageSize] = useState({ width: 1280, height: 660 });
-  const [collapsedHeight, setCollapsedHeight] = useState<number | null>(null);
-  const introStartRef = useRef<number>(typeof performance !== 'undefined' ? performance.now() : 0);
-
-  // Trigger the full-screen opening choreography the first time Explore actually becomes active,
-  // instead of burning through the intro/auto-collapse timer while Explore sits mounted behind another tab.
-  useEffect(() => {
-    if (!active || introActivatedRef.current) return;
-    introActivatedRef.current = true;
-    introStartRef.current = typeof performance !== 'undefined' ? performance.now() : 0;
-    collapseRemainingRef.current = AUTO_COLLAPSE_DELAY_MS;
-    setIntroActivated(true);
-  }, [active]);
-
-  useEffect(() => {
-    if (collapsed && collapseStartedAtRef.current === null) {
-      collapseStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : 0;
-    }
-  }, [collapsed]);
-
-  const [visible, setVisible] = useState(() => !document.hidden);
-  useEffect(() => {
-    const hero = heroRef.current;
-    if (!hero || !active) return;
-    let inView = true;
-    const update = () => setVisible(inView && !document.hidden);
-    const observer = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver(entries => {
-      inView = entries[entries.length - 1].isIntersecting;
-      update();
-    });
-    observer?.observe(hero);
-    document.addEventListener('visibilitychange', update);
-    update();
-    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', update); };
-  }, [active]);
-  const playing = active && visible;
-
-  // Interactive physics state kept in refs to avoid React re-renders at 60fps
-  const interactionRef = useRef({
-    targetPointerX: 0,
-    targetPointerY: 0,
-    pointerX: 0,
-    pointerY: 0,
-    boostVelocity: 0,
-    hoveringTile: false,
-    scrollZ: 0,
-  });
 
   useEffect(() => {
     if (!playing) return;
     const tick = () => {
       if (!blackFridayHeroActive()) { onExpire?.(); return; }
-      setTime(readBlackFridayCountdown());
+      const next = readBlackFridayCountdown();
+      setTime(prev => (prev.datetime === next.datetime ? prev : next));
     };
     const timer = window.setInterval(tick, 1000);
     tick();
     return () => window.clearInterval(timer);
   }, [onExpire, playing]);
-
-  // Measure the exact compact Spotlight row below so the collapsed Black Friday hero stays large (~64-68% viewport)
-  // while keeping the entire row of Spotlight cards 100% visible above the fold with zero bottom clipping.
-  useEffect(() => {
-    const heroEl = heroRef.current;
-    if (!heroEl) return;
-    const scroller = heroEl.closest('.om-explore') as HTMLElement | null;
-    if (!scroller) return;
-
-    const measure = () => {
-      const discovery = scroller.querySelector('.om-discovery-page') as HTMLElement | null;
-      const features = discovery?.querySelector('.om-explore-features') as HTMLElement | null;
-      const viewportH = scroller.clientHeight;
-      if (!discovery || !features || viewportH <= 0) return;
-
-      const discoveryTop = discovery.getBoundingClientRect().top;
-      const featuresBottom = features.getBoundingClientRect().bottom;
-      const neededBelow = Math.max(0, featuresBottom - discoveryTop) + 16;
-      const maxHero = Math.round(viewportH * 0.72);
-      const minHero = viewportH < 720 ? 340 : 400;
-      const next = Math.max(minHero, Math.min(maxHero, Math.round(viewportH - neededBelow)));
-      setCollapsedHeight(prev => (prev === next ? prev : next));
-    };
-
-    measure();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(scroller);
-    const features = scroller.querySelector('.om-explore-features');
-    if (features) ro.observe(features);
-    return () => ro.disconnect();
-  }, []);
-
-  const triggerCollapse = () => {
-    setCollapsed(true);
-  };
-
-  // Present full-viewport opening for a few seconds once Explore is active,
-  // pausing while hidden or while the user hovers/focuses the CTA so the button never moves away under their cursor.
-  useEffect(() => {
-    if (!active || !introActivated || collapsed || ctaEngaged) return;
-    const waitMs = Math.max(700, collapseRemainingRef.current);
-    const startedAt = performance.now();
-    const timer = window.setTimeout(() => {
-      const scroller = heroRef.current?.closest('.om-explore');
-      if (scroller && scroller.scrollTop > 20) return;
-      setCollapsed(true);
-    }, waitMs);
-    return () => {
-      window.clearTimeout(timer);
-      collapseRemainingRef.current = Math.max(0, waitMs - (performance.now() - startedAt));
-    };
-  }, [active, introActivated, collapsed, ctaEngaged]);
-
-  // If the user manually drags the scrollbar before auto-collapse fires, keep below-the-fold cards at full opacity.
-  useEffect(() => {
-    if (collapsed) return;
-    const scroller = heroRef.current?.closest('.om-explore') as HTMLElement | null;
-    if (!scroller) return;
-    const onScroll = () => {
-      if (scroller.scrollTop > 12) {
-        setScrolledPastIntro(true);
-      }
-    };
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    return () => scroller.removeEventListener('scroll', onScroll);
-  }, [collapsed]);
 
   // Precision staggered countdown digit roll-in synced with the signature opening sequence
   useEffect(() => {
@@ -328,6 +215,325 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     return () => window.cancelAnimationFrame(rafId);
   }, [playing]);
 
+  const countdownAria = t('Black Friday round ends in {hours} hours {minutes} minutes {seconds} seconds', {
+    hours: time.hours,
+    minutes: time.minutes,
+    seconds: time.seconds,
+  });
+
+  const segments = [
+    { key: 'hours', value: displayDigits ? displayDigits[0] : time.hours, label: 'HRS' },
+    { key: 'minutes', value: displayDigits ? displayDigits[1] : time.minutes, label: 'MIN' },
+    { key: 'seconds', value: displayDigits ? displayDigits[2] : time.seconds, label: 'SEC' },
+  ] as const;
+
+  return (
+    <time
+      className={styles.thinClockRow}
+      dateTime={time.datetime}
+      role="timer"
+      aria-live="off"
+      aria-label={countdownAria}
+    >
+      {segments.map((seg, idx) => (
+        <div key={seg.key} className={styles.thinClockItem}>
+          <div className={styles.thinClockUnit}>
+            <span className={styles.thinClockDigits}>{seg.value}</span>
+            <span className={styles.thinClockLabel} aria-hidden="true">{seg.label}</span>
+          </div>
+          {idx < segments.length - 1 && (
+            <span className={styles.thinClockColon} aria-hidden="true">
+              <span className={styles.thinColonSq} />
+              <span className={styles.thinColonSq} />
+            </span>
+          )}
+        </div>
+      ))}
+    </time>
+  );
+});
+
+const CorridorStage = memo(function CorridorStage({
+  rings,
+  stageRef,
+  cameraRef,
+  ringRefs,
+  wallRefs,
+  onTileHoverChange,
+}: {
+  rings: readonly CorridorRingSpec[];
+  stageRef: MutableRefObject<HTMLDivElement | null>;
+  cameraRef: MutableRefObject<HTMLDivElement | null>;
+  ringRefs: MutableRefObject<(HTMLDivElement | null)[]>;
+  wallRefs: MutableRefObject<(HTMLDivElement | null)[][]>;
+  onTileHoverChange: (hovering: boolean) => void;
+}) {
+  const handlePointerOver = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    onTileHoverChange(Boolean(target?.closest('[data-corridor-tile]')));
+  }, [onTileHoverChange]);
+
+  const handlePointerLeave = useCallback(() => {
+    onTileHoverChange(false);
+  }, [onTileHoverChange]);
+
+  const renderTile = (tile: TileSpec, eager: boolean) => {
+    if (!tile.src) {
+      if (tile.logo) {
+        return (
+          <div key={tile.id} className={styles.tileLogo} data-corridor-tile="logo">
+            <div
+              className={styles.tileLogoInner}
+              style={{ '--tile-rot': `${tile.rot ?? 0}deg` } as CSSProperties}
+            >
+              <div className={styles.tileLogoBadge}>
+                <img
+                  className={styles.tileLogoImg}
+                  src={tile.logo.src}
+                  alt={tile.logo.label}
+                  draggable={false}
+                  decoding="async"
+                />
+              </div>
+              <span className={styles.tileLogoName}>{tile.logo.label}</span>
+            </div>
+          </div>
+        );
+      }
+      return <div key={tile.id} className={styles.tileVoid} />;
+    }
+    return (
+      <div key={tile.id} className={styles.tileArt} data-corridor-tile="art">
+        <img
+          src={tile.src}
+          alt=""
+          draggable={false}
+          loading={eager ? 'eager' : 'lazy'}
+          fetchPriority="low"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={event => { event.currentTarget.style.display = 'none'; }}
+        />
+      </div>
+    );
+  };
+
+  const setWallRef = (ringIdx: number, wallIdx: number) => (el: HTMLDivElement | null) => {
+    let row = wallRefs.current[ringIdx];
+    if (!row) {
+      row = [null, null, null, null];
+      wallRefs.current[ringIdx] = row;
+    }
+    row[wallIdx] = el;
+  };
+
+  return (
+    <div
+      ref={stageRef}
+      className={styles.corridorStage}
+      aria-hidden="true"
+      onPointerOver={handlePointerOver}
+      onPointerLeave={handlePointerLeave}
+    >
+      <div ref={cameraRef} className={styles.corridorCamera}>
+        {rings.map((ring, idx) => (
+          <div
+            key={ring.index}
+            ref={el => {
+              ringRefs.current[idx] = el;
+            }}
+            className={styles.ring}
+          >
+            <div ref={setWallRef(idx, 0)} className={`${styles.wall} ${styles.wallLeft}`}>
+              {ring.left.map(tile => renderTile(tile, ring.eager))}
+            </div>
+            <div ref={setWallRef(idx, 1)} className={`${styles.wall} ${styles.wallRight}`}>
+              {ring.right.map(tile => renderTile(tile, ring.eager))}
+            </div>
+            <div ref={setWallRef(idx, 2)} className={`${styles.wall} ${styles.wallTop}`}>
+              {ring.top.map(tile => renderTile(tile, ring.eager))}
+            </div>
+            <div ref={setWallRef(idx, 3)} className={`${styles.wall} ${styles.wallBottom}`}>
+              {ring.bottom.map(tile => renderTile(tile, ring.eager))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: boolean; onExpire?: () => void } = {}) {
+  const { locale, t } = useI18n();
+  const script = locale.startsWith('zh') ? 'zh' : (locale === 'ja' || locale === 'ko') ? 'cjk' : 'latin';
+  const [entryId, setEntryId] = useState(newCampaignEntryId);
+  const [startedCollapsed] = useState(() => (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ));
+  const [collapsed, setCollapsed] = useState(startedCollapsed);
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
+  const collapseStartedAtRef = useRef<number | null>(null);
+  const [introActivated, setIntroActivated] = useState(() => active);
+  const introActivatedRef = useRef(active);
+  const [scrolledPastIntro, setScrolledPastIntro] = useState(false);
+  const collapseRemainingRef = useRef(AUTO_COLLAPSE_DELAY_MS);
+  const ctaEngagedRef = useRef(false);
+  const collapseTimerRef = useRef<number | null>(null);
+  const collapseTimerStartRef = useRef<number>(0);
+
+  const heroRef = useRef<HTMLElement>(null);
+  const heroRectRef = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const cameraRef = useRef<HTMLDivElement>(null);
+  const ringRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const wallRefs = useRef<(HTMLDivElement | null)[][]>([]);
+  const [stageSize, setStageSize] = useState({ width: 1280, height: 660 });
+  const [collapsedHeight, setCollapsedHeight] = useState<number | null>(null);
+  const introStartRef = useRef<number>(typeof performance !== 'undefined' ? performance.now() : 0);
+
+  // Trigger the full-screen opening choreography the first time Explore actually becomes active,
+  // instead of burning through the intro/auto-collapse timer while Explore sits mounted behind another tab.
+  useEffect(() => {
+    if (!active || introActivatedRef.current) return;
+    introActivatedRef.current = true;
+    introStartRef.current = typeof performance !== 'undefined' ? performance.now() : 0;
+    collapseRemainingRef.current = AUTO_COLLAPSE_DELAY_MS;
+    setIntroActivated(true);
+  }, [active]);
+
+  useEffect(() => {
+    if (collapsed && collapseStartedAtRef.current === null) {
+      collapseStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : 0;
+    }
+  }, [collapsed]);
+
+  const [visible, setVisible] = useState(() => !document.hidden);
+  useEffect(() => {
+    const hero = heroRef.current;
+    if (!hero || !active) return;
+    let inView = true;
+    const update = () => setVisible(inView && !document.hidden);
+    const observer = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver(entries => {
+      inView = entries[entries.length - 1].isIntersecting;
+      update();
+    });
+    observer?.observe(hero);
+    document.addEventListener('visibilitychange', update);
+    update();
+    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', update); };
+  }, [active]);
+  const playing = active && visible;
+
+  // Interactive physics state kept in refs to avoid React re-renders at 60fps
+  const interactionRef = useRef({
+    targetPointerX: 0,
+    targetPointerY: 0,
+    pointerX: 0,
+    pointerY: 0,
+    boostVelocity: 0,
+    hoveringTile: false,
+    scrollZ: 0,
+  });
+
+  const handleTileHoverChange = useCallback((hovering: boolean) => {
+    interactionRef.current.hoveringTile = hovering;
+  }, []);
+
+  // Measure the exact compact Spotlight row below so the collapsed Black Friday hero stays large (~64-68% viewport)
+  // while keeping the entire row of Spotlight cards 100% visible above the fold with zero bottom clipping.
+  useEffect(() => {
+    const heroEl = heroRef.current;
+    if (!heroEl) return;
+    const scroller = heroEl.closest('.om-explore') as HTMLElement | null;
+    if (!scroller) return;
+
+    const measure = () => {
+      const discovery = scroller.querySelector('.om-discovery-page') as HTMLElement | null;
+      const features = discovery?.querySelector('.om-explore-features') as HTMLElement | null;
+      const viewportH = scroller.clientHeight;
+      if (!discovery || !features || viewportH <= 0) return;
+
+      const discoveryTop = discovery.getBoundingClientRect().top;
+      const featuresBottom = features.getBoundingClientRect().bottom;
+      const neededBelow = Math.max(0, featuresBottom - discoveryTop) + 16;
+      const maxHero = Math.round(viewportH * 0.72);
+      const minHero = viewportH < 720 ? 340 : 400;
+      const next = Math.max(minHero, Math.min(maxHero, Math.round(viewportH - neededBelow)));
+      setCollapsedHeight(prev => (prev === next ? prev : next));
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller);
+    const features = scroller.querySelector('.om-explore-features');
+    if (features) ro.observe(features);
+    return () => ro.disconnect();
+  }, []);
+
+  const triggerCollapse = () => {
+    setCollapsed(true);
+  };
+
+  const clearCollapseTimer = useCallback(() => {
+    if (collapseTimerRef.current !== null) {
+      window.clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+      const elapsed = performance.now() - collapseTimerStartRef.current;
+      collapseRemainingRef.current = Math.max(0, collapseRemainingRef.current - elapsed);
+    }
+  }, []);
+
+  const scheduleCollapseTimer = useCallback(() => {
+    if (collapseTimerRef.current !== null || !active || !introActivated || collapsedRef.current || ctaEngagedRef.current) {
+      return;
+    }
+    const waitMs = Math.max(700, collapseRemainingRef.current);
+    collapseRemainingRef.current = waitMs;
+    collapseTimerStartRef.current = performance.now();
+    collapseTimerRef.current = window.setTimeout(() => {
+      collapseTimerRef.current = null;
+      const scroller = heroRef.current?.closest('.om-explore');
+      if (scroller && scroller.scrollTop > 20) return;
+      setCollapsed(true);
+    }, waitMs);
+  }, [active, introActivated]);
+
+  // Present full-viewport opening for a few seconds once Explore is active,
+  // pausing while hidden or while the user hovers/focuses the CTA so the button never moves away under their cursor.
+  useEffect(() => {
+    if (!active || !introActivated || collapsed) {
+      clearCollapseTimer();
+      return;
+    }
+    scheduleCollapseTimer();
+    return clearCollapseTimer;
+  }, [active, introActivated, collapsed, clearCollapseTimer, scheduleCollapseTimer]);
+
+  const setCtaEngaged = useCallback((engaged: boolean) => {
+    if (ctaEngagedRef.current === engaged) return;
+    ctaEngagedRef.current = engaged;
+    if (engaged) clearCollapseTimer();
+    else scheduleCollapseTimer();
+  }, [clearCollapseTimer, scheduleCollapseTimer]);
+
+  // If the user manually drags the scrollbar before auto-collapse fires, keep below-the-fold cards at full opacity.
+  useEffect(() => {
+    if (collapsed) return;
+    const scroller = heroRef.current?.closest('.om-explore') as HTMLElement | null;
+    if (!scroller) return;
+    const onScroll = () => {
+      if (scroller.scrollTop > 12) {
+        setScrolledPastIntro(true);
+      }
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [collapsed]);
+
   // Keep 3D corridor walls flush with viewport corners across resizes.
   // Observe the centered full-height stage rather than the collapsible section
   // so the 3D tunnel never reflows or swaps rings during the height glide.
@@ -337,10 +543,18 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     const update = () => {
       const rect = el.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        setStageSize({
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-        });
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        setStageSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }));
+      }
+      const heroRect = heroRef.current?.getBoundingClientRect();
+      if (heroRect && heroRect.width > 0 && heroRect.height > 0) {
+        heroRectRef.current = {
+          left: heroRect.left,
+          top: heroRect.top,
+          width: heroRect.width,
+          height: heroRect.height,
+        };
       }
     };
     update();
@@ -372,6 +586,16 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     const zMax = tileZ + 6;
     const zMin = zMax - totalDepth;
 
+    const applyWallOpacity = (ringIdx: number, opacity: number) => {
+      const walls = wallRefs.current[ringIdx];
+      if (!walls) return;
+      const value = opacity.toFixed(3);
+      for (let w = 0; w < walls.length; w++) {
+        const wall = walls[w];
+        if (wall) wall.style.opacity = value;
+      }
+    };
+
     const applyStatic = () => {
       if (stageRef.current) {
         stageRef.current.style.perspective = `${basePerspective}px`;
@@ -388,7 +612,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
         const depthRatio = clamp01((zMax - z) / (totalDepth * 0.9));
         const opacity = clamp01(Math.pow(1 - depthRatio, 1.65));
         el.style.transform = `translate3d(0, 0, ${z.toFixed(2)}px)`;
-        el.style.setProperty('--ring-opacity', opacity.toFixed(3));
+        applyWallOpacity(i, opacity);
       }
     };
 
@@ -399,6 +623,9 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
 
     let rafId = 0;
     let lastTime = performance.now();
+    let lastPerspective = -1;
+    let lastCamTransform = '';
+    const lastRingOpacity = new Float32Array(RING_COUNT).fill(-1);
 
     const tick = (now: number) => {
       const dt = Math.min(0.05, (now - lastTime) / 1000);
@@ -410,43 +637,54 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
       const damp = 1 - Math.exp(-6.5 * dt);
       state.pointerX += (state.targetPointerX - state.pointerX) * damp;
       state.pointerY += (state.targetPointerY - state.pointerY) * damp;
+      if (Math.abs(state.targetPointerX - state.pointerX) < 0.0005) state.pointerX = state.targetPointerX;
+      if (Math.abs(state.targetPointerY - state.pointerY) < 0.0005) state.pointerY = state.targetPointerY;
 
       state.boostVelocity *= Math.exp(-4.5 * dt);
       if (Math.abs(state.boostVelocity) < 0.2) state.boostVelocity = 0;
 
       // Signature opening: warp brake + wide-angle lens pullback + subtle steadicam roll settle
-      const speedMultiplier = 1 + 7.5 * Math.exp(-3.6 * introT);
-      const perspectiveScale = 0.64 + 0.36 * easeOutQuart(introT / 1.25);
-      const introCamZ = -65 * (1 - easeOutExpo(introT / 1.1));
-      const introRollDeg = -2.4 * (1 - easeOutQuart(introT / 1.15));
+      const speedMultiplier = introT < 2.2 ? 1 + 7.5 * Math.exp(-3.6 * introT) : 1;
+      const perspectiveScale = introT < 1.25 ? 0.64 + 0.36 * easeOutQuart(introT / 1.25) : 1;
+      const introCamZ = introT < 1.1 ? -65 * (1 - easeOutExpo(introT / 1.1)) : 0;
+      const introRollDeg = introT < 1.15 ? -2.4 * (1 - easeOutQuart(introT / 1.15)) : 0;
 
       // Gentle momentum settle as the full-screen opening glides smoothly into the compact hero
       const collapseT = collapseStartedAtRef.current !== null
         ? Math.max(0, (now - collapseStartedAtRef.current) / 1000)
         : null;
-      const collapseSpeedBoost = collapseT !== null ? 1.45 * Math.exp(-3.2 * collapseT) : 0;
-      const collapseSettleZ = collapseT !== null ? -18 * Math.sin(Math.min(1, collapseT / 1.05) * Math.PI) : 0;
+      const collapseSpeedBoost = collapseT !== null && collapseT < 2.0 ? 1.45 * Math.exp(-3.2 * collapseT) : 0;
+      const collapseSettleZ = collapseT !== null && collapseT < 0.72
+        ? -18 * Math.sin(Math.min(1, collapseT / 0.72) * Math.PI)
+        : 0;
 
       const baseSpeed = collapsedRef.current ? BASE_CRUISE_SPEED * 0.58 : BASE_CRUISE_SPEED;
       const cruiseBase = state.hoveringTile ? baseSpeed * 0.28 : baseSpeed;
       const activeSpeed = cruiseBase * (speedMultiplier + collapseSpeedBoost) + state.boostVelocity;
       state.scrollZ = (state.scrollZ + activeSpeed * dt) % totalDepth;
 
-      if (stageRef.current) {
-        stageRef.current.style.perspective = `${Math.round(basePerspective * perspectiveScale)}px`;
+      const nextPerspective = Math.round(basePerspective * perspectiveScale);
+      if (stageRef.current && nextPerspective !== lastPerspective) {
+        lastPerspective = nextPerspective;
+        stageRef.current.style.perspective = `${nextPerspective}px`;
       }
 
       const cam = cameraRef.current;
       if (cam) {
-        const parallaxGain = smoothstep(0.4, 1.2, introT);
+        const parallaxGain = introT >= 1.2 ? 1 : smoothstep(0.4, 1.2, introT);
         const rotY = -state.pointerX * 4.2 * parallaxGain;
         const rotX = state.pointerY * 2.8 * parallaxGain;
         const shiftX = -state.pointerX * 18 * parallaxGain;
         const shiftY = -state.pointerY * 12 * parallaxGain;
-        cam.style.transform = `translate3d(${shiftX.toFixed(2)}px, ${shiftY.toFixed(2)}px, ${(introCamZ + collapseSettleZ).toFixed(2)}px) rotateX(${rotX.toFixed(3)}deg) rotateY(${rotY.toFixed(3)}deg) rotateZ(${introRollDeg.toFixed(3)}deg)`;
+        const nextCamTransform = `translate3d(${shiftX.toFixed(2)}px, ${shiftY.toFixed(2)}px, ${(introCamZ + collapseSettleZ).toFixed(2)}px) rotateX(${rotX.toFixed(3)}deg) rotateY(${rotY.toFixed(3)}deg) rotateZ(${introRollDeg.toFixed(3)}deg)`;
+        if (nextCamTransform !== lastCamTransform) {
+          lastCamTransform = nextCamTransform;
+          cam.style.transform = nextCamTransform;
+        }
       }
 
       const wave = (introT - 0.06) / 0.78;
+      const waveDone = wave >= 1.4;
       for (let i = 0; i < RING_COUNT; i++) {
         const el = ringRefs.current[i];
         if (!el) continue;
@@ -454,13 +692,20 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
         if (raw < 0) raw += totalDepth;
         const z = zMin + raw;
         const depthRatio = clamp01((zMax - z) / (totalDepth * 0.9));
-        const ringOrder = 1 - depthRatio;
-        const ringLit = smoothstep(ringOrder - 0.35, ringOrder + 0.12, wave);
-        const opacity = clamp01(Math.pow(1 - depthRatio, 1.65)) * (0.18 + 0.82 * ringLit);
+        let opacity = clamp01(Math.pow(1 - depthRatio, 1.65));
+        if (!waveDone) {
+          const ringOrder = 1 - depthRatio;
+          const ringLit = smoothstep(ringOrder - 0.35, ringOrder + 0.12, wave);
+          opacity *= 0.18 + 0.82 * ringLit;
+        }
 
         el.style.transform = `translate3d(0, 0, ${z.toFixed(2)}px)`;
-        // Apply opacity on child .wall elements via CSS var so .ring keeps transform-style: preserve-3d
-        el.style.setProperty('--ring-opacity', opacity.toFixed(3));
+        // Mutate each .wall's opacity directly instead of a CSS custom property on .ring
+        // so Blink never recalculates inherited styles across all tile descendants every frame.
+        if (Math.abs(opacity - lastRingOpacity[i]) >= 0.004) {
+          lastRingOpacity[i] = opacity;
+          applyWallOpacity(i, opacity);
+        }
       }
 
       rafId = window.requestAnimationFrame(tick);
@@ -491,9 +736,21 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     return () => el.removeEventListener('wheel', onWheel);
   }, [collapsed]);
 
-  const handlePointerMove = (event: PointerEvent<HTMLElement>) => {
+  const handlePointerEnter = (event: PointerEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
+    if (rect.width > 0 && rect.height > 0) {
+      heroRectRef.current = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    }
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLElement>) => {
+    let rect = heroRectRef.current;
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      const measured = event.currentTarget.getBoundingClientRect();
+      if (measured.width <= 0 || measured.height <= 0) return;
+      rect = { left: measured.left, top: measured.top, width: measured.width, height: measured.height };
+      heroRectRef.current = rect;
+    }
     const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = ((event.clientY - rect.top) / rect.height) * 2 - 1;
     interactionRef.current.targetPointerX = Math.max(-1, Math.min(1, nx));
@@ -530,11 +787,6 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
   const copy = {
     sectionLabel: t('Black Friday flagship image 7 days unlimited hero'),
     campaign: 'Black Friday',
-    countdownAria: t('Black Friday round ends in {hours} hours {minutes} minutes {seconds} seconds', {
-      hours: time.hours,
-      minutes: time.minutes,
-      seconds: time.seconds,
-    }),
     serifLead: 'Create',
     serifItalic: 'Unlimited',
     cnHeadline: t('Flagship Image · 7 Days Unlimited'),
@@ -542,64 +794,6 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     offerNote: t('Up to 50% off annual'),
     primaryCta: t('Claim 50% Off'),
     scrollHintAria: t('Collapse hero to explore'),
-  };
-
-  const segments = [
-    { key: 'hours', value: displayDigits ? displayDigits[0] : time.hours, label: 'HRS' },
-    { key: 'minutes', value: displayDigits ? displayDigits[1] : time.minutes, label: 'MIN' },
-    { key: 'seconds', value: displayDigits ? displayDigits[2] : time.seconds, label: 'SEC' },
-  ] as const;
-
-  const renderTile = (tile: TileSpec) => {
-    if (!tile.src) {
-      if (tile.logo) {
-        return (
-          <div
-            key={tile.id}
-            className={styles.tileLogo}
-            onPointerEnter={() => {
-              interactionRef.current.hoveringTile = true;
-            }}
-            onPointerLeave={() => {
-              interactionRef.current.hoveringTile = false;
-            }}
-          >
-            <div
-              className={styles.tileLogoInner}
-              style={{ '--tile-rot': `${tile.rot ?? 0}deg` } as CSSProperties}
-            >
-              <div className={styles.tileLogoBadge}>
-                <img className={styles.tileLogoImg} src={tile.logo.src} alt={tile.logo.label} draggable={false} />
-              </div>
-              <span className={styles.tileLogoName}>{tile.logo.label}</span>
-            </div>
-          </div>
-        );
-      }
-      return <div key={tile.id} className={styles.tileVoid} />;
-    }
-    return (
-      <div
-        key={tile.id}
-        className={styles.tileArt}
-        onPointerEnter={() => {
-          interactionRef.current.hoveringTile = true;
-        }}
-        onPointerLeave={() => {
-          interactionRef.current.hoveringTile = false;
-        }}
-      >
-        <img
-          src={tile.src}
-          alt=""
-          draggable={false}
-          loading="eager"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={event => { event.currentTarget.style.display = 'none'; }}
-        />
-      </div>
-    );
   };
 
   const collapsedEditorialScale = collapsedHeight !== null
@@ -615,10 +809,12 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
       data-bf-hero="true"
       data-script={script}
       data-intro-active={introActivated ? 'true' : 'false'}
+      data-playing={playing ? 'true' : 'false'}
       data-collapsed={collapsed ? 'true' : 'false'}
       data-instant={startedCollapsed ? 'true' : undefined}
       data-curtain={collapsed || scrolledPastIntro ? 'open' : 'closed'}
       aria-label={copy.sectionLabel}
+      onPointerEnter={handlePointerEnter}
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
       style={
@@ -632,36 +828,17 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
         } as CSSProperties
       }
     >
-      <div ref={stageRef} className={styles.corridorStage} aria-hidden="true">
-        <div ref={cameraRef} className={styles.corridorCamera}>
-          {rings.map((ring, idx) => (
-            <div
-              key={ring.index}
-              ref={el => {
-                ringRefs.current[idx] = el;
-              }}
-              className={styles.ring}
-            >
-              <div className={`${styles.wall} ${styles.wallLeft}`}>
-                {ring.left.map(renderTile)}
-              </div>
-              <div className={`${styles.wall} ${styles.wallRight}`}>
-                {ring.right.map(renderTile)}
-              </div>
-              <div className={`${styles.wall} ${styles.wallTop}`}>
-                {ring.top.map(renderTile)}
-              </div>
-              <div className={`${styles.wall} ${styles.wallBottom}`}>
-                {ring.bottom.map(renderTile)}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <CorridorStage
+        rings={rings}
+        stageRef={stageRef}
+        cameraRef={cameraRef}
+        ringRefs={ringRefs}
+        wallRefs={wallRefs}
+        onTileHoverChange={handleTileHoverChange}
+      />
 
       <div className={styles.stageGlow} aria-hidden="true" />
       <div className={styles.voidVignette} aria-hidden="true" />
-      <div className={styles.filmGrain} aria-hidden="true" />
 
       <div className={styles.editorial}>
         <div className={styles.kicker} lang="en">
@@ -676,28 +853,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
           <span className={styles.cnHeadline}>{copy.cnHeadline}</span>
         </h2>
 
-        <time
-          className={styles.thinClockRow}
-          dateTime={time.datetime}
-          role="timer"
-          aria-live="off"
-          aria-label={copy.countdownAria}
-        >
-          {segments.map((seg, idx) => (
-            <div key={seg.key} className={styles.thinClockItem}>
-              <div className={styles.thinClockUnit}>
-                <span className={styles.thinClockDigits}>{seg.value}</span>
-                <span className={styles.thinClockLabel} aria-hidden="true">{seg.label}</span>
-              </div>
-              {idx < segments.length - 1 && (
-                <span className={styles.thinClockColon} aria-hidden="true">
-                  <span className={styles.thinColonSq} />
-                  <span className={styles.thinColonSq} />
-                </span>
-              )}
-            </div>
-          ))}
-        </time>
+        <BlackFridayCountdown playing={playing} onExpire={onExpire} />
 
         <p className={styles.metaLine}>
           <span className={styles.metaGroup}>

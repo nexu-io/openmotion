@@ -1,8 +1,8 @@
 import { Button } from 'open-design-ui/button';
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { motionStudio, type StudioDestination } from './creativeStudios';
-import { findModelHub } from './modelHubs';
+import { gemini4Spotlight as geminiHub } from './gemini4Spotlight';
 import { motionStudioCover } from './skillCatalog';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import seedanceHeroPoster from './model-hubs/seedance-2-5/hero.webp?no-inline';
@@ -32,14 +32,12 @@ interface FeaturedSlide {
   hub?: string;
 }
 
-const seedanceHub = findModelHub('seedance-2-5')!;
-const seedanceHeroClip = seedanceHub.cases?.find(item => item.id === 'sd-4')?.video
-  ?? 'https://cdn.higgsfield.ai/user_3Bu8iUt8Z18vHzF7CZ97RTvmPwE/hf_20260622_203156_b3512a1f-3311-4cd0-8ee1-9e80d09f656a_min.mp4';
-const gptImageHub = findModelHub('gpt-image-2-6')!;
-const geminiHub = findModelHub('gemini-4')!;
+const SEEDANCE_HUB_ID = 'seedance-2-5';
+const GPT_IMAGE_HUB_ID = 'gpt-image-2-6';
+const seedanceHeroClip = 'https://cdn.higgsfield.ai/user_3Bu8iUt8Z18vHzF7CZ97RTvmPwE/hf_20260622_203156_b3512a1f-3311-4cd0-8ee1-9e80d09f656a_min.mp4';
 
 const slides: FeaturedSlide[] = [{
-  id: 'gpt-image-2-6',
+  id: GPT_IMAGE_HUB_ID,
   title: 'GPT Image 2.0',
   badge: '7 Days Unlimited',
 
@@ -48,9 +46,9 @@ const slides: FeaturedSlide[] = [{
 
   icon: 'image-line',
   poster: gptImageHeroPoster,
-  hub: gptImageHub.id,
+  hub: GPT_IMAGE_HUB_ID,
 }, {
-  id: 'seedance-2-5',
+  id: SEEDANCE_HUB_ID,
   title: 'Seedance 2.5',
   badge: '50% Off Annual',
 
@@ -60,7 +58,7 @@ const slides: FeaturedSlide[] = [{
   icon: 'film-line',
   poster: seedanceHeroPoster,
   clip: seedanceHeroClip,
-  hub: seedanceHub.id,
+  hub: SEEDANCE_HUB_ID,
 }, {
   id: 'black-friday',
   title: 'Black Friday collection',
@@ -89,17 +87,47 @@ const slides: FeaturedSlide[] = [{
 function FeaturedClip({ src, poster, playing }: { src: string; poster: string; playing: boolean }) {
   const player = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
-  const [started, setStarted] = useState(playing);
-  const videoSource = (started || playing) && !failed ? src : undefined;
-  useEffect(() => { if (playing) setStarted(true); }, [playing]);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     const video = player.current;
-    if (!video) return;
-    if (playing) void video.play().catch(() => { /* The poster remains available if autoplay is blocked. */ });
-    else video.pause();
-  }, [playing, videoSource]);
-  return videoSource && !failed ? <video ref={player} src={videoSource} poster={poster} autoPlay muted loop playsInline preload="auto" aria-hidden="true" onError={() => setFailed(true)} /> : null;
+    return () => {
+      if (video?.hasAttribute('src')) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      }
+    };
+  }, [src]);
+  useEffect(() => {
+    const video = player.current;
+    if (!video || failed) return;
+    if (playing) {
+      if (!video.hasAttribute('src') || video.error) video.src = src;
+      void video.play().catch(() => { /* The poster remains available if autoplay is blocked. */ });
+    } else {
+      video.pause();
+    }
+  }, [playing, src, failed]);
+  return !failed ? (
+    <video
+      ref={player}
+      poster={poster}
+      muted
+      loop
+      playsInline
+      preload="none"
+      aria-hidden="true"
+      style={{ opacity: ready ? 1 : 0 }}
+      onPlaying={() => setReady(true)}
+      onError={() => { setReady(false); setFailed(true); }}
+    />
+  ) : null;
 }
+
+const smoothstep = (e0: number, e1: number, x: number) => {
+  const u = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+  return u * u * (3 - 2 * u);
+};
 
 export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEditor, motionEditorDisabled, onOpenBlackFriday, onModelHub }: {
   active: boolean;
@@ -112,6 +140,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
   const { t } = useI18n();
   const root = useRef<HTMLElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const viewportRectRef = useRef<{ left: number; width: number } | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [visible, setVisible] = useState(false);
@@ -125,6 +154,10 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
     currentVel: 0,
     wheelVel: 0,
   });
+  const rafIdRef = useRef<number>(0);
+  const lastFrameRef = useRef<number>(0);
+  const animEnabledRef = useRef(false);
+  animEnabledRef.current = active && visible && !paused;
 
   useEffect(() => {
     const preference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -147,17 +180,106 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
     return () => { observer.disconnect(); document.removeEventListener('visibilitychange', update); };
   }, []);
 
-  const syncEdges = (offset: number, maxOffset: number) => {
+  const syncEdges = useCallback((offset: number, maxOffset: number) => {
     const left = offset > 2;
     const right = maxOffset - offset > 2;
     setEdges(old => (old.left === left && old.right === right ? old : { left, right }));
-  };
+  }, []);
+
+  const stopAnimation = useCallback(() => {
+    if (rafIdRef.current) {
+      window.cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+    }
+  }, []);
+
+  // Run the camera-dolly rAF loop strictly on demand (pointer edge-pan, trackpad swipe, or drag inertia)
+  // so an idle Spotlight contributes zero animation frames per second.
+  const startAnimation = useCallback(() => {
+    if (rafIdRef.current || !animEnabledRef.current) return;
+    const pan = panRef.current;
+    if (dragState.current.active || pan.maxOffset <= 0) return;
+    if (pan.targetVel === 0 && pan.currentVel === 0 && pan.wheelVel === 0) return;
+
+    lastFrameRef.current = performance.now();
+    const tick = (now: number) => {
+      rafIdRef.current = 0;
+      if (!animEnabledRef.current || dragState.current.active) return;
+
+      const dt = Math.min(0.05, (now - lastFrameRef.current) / 1000);
+      lastFrameRef.current = now;
+
+      const trackEl = trackRef.current;
+      const state = panRef.current;
+      if (!trackEl || state.maxOffset <= 0) return;
+
+      let desiredVel = state.targetVel;
+
+      // Hydraulic soft-stop cushion within 180px of either end so it never hits a brick wall
+      const cushionDist = 180;
+      if (desiredVel > 0) {
+        const remaining = state.maxOffset - state.offset;
+        desiredVel *= smoothstep(0, cushionDist, remaining);
+      } else if (desiredVel < 0) {
+        const remaining = state.offset;
+        desiredVel *= smoothstep(0, cushionDist, remaining);
+      }
+
+      // Asymmetric dolly inertia: weighted glide-in, velvety long coast-to-stop
+      const accelerating = Math.abs(desiredVel) > Math.abs(state.currentVel);
+      const rate = accelerating ? 3.8 : 2.7;
+      const damp = 1 - Math.exp(-rate * dt);
+      state.currentVel += (desiredVel - state.currentVel) * damp;
+      if (Math.abs(state.currentVel) < 0.4 && Math.abs(desiredVel) < 0.4) state.currentVel = 0;
+
+      // Decay trackpad/flick momentum
+      state.wheelVel *= Math.exp(-5.2 * dt);
+      if (Math.abs(state.wheelVel) < 1) state.wheelVel = 0;
+
+      const totalVel = state.currentVel + state.wheelVel;
+      if (totalVel !== 0) {
+        const next = Math.max(0, Math.min(state.maxOffset, state.offset + totalVel * dt));
+        if (next !== state.offset) {
+          state.offset = next;
+          trackEl.style.transform = `translate3d(${-state.offset.toFixed(2)}px, 0, 0)`;
+          syncEdges(state.offset, state.maxOffset);
+        } else {
+          state.currentVel *= 0.6;
+          if (Math.abs(state.currentVel) < 0.4) state.currentVel = 0;
+          state.wheelVel = 0;
+        }
+      }
+
+      const needsMoreFrames =
+        Math.abs(desiredVel) >= 0.4 ||
+        state.currentVel !== 0 ||
+        state.wheelVel !== 0;
+      if (needsMoreFrames) {
+        rafIdRef.current = window.requestAnimationFrame(tick);
+      }
+    };
+
+    rafIdRef.current = window.requestAnimationFrame(tick);
+  }, [syncEdges]);
+
+  useEffect(() => {
+    if (!active || !visible || paused) {
+      stopAnimation();
+      return;
+    }
+    startAnimation();
+    return stopAnimation;
+  }, [active, visible, paused, startAnimation, stopAnimation]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
     const trackEl = trackRef.current;
     if (!viewport || !trackEl) return;
     const measure = () => {
+      const rect = viewport.getBoundingClientRect();
+      if (rect.width > 0) {
+        viewportRectRef.current = { left: rect.left, width: rect.width };
+      }
       const maxOffset = Math.max(0, viewport.scrollWidth - viewport.clientWidth, trackEl.scrollWidth - viewport.clientWidth);
       panRef.current.maxOffset = maxOffset;
       panRef.current.offset = Math.max(0, Math.min(maxOffset, panRef.current.offset));
@@ -169,7 +291,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
     ro?.observe(trackEl);
     measure();
     return () => ro?.disconnect();
-  }, []);
+  }, [syncEdges]);
 
   // Trackpad two-finger horizontal swipe support with smooth inertia
   useEffect(() => {
@@ -179,79 +301,22 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
       if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || Math.abs(event.deltaX) < 1) return;
       event.preventDefault();
       panRef.current.wheelVel = Math.max(-1400, Math.min(1400, panRef.current.wheelVel + event.deltaX * 9));
+      startAnimation();
     };
     viewport.addEventListener('wheel', onWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', onWheel);
-  }, [paused]);
-
-  // Sub-pixel 60/120fps GPU camera-dolly panning with asymmetric inertia & hydraulic end cushions
-  useEffect(() => {
-    if (paused) return;
-    let rafId = 0;
-    let lastTime = performance.now();
-
-    const smoothstep = (e0: number, e1: number, x: number) => {
-      const u = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
-      return u * u * (3 - 2 * u);
-    };
-
-    const tick = (now: number) => {
-      const dt = Math.min(0.05, (now - lastTime) / 1000);
-      lastTime = now;
-
-      const trackEl = trackRef.current;
-      const pan = panRef.current;
-
-      if (!dragState.current.active && trackEl && pan.maxOffset > 0) {
-        let desiredVel = pan.targetVel;
-
-        // Hydraulic soft-stop cushion within 180px of either end so it never hits a brick wall
-        const cushionDist = 180;
-        if (desiredVel > 0) {
-          const remaining = pan.maxOffset - pan.offset;
-          desiredVel *= smoothstep(0, cushionDist, remaining);
-        } else if (desiredVel < 0) {
-          const remaining = pan.offset;
-          desiredVel *= smoothstep(0, cushionDist, remaining);
-        }
-
-        // Asymmetric dolly inertia: weighted glide-in, velvety long coast-to-stop
-        const accelerating = Math.abs(desiredVel) > Math.abs(pan.currentVel);
-        const rate = accelerating ? 3.8 : 2.7;
-        const damp = 1 - Math.exp(-rate * dt);
-        pan.currentVel += (desiredVel - pan.currentVel) * damp;
-        if (Math.abs(pan.currentVel) < 0.4 && Math.abs(desiredVel) < 0.4) pan.currentVel = 0;
-
-        // Decay trackpad/flick momentum
-        pan.wheelVel *= Math.exp(-5.2 * dt);
-        if (Math.abs(pan.wheelVel) < 1) pan.wheelVel = 0;
-
-        const totalVel = pan.currentVel + pan.wheelVel;
-        if (totalVel !== 0) {
-          const next = Math.max(0, Math.min(pan.maxOffset, pan.offset + totalVel * dt));
-          if (next !== pan.offset) {
-            pan.offset = next;
-            trackEl.style.transform = `translate3d(${-pan.offset.toFixed(2)}px, 0, 0)`;
-            syncEdges(pan.offset, pan.maxOffset);
-          } else {
-            pan.currentVel *= 0.6;
-            pan.wheelVel = 0;
-          }
-        }
-      }
-
-      rafId = window.requestAnimationFrame(tick);
-    };
-
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [paused]);
+  }, [paused, startAnimation]);
 
   const updateEdgePan = (clientX: number) => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    const rect = viewport.getBoundingClientRect();
-    if (rect.width <= 0) return;
+    let rect = viewportRectRef.current;
+    if (!rect || rect.width <= 0) {
+      const measured = viewport.getBoundingClientRect();
+      if (measured.width <= 0) return;
+      rect = { left: measured.left, width: measured.width };
+      viewportRectRef.current = rect;
+    }
     const nx = (clientX - rect.left) / rect.width;
     const edgeZone = 0.26;
     const maxSpeed = 620;
@@ -262,16 +327,28 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
     if (nx < edgeZone) {
       const t = smoothCurve((edgeZone - nx) / edgeZone);
       panRef.current.targetVel = -t * maxSpeed;
+      startAnimation();
     } else if (nx > 1 - edgeZone) {
       const t = smoothCurve((nx - (1 - edgeZone)) / edgeZone);
       panRef.current.targetVel = t * maxSpeed;
+      startAnimation();
     } else {
       panRef.current.targetVel = 0;
     }
   };
 
+  const onTrackPointerEnter = () => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    if (rect.width > 0) {
+      viewportRectRef.current = { left: rect.left, width: rect.width };
+    }
+  };
+
   const onTrackPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    stopAnimation();
     panRef.current.wheelVel = 0;
     panRef.current.currentVel = 0;
     dragState.current = {
@@ -307,10 +384,14 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
   };
 
   const endTrackDrag = () => {
-    if (dragState.current.active && dragState.current.moved) {
+    const hadDrag = dragState.current.active && dragState.current.moved;
+    if (hadDrag) {
       panRef.current.wheelVel = Math.max(-1200, Math.min(1200, dragState.current.releaseVel));
     }
     dragState.current.active = false;
+    if (hadDrag || panRef.current.targetVel !== 0 || panRef.current.currentVel !== 0) {
+      startAnimation();
+    }
     window.setTimeout(() => { dragState.current.moved = false; }, 40);
   };
 
@@ -353,6 +434,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
       className="om-rail-viewport om-overflow-fade om-spotlight-edge-viewport"
       data-fade-start={edges.left || undefined}
       data-fade-end={edges.right || undefined}
+      onPointerEnter={onTrackPointerEnter}
       onPointerDown={onTrackPointerDown}
       onPointerMove={onTrackPointerMove}
       onPointerUp={endTrackDrag}
@@ -401,7 +483,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
               onClick={event => openSlide(event.currentTarget)}
             >
               <div className="om-feature-art" aria-hidden="true"><div className="om-feature-camera">
-                <img src={slide.poster} alt="" draggable={false} />
+                <img src={slide.poster} alt="" draggable={false} loading={i < 3 ? 'eager' : 'lazy'} decoding="async" />
                 {active && visible && slide.clip && hoveredSlide === slide.id && <FeaturedClip src={slide.clip} poster={slide.poster} playing={clipPlaying} />}
               </div></div>
               <div className="om-spotlight-overlay">

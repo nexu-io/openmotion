@@ -196,6 +196,20 @@ describe("Studio entry shell dependency boundary", () => {
     expect(graph.files.has(settingsCenter)).toBe(false);
   });
 
+  it("keeps ExploreStudios decoupled from heavy ModelHub showcase catalogs", () => {
+    const explore = path.resolve(studioSrcDir, "motion/ExploreStudios.tsx");
+    const graph = collectStaticImportGraph(explore);
+    expect(graph.files.has(path.resolve(studioSrcDir, "motion/ExploreBlackFridayHero.tsx"))).toBe(true);
+    expect(graph.files.has(path.resolve(studioSrcDir, "motion/ExploreBlackFridaySpotlight.tsx"))).toBe(true);
+    for (const heavyModule of [
+      "motion/modelHubs.ts",
+      "motion/gemini4Videos.ts",
+      "motion/model-hubs/curatedCases.ts",
+    ]) {
+      expect(graph.files.has(path.resolve(studioSrcDir, heavyModule)), `ExploreStudios must not statically import ${heavyModule}`).toBe(false);
+    }
+  });
+
   it("captures side-effect imports and resolves bundler .js -> .ts/.tsx specifiers", () => {
     const sample = [
       'import "@hyperframes/parsers";',
