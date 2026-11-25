@@ -572,7 +572,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       const nextDraft: AssetDraft = typeof seed === 'string'
         ? { modality: studio.scene.modality, prompt: seed, references: [] }
         : (!seed.prompt && !seed.guideExample && !seed.references.length && existing?.prompt
-          ? { ...existing, model: undefined, preferredModel: seed.preferredModel ?? existing.preferredModel }
+          ? { ...existing, model: undefined, source: undefined, preferredModel: seed.preferredModel ?? existing.preferredModel }
           : seed);
       studioDrafts.current.set(key, nextDraft);
       setStudioVisit(number => number + 1);

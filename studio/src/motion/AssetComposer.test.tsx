@@ -4,6 +4,7 @@ import { act, useState, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
+import { resetAccountSummaryCacheForTest } from './AccountSettings';
 import type { Model } from '../../../shared/gateway';
 const { generate, loadGateway, gatewayRequest, chrome } = vi.hoisted(() => ({
   generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(),
@@ -22,7 +23,7 @@ const props: ComponentProps<typeof AssetComposer> = {
   history: { tasks: [], loading: false, onRetry: vi.fn(), onSelect: vi.fn() }, selectingTask: false,
   onNew: vi.fn(), onCancel: vi.fn(), onView: vi.fn(), onReference: vi.fn(), onCreated: created, onError: vi.fn(), onClose: vi.fn(),
 };
-beforeEach(() => { vi.clearAllMocks(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+beforeEach(() => { vi.clearAllMocks(); gatewayRequest.mockReset(); resetAccountSummaryCacheForTest(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 it('exposes direct generation without a retired local Agent conversation tab', async () => {
   await act(async () => root.render(<AssetComposer {...props} />));
@@ -1872,4 +1873,74 @@ it('keeps model picker and parameters visible for signed-in Free users without r
     unsubscribe();
     setCachedCloudDisklessMode(false);
   }
+});
+
+it('consumes hub template draft source after a successful submit or clearing the prompt', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const catalog = cloudState([existing.sunburst]);
+  let currentDraft: AssetDraft = {
+    modality: 'image',
+    prompt: 'Studio glass perfume bottle',
+    references: [],
+    source: {
+      hubId: 'gpt-image-2-6',
+      templateId: 'gi-1',
+      promptEdited: false,
+      initialPrompt: 'Studio glass perfume bottle',
+    },
+  };
+  const setDraft = vi.fn((next: AssetDraft | ((prev: AssetDraft) => AssetDraft)) => {
+    currentDraft = typeof next === 'function' ? next(currentDraft) : next;
+  });
+  generate.mockResolvedValueOnce({ job: { id: 'hub-remix-job' } });
+
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={currentDraft}
+      setDraft={setDraft}
+      studio={{
+        catalog: { catalog, failed: false, retry: vi.fn() },
+        chooseModel: vi.fn(),
+        remember: vi.fn(),
+        destination: mediaEditorDestination('text-to-image', existing.sunburst.id),
+      }}
+    />,
+  ));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(currentDraft.source).toBeUndefined();
+
+  // Clearing the prompt before submit also clears stale template attribution.
+  currentDraft = {
+    modality: 'image',
+    prompt: 'Studio glass perfume bottle',
+    references: [],
+    source: {
+      hubId: 'gpt-image-2-6',
+      templateId: 'gi-1',
+      promptEdited: false,
+      initialPrompt: 'Studio glass perfume bottle',
+    },
+  };
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={currentDraft}
+      setDraft={setDraft}
+      studio={{
+        catalog: { catalog, failed: false, retry: vi.fn() },
+        chooseModel: vi.fn(),
+        remember: vi.fn(),
+        destination: mediaEditorDestination('text-to-image', existing.sunburst.id),
+      }}
+    />,
+  ));
+  const textarea = container.querySelector<HTMLTextAreaElement>('textarea')!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    setter.call(textarea, '   ');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(currentDraft.source).toBeUndefined();
 });

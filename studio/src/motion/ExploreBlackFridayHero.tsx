@@ -15,6 +15,12 @@ import {
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import { trackMotion } from './tracking';
 
+let heroImpressionReported = false;
+/** Test hook: clear the page-load impression guard between renders. */
+export function resetBlackFridayHeroImpression() {
+  heroImpressionReported = false;
+}
+
 const RING_COUNT = 8;
 const SIDE_ROWS = 3;
 const BASE_CRUISE_SPEED = 56; // px/sec forward glide along +Z
@@ -117,6 +123,17 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
   const script = locale.startsWith('zh') ? 'zh' : (locale === 'ja' || locale === 'ko') ? 'cjk' : 'latin';
   const [time, setTime] = useState(() => readBlackFridayCountdown());
   const [entryId, setEntryId] = useState(newCampaignEntryId);
+  useEffect(() => {
+    if (!active || heroImpressionReported) return;
+    heroImpressionReported = true;
+    void trackMotion('surface_view', {
+      page_name: 'explore',
+      area: 'campaign_banner',
+      element: 'banner',
+      campaign_id: BLACK_FRIDAY_CAMPAIGN,
+      hook_id: 'bf_hero',
+    });
+  }, [active]);
   const [displayDigits, setDisplayDigits] = useState<[string, string, string] | null>(null);
   const [startedCollapsed] = useState(() => (
     typeof window !== 'undefined' &&
@@ -506,19 +523,20 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     interactionRef.current.hoveringTile = false;
   };
 
-  const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+  const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_hero', entryId);
   const claimOffer = (event: MouseEvent<HTMLAnchorElement>) => {
-    markExternalCheckoutPending('bf_banner', entryId);
+    const clickedEntryId = entryId;
+    markExternalCheckoutPending('bf_hero', clickedEntryId);
     void trackMotion('ui_click', {
       page_name: 'explore',
       area: 'campaign_banner',
       element: 'claim_offer',
       campaign_id: BLACK_FRIDAY_CAMPAIGN,
-      entry_id: entryId,
-      hook_id: 'bf_banner',
+      entry_id: clickedEntryId,
+      hook_id: 'bf_hero',
       interaction_method: event.detail === 0 ? 'keyboard' : 'pointer',
     });
-    const targetUrl = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+    const targetUrl = campaignPricingUrl(locale, 'openmotion_bf_hero', clickedEntryId);
     event.currentTarget.href = targetUrl;
     window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
     if (isDesktopApp() && (event.button === 0 || event.button === 1)) {

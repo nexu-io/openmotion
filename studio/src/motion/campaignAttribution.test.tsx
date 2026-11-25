@@ -6,7 +6,8 @@ import { I18nProvider } from '../i18n/I18n';
 import { studioEvents } from '../../../tracking/events.ts';
 import { validProperties } from '../../../tracking/core.ts';
 import { BlackFridayTopBanner, readBlackFridayCountdown, resetBlackFridayImpression } from './BlackFridayTopBanner';
-import { ExploreBlackFridayHero } from './ExploreBlackFridayHero';
+import { ExploreBlackFridayHero, resetBlackFridayHeroImpression } from './ExploreBlackFridayHero';
+import { consumeExternalCheckoutPending } from './entitlementModalBus';
 import campaignUi from '../i18n/campaign-ui.json';
 import {
   BLACK_FRIDAY_ENDS_AT,
@@ -35,6 +36,8 @@ beforeEach(() => {
   vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
   vi.mocked(trackMotion).mockClear();
   resetBlackFridayImpression();
+  resetBlackFridayHeroImpression();
+  consumeExternalCheckoutPending();
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -53,6 +56,10 @@ it('builds a Pricing link that carries the OpenMotion entry the website keeps th
   });
   expect(new URL(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).pathname).toBe('/pricing/');
   expect(params(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).get('utm_medium')).toBe('header');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hero', 'x')).get('utm_medium')).toBe('hero');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hero', 'x')).get('od_entry_source')).toBe('openmotion_manage_subscription');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hub', 'x')).get('utm_medium')).toBe('model_hub');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hub', 'x')).get('od_entry_source')).toBe('openmotion_manage_subscription');
 });
 
 it('reports one banner impression per page load and joins each claim click to its Pricing link', async () => {
@@ -256,5 +263,36 @@ it('localizes the Explore Black Friday hero across all 10 non-English locales wi
     expect(container.textContent).toContain(messages['Annual Pro & Max']);
     expect(container.textContent).toContain(messages['API Supported']);
     expect(container.textContent).toContain(messages['Up to 50% off annual']);
+  }
+});
+
+it('reports ExploreBlackFridayHero impression once per page load, bf_hero CTA click with utm_medium=hero, and marks checkout return', async () => {
+  vi.setSystemTime(BLACK_FRIDAY_HERO_STARTS_AT);
+  render(<ExploreBlackFridayHero />);
+  render(<ExploreBlackFridayHero />);
+  expect(tracked().filter(row => row.event === 'surface_view')).toEqual([
+    { event: 'surface_view', properties: { page_name: 'explore', area: 'campaign_banner', element: 'banner', campaign_id: 'black_friday_2026', hook_id: 'bf_hero' } },
+  ]);
+
+  const cta = container.querySelector<HTMLAnchorElement>('a[href*="pricing"]')!;
+  cta.addEventListener('click', event => event.preventDefault());
+  const heroEntryId = params(cta.href).get('od_entry_id');
+  expect(params(cta.href).get('od_entry_source')).toBe('openmotion_manage_subscription');
+  expect(params(cta.href).get('utm_medium')).toBe('hero');
+
+  await act(async () => { cta.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(tracked().find(row => row.event === 'ui_click')?.properties).toMatchObject({
+    page_name: 'explore',
+    area: 'campaign_banner',
+    element: 'claim_offer',
+    campaign_id: 'black_friday_2026',
+    hook_id: 'bf_hero',
+    entry_id: heroEntryId,
+  });
+  expect(params(cta.href).get('od_entry_id')).not.toBe(heroEntryId);
+  expect(consumeExternalCheckoutPending()).toEqual({ hookId: 'bf_hero', entryId: heroEntryId });
+
+  for (const row of tracked()) {
+    expect(validProperties(studioEvents, row.event, row.properties), JSON.stringify(row)).toBe(true);
   }
 });

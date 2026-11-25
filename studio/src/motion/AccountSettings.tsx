@@ -15,6 +15,7 @@ import { notifyProvidersChanged } from './useProviderDirectory';
 import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
 import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
+import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 import {
   isDesktopApp,
@@ -249,6 +250,11 @@ function publishAccountSummary(value: CloudAccountSummary | null): void {
   }
 }
 
+/** Test hook: clear cached account summary between isolated component tests. */
+export function resetAccountSummaryCacheForTest(): void {
+  publishAccountSummary(null);
+}
+
 export function useAccountSummary(options?: { eager?: boolean }) {
   const eager = options?.eager ?? true;
   const [account, updateAccountState] = useState<CloudAccountSummary | null>(() => cachedAccountSummary);
@@ -367,7 +373,9 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
       const targetUrl = buildSubscriptionUrl(consoleUrl, source);
       if (event.detail === 0 && event.button === 0) event.currentTarget.href = targetUrl;
-      tracking.reportSettingsClick('account', element);
+      tracking.reportSettingsClick('account', element, {
+        ...(element === 'view_plans' && blackFridayActive() ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}),
+      });
       if (isDesktopApp() && (event.button === 0 || event.button === 1)) {
         event.preventDefault();
         void openBillingAndRefreshOnFocus(targetUrl, () => {

@@ -34,7 +34,8 @@ import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } f
 import { FreePlanGenerationGate } from './EntitlementTouchpointCards';
 
 export interface AssetGuideExample { title: string; prompt: string; poster: string; clip?: string; posterAspect?: number }
-export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; guideExample?: AssetGuideExample; references: { reference: AssetReference; name: string }[] }
+export interface AssetDraftSource { hubId?: string; templateId?: string; promptEdited?: boolean; initialPrompt?: string }
+export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; guideExample?: AssetGuideExample; references: { reference: AssetReference; name: string }[]; source?: AssetDraftSource }
 export function AssetComposer({ active, studio, draft, setDraft, promptAppliedToken = 0, jobs, showCurrentJob = true, taskId, history, selectingTask, onNew, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onInfo, onClose }: {
   active: boolean; studio?: StudioCreation; draft: AssetDraft; setDraft: Dispatch<SetStateAction<AssetDraft>>; promptAppliedToken?: number; jobs: GenerationJob[]; showCurrentJob?: boolean;
   taskId?: string;
@@ -240,6 +241,16 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const submit = async () => {
     if (!selected || !promptReady || busy || uploadingReferences || invalidReferences) return; setBusy(true);
     const studioContext = studio ? { studio: studio.destination.studio.id, scene: studio.destination.scene.id, model: selected.id } : undefined;
+    const sourceContext = draft.source
+      ? {
+          hubId: draft.source.hubId,
+          templateId: draft.source.templateId,
+          promptEdited: Boolean(
+            draft.source.promptEdited ||
+            (draft.source.initialPrompt !== undefined && draft.prompt.trim() !== draft.source.initialPrompt.trim()),
+          ),
+        }
+      : undefined;
     try {
       const parsed = requestParameters(parameters, selected, draft.references.length > 0, studioDefaultValues(selected));
       const prompt = feature ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
@@ -249,12 +260,12 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt, model: selected.id, mode: selected.mode, parameters: submittedParameters,
         ...(draft.target ? { assetId: draft.target.asset.id, parentVersionId: draft.target.versionId } : {}), references: draft.references.map(r => r.reference) });
       if (mounted.current) {
-        setDraft(current => current === draft ? { ...current, model: selected.id, parameters: parsed } : current);
+        setDraft(current => current === draft ? { ...current, model: selected.id, parameters: parsed, source: undefined } : current);
         onCreated(result.job);
       }
-      tracking.reportAssetGenerationSubmit(draft.modality, 'success', draft.references.length, Boolean(draft.target), studioContext);
+      tracking.reportAssetGenerationSubmit(draft.modality, 'success', draft.references.length, Boolean(draft.target), studioContext, sourceContext);
     } catch (error) {
-      tracking.reportAssetGenerationSubmit(draft.modality, 'failure', draft.references.length, Boolean(draft.target), studioContext);
+      tracking.reportAssetGenerationSubmit(draft.modality, 'failure', draft.references.length, Boolean(draft.target), studioContext, sourceContext);
       if (mounted.current) onError((error as Error).message);
     } finally { if (mounted.current) setBusy(false); }
   };
@@ -272,7 +283,10 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     'aria-label': imageWorkspace ? undefined : t('Asset prompt'),
     placeholder: t(featureRule?.promptOptional ? 'Optional: add anything the model should know.' : scene?.hint ?? (speechPrompt ? 'Write the words you want spoken.' : kind.hint)),
     value: draft.prompt,
-    onChange: event => setDraft({ ...draft, prompt: event.target.value }),
+    onChange: event => {
+      const nextPrompt = event.target.value;
+      setDraft({ ...draft, prompt: nextPrompt, ...(!nextPrompt.trim() && draft.source ? { source: undefined } : {}) });
+    },
   };
   const promptField = imageWorkspace ? <div className="om-label">
     <label className="om-eyebrow" htmlFor={promptId}>{t('Detailed description')}</label>

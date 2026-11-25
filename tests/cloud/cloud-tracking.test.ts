@@ -96,7 +96,38 @@ test('createCloudTracking falls back to OPENMOTION_POSTHOG_KEY when OPENMOTION_P
 test('sanitizeHookId only accepts registered ENTITLEMENT_HOOK_IDS', () => {
   assert.equal(sanitizeHookId('header_signin'), 'header_signin');
   assert.equal(sanitizeHookId(' studio_res_gate '), 'studio_res_gate');
+  assert.equal(sanitizeHookId('bf_hero'), 'bf_hero');
+  assert.equal(sanitizeHookId('bf_hub'), 'bf_hub');
   assert.equal(sanitizeHookId('unregistered_custom_hook'), undefined);
   assert.equal(sanitizeHookId(''), undefined);
   assert.equal(sanitizeHookId(null), undefined);
+});
+
+test('acceptBrowserBatch buffers bursts above the 64-event desktop default without dropping events', () => {
+  const tracker = createCloudTracking('1.0.0', BASE_ENV);
+  assert.equal(tracker.isEnabled(), true);
+
+  let acceptedTotal = 0;
+  for (let batchIdx = 0; batchIdx < 4; batchIdx++) {
+    const events = Array.from({ length: 25 }, (_, i) => ({
+      event: 'surface_view',
+      event_id: crypto.randomUUID(),
+      occurred_at: new Date().toISOString(),
+      entrypoint: 'studio',
+      device_timezone: 'Asia/Shanghai',
+      utc_offset_minutes: 480,
+      properties: {
+        page_name: 'model_hub',
+        area: 'hub_videos',
+        element: 'card',
+        hub_id: 'seedance-2-5',
+        template_id: `sd-${batchIdx * 25 + i + 1}`,
+        position: i,
+        signed_in: true,
+        filter_value: 'all',
+      },
+    }));
+    acceptedTotal += tracker.acceptBrowserBatch({ events });
+  }
+  assert.equal(acceptedTotal, 100);
 });
