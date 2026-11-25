@@ -1,6 +1,9 @@
+import { needsPreparedSceneSwap } from '../../../shared/preview-scene-swap.ts';
+
 // The player owns the markup and scripts from which a parked scene will mount.
 // A DOM edit to the empty placeholder would be lost on the next seek.
 export const PREVIEW_PARKED_SCENE = `
+  const needsPreparedSceneSwap = ${needsPreparedSceneSwap.toString()};
   let applyingSceneUpdate = null;
   function uniqueSceneHost(path, root = document) {
     const hosts = Array.from(root.querySelectorAll('[data-hf-scene][data-composition-file]'))
@@ -146,11 +149,10 @@ export const PREVIEW_PARKED_SCENE = `
     }
     if (!sameOtherEntries(sourceVersions, versions, targets) || !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
         !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key))) return false;
-    let html = snapshot.html;
+    let html = snapshot.html, complete = snapshot.doc;
     if (siblings.length) {
       // A nested scene cannot be swapped independently of its parent.
       if (Array.from(targets.values()).some(t => t.host.parentElement?.closest('[data-hf-scene]'))) return false;
-      let complete = snapshot.doc;
       if (compact) {
         const sibling = siblings.length === 1 ? siblings[0] : null;
         const extra = await readSceneSnapshot(sibling, signal);
@@ -182,6 +184,7 @@ export const PREVIEW_PARKED_SCENE = `
       return true;
     };
     if (!Array.from(scenes).some(key => newParts.scenes[key] !== oldParts.scenes[key])) return confirm();
+    if (needsPreparedSceneSwap(document, complete, oldParts.scenes, newParts.scenes)) return false;
     const update = {targets, versions, ready: null};
     applyingSceneUpdate = update;
     let expire;

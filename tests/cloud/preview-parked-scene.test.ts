@@ -163,6 +163,47 @@ it('updates an active child through the same runtime lifecycle as a parked child
   assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
 });
 
+it('keeps the visible frame intact when a changed scene must execute its script and seek', async () => {
+  for (const batch of [false, true]) {
+    const f = fixture(batch, batch);
+    const host = f.document.querySelector(`[data-composition-file="${batch ? other : file}"]`)!;
+    host.removeAttribute('data-hf-parked-scene');
+    host.innerHTML = '<script>startTimeline()</script>';
+    assert.equal(await f.run(), false);
+    assert.deepEqual(f.counts, {reads: batch ? 2 : 1, swaps: 0, confirms: 0});
+  }
+});
+
+it('swaps hidden, prewarmed scenes and visible scenes containing only data', async () => {
+  for (const hidden of [false, true]) {
+    const f = fixture();
+    const host = f.document.querySelector('section')!;
+    host.removeAttribute('data-hf-parked-scene');
+    if (hidden) {
+      host.setAttribute('data-hf-clip-hidden', '');
+      host.style.visibility = 'hidden';
+    }
+    host.innerHTML = hidden ? '<script src="animation.js"></script>' : '<script type="application/json">{}</script>';
+    assert.equal(await f.run(), true);
+    assert.equal(f.counts.swaps, 1);
+  }
+});
+
+it('checks nested scene visibility, including clips revealed by a transition', async () => {
+  for (const visibility of ['visible', 'hidden']) {
+    const f = fixture();
+    const host = f.document.querySelector('section')!;
+    host.removeAttribute('data-hf-parked-scene');
+    host.setAttribute('data-hf-clip-hidden', '');
+    host.style.visibility = visibility;
+    host.innerHTML = '<section data-hf-scene="nested" data-composition-file="nested.html"></section>';
+    f.document.body.insertAdjacentHTML('beforeend', '<script data-hf-scene="nested">startTimeline()</script>');
+    const hidden = visibility === 'hidden';
+    assert.equal(await f.run(), hidden);
+    assert.equal(f.counts.swaps, Number(hidden));
+  }
+});
+
 it('leaves missing, repeated and remounting targets to normal preview recovery', async () => {
   for (const state of ['missing', 'duplicate', 'remounting']) {
     const f = fixture();
