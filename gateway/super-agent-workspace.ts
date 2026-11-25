@@ -294,6 +294,8 @@ function shouldIgnoreEntry(kind: SuperAgentProjectKind, relPath: string, name: s
   if (kind === 'game') {
     if (top && !isDir && name.toLowerCase() === 'game.json') return true;
     if (top && isDir && name.toLowerCase() === 'trailer') return true;
+    // WeChat publish progress (appid, preview code) is OpenDesign's record, not a change the Agent made.
+    if (top && isDir && name.toLowerCase() === 'publish') return true;
     if (isDir && lowerRel === 'assets/playtests') return true;
     if (lowerRel.startsWith('assets/playtests/')) return true;
   }

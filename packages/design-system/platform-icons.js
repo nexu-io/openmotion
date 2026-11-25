@@ -3,6 +3,7 @@ export const platformIcons = Object.freeze({
   douyin: 'platforms/douyin.svg',
   xiaohongshu: 'platforms/xiaohongshu.svg',
   wechat: 'platforms/wechat.svg',
+  'wechat-minigame': 'platforms/wechat-minigame.svg',
   bilibili: 'platforms/bilibili.svg',
   tiktok: 'platforms/tiktok.svg',
   reels: 'platforms/reels.svg',

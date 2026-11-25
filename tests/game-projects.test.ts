@@ -158,7 +158,7 @@ test('multiplayer validation, determinism, contract errors, CDN rules and public
 }));
 
 test('MCP game tools author single-player games and preserve access to existing multiplayer games',()=>fixture(async(service,workspace)=>{
-  assert.equal(gameTools.length,12);
+  assert.equal(gameTools.length,13);
   for(const tool of gameTools) assert.match(tool.title,/^OpenMotion · /);
   validateInput(gameTools[0].inputSchema,brief);
   validateInput(gameTools[0].inputSchema,{prompt:brief.prompt});
