@@ -379,13 +379,13 @@ it("counts from mount, not duration, and keeps buffering and paint independent o
     player.notify("timeline-state");
     player.notify("timeline-state", { token: "wrong-grant", firstFrame: "ready" });
     advance(40);
-    expect(player.compositionLoading).not.toHaveBeenCalledWith(false);
+    expect(player.compositionLoading).toHaveBeenCalledWith(false);
     expect(player.frame.dataset.clipPainted).toBeUndefined();
     player.notify("timeline-state", { firstFrame: "ready", buffering: false });
     expect(usePlayerStore.getState().mediaBuffering).toBe(false);
     expect(player.painted).not.toHaveBeenCalled();
     expect(player.readyToShow).not.toHaveBeenCalledWith(true);
-    expect(usePlayerStore.getState().previewBooted).toBe(false);
+    expect(usePlayerStore.getState().previewBooted).toBe(true);
     advance(40);
     expect(player.backdrop()).toBeNull();
     expect(player.frame.dataset.clipPainted).toBe("true");
@@ -397,6 +397,28 @@ it("counts from mount, not duration, and keeps buffering and paint independent o
     player.notify("asset-readiness", { status: "ready", completed: 2, total: 2 });
     expect(usePlayerStore.getState().assetReadinessPhase).toBe("ready");
     expect(player.error).not.toHaveBeenCalled();
+  } finally { player.unmount(); }
+});
+
+it("keeps editing available across the old 90s deadline while the live bridge waits for media", () => {
+  const player = mountPlayer({ trackAssets: true });
+  try {
+    player.notify("timeline-state", { firstFrame: "loading" });
+    advance(3_001);
+    expect(usePlayerStore.getState().previewBooted).toBe(true);
+    expect(player.compositionLoading).toHaveBeenLastCalledWith(false);
+    advance(60_000);
+    player.notify("timeline-state", { firstFrame: "loading" });
+    advance(30_000);
+    expect(player.error).not.toHaveBeenCalled();
+    expect(player.backdrop()).not.toBeNull();
+    expect(player.readyToShow).not.toHaveBeenCalledWith(true);
+    expect(player.painted).not.toHaveBeenCalled();
+    player.notify("timeline-state", { firstFrame: "ready" });
+    advance(40);
+    expect(player.readyToShow).toHaveBeenCalledWith(true);
+    expect(player.painted).toHaveBeenCalledOnce();
+    expect(player.backdrop()).toBeNull();
   } finally { player.unmount(); }
 });
 

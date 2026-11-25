@@ -92,6 +92,11 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       let loadId = 0;
       let startedAt = performance.now();
       let deadline: ReturnType<typeof setTimeout>;
+      let editorGrace: ReturnType<typeof setTimeout>;
+      const armFrameDeadline = () => {
+        clearTimeout(deadline);
+        deadline = setTimeout(() => fail("The composition preview did not become ready."), 90_000);
+      };
       let skippedFirstFrame = false;
       let paintFrame = 0;
       let busyTimer: ReturnType<typeof setTimeout>;
@@ -112,6 +117,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       function skipFirstFrame() {
         if (ready || skippedFirstFrame || callbacks.current.parked) return;
         skippedFirstFrame = true;
+        clearTimeout(editorGrace);
         clearTimeout(deadline);
         setAwaitingFirstFrame(false);
         callbacks.current.onCompositionLoadingChange?.(false);
@@ -127,6 +133,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
             })
           : null;
       function fail(message: string) {
+        clearTimeout(editorGrace);
         delete iframe!.dataset.clipPainted;
         if (callbacks.current.parked) return;
         ready = true;
@@ -217,8 +224,20 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           setSize(event.data.width, event.data.height);
           callbacks.current.onLoad();
           if (!passive) announcePreviewDocumentLoaded(iframe!);
-          deadline = setTimeout(() => fail("The composition preview did not become ready."), 90_000);
+          armFrameDeadline();
+          if (tracksAssets && !passive) {
+            // A verified runtime can initialize editing while its first visible media buffers.
+            // Only a real paint may dismiss the backdrop or announce a displayable frame.
+            editorGrace = setTimeout(() => {
+              if (callbacks.current.parked || ready || skippedFirstFrame) return;
+              usePlayerStore.getState().markPreviewBooted();
+              callbacks.current.onCompositionLoadingChange?.(false);
+            }, 3_000);
+          }
           if (tracksAssets && !passive && usePlayerStore.getState().assetReadinessSkipped) skipFirstFrame();
+        } else if (tracksAssets && !passive && !skippedFirstFrame && event.data.firstFrame === "loading") {
+          // A live document still waiting on media has not failed. Detect a silent bridge instead.
+          armFrameDeadline();
         }
         if (event.data.firstFrame === "error") {
           if (skippedFirstFrame) {
@@ -231,6 +250,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           return;
         }
         if (event.data.firstFrame !== "ready") return;
+        clearTimeout(editorGrace);
         ready = true;
         clearTimeout(deadline);
         paintFrame = requestAnimationFrame(() => {
@@ -279,6 +299,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       observer.observe(stage);
       window.addEventListener("message", message);
       lease.current = bindPreviewLease(url, props.origin, (next) => {
+        clearTimeout(editorGrace);
         delete iframe.dataset.clipPainted;
         if (callbacks.current.parked) return;
         if (ready && !passive && !callbacks.current.noLoadTimeout) rememberPreviewPosition(iframe, runtimeTime);
@@ -334,6 +355,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       }, fail, initialLease.current);
       return () => {
         setParked.current = null;
+        clearTimeout(editorGrace);
         unsubscribeSkip?.();
         if (tracksAssets && !passive) {
           registerRetryFailedAssetsHandler(assetReadinessGenRef.current, null);
