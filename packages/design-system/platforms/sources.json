@@ -43,5 +43,17 @@
     "icon": "x",
     "fill": "#000000",
     "note": "Identifies posts shared on X (formerly Twitter)."
+  },
+  "qq": {
+    "collection": "remixicon@4.9.1",
+    "icon": "qq-fill",
+    "fill": "#12B7F5",
+    "note": "QQ Mini Game destination."
+  },
+  "telegram": {
+    "collection": "remixicon@4.9.1",
+    "icon": "telegram-fill",
+    "fill": "#26A5E4",
+    "note": "Telegram Mini App destination."
   }
 }

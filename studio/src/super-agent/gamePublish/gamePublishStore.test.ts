@@ -19,6 +19,8 @@ vi.mock('../../motion/superAgentHandoff', () => ({ queueSuperAgentHandoff: (payl
 
 const { WebPublishApiError } = await import('../../components/webPublishClient');
 const { gamePublishActions, gamePublishSessionFor, gamePublishThreadFor, copyGamePublishLink, resetGamePublishStore } = await import('./gamePublishStore');
+const { PLAYABLE_NETWORKS } = await import('./playableNetworks');
+const { gamePublishPlatform } = await import('./platforms');
 
 const GAME_HTML = '<!DOCTYPE html><html><head><title>Coin Jar</title><script src="game.js"></script></head><body><canvas></canvas><script>function openStore(id){window.open("https://example.com")}openStore("x")</script></body></html>';
 const input = {
@@ -182,17 +184,23 @@ describe('gamePublishStore', () => {
     expect(gamePublishSessionFor(input.artifactId)?.wechat?.status).toBeUndefined();
   });
 
-  it('a step left by choosing the platform again is not finished; a completed one is done', async () => {
+  it('other platforms hand the job to the Agent: no cards in the conversation, steps finish with a message to it', async () => {
     gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false); // only this platform's entries
     gamePublishActions.choose(input.artifactId, 'itch');
+    expect(handoff).toHaveBeenCalledWith(expect.objectContaining({ newChat: false, autoSend: true, mode: 'game', prompt: expect.stringContaining('Coin Jar') }));
+    const guide = handoff.mock.calls[0][0].hiddenInstructions as string;
+    expect(guide).toContain('abc12345');
+    expect(guide).toContain('Step 1 of 2 · Download the HTML5 zip');
+    expect(guide).toContain('"Downloaded"');
+    expect(guide).toContain('One step per message');
+    expect(guide).not.toContain('kept OpenDesign selected');
     await settle();
-    gamePublishActions.completeStep(input.artifactId);
-    gamePublishActions.choose(input.artifactId, 'itch');
-    await settle();
-    const needs = gamePublishThreadFor('chat-1').filter(entry => entry.kind === 'need');
-    expect(needs[0]).toMatchObject({ closed: true, outcome: 'done', stepIndex: 0 });
-    expect(needs[1]).toMatchObject({ closed: true, outcome: 'abandoned', stepIndex: 1 });
-    expect(needs.at(-1)).toMatchObject({ closed: false });
+    gamePublishActions.completeStep(input.artifactId, { platformId: 'itch', stepIndex: 0 });
+    expect(handoff).toHaveBeenLastCalledWith({ prompt: 'Done: Download the HTML5 zip', mode: 'game', newChat: false, autoSend: true });
+    expect(gamePublishSessionFor(input.artifactId)?.stepIndex).toBe(1);
+    // Only real work is logged in the conversation (the package build); there are no step cards or local user lines.
+    expect(gamePublishThreadFor('chat-1').map(entry => entry.kind)).toEqual(['agent']);
   });
 
   it('copying the link reports a failed copy as a failure', async () => {
@@ -204,12 +212,22 @@ describe('gamePublishStore', () => {
     expect(notify).toHaveBeenCalledWith('Could not copy the link', 'error');
   });
 
-  it('"Later" on the tool dialog goes back to the platform list', () => {
+  it('other platforms also publish the OpenDesign link by default and tell the Agent', async () => {
     gamePublishActions.open(input);
+    gamePublishActions.choose(input.artifactId, 'itch');
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('kept OpenDesign selected');
+    await settle();
+    expect(gamePublishSessionFor(input.artifactId)?.linkUrl).toBe('https://play.opendesign.app/g/abc');
+  });
+
+  it('a developer tool is asked for under the Agent message; "Later" goes back to the platform list', () => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false); // only this platform's entries
     gamePublishActions.choose(input.artifactId, 'qq');
     gamePublishActions.skipDevTool(input.artifactId);
     expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ view: 'list', platformId: undefined, toolCheck: undefined });
-    expect(gamePublishThreadFor('chat-1').find(entry => entry.kind === 'tool')).toMatchObject({ state: 'skipped' });
+    expect(gamePublishThreadFor('chat-1')).toEqual([]);
   });
 
   it('builds a real itch.io zip from the game files before the user can continue', async () => {
@@ -247,7 +265,66 @@ describe('gamePublishStore', () => {
     expect(html).not.toMatch(/window\.open\(/);
   });
 
-  it('a stale card for another platform or step does nothing', () => {
+  it.each(PLAYABLE_NETWORKS)('passes the selected $name network and both store links to the real exporter', async network => {
+    gamePublishActions.open({ ...input, orientation: 'landscape' });
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, 'playable-ad');
+    gamePublishActions.pick(input.artifactId, network.name);
+    gamePublishActions.completeStep(input.artifactId);
+    gamePublishActions.setInput(input.artifactId, 'iOS App Store link', ' https://apps.apple.com/app/id1 ');
+    gamePublishActions.setInput(input.artifactId, 'Google Play link', ' https://play.google.com/store/apps/details?id=test ');
+    gamePublishActions.completeStep(input.artifactId);
+    await settle();
+    const session = gamePublishSessionFor(input.artifactId)!;
+    const result = session.package!.result!;
+    expect(session).toMatchObject({ stepIndex: 2, picked: network.name, package: { state: 'ready', target: 'playable' } });
+    expect(result.fileName).toBe(`coin-jar-${network.id}.${['google', 'tiktok'].includes(network.id) ? 'zip' : 'html'}`);
+    const content = await result.blob.text();
+    expect(content).toContain(network.ctaCode);
+    expect(content).toContain('"ios":"https://apps.apple.com/app/id1"');
+    expect(content).toContain('"android":"https://play.google.com/store/apps/details?id=test"');
+    if (network.id === 'google') expect(content).toContain('name="ad.orientation" content="landscape"');
+    if (network.id === 'tiktok') expect(content).toContain('"playable_orientation":2');
+    expect(publish).not.toHaveBeenCalled();
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)?.view).toBe('result');
+  });
+
+  it.each(['xiaohongshu', 'douyin', 'itch'] as const)('builds the package declared by the %s guide', async id => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, id);
+    await settle();
+    expect(gamePublishSessionFor(input.artifactId)?.package).toMatchObject({ state: 'ready', target: gamePublishPlatform(id)!.steps[0].packageTarget, result: { fileName: `coin-jar-${id}.zip` } });
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)?.stepIndex).toBe(1);
+  });
+
+  it.each(['douyin-minigame', 'qq'] as const)('keeps %s as a manual port and does not fabricate an export', async id => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, id);
+    expect(gamePublishSessionFor(input.artifactId)?.toolCheck?.state).toBe('missing');
+    gamePublishActions.confirmDevTool(input.artifactId);
+    for (let step = 0; step < gamePublishPlatform(id)!.steps.length; step++) gamePublishActions.completeStep(input.artifactId);
+    await settle();
+    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ view: 'result', package: undefined });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('requires a real OpenDesign link before proceeding to BotFather', async () => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, 'telegram');
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ stepIndex: 0, stepProblem: 'Publish the OpenDesign link first.', package: undefined });
+    await gamePublishActions.publishLink(input.artifactId);
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ stepIndex: 1, linkUrl: 'https://play.opendesign.app/g/abc' });
+    expect(publish).toHaveBeenCalledWith('game', input.gameId, expect.objectContaining({ deployMode: 'publish' }));
+  });
+
+  it('controls left from another platform or step do nothing', () => {
     gamePublishActions.open(input);
     gamePublishActions.choose(input.artifactId, 'telegram');
     gamePublishActions.completeStep(input.artifactId, { platformId: 'wechat', stepIndex: 0 });

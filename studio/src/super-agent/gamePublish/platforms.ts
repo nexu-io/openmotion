@@ -61,8 +61,8 @@ export interface GamePublishPlatform {
   resultHref?: string;
 }
 
-/** Platforms shown in the first version. The others stay in the code and come back later. */
-export const ENABLED_PUBLISH_PLATFORMS: readonly GamePublishPlatformId[] = ['wechat'];
+/** Platforms shown in the platform tiles, in order. */
+export const ENABLED_PUBLISH_PLATFORMS: readonly GamePublishPlatformId[] = ['wechat', 'douyin-minigame', 'qq', 'xiaohongshu', 'douyin', 'itch', 'telegram', 'playable-ad'];
 
 const WECHAT_CONSOLE = { label: 'Open WeChat console', href: 'https://mp.weixin.qq.com/' };
 const DOUYIN_CONSOLE = { label: 'Open Douyin developer console', href: 'https://developer.open-douyin.com/console' };
@@ -91,6 +91,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Douyin Mini Game',
     effort: '3 steps in Douyin tools · not automated yet',
     badge: '抖',
+    icon: 'douyin',
     devTool: 'douyin-devtools',
     steps: [
       {
@@ -128,6 +129,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'QQ Mini Game',
     effort: '3 steps in QQ tools · not automated yet',
     badge: 'Q',
+    icon: 'qq',
     devTool: 'qq-devtools',
     steps: [
       {
@@ -165,6 +167,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Xiaohongshu Mini Tool',
     effort: 'Download the package · upload in Builder Hub',
     badge: '书',
+    icon: 'xiaohongshu',
     steps: [
       {
         kind: 'package',
@@ -198,6 +201,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Douyin Interactive Space',
     effort: 'Invite code · download the package · upload yourself',
     badge: '抖',
+    icon: 'douyin',
     steps: [
       {
         kind: 'package',
@@ -263,6 +267,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     name: 'Telegram Mini App',
     effort: 'Uses the OpenDesign link · set up in BotFather',
     badge: 'TG',
+    icon: 'telegram',
     steps: [
       {
         kind: 'link',
