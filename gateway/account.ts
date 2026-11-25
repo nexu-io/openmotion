@@ -762,12 +762,13 @@ export class OpenDesignAccount {
   /**
    * Opens an OpenDesign Cloud destination in the system browser with a one-time account intent
    * when signed into production so the browser session stays matched with the desktop client.
+   * Set accountIntent to false for shareable links that must not carry sign-in credentials.
    */
   async openCloudUrl(
     targetPath: string,
     entrySource = OPENMOTION_CLOUD_ENTRY_SOURCE,
     launch: ((url: string) => Promise<void>) | false = openSystemBrowser,
-    attribution?: { utmMedium?: string; entryId?: unknown },
+    attribution?: { utmMedium?: string; entryId?: unknown; accountIntent?: boolean },
   ) {
     const cleanPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
     const [pathname, rawQuery = ''] = cleanPath.split('?', 2);
@@ -782,7 +783,7 @@ export class OpenDesignAccount {
     }
     const target = `${pathname}?${params.toString()}`;
     let url = consoleUrl + target;
-    const profile = await this.profile();
+    const profile = attribution?.accountIntent === false ? undefined : await this.profile();
     if (
       isCloudIntentTargetPath(pathname) &&
       signedInProfile(profile) &&

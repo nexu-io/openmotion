@@ -1031,7 +1031,8 @@ test('media setup discovery rechecks saved and removed keys without executing a 
 test('media inspection refreshes advisory billing without disabling account models or leaking balances', t => fixture(async store => {
   await chmod(binary, 0o755);
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
-  const account = gateway.account = new OpenDesignAccount(store.directory, { binary });
+  const fetcher = t.mock.fn(async () => Response.json({ intentId: 'must-not-be-exposed' }));
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, fetcher });
   t.after(() => gateway.close());
   const inspect = () => mediaUse(store, { action: 'inspect' });
   const signedOut = (await inspect()).providers.find(p => p.id === 'account')!;
@@ -1088,6 +1089,7 @@ test('media inspection refreshes advisory billing without disabling account mode
   const rejected = expired.providers.find(p => p.id === 'account')!;
   assert.equal(rejected.available, false); assert.equal(Object.hasOwn(rejected, 'mediaEntitlement'), false);
   assert.equal((await account.summary()).state, 'reauth-required');
+  assert.equal(fetcher.mock.callCount(), 0, 'media inspection must never request account intents');
 }));
 
 

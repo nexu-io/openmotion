@@ -284,6 +284,21 @@ are rejected with `INVALID_ARGUMENT` on MCP calls, while Studio drops
 unrecognized URL `entry_from` values; neither side accepts prompts, account IDs
 or credentials.
 
+Media inspection (`openmotion_media_use` with `action=inspect`) emits the MCP-only
+`upgrade_link_result` event once per successful stdio MCP call that attempts a
+Free/Go upgrade link. `entry_from` is `agent_media_upgrade_free` or
+`agent_media_upgrade_go`; `outcome=success` includes the generated UUID `entry_id`,
+while a link-generation exception reports `outcome=failure` without `entry_id`
+and preserves the settings handoff. WebMCP/direct HTTP calls do not emit this
+event. `entry_id` matches the link's `od_entry_id` so AMR `traffic_entry` and
+payment records can be joined to the OpenMotion entry. This measures link
+generation, not a click or payment; URLs and account information are never event
+fields.
+
+Agent upgrade links contain no one-time sign-in credentials: they skip account
+intents and point directly to the console dashboard, which requests browser
+sign-in when needed.
+
 The research sources are the [supported MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
 [Codex's MCP client](https://github.com/openai/codex/blob/main/codex-rs/rmcp-client/src/utils.rs)
 and [DSH's client declaration](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/src/connection.ts).
