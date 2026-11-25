@@ -411,6 +411,7 @@ test('built-in browser OAuth preference and silent cookie-isolation context stay
 
   const onboardingSkill = await readFile(new URL('../.codex-plugin/onboarding/SKILL.md', import.meta.url), 'utf8');
   assert.match(onboardingSkill, /prefer opening `authorizationUrl` in that built-in browser/);
+  assert.match(onboardingSkill, /codex mcp login --no-browser openmotion/);
   assert.match(onboardingSkill, /keep built-in vs\. system browser session isolation silent unless the user asks/);
 
   const native = await getWorkflow('native');

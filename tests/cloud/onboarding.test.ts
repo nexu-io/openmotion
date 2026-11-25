@@ -73,6 +73,10 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
       'Cloud install.md must instruct hosts with a built-in browser to prefer OAuth inside that built-in browser',
     );
     assert.ok(
+      body.includes('codex mcp login --no-browser openmotion'),
+      'Cloud install.md must recommend --no-browser for CLI OAuth login on hosts with a built-in browser',
+    );
+    assert.ok(
       body.includes('Silent browser-session context (do NOT mention proactively to the user)'),
       'Cloud install.md must document built-in vs. system browser cookie isolation as silent agent context only',
     );

@@ -25,7 +25,7 @@ Use **only** the row matching the current host (skip if `openmotion` already poi
 
 | Host | Add MCP server | Auth method |
 | --- | --- | --- |
-| **Codex** | `codex mcp add openmotion --url 'https://motion.open-design.ai/mcp'` | OAuth 2.1 (`codex mcp login openmotion` or host OAuth RPC) |
+| **Codex** | `codex mcp add openmotion --url 'https://motion.open-design.ai/mcp'` | OAuth 2.1 (host OAuth RPC, `codex mcp login --no-browser openmotion`, or `codex mcp login openmotion`) |
 | **Claude Code** | `claude mcp add --transport http --scope user openmotion 'https://motion.open-design.ai/mcp'` | OAuth 2.1 (`claude mcp login openmotion`) |
 | **ChatGPT** | Settings → **Connectors** → **Add MCP Server** → `https://motion.open-design.ai/mcp` | OAuth 2.1 |
 | **Claude.ai / Claude Desktop** | Settings → **Connectors** → **Add custom connector** → `https://motion.open-design.ai/mcp` | OAuth 2.1 |
@@ -41,8 +41,11 @@ Use **only** the row matching the current host (skip if `openmotion` already poi
    - In **Claude Code**, run `claude mcp get openmotion` — if status is already **`Connected`**, skip login and go straight to Step 3.
 2. **Run login (prefer the host's built-in browser when available)**:
    - **Hosts with a built-in browser (e.g., Codex Desktop / CUA)**:
-     - When the host exposes both an OAuth authorization URL (such as Codex Desktop `config/mcpServer/reload` + `mcpServer/oauth/login` with `{ "name": "openmotion", "timeoutSecs": 300 }`) **and** a built-in browser panel (such as `open_in_codex` with `placement: "right"`, `target: { type: "browser", url: authorizationUrl }`), **prefer opening `authorizationUrl` directly inside the host's built-in browser** so the user signs in and approves access in the same browser that will later display the cloud editor. Send only a brief prompt to sign in and click **Allow / 同意授权** (and share the clickable link if needed; never mention onboarding, templates, or internal verification), then wait for completion.
-     - If the host does not expose a direct `authorizationUrl` for the built-in browser, or if sign-in/callback is blocked inside the built-in browser (for example, third-party OAuth restrictions or localhost callback blocking), fall back to running `codex mcp login openmotion` in the shell (timeout `180–300s`), which opens the user's system browser and listens for the callback:
+     - **Prefer completing OAuth inside the host's built-in browser** (such as `open_in_codex` with `placement: "right"`, `target: { type: "browser", url: authorizationUrl }`, or CUA IAB) so the user signs in and approves access in the same browser that will later display the cloud editor:
+       1. When the host exposes an OAuth RPC returning `authorizationUrl` (such as Codex Desktop `config/mcpServer/reload` + `mcpServer/oauth/login` with `{ "name": "openmotion", "timeoutSecs": 300 }`), call it and **prefer opening `authorizationUrl` directly inside the host's built-in browser**.
+       2. Otherwise, when running CLI login on a host with a built-in browser, **prefer `codex mcp login --no-browser openmotion`** inside an interactive PTY / persistent shell with stdin kept open (do **not** close stdin with `< /dev/null`, or `--no-browser` exits before the callback arrives). It suppresses the default system browser launch, prints the authorization URL, and still listens on `http://127.0.0.1:<port>/callback` — capture the printed authorization URL and open it in the host's **built-in browser** (once the user approves, the loopback callback completes automatically without manual URL pasting; wait for exit `0`).
+     - Send only a brief prompt to sign in and click **Allow / 同意授权** (and share the clickable link if needed; never mention onboarding, templates, or internal verification), then wait for completion.
+     - If `--no-browser` is unsupported by the local CLI, the host cannot open the URL in a built-in browser, or sign-in/callback is blocked inside the built-in browser (for example, third-party OAuth restrictions or localhost callback blocking), fall back to running `codex mcp login openmotion` in the shell (timeout `180–300s`), which opens the user's system browser and listens for the callback:
        - Exit `0`: authorization succeeded — proceed immediately to Step 3 without asking the user to confirm.
        - Non-zero exit (e.g., user clicked **Deny / 拒绝** or canceled): report briefly that authorization was not completed and stop.
    - **CLI hosts without a built-in browser (Codex CLI / Claude Code)**:
