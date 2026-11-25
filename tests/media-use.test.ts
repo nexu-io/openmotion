@@ -285,11 +285,37 @@ test('open_upgrade always opens explicitly, seeds the wait guard, and returns st
   await mediaUse(store, { action: 'wait_sign_in', timeoutSeconds: 1 }, undefined, options);
   assert.equal(open.mock.callCount(), 2);
   summary = signedIn('plus');
-  assert.equal((await mediaUse(store, { action: 'open_upgrade' }, undefined, options)).state, 'ready');
+  const ready = await mediaUse(store, { action: 'open_upgrade' }, undefined, options);
+  assert.equal(ready.signIn.state, 'ready');
+  assert.equal(ready.signIn.plan, 'plus');
+  assert.equal(ready.signIn.mediaEntitlement, 'included');
+  assert.deepEqual(ready.next, { tool: 'openmotion_media_use', arguments: { action: 'inspect' } });
   summary = { state: 'signed-out' };
-  assert.equal((await mediaUse(store, { action: 'open_upgrade' }, undefined, options)).state, 'signed_out');
+  const signedOut = await mediaUse(store, { action: 'open_upgrade' }, undefined, options);
+  assert.equal(signedOut.signIn.state, 'signed_out');
+  assert.deepEqual(signedOut.next, { tool: 'openmotion_media_use', arguments: { action: 'sign_in' } });
   assert.equal(open.mock.callCount(), 2);
 }));
+
+for (const code of ['authorization_expired', 'connector_unavailable'] as const) {
+  test(`open_upgrade preserves ${code} and connector recovery without opening checkout`, t => fixture(async store => {
+    const gateway = gatewayFor(store);
+    t.after(() => gateway.close());
+    const connectorInstall = code === 'connector_unavailable' ? { command: 'npm install --prefix /tmp/account vela' } : undefined;
+    t.mock.method(gateway.account, 'summary', async () => ({ state: 'reauth-required', errorCode: code, error: 'Sign-in failed',
+      ...(connectorInstall ? { connectorInstall } : {}), user: { email: 'private@example.com' } }));
+    const open = t.mock.method(gateway.account, 'openCloudUrl', async () => { throw new Error('Must not open checkout'); });
+    const result = await mediaUse(store, { action: 'open_upgrade' }, undefined, clock());
+    assert.equal(result.signIn.state, 'failed');
+    assert.equal(result.signIn.errorCode, code);
+    assert.equal(result.signIn.error, 'Sign-in failed');
+    assert.deepEqual(result.signIn.connectorInstall, connectorInstall);
+    assert.equal(Object.hasOwn(result.signIn, 'connectorInstall'), Boolean(connectorInstall));
+    assert.equal(result.next, null);
+    assert.doesNotMatch(JSON.stringify(result), /email|private@example/);
+    assert.equal(open.mock.callCount(), 0);
+  }));
+}
 
 test('browser launch failure retains the safe checkout link and reports browser_opened=false', t => fixture(async store => {
   const gateway = gatewayFor(store);

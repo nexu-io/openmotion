@@ -151,7 +151,7 @@ async function mediaSignIn(account: Account, args: any, options: MediaSignInOpti
   if (args.action === 'open_upgrade') {
     if (summary.state === 'signed-in' && !summary.syncing) summary = await account.summary(true);
     const view = signInView(summary);
-    if (view.state !== 'awaiting_payment') return { state: view.state, instruction: view.instruction };
+    if (view.state !== 'awaiting_payment') return signInResult(view);
     // Explicit checkout owns its event; subsequent waits must not report it again.
     const attempt = (await reserveUpgrade(account, now, openBrowser, { force: true }))!;
     const result = await attempt.result;
