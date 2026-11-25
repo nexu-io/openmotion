@@ -29,7 +29,7 @@ beforeEach(() => {
   });
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
-  vi.stubGlobal('fetch', vi.fn());
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]), { headers: { 'Content-Type': 'application/octet-stream' } })));
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -50,9 +50,19 @@ it('keeps Save-Data poster-only until Play, then requests the native MP4 without
   act(() => { player.dispatchEvent(new Event('play')); player.dispatchEvent(new Event('playing')); });
   expect(toggle().textContent).toContain('Pause');
   expect(player.style.opacity).toBe('1');
-  act(() => player.dispatchEvent(new Event('error')));
+  const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mime-corrected');
+  const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  await act(async () => player.dispatchEvent(new Event('error')));
   expect(player.style.opacity).toBe('0');
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(createUrl.mock.calls[0][0].type).toBe('video/mp4');
+  expect(player.getAttribute('src')).toBe('blob:mime-corrected');
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
+  await act(async () => player.dispatchEvent(new Event('error')));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
   act(() => intersect(false));
+  expect(revokeUrl).toHaveBeenCalledWith('blob:mime-corrected');
   expect(player.hasAttribute('src')).toBe(false);
   expect(HTMLMediaElement.prototype.load).toHaveBeenCalled();
   act(() => intersect(true));

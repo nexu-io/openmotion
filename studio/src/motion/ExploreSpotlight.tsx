@@ -8,6 +8,8 @@ import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { sceneExamples } from './sceneShowcase';
 import { gemini4Spotlight as geminiHub } from './gemini4Spotlight';
 import { motionSkills, motionStudioCover } from './skillCatalog';
+import { skillPreviewSnapshot } from './skillCoverMedia';
+import { useSkillPreview } from './useSkillPreview';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import type { ScenarioId } from '../../../shared/scenarios';
 import aiInfluencerMarketing from './scene-art/ai-influencer-marketing.webp';
@@ -65,6 +67,8 @@ function FeaturedClip({ src, playing, player, onManualPlayback }: {
   src: string; playing: boolean; player: RefObject<HTMLVideoElement | null>; onManualPlayback?: (playing: boolean) => void;
 }) {
   const [ready, setReady] = useState(false);
+  const [retryAsMp4, setRetryAsMp4] = useState(false);
+  const fallback = useSkillPreview(src, retryAsMp4);
   useEffect(() => {
     const video = player.current;
     return () => {
@@ -80,12 +84,18 @@ function FeaturedClip({ src, playing, player, onManualPlayback }: {
   useEffect(() => {
     const video = player.current;
     if (!video) return;
-    if (playing) playClip(video, src);
+    if (retryAsMp4 && !fallback) return;
+    if (fallback && video.getAttribute('src') !== fallback) video.src = fallback;
+    if (playing || (fallback && onManualPlayback)) playClip(video, fallback ?? src);
     else video.pause();
-  }, [playing, player, src]);
+  }, [playing, player, src, retryAsMp4, fallback, onManualPlayback]);
   return <video ref={player} muted loop playsInline preload="none" aria-hidden="true" style={{ opacity: ready ? 1 : 0 }}
     onPlaying={() => setReady(true)} onPlay={() => onManualPlayback?.(true)} onPause={() => onManualPlayback?.(false)}
-    onError={() => { setReady(false); onManualPlayback?.(false); }} />;
+    onError={() => {
+      setReady(false);
+      onManualPlayback?.(false);
+      if (src.startsWith(skillPreviewSnapshot)) setRetryAsMp4(true);
+    }} />;
 }
 
 export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motionEditorDisabled, onOpenBlackFriday, onModelHub, onStartScenario }: {
