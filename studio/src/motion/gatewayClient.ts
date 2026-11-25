@@ -97,6 +97,7 @@ function normalizeStatus(raw: Partial<GatewayStatus> | null | undefined): Gatewa
     agents: Array.isArray(raw?.agents) ? raw.agents : [],
     routes: raw?.routes && typeof raw.routes === 'object' ? raw.routes : {},
     capabilities: Array.isArray(raw?.capabilities) ? raw.capabilities : [],
+    ...(typeof raw?.consoleUrl === 'string' && raw.consoleUrl ? { consoleUrl: raw.consoleUrl } : {}),
   };
 }
 

@@ -13,6 +13,7 @@ import { supportsScene } from './creativeStudios';
 import type { StudioCreation } from './CreativeWorkspace';
 import { CreationModelPicker } from './GenerationModelPickers';
 import { emptyParameters, requestParameters, type ParameterDraft } from './GenerationParameters';
+import { CloudEmptyModelsNotice, isCloudEmptyCatalog, isUnifiedCloudGateway } from './ProviderSetupNotice';
 import * as tracking from './pageTracking';
 import { SoundAdvancedParameters, SoundParameters } from './SoundParameters';
 import {
@@ -108,8 +109,11 @@ export function SoundComposer({
     return () => { mounted.current = false; };
   }, []);
 
+  const cloudEmptyCatalog = isCloudEmptyCatalog(gateway, compatible.length);
+  const unifiedCloudOnly = isUnifiedCloudGateway(gateway?.status.providers);
+  const openSubscription = () => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
   const unconfiguredPreferred = Boolean(gateway && preferred && !selected && preferredProvider && !preferredProvider.available);
-  const accountNotIncluded = selected?.provider === 'account' && selectedProvider?.mediaEntitlement === 'not-included';
+  const accountNotIncluded = (selected?.provider === 'account' || selected?.provider === 'opendesign') && selectedProvider?.mediaEntitlement === 'not-included';
   const previewModel = selected ?? preferred;
   const parameters = previewModel ? parameterDrafts[previewModel.id] ?? emptyParameters : emptyParameters;
   const currentSpeed = typeof parameters.values.speed === 'number'
@@ -339,6 +343,24 @@ export function SoundComposer({
                   </Button>
                 ) : !gateway ? (
                   <Skeleton className="om-asset-model-skeleton" />
+                ) : cloudEmptyCatalog ? (
+                  <CloudEmptyModelsNotice
+                    consoleUrl={gateway.status.consoleUrl}
+                    onOpenSubscription={openSubscription}
+                  />
+                ) : unifiedCloudOnly ? (
+                  <div className="om-creation-setup" role="status">
+                    <RemixIcon name="information-line" size={18} />
+                    <p className="om-muted">{t('No models available')}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="om-button h-auto"
+                      onClick={openModelSettings}
+                    >
+                      {t('Model gateway')}
+                    </Button>
+                  </div>
                 ) : (
                   <div className="om-creation-setup">
                     <RemixIcon name="plug-line" size={18} />
@@ -403,7 +425,7 @@ export function SoundComposer({
             </div>
           )}
 
-          {gateway && modelId && !selected && !unconfiguredPreferred && (
+          {gateway && modelId && !selected && !unconfiguredPreferred && !cloudEmptyCatalog && (
             <p className="om-muted" role="status">
               <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>
               {t('This task’s model is unavailable. Choose a model to continue.')}
