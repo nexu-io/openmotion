@@ -138,3 +138,70 @@ test('Batch optimization works identically via HTTP routes and openmotion_assets
       await running.close();
     }
   }));
+
+test('A batch that waits for its pipeline over MCP finishes when a step is a queued project tool', () =>
+  fixture(async store => {
+    const running = await startServer(store, 0, { editor: false });
+    const port = (running.server.address() as { port: number }).port;
+    const origin = `http://127.0.0.1:${port}`;
+    // A blocked tool queue never answers, so every call carries its own deadline.
+    const callTool = async (name: string, args: Record<string, unknown>) => {
+      const res = await fetch(`${origin}${MCP_HTTP_PATH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30_000),
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      });
+      assert.equal(res.status, 200);
+      return ((await res.json()) as any).result.structuredContent;
+    };
+    const pipeline = [
+      {
+        id: 'create',
+        tool: 'openmotion_create_project',
+        arguments: {
+          projectType: 'natural_language',
+          title: '{{item.label}}',
+          requirements: 'A short product film.',
+          namingLanguage: 'en',
+        },
+      },
+    ];
+
+    try {
+      const created = await callTool('openmotion_assets_use', {
+        action: 'batch',
+        batch: {
+          command: 'create',
+          title: 'Launch films',
+          mode: 'mcp-pipeline',
+          autoStart: true,
+          wait: true,
+          pipeline,
+          items: [{ label: 'Film A' }, { label: 'Film B' }],
+        },
+      });
+      assert.equal(created.batch.state, 'completed');
+      assert.equal(created.batch.counts.completed, 2);
+      const projectIds = created.batch.items.map((item: any) => item.outputs[0].id);
+      assert.equal(new Set(projectIds).size, 2);
+
+      // start with wait takes the same path as create with autoStart and wait.
+      const draft = await callTool('openmotion_assets_use', {
+        action: 'batch',
+        batch: { command: 'create', title: 'Second round', mode: 'mcp-pipeline', pipeline, items: [{ label: 'Film C' }] },
+      });
+      assert.equal(draft.batch.state, 'draft');
+      const started = await callTool('openmotion_assets_use', {
+        action: 'batch',
+        batch: { command: 'start', batchId: draft.batch.id, wait: true },
+      });
+      assert.equal(started.batch.state, 'completed');
+
+      // The queue is free for the next project call.
+      const project = await callTool('openmotion_get_project', { projectId: projectIds[0] });
+      assert.equal(project.projectId, projectIds[0]);
+    } finally {
+      await running.close();
+    }
+  }));

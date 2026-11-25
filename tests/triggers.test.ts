@@ -166,3 +166,73 @@ test('TriggerService webhook authentication, HMAC verification, and schedule tic
       await running.close();
     }
   }));
+
+test('Firing a trigger over MCP returns when its target is a queued project tool or a waiting batch', () =>
+  fixture(async store => {
+    const running = await startServer(store, 0, { editor: false });
+    const port = (running.server.address() as { port: number }).port;
+    const origin = `http://127.0.0.1:${port}`;
+    // A blocked tool queue never answers, so every call carries its own deadline.
+    const trigger = async (input: Record<string, unknown>) => {
+      const res = await fetch(`${origin}${MCP_HTTP_PATH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30_000),
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'openmotion_assets_use', arguments: { action: 'trigger', trigger: input } },
+        }),
+      });
+      assert.equal(res.status, 200);
+      return ((await res.json()) as any).result.structuredContent;
+    };
+    const createProject = {
+      projectType: 'natural_language',
+      title: 'Triggered: {{payload.releaseTag}}',
+      requirements: 'Automated launch variant.',
+      namingLanguage: 'en',
+    };
+
+    try {
+      const tool = await trigger({
+        command: 'create',
+        name: 'Release film',
+        kind: 'manual',
+        target: {
+          kind: 'mcp-tool',
+          tool: 'openmotion_create_project',
+          arguments: { ...createProject, requestId: 'req-mcp-trg-{{payload.releaseTag}}' },
+        },
+      });
+      const toolFired = await trigger({ command: 'fire', triggerId: tool.trigger.id, payload: { releaseTag: 'v3-0' } });
+      assert.equal(toolFired.run.state, 'completed');
+      assert.equal(toolFired.run.source, 'mcp');
+      assert.match(toolFired.run.output.projectId, /^[a-f0-9-]{36}$/);
+
+      const batch = await trigger({
+        command: 'create',
+        name: 'Release batch',
+        kind: 'manual',
+        target: {
+          kind: 'content-batch',
+          batchInput: {
+            title: 'Release {{payload.releaseTag}}',
+            mode: 'mcp-pipeline',
+            pipeline: [{ id: 'create', tool: 'openmotion_create_project', arguments: createProject }],
+            items: [{ label: 'Landscape' }, { label: 'Vertical' }],
+          },
+        },
+      });
+      const batchFired = await trigger({ command: 'fire', triggerId: batch.trigger.id, payload: { releaseTag: 'v3-1' }, wait: true });
+      assert.equal(batchFired.run.state, 'completed');
+      assert.equal(batchFired.run.output.state, 'completed');
+      assert.equal(batchFired.run.output.counts.completed, 2);
+
+      // The queue is free for the next trigger call.
+      assert.equal((await trigger({ command: 'list' })).triggers.length, 2);
+    } finally {
+      await running.close();
+    }
+  }));

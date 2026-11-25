@@ -175,6 +175,12 @@ export class Phase1Service {
     if (name === 'motion_list_skills') return templateCatalogFor(this.store.directory).skillIndex();
     if (name === 'motion_get_skill') return templateCatalogFor(this.store.directory).skillDetail(args.skillId);
     if (name === 'motion_get_project' && !args.projectId) return this.dispatch(name, args, host);
+    if (name === 'motion_assets' && (args.action === 'batch' || args.action === 'trigger')) {
+      // A batch or trigger runs other tools through the queue below. Waiting for them
+      // from a place in that queue would leave them, and every later call, waiting behind it.
+      this.pending++;
+      try { return await this.dispatch(name, args, host); } finally { this.pending--; }
+    }
     const run = async () => {
       if (!this.recovered) { await recoverProjectTransactions(this.store, this.runtimeRoot); this.recovered = true; }
       const result = await this.dispatch(name, args, host, options?.channel ?? 'mcp');
