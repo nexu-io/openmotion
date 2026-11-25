@@ -832,6 +832,41 @@ it.each([
   expect(container.querySelector('[aria-label="Creation draft"]')?.getAttribute('data-prompt')).toBe(prompt);
 });
 
+it('reports Asset version unavailable and clears the route instead of silently switching when a lightbox-selected version is deleted', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('deleted-ver');
+  const baseVersion = asset.versions[0];
+  asset.versions = [
+    { ...baseVersion, source: 'generated', prompt: 'Original V1' },
+    { ...baseVersion, source: 'generated', id: 'deleted-ver-v2', prompt: 'Current V2' },
+  ];
+  asset.currentVersionId = 'deleted-ver-v2';
+  records = new Map([[asset.id, asset]]);
+  const onAssetRoute = vi.fn();
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} onAssetRoute={onAssetRoute} />));
+  await flush();
+  await click('Generations');
+  await click(asset.name);
+  await click('V1');
+
+  // Simulate V1 deleted server-side before Asset details refreshes the asset.
+  const latest = structuredClone(asset);
+  latest.versions = [latest.versions[1]];
+  latest.updatedAt = 2;
+  records.set(asset.id, latest);
+
+  await click('Asset details');
+  expect(container.querySelector('.om-asset-workspace')).toBeNull();
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('Asset version unavailable');
+  expect(onAssetRoute).toHaveBeenLastCalledWith(null, null);
+});
+
 it('renders justified equal-height Generations flows for both Image and Video with human model names and unclipped Cinema Lightbox', async () => {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const imageStudio = {

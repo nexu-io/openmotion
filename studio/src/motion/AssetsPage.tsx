@@ -111,7 +111,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     }
   }, [studioForm, studio, creating, draft, draftKeyState]);
   const selectionRequest = useRef(0);
-  const selectedAsset = useRef<LibraryAsset | undefined>(undefined), assetReadRequest = useRef(0);
+  const selectedAsset = useRef<LibraryAsset | undefined>(undefined), selectedVersionIdRef = useRef(''), assetReadRequest = useRef(0);
+  selectedVersionIdRef.current = versionId;
   const pendingWrites = useRef(new Set<string>()), [updatingAssets, setUpdatingAssets] = useState<Set<string>>(new Set());
   const mediaGenerations = Boolean(studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video'));
   const browser = useAssetBrowser({ kind, revision, active, lockedSource: mediaGenerations ? 'generated' : undefined });
@@ -153,7 +154,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const refresh = useCallback(() => setRevision(v => v + 1), []), onError = useCallback((message: string) => toast.showToast(message), [toast.showToast]), onInfo = useCallback((message: string) => toast.showToast(message, 'info'), [toast.showToast]);
   const missingVersion = t('Asset version unavailable');
   const clearPreview = useCallback(() => {
-    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = undefined;
+    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = undefined; selectedVersionIdRef.current = '';
     setSelectingTask(false); setSelected(undefined); setVersionId(''); setCreating(scoped && !studio?.openCreate);
     setPromptAppliedToken(0);
     if (scoped) { setDraft(lastStudioDraft.current); setTaskId(undefined); }
@@ -163,7 +164,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     onAssetRoute?.(null, null);
   }, [clearPreview, onAssetRoute]);
   const selectVersion = useCallback((asset: LibraryAsset, id: string) => {
-    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = asset;
+    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = asset; selectedVersionIdRef.current = id;
     setSelectingTask(false); setSelected(asset); setVersionId(id); setCreating(false); setPromptAppliedToken(0);
   }, []);
   const open = useCallback((asset: LibraryAsset, id = asset.currentVersionId) => {
@@ -255,11 +256,18 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       if (cancelled || request !== assetReadRequest.current || selectedAsset.current?.id !== asset.id || pendingWrites.current.has(asset.id)) return;
       if (Boolean(asset.trashedAt) !== Boolean(selectedAsset.current.trashedAt)) { closePreview(); refresh(); return; }
       if (asset.updatedAt < selectedAsset.current.updatedAt) return;
+      const requestedVersion = selectedVersionIdRef.current;
+      if (requestedVersion && !assetVersion(asset, requestedVersion)) {
+        closePreview();
+        refresh();
+        onError(missingVersion);
+        return;
+      }
       setVersionId(current => assetVersion(asset, current) ? current : asset.currentVersionId);
       selectedAsset.current = asset; setSelected(asset);
     }).catch(error => { if (!cancelled && request === assetReadRequest.current) onError(error.message); });
     return () => { cancelled = true; };
-  }, [active, selected?.id, revision, onError, closePreview, refresh]);
+  }, [active, selected?.id, revision, onError, closePreview, refresh, missingVersion]);
   const importFiles = async (files: File[], newVersion = false, entry: 'library_button' | 'library_drop' | 'library_new_version' | 'other' = newVersion ? 'library_new_version' : 'library_button', onImported?: (asset: LibraryAsset) => void, shouldContinue?: () => boolean) => {
     const targetId = newVersion ? selected?.id : undefined, parentVersionId = newVersion ? versionId : undefined, request = selectionRequest.current;
     if (newVersion && !targetId) return;
