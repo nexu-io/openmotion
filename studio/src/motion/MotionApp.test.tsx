@@ -430,6 +430,7 @@ it('renders /404 directly with only the Back to Explore action and without loadi
 });
 
 it('shows the desktop guide on narrow mobile viewports when opening an editor route', async () => {
+  const userAgent = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile/15E148 Safari/604.1');
   const originalWidth = window.innerWidth;
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
   const fetcher = vi.fn(async (url: string) => {
@@ -459,6 +460,7 @@ it('shows the desktop guide on narrow mobile viewports when opening an editor ro
     act(() => root.unmount());
     container.remove();
     Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: originalWidth });
+    userAgent.mockRestore();
     history.replaceState(null, '', '/');
     setCachedCloudDisklessMode(null);
   }

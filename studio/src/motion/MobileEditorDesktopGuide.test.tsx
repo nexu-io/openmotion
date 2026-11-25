@@ -107,7 +107,13 @@ describe('MobileEditorDesktopGuide', () => {
     }
   });
 
-  it('marks workspace chrome inactive so playback pauses when resizing from desktop to mobile', async () => {
+  it.each([
+    ['Mac desktop', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/147.0.0.0 Safari/537.36', false],
+    ['Windows desktop', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/147.0.0.0 Safari/537.36', false],
+    ['Android tablet', 'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) Chrome/147.0.0.0 Safari/537.36', false],
+    ['Android phone', 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/147.0.0.0 Mobile Safari/537.36', true],
+  ] as const)('applies the phone guide and playback rules when resizing a %s', async (_device, userAgent, expectGuide) => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(userAgent);
     const originalWidth = window.innerWidth;
     const originalMatchMedia = window.matchMedia;
     const listeners = new Map<string, Set<() => void>>();
@@ -168,7 +174,7 @@ describe('MobileEditorDesktopGuide', () => {
       expect(container.querySelector('.om-mobile-editor-guide')).toBeNull();
       expect(container.querySelector('[data-testid="mounted-editor"]')).not.toBeNull();
 
-      // Resize into mobile phone viewport (< 640px).
+      // The same narrow viewport can be a split desktop window or a phone.
       await act(async () => {
         Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
         mediaState.set('(max-width: 767px)', true);
@@ -176,9 +182,9 @@ describe('MobileEditorDesktopGuide', () => {
         listeners.get('(max-width: 639px)')?.forEach(fn => fn());
       });
 
-      expect(observedSettingsOpen.at(-1)).toBe(true);
-      expect(container.querySelector('.om-mobile-editor-guide')).not.toBeNull();
-      expect(container.querySelector('.motion-workspace-content')?.hasAttribute('hidden')).toBe(true);
+      expect(observedSettingsOpen.at(-1)).toBe(expectGuide);
+      expect(Boolean(container.querySelector('.om-mobile-editor-guide'))).toBe(expectGuide);
+      expect(container.querySelector('.motion-workspace-content')?.hasAttribute('hidden')).toBe(expectGuide);
       expect(container.querySelector('[data-testid="mounted-editor"]')).not.toBeNull();
 
       // Resize back to desktop viewport (>= 768px).

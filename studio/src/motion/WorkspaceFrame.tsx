@@ -1,4 +1,5 @@
 import type { WorkspaceRoute } from './workspaceRouting';
+import isMobile from 'ismobilejs';
 import { IconButton } from 'open-design-ui/icon-button';
 import { Button } from 'open-design-ui/button';
 import type { SkillCategory } from './skillCategories';
@@ -240,6 +241,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [page.templateCollection, page.skill]);
   const [narrow, setNarrow] = useState(() => window.innerWidth < 768);
   const [mobileViewport, setMobileViewport] = useState(() => window.innerWidth < 640);
+  const [phone] = useState(() => isMobile(window.navigator).phone);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   // Shown inside the campaign window on non-Explore tabs unless dismissed today; re-checked each minute for the end and the next day.
   const [bfBannerShown, setBfBannerShown] = useMinuteCondition(shouldShowBlackFridayBanner);
@@ -280,7 +282,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     });
   }, [projectId, sessionId, settings, assetsOpen, skillsOpen, templatesPage, page.notFound, page.motion, page.explore, page.modelOverview, page.modelHub, page.designScene, page.studio]);
   const editorActive = editorRoute && !connectionsOpen;
-  const mobileEditorGate = mobileViewport && editorRoute && !hostChrome;
+  const mobileEditorGate = phone && mobileViewport && editorRoute && !hostChrome;
   const desktopEditorVisible = editorRoute && !mobileEditorGate;
   const motionTemplatesOpen = page.motion && !templatesPage && !settings;
   const previousOperationError = useRef('');
