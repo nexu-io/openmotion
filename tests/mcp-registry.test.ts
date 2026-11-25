@@ -54,7 +54,7 @@ function makeTestMcp() {
     );
     return { status: res.status, sessionId: res.headers.get('mcp-session-id'), json: await res.json() as any };
   };
-  return { post };
+  return { post, config };
 }
 
 test('MCP-only discovery connects template recommendations to a project-free host presentation', async () => {
@@ -88,7 +88,7 @@ test('phase-one target is explicit, unique, and validated by createToolRegistry'
 });
 
 test('one registry governs discovery and rejects hidden calls before domain handlers', async () => {
-  const { post } = makeTestMcp();
+  const { post, config } = makeTestMcp();
   const initialized = await post({
     jsonrpc: '2.0',
     id: 1,
@@ -115,7 +115,14 @@ test('one registry governs discovery and rejects hidden calls before domain hand
   assert.match(call.json.result.content[0].text, /MCP_TOOL_NOT_EXPOSED/);
   assert.equal(
     initialized.json.result.instructions,
-    workflowEntryGuide + ' ' + templateDiscoveryGuide + ' ' + skillDiscoveryGuide + ' ' + phase1.instructions,
+    workflowEntryGuide
+      + ' '
+      + templateDiscoveryGuide
+      + ' '
+      + skillDiscoveryGuide
+      + ' '
+      + phase1.instructions
+      + `\n\nConnected cloud server origin: ${config.APP_PUBLIC_ORIGIN} (workspace: ${config.DEV_WORKSPACE_ID}, auth: dev).`,
   );
   assert.ok(!initialized.json.result.instructions.includes('openmotion_get_workflow'));
 });
