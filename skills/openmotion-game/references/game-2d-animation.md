@@ -37,8 +37,8 @@ otherwise do not search for unlisted names.
 | # | Stage | Tool | Output |
 |---|---|---|---|
 | 1 | Source image | approved sprite from `game-stylization.md`, or a user asset | character or object image (library asset) |
-| 2 | Key-pose image | image model with `supportsImageReference:true` (at review: `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst`; `seedream-5.5` with one reference) | full-body pose at the action's mid/peak phase |
-| 3 | Animation video | video model with `maxInputImages ≥ 1` (at review: `wan-2.7`, `doubao-seedance-2-5-260628`) | short clip from the key pose as first frame |
+| 2 | Key-pose image | discovered image model with `supportsImageReference:true` (prefer OpenDesign `tier:"fast"` / `multi-ref-edit` or `flagship` from live `tier`/`bestFor`) | full-body pose at the action's mid/peak phase |
+| 3 | Animation video | discovered video model with `maxInputImages ≥ 1` (prefer OpenDesign `bestFor` matching `sprite-animation` / `short-i2v` from live discovery) | short clip from the key pose as first frame |
 | 4 | Raw frames | browser extraction (or local ffmpeg when available) | frames as canvases/PNGs |
 | 5 | Frame selection | game code | `frame_count` frames (2–64, default 25), evenly spaced, first + last kept |
 | 6 | Alpha | chroma key in code, per frame | transparent frames |
@@ -98,10 +98,10 @@ verbatim in the prompt, plus the pose instruction. The prompt MUST demand:
   model supports it.
 
 ```json
-{"action":"generate","requestId":"hero-run-keypose-01","model":"opendesign:gpt-image-2.6-flare","modality":"image","prompt":"<STYLE FORMULA>. <single key-pose instruction>. Square centered composition, full body in frame with empty margin above the head and below the feet. Clean uniform bright magenta background.","references":[{"assetId":"<source asset>","versionId":"<source version>"}],"parameters":{"quality":"high"}}
+{"action":"generate","requestId":"hero-run-keypose-01","model":"<provider>:<discovered-image-edit-model>","modality":"image","prompt":"<STYLE FORMULA>. <single key-pose instruction>. Square centered composition, full body in frame with empty margin above the head and below the feet. Clean uniform bright magenta background.","references":[{"assetId":"<source asset>","versionId":"<source version>"}],"parameters":{}}
 ```
 
-Pass only parameters supported by the chosen model's live catalogue entry (at review, GPT Image 2.6 exposes `quality` and `background`, while `seedream-5.5` exposes `size`; do not pass bare `aspect_ratio` unless the live profile accepts it, and pad/crop to a square cell in code if needed).
+Pass only parameters declared in the chosen model's live `generationOptions` / provider reference (do not pass bare `aspect_ratio` or `output` unless the live entry accepts them, and pad/crop to a square cell in code if needed).
 
 Gate: subject fully inside the frame with visible margin top and bottom,
 nothing clipped, style matches the FORMULA. Cropped or off-style → reroll
@@ -111,7 +111,7 @@ within the approved budget (2 attempts, then best-of).
 
 | Param | Value |
 |---|---|
-| model | discovered first-frame video model; prefer `wan-2.7` for short clips, `doubao-seedance-2-5-260628` when a longer duration or option is needed (see the OpenDesign provider guide) |
+| model | discovered first-frame video model (`maxInputImages ≥ 1`), selecting short/fast vs longer duration from live `tier`, `bestFor`, `description`, and the chosen provider reference |
 | duration | shortest listed value that holds one full action (usually 4–5 s) |
 | resolution | 720p |
 | ratio | omit or `"adaptive"`: a first-frame video follows the key pose's ratio; a fixed ratio is incompatible with a first frame |
@@ -119,7 +119,7 @@ within the approved budget (2 attempts, then best-of).
 | audio | `generate_audio:false` where listed |
 
 ```json
-{"action":"generate","requestId":"hero-run-video-01","model":"opendesign:wan-2.7","modality":"video","prompt":"<one action>. Camera locked, no camera movement, no zoom, subject stays fully in frame, plain static background. The character performs ONLY this action; nothing else happens. The subject keeps facing the same direction for the entire video.","references":[{"assetId":"<key pose asset>","versionId":"<key pose version>"}],"parameters":{"duration":5,"resolution":"720p","ratio":"adaptive"}}
+{"action":"generate","requestId":"hero-run-video-01","model":"<provider>:<discovered-i2v-model>","modality":"video","prompt":"<one action>. Camera locked, no camera movement, no zoom, subject stays fully in frame, plain static background. The character performs ONLY this action; nothing else happens. The subject keeps facing the same direction for the entire video.","references":[{"assetId":"<key pose asset>","versionId":"<key pose version>"}],"parameters":{"duration":5,"resolution":"720p","ratio":"adaptive"}}
 ```
 
 **Prompt = ONE action + a mandatory negative block.** The positive part

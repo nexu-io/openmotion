@@ -302,7 +302,7 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
   const nextStep = new URL(workspacePageHref(workspace.href, { scenarioStep: 'social' }), origin);
   expect(readWorkspacePage(nextStep.search, nextStep.hash, nextStep.pathname)).toMatchObject({ scenario: 'black-friday', scenarioRun: runId, scenarioStep: 'social', scenarioMode: null });
 
-  // Mode round-trips for 'agent', omits 'mode' for 'manual'/null, and clears when leaving.
+  // Mode round-trips for 'agent' and 'manual'; the default visual studio omits 'mode'.
   const agentMode = new URL(workspacePageHref(nextStep.href, { scenarioMode: 'agent' }), origin);
   expect(agentMode.pathname + agentMode.search).toBe(`/scenarios/black-friday?run=${runId}&step=social&mode=agent&community=product-films`);
   expect(readWorkspacePage(agentMode.search, agentMode.hash, agentMode.pathname)).toMatchObject({
@@ -316,15 +316,19 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
   expect(readWorkspacePage(directAgent.search, directAgent.hash, directAgent.pathname).scenarioMode).toBe('agent');
 
   const manualOverlay = new URL(workspacePageHref(agentMode.href, { scenarioMode: 'manual' }), origin);
-  expect(manualOverlay.searchParams.has('mode')).toBe(false);
+  expect(manualOverlay.searchParams.get('mode')).toBe('manual');
   expect(readWorkspacePage(manualOverlay.search, manualOverlay.hash, manualOverlay.pathname)).toMatchObject({
     scenario: 'black-friday',
     scenarioRun: runId,
     scenarioStep: 'social',
-    scenarioMode: null,
+    scenarioMode: 'manual',
   });
   expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=manual').scenarioMode).toBe('manual');
   expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=unknown').scenarioMode).toBeNull();
+  // The visual studio is the default view, so it needs no mode in the URL.
+  const studioMode = new URL(workspacePageHref(origin, { scenario: 'black-friday', scenarioMode: 'studio' }), origin);
+  expect(studioMode.pathname + studioMode.search).toBe('/scenarios/black-friday?community=product-films');
+  expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=studio').scenarioMode).toBe('studio');
   expect(readWorkspacePage('?page=explore&mode=agent').scenarioMode).toBeNull();
 
   // Switching scenarios clears mode unless explicitly set.

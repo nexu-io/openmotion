@@ -24,7 +24,7 @@ prompts in English.
 
 ## Prerequisites
 
-- An image model discovered with `openmotion_media_use action=models modality=image refresh=true`, following the `openmotion-media` provider order. For edits, the model must report `supportsImageReference:true`; at review, `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst` support edits on OpenDesign, `seedream-5.5` accepts one reference, `seedream-5.0-flash` is a fast text-to-image option. Use only returned IDs.
+- An image model discovered with `openmotion_capability_discover` (`action:"models" modality:"image" refresh:true`) or `openmotion_media_use action=models modality=image refresh=true`, following the `openmotion-media` provider order (`account` → `opendesign` → other configured providers). For reference-based seamless edits, pick a model reporting `supportsImageReference:true` (preferring `tier:"fast"` / `batch-tiles` or `tier:"flagship"` from live `tier`/`bestFor`/`description`). Use only returned IDs.
 - The reference as a library asset (`assetId` + `versionId`): a previous generation, or a user file imported with `openmotion_assets_use action=import`.
 - No generation model, or the user declines → skip Phase 1 and build the tile procedurally (value noise / fBm on a canvas with wrap-around sampling, which is seamless by construction), then run Phases 2–3.
 
@@ -40,10 +40,10 @@ prompts in English.
 - Submit after approval:
 
 ```json
-{"action":"generate","requestId":"tex-sand-01","model":"opendesign:gpt-image-2.6-flare","modality":"image","prompt":"<EDIT prompt>. <STYLE FORMULA>","references":[{"assetId":"<ref asset>","versionId":"<ref version>"}],"parameters":{"quality":"high"}}
+{"action":"generate","requestId":"tex-sand-01","model":"<provider>:<discovered-image-edit-model>","modality":"image","prompt":"<EDIT prompt>. <STYLE FORMULA>","references":[{"assetId":"<ref asset>","versionId":"<ref version>"}],"parameters":{}}
 ```
 
-  Pass only options supported by the model's live catalogue entry (for example `quality` on GPT Image 2.6 or `size` on `seedream-5.5`; do not send bare `aspect_ratio` unless the live profile supports it, and crop/scale to a power-of-two square in Phase 2).
+  Pass only options declared in the model's live `generationOptions` / provider reference (do not send bare `aspect_ratio` or `output` unless the live profile supports them, and crop/scale to a power-of-two square in Phase 2).
 - Poll `action:"status"`, then `action:"read"` the result and **look at it next to the reference**: same material, same colors, nothing added or removed, no restyle. If it restyled, at most one retry within the approved asset/retry budget with a stronger "do not restyle" clause (extra attempts beyond the approved budget require fresh consent). If a structured seam survives, switch to the offset-inpaint pass (Prompt templates §2) instead of rerolling: two identical failures mean the approach is wrong, not the seed.
 
 Edit models tend to blur the outer border slightly and drift the palette. Do not fight that in the prompt; Phase 2 cancels both.

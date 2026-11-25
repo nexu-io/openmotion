@@ -6,11 +6,15 @@
   --motion-font-display: "Albert Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --motion-black-friday-artwork: #821833;
   --motion-black-friday-night: #0b0605;
+  --motion-black-friday-stage-black: #050303;
   --motion-black-friday-ember: #120703;
+  --motion-black-friday-crimson: #d90f00;
+  --motion-black-friday-vermilion: #ff1e00;
   --motion-black-friday-orange: #ff8d00;
   --motion-black-friday-flame: #ff781f;
   --motion-black-friday-peach: #ff8a2e;
   --motion-black-friday-amber: #ffb86b;
+  --motion-black-friday-headline-gradient: linear-gradient(98deg, #ff6200, #ff9900 85%, #ffa210);
   --motion-black-friday-glow: #ff7a1f;
   --motion-black-friday-focus: #F97316;
   --motion-black-friday-cream: #ffd9bd;
@@ -109,6 +113,7 @@
   --motion-on-signature-band: #121212;
   --motion-signature-band-muted: #4a5810;
   --motion-signature-band-hover: #bde61f;
+  --motion-font-campaign-display: "Instrument Serif", Georgia, serif;
   --motion-font-editorial: "Times New Roman", Times, serif;
   --motion-collection-title-gradient: linear-gradient(120deg, var(--motion-brand) 0%, var(--motion-strong) 40%);
   --motion-neutral-n0: #ffffff;
@@ -128,6 +133,19 @@
   --motion-radius-editor-control: 8px;
   --motion-duration-control: 100ms;
   --motion-dark-card-bg: #242424;
+  --motion-console-plan-ink: #151515;
+  --motion-console-plan-muted: #66746a;
+  --motion-console-plan-veil: #ffffff45;
+  --motion-console-plan-secondary-bg: #ffffff8c;
+  --motion-console-plan-secondary-hover: #ffffffcc;
+  --motion-console-plan-secondary-border: #ffffffb3;
+  --motion-console-plan-secondary-ink: #163d1d;
+  --motion-console-plan-upgrade: #71f58a;
+  --motion-console-plan-upgrade-hover: #5fe57a;
+  --motion-console-plan-upgrade-ink: #163d1d;
+  --motion-console-plan-action: #202020;
+  --motion-console-plan-action-hover: #383838;
+  --motion-console-plan-action-ink: #ffffff;
 }
 :where([data-motion-ui]) {
   color-scheme: light;

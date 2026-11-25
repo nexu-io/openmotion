@@ -15,7 +15,7 @@ export const languages = [
 export type Locale = typeof languages[number]['locale'];
 export type NonEnglishLocale = Exclude<Locale, 'en'>;
 export type MessageValues = Record<string, string | number>;
-export type Translate = (message: string, values?: MessageValues) => string;
+export type Translate = (message: string, values?: MessageValues, context?: string) => string;
 export type Message = string | Partial<Record<Intl.LDMLPluralRule, string>>;
 
 export const NON_ENGLISH_LOCALES: readonly NonEnglishLocale[] = [
@@ -70,6 +70,7 @@ export const I18N_EXTENSION_SOURCES: readonly I18nExtensionSource[] = [
   { kind: 'multi-locale-json', path: 'studio/src/i18n/scenario-ui.json' },
   { kind: 'multi-locale-json', path: 'shared/scenario-media-titles.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/desktop-platform-ui.json' },
+  { kind: 'multi-locale-json', path: 'studio/src/i18n/workspace-collab-ui.json' },
 ];
 
 /**

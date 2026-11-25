@@ -2,8 +2,12 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import {
+  classifyBillingErrorCode,
+} from '../../../shared/workspace-collab';
+import {
   describeSuperAgentApproval,
   gameValidationPassed,
+  type SuperAgentActionCard,
   type SuperAgentApproval,
   type SuperAgentArtifact,
   type SuperAgentChat,
@@ -19,6 +23,8 @@ import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n, type Translate } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { WorkingIndicator } from '../motion/AssetCreationVisuals';
+import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
+import { useOptionalGrowthSurfaces } from '../motion/collab/GrowthSurfacesContext';
 import { readDirectGameBrief } from '../motion/game/gameSuperAgent';
 import { ArtifactDeliverableCard } from './ArtifactDeliverableCard';
 import { FilesChangedCard, UnifiedDiffView } from './ChangedFilesTree';
@@ -33,6 +39,7 @@ type TurnGroup = {
   assistantItems: SuperAgentMessage[];
   changedFiles: SuperAgentFileOperation[];
   artifacts: SuperAgentArtifact[];
+  actionCards: SuperAgentActionCard[];
   hasRunning: boolean;
   hasFailure: boolean;
   durationMs?: number;
@@ -211,6 +218,18 @@ function groupMessagesIntoTurns(chat: SuperAgentChat): TurnGroup[] {
     const artifacts = [...artifactIds]
       .map(id => artifactsById.get(id))
       .filter((a): a is SuperAgentArtifact => Boolean(a));
+    const actionCardsByKey = new Map<string, SuperAgentActionCard>();
+    for (const item of workItems) {
+      const card = item.toolEvent?.actionCard;
+      if (!card) continue;
+      actionCardsByKey.set(`${card.kind}:${card.targetId ?? ''}`, card);
+    }
+    const rawActionCards = [...actionCardsByKey.values()];
+    // When a turn already surfaces an in-place publish sign-in card, suppress redundant generic sign_in cards from the same turn.
+    const hasWebPublishSignIn = rawActionCards.some(card => card.kind === 'web_publish_sign_in');
+    const actionCards = hasWebPublishSignIn
+      ? rawActionCards.filter(card => card.kind !== 'sign_in')
+      : rawActionCards;
     const turnId = group.user?.id ?? `turn-${idx}`;
     const persistedFiles = chat.turnChangedFiles?.[turnId];
     const changedFiles = persistedFiles?.length ? persistedFiles : collectTurnFiles(workItems);
@@ -237,6 +256,7 @@ function groupMessagesIntoTurns(chat: SuperAgentChat): TurnGroup[] {
       assistantItems,
       changedFiles,
       artifacts,
+      actionCards,
       hasRunning,
       hasFailure,
       durationMs,
@@ -1080,6 +1100,7 @@ export function ExecutionTimeline({
   onCopyText,
   onNotify,
   onOpenAccountSettings,
+  onTriggerActionCard,
   onOpenInDesignStudio,
   onOpenInMotionStudio,
   onOpenInAssets,
@@ -1102,6 +1123,7 @@ export function ExecutionTimeline({
   onCopyText: (text: string) => void;
   onNotify?: (message: string, tone?: 'info' | 'error') => void;
   onOpenAccountSettings?: () => void;
+  onTriggerActionCard?: (card: SuperAgentActionCard) => void;
   onOpenInDesignStudio?: (projectId: string) => void;
   onOpenInMotionStudio?: (projectId: string) => void;
   onOpenInAssets?: (assetId: string, versionId?: string) => void;
@@ -1110,6 +1132,9 @@ export function ExecutionTimeline({
   onContinue?: () => void;
 }) {
   const { t } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
+  const growth = useOptionalGrowthSurfaces();
+  const billingKind = classifyBillingErrorCode(chat.error);
   const turns = useMemo(() => groupMessagesIntoTurns(chat), [chat]);
   const lastTurn = turns[turns.length - 1];
   const showInterruptedCard = !busy && !sending && !chat.error && (
@@ -1252,6 +1277,18 @@ export function ExecutionTimeline({
               );
             })()}
 
+            {isLastTurn && turn.actionCards.length > 0 && (!isActiveTurn || turn.assistantItems.length > 0) && (
+              <div className="om-sa-action-cards">
+                {turn.actionCards.map(card => (
+                  <TurnActionCard
+                    key={card.id}
+                    card={card}
+                    onTrigger={onTriggerActionCard}
+                  />
+                ))}
+              </div>
+            )}
+
             {!isActiveTurn && turn.changedFiles.length > 0 && (
               <FilesChangedCard
                 files={turn.changedFiles}
@@ -1313,6 +1350,34 @@ export function ExecutionTimeline({
             <strong>{t('Conversation paused')}</strong>
             <p className="om-muted">{chat.error}</p>
           </div>
+          {billingKind && collab && (
+            <Button
+              variant="plain"
+              type="button"
+              className="om-collab-tonal-btn"
+              onClick={() => void collab.handleBillingError(chat.error, { onRetry: onContinue })}
+            >
+              <RemixIcon
+                name={
+                  billingKind === 'insufficient_balance'
+                    ? 'flashlight-line'
+                    : billingKind === 'tier_limit_exceeded'
+                      ? 'time-line'
+                      : 'sparkling-fill'
+                }
+                size={14}
+              />
+              <span>
+                {t(
+                  billingKind === 'insufficient_balance'
+                    ? 'Resolve billing'
+                    : billingKind === 'tier_limit_exceeded'
+                      ? 'View concurrency'
+                      : 'View plans',
+                )}
+              </span>
+            </Button>
+          )}
           {onContinue && (
             <Button
               variant="plain"
@@ -1322,6 +1387,22 @@ export function ExecutionTimeline({
             >
               <RemixIcon name="play-fill" size={14} />
               <span>{t('Continue')}</span>
+            </Button>
+          )}
+          {growth && (
+            <Button
+              variant="plain"
+              type="button"
+              className="om-collab-tonal-btn om-support-trigger-btn"
+              onClick={() =>
+                growth.openSupportDialog({
+                  summary: chat.error ?? undefined,
+                  source: 'Super Agent',
+                })
+              }
+            >
+              <RemixIcon name="customer-service-2-line" size={14} />
+              <span>{t('Contact support')}</span>
             </Button>
           )}
         </div>
@@ -1362,6 +1443,95 @@ export function ExecutionTimeline({
           onApprove={onApprove}
         />
       ))}
+    </div>
+  );
+}
+
+function actionCardMeta(kind: SuperAgentActionCard['kind']): {
+  icon: string;
+  title: string;
+  description: string;
+  cta: string;
+} {
+  switch (kind) {
+    case 'sign_in':
+      return {
+        icon: 'account-circle-line',
+        title: 'Sign in with OpenDesign',
+        description: 'Sign in to generate AI art, music, and voice assets, then reply here to continue.',
+        cta: 'Sign in',
+      };
+    case 'upgrade_free':
+      return {
+        icon: 'sparkling-line',
+        title: 'Upgrade to OpenDesign Plus',
+        description: 'Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.',
+        cta: 'Upgrade to Plus',
+      };
+    case 'upgrade_go':
+      return {
+        icon: 'sparkling-line',
+        title: 'Upgrade to OpenDesign Plus',
+        description: 'Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.',
+        cta: 'Upgrade to Plus',
+      };
+    case 'top_up':
+      return {
+        icon: 'error-warning-line',
+        title: 'Top up OpenDesign balance',
+        description: 'Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.',
+        cta: 'Manage billing',
+      };
+    case 'web_publish_sign_in':
+      return {
+        icon: 'global-line',
+        title: 'Sign in to publish online',
+        description: 'Sign in with OpenDesign to publish a shareable web link.',
+        cta: 'Sign in & publish',
+      };
+    case 'configure_key':
+    default:
+      return {
+        icon: 'settings-3-line',
+        title: 'Configure media provider',
+        description: 'Open Model providers to sign in or update your API key, then reply here to continue.',
+        cta: 'Open settings',
+      };
+  }
+}
+
+function TurnActionCard({
+  card,
+  onTrigger,
+}: {
+  card: SuperAgentActionCard;
+  onTrigger?: (card: SuperAgentActionCard) => void;
+}) {
+  const { t } = useI18n();
+  const descriptionId = useId();
+  const meta = actionCardMeta(card.kind);
+  return (
+    <div className="om-sa-action-card" data-kind={card.kind} role="group" aria-label={t(meta.title)}>
+      <span className="om-sa-action-card-icon" aria-hidden="true">
+        <RemixIcon name={meta.icon} size={18} />
+      </span>
+      <div className="om-sa-action-card-copy">
+        <strong>{t(meta.title)}</strong>
+        <p id={descriptionId}>{t(meta.description)}</p>
+      </div>
+      {onTrigger && (
+        <Button
+          variant="plain"
+          type="button"
+          className="om-sa-deliverable-btn om-sa-action-card-btn"
+          data-primary
+          aria-describedby={descriptionId}
+          onClick={() => onTrigger(card)}
+        >
+          <span>{t(meta.cta)}</span>
+          <RemixIcon name="arrow-right-line" size={14} />
+        </Button>
+      )}
     </div>
   );
 }

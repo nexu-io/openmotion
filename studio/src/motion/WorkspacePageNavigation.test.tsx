@@ -14,9 +14,25 @@ import { readWorkspacePage, settingsSections } from './workspacePageRouting';
 import { editorProjectIdFromPath } from '../../../shared/spa-routes';
 import { workspaceHistoryIndex, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
+import { resetBannerDismissal } from './campaignAttribution';
 
 const editor = vi.hoisted(() => ({ mounts: 0, fail: false, wait: async () => {} }));
-vi.mock('./AssetsPage', () => ({ AssetsPage: ({ studio }: { studio?: StudioCreation }) => <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} /> }));
+vi.mock('./AssetsPage', () => ({
+  AssetsPage: ({ studio }: { studio?: StudioCreation }) => {
+    const { openProjects, openBrandKit } = useWorkspaceChrome();
+    return (
+      <>
+        {!studio && (
+          <nav aria-label="Library sections">
+            <button type="button" data-testid="library-hub-tab-projects" onClick={() => openProjects?.()}>Projects</button>
+            <button type="button" data-testid="library-hub-tab-brand-kits" onClick={() => openBrandKit?.()}>Brand Kits</button>
+          </nav>
+        )}
+        <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} />
+      </>
+    );
+  },
+}));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: { projectId: string } }) => {
   const { registerEditor } = useWorkspaceChrome();
@@ -77,6 +93,16 @@ beforeEach(() => {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   fetcher = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, location.origin), projectId = url.searchParams.get('projectId') ?? first;
+    if (url.pathname.endsWith('/workspace/projects') && !init?.method) {
+      return Response.json({
+        activeWorkspaceId: null,
+        activeWorkspaceName: null,
+        activeWorkspaceType: null,
+        projects: [],
+        trashed: [],
+        counts: { total: 0, personal: 0, teamShared: 0, teamPrivate: 0, motion: 0, design: 0, game: 0, trashed: 0 },
+      });
+    }
     if (url.pathname.endsWith('/projects') && !init?.method) return Response.json(catalog);
     if (url.pathname.includes('/sessions/')) return Response.json(catalog.sessions.find(item => url.pathname.endsWith(item.id)));
     if (url.pathname.includes('/projects/') && url.pathname.endsWith('/open')) return Response.json({ projectId: url.pathname.split('/').at(-2), revision: 'r' });
@@ -470,24 +496,29 @@ it('keeps Assets and editor drafts mounted across page history and restores the 
   await mount();
   const draft = container.querySelector<HTMLInputElement>('[aria-label="Editor draft"]')!;
   draft.value = 'Keep editor draft';
-  const folder = container.querySelector<HTMLButtonElement>('.om-app-header-actions [aria-label="Workspace assets"]')!;
-  const brandKit = container.querySelector<HTMLButtonElement>('.om-app-header-actions [aria-label="Brand Kit"]')!;
-  const actions = [...container.querySelectorAll('.om-app-header-actions button')];
-  expect(actions[actions.indexOf(brandKit) + 1]).toBe(folder);
+  expect(container.querySelector('.om-app-header-actions :is([aria-label="Workspace assets"], [aria-label="Brand Kit"])')).toBeNull();
   expect(container.querySelector('.om-app-rail :is([aria-label="Brand Kit"], [aria-label="Skills"], [aria-label="Template library"])')).toBeNull();
   expect(container.querySelector('.om-app-rail :is([aria-label="Workspace assets"], [aria-label="MCP · Connect Agent"])')).toBeNull();
-  await act(async () => folder.click());
-  expect(folder.getAttribute('aria-current')).toBe('page');
+  const libraryNav = container.querySelector<HTMLButtonElement>('.om-app-header .om-library-nav-link[aria-label="Library"]')!;
+  expect(libraryNav).not.toBeNull();
+  await act(async () => libraryNav.click());
+  expect(libraryNav.getAttribute('aria-current')).toBe('page');
   expect(page().assets).toBe(true);
   const assetDraft = container.querySelector<HTMLInputElement>('[aria-label="Asset draft"]')!;
   assetDraft.value = 'Keep asset prompt';
-  await act(async () => brandKit.click());
-  expect(brandKit.getAttribute('aria-current')).toBe('page');
+  const projectsTab = container.querySelector<HTMLButtonElement>('[data-testid="library-hub-tab-projects"]')!;
+  await act(async () => projectsTab.click());
+  expect(page()).toMatchObject({ projects: true, assets: false });
+  expect(libraryNav.getAttribute('aria-current')).toBe('page');
+  const brandKitsTab = container.querySelector<HTMLButtonElement>('[data-testid="library-hub-tab-brand-kits"]')!;
+  await act(async () => brandKitsTab.click());
+  expect(libraryNav.getAttribute('aria-current')).toBe('page');
   expect(page()).toMatchObject({ assets: false, settings: 'brand-kit' });
   expect(container.querySelector<HTMLElement>('.om-assets-host')?.hidden).toBe(true);
   await click('New Brand Kit');
   expect(page().brandKit).toBe('new');
-  await click('All brand kits'); await click('Close Brand Kit'); await click('Workspace assets');
+  await click('All brand kits'); await click('Close Brand Kit');
+  await act(async () => libraryNav.click());
   expect(page()).toMatchObject({ assets: true, settings: null, brandKit: null });
   expect(container.querySelector('[aria-label="Asset draft"]')).toBe(assetDraft);
   expect(assetDraft.value).toBe('Keep asset prompt');
@@ -1449,10 +1480,10 @@ it('lists each primary destination once in order, with the Image mega menu and t
   await mount();
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['Explore', 'Workflows', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
+  expect(destinations).toEqual(['Explore', 'Library', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Workflows', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node =>
     [node.getAttribute('aria-label'), document.getElementById(node.getAttribute('aria-describedby')!)?.textContent]);
-  expect(badges).toEqual([['Workflows', 'New'], ['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
+  expect(badges).toEqual([['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
   await click('Image · Scenes');
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
@@ -1535,12 +1566,16 @@ it('localizes every top navigation Studio label in Chinese while keeping English
   await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['探索', '工作流', '图片', '视频', '音频', 'MCP', 'Super Agent', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
+  expect(destinations).toEqual(['探索', '资源库', '图片', '视频', '音频', 'MCP', 'Super Agent', '工作流', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
+  await act(async () => {
+    nav.querySelector<HTMLButtonElement>('.om-library-nav-link')?.click();
+  });
+  expect(location.pathname).toBe('/assets');
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node => {
     const badge = document.getElementById(node.getAttribute('aria-describedby')!);
     return [node.getAttribute('aria-label'), badge?.textContent, badge?.getAttribute('lang')];
   });
-  expect(badges).toEqual([['工作流', 'New', 'en'], ['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en'], ['游戏工作室', 'New', 'en']]);
+  expect(badges).toEqual([['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en'], ['游戏工作室', 'New', 'en']]);
 });
 
 it.each([
@@ -2103,6 +2138,43 @@ it('shows the Explore shortcuts, fills two complete rows across Skills and techn
   expect(footer).not.toBeNull();
   expect(footer?.querySelector('h2')?.textContent).toBe('Open Design');
   expect(footer?.closest('.om-discovery-page')).toBeNull();
+});
+
+it.each([
+  ['2026-11-25T12:00:00+08:00', true],
+  ['2026-11-25T20:00:00+08:00', false],
+] as const)('shows the Explore banner until the hero takes over and honors dismissal at %s', async (now, exploreBannerVisible) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(Date.parse(now));
+  localStorage.clear();
+  resetBannerDismissal();
+  try {
+    history.replaceState(null, '', '/?page=explore');
+    await mount();
+    const banner = () => container.querySelector('aside[aria-label="Black Friday campaign banner"]');
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
+
+    await click('Motion Studio');
+    expect(banner()).not.toBeNull();
+
+    await click('Explore');
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
+
+    await click('Design Studio');
+    expect(banner()).not.toBeNull();
+
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Close campaign banner"]')!.click());
+    expect(banner()).toBeNull();
+
+    await click('Motion Studio');
+    expect(banner()).toBeNull();
+  } finally {
+    vi.useRealTimers();
+    localStorage.clear();
+    resetBannerDismissal();
+  }
 });
 
 it('surfaces Game Studio in the Explore spotlight carousel and featured showcase section and routes to Game Studio and Super Agent Game mode', async () => {

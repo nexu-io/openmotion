@@ -17,7 +17,7 @@ import { isMain } from '../shared/entry.ts';
 import { localAgents, type AgentDefinition, type LocalAgent } from '../shared/local-agents.ts';
 import { countUnifiedDiffStats, type SuperAgentFileOperation, type SuperAgentPlanEntry, type SuperAgentUsage } from '../shared/super-agent.ts';
 import { consumeSseFrames, sanitizeServiceError } from './agent-service-adapter.ts';
-import { AssetAgentRpc } from './asset-chat.ts';
+import { AssetAgentRpc, isForeignCodexNotification } from './asset-chat.ts';
 import { LocalAgentDirectory, resolveLocalAgent } from './local-agents.ts';
 import type { ClaudeTurnRunner } from './super-agent.ts';
 import {
@@ -463,6 +463,8 @@ export async function startAgentBridge(options: AgentBridgeOptions): Promise<Age
         await new Promise<void>((resolve, reject) => {
           let settled = false;
           let rpc: AssetAgentRpc | undefined;
+          let rootThreadId = '';
+          let rootTurnId = '';
           const finish = (err?: Error) => {
             if (settled) return;
             settled = true;
@@ -510,7 +512,12 @@ export async function startAgentBridge(options: AgentBridgeOptions): Promise<Age
                     id,
                     error: { code: -32601, message: 'Bridge session does not support this interactive host request' },
                   });
+                } else if (isForeignCodexNotification(p, rootThreadId || undefined, rootTurnId || undefined, method)) {
+                  return;
                 } else if (method === 'turn/started') {
+                  if (!rootTurnId && typeof p.turn?.id === 'string' && p.turn.id) {
+                    rootTurnId = p.turn.id;
+                  }
                   await sendRunEvent(dispatch.runId, { type: 'status.update', phase: 'thinking' });
                 } else if (method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/textDelta') {
                   await sendRunEvent(dispatch.runId, {
@@ -655,6 +662,7 @@ export async function startAgentBridge(options: AgentBridgeOptions): Promise<Age
               ? await rpc.request('thread/resume', { ...threadOpts, threadId: dispatch.threadId })
               : await rpc.request('thread/start', { ...threadOpts, dynamicTools: dispatch.dynamicTools });
             const threadId = String(threadRes?.thread?.id || '');
+            rootThreadId = threadId;
             if (threadId) {
               await sendRunEvent(dispatch.runId, { type: 'thread.started', threadId });
             }
@@ -663,11 +671,14 @@ export async function startAgentBridge(options: AgentBridgeOptions): Promise<Age
               finish();
               return;
             }
-            await rpc.request('turn/start', {
+            const turnRes = await rpc.request('turn/start', {
               threadId,
               effort: dispatch.reasoning && dispatch.reasoning !== 'default' ? dispatch.reasoning : null,
               input: [{ type: 'text', text: dispatch.prompt }],
             });
+            if (typeof turnRes?.turn?.id === 'string' && turnRes.turn.id) {
+              rootTurnId = turnRes.turn.id;
+            }
           })().catch(finish);
         });
         return;

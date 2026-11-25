@@ -36,6 +36,10 @@ import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useIntegrationInfo } from '../motion/useIntegrationInfo';
+import { useOptionalWorkspaceChrome } from '../motion/WorkspaceChromeContext';
+import { buildSuperAgentHandoff } from '../../../shared/capability-hub';
+import { startBackgroundSuperAgentTask } from '../super-agent/backgroundSuperAgentTask';
+import { ScenarioStudioView } from './ScenarioStudioView';
 import { ScenarioAgentModeView } from './ScenarioAgentModeView';
 import { AssetPoolPanel, type PoolPickRequest } from './AssetPoolPanel';
 import { IterationHistory } from './IterationHistory';
@@ -207,12 +211,13 @@ export function ScenarioWorkspace({
   const toast = useToast();
   const { info: integration } = useIntegrationInfo();
 
-  const [activeMode, setActiveMode] = useState<ScenarioWorkspaceMode>(routedMode ?? 'manual');
+  const [activeMode, setActiveMode] = useState<ScenarioWorkspaceMode>(routedMode ?? (stepId ? 'manual' : 'studio'));
   const [poolOpen, setPoolOpen] = useState(false);
 
   useEffect(() => {
-    setActiveMode(routedMode ?? 'manual');
-  }, [routedMode]);
+    // The visual studio is the default; a step link or an explicit mode opens the workflow views.
+    setActiveMode(routedMode ?? (stepId ? 'manual' : 'studio'));
+  }, [routedMode, stepId]);
   const [exportingBundle, setExportingBundle] = useState(false);
   const [poolWidth, setPoolWidth] = useState<number>(readStoredPoolWidth);
   const [poolCollapsed, setPoolCollapsed] = useState<boolean>(readStoredPoolCollapsed);
@@ -481,8 +486,13 @@ export function ScenarioWorkspace({
     [activeMode, activeStep.id, activeStep.type, briefSaveRef, onRoute, run?.id, runId, scenario.id, t, toast],
   );
 
+  // The studio saves its typed brief before the run or the view changes, so nothing typed is lost.
+  const studioFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const flushStudio = useCallback(async () => (studioFlushRef.current ? studioFlushRef.current() : true), []);
+
   const handleModeChange = useCallback(
-    (next: ScenarioWorkspaceMode) => {
+    async (next: ScenarioWorkspaceMode) => {
+      if (!(await flushStudio())) return;
       setActiveMode(next);
       onRoute(
         {
@@ -524,13 +534,15 @@ export function ScenarioWorkspace({
   }, [scenarioId]);
 
   const handleSelectRun = useCallback(
-    (selectedRunId: string) => {
+    async (selectedRunId: string) => {
+      if (!(await flushStudio())) return;
       onRoute({ run: selectedRunId, step: null }, false);
     },
-    [onRoute],
+    [flushStudio, onRoute],
   );
 
   const handleNewRun = useCallback(async () => {
+    if (!(await flushStudio())) return;
     try {
       await startNewRun();
       toast.showToast(t('Started a new draft'), 'info', 'feedback');
@@ -543,7 +555,7 @@ export function ScenarioWorkspace({
         );
       }
     }
-  }, [startNewRun, t, toast]);
+  }, [flushStudio, startNewRun, t, toast]);
 
   const handleRenameRun = useCallback(
     async (title: string) => {
@@ -584,12 +596,14 @@ export function ScenarioWorkspace({
       try {
         await navigator.clipboard.writeText(text);
         toast.showToast(successMessage, 'info', 'feedback');
+        return true;
       } catch {
         toast.showToast(
           t('Could not copy. Select and copy the text manually.'),
           'error',
           'feedback',
         );
+        return false;
       }
     },
     [t, toast],
@@ -618,9 +632,52 @@ export function ScenarioWorkspace({
         locale,
         integration,
       });
-      await copyToClipboard(prompt, t('Copied. Paste into your Agent.'));
+      return copyToClipboard(prompt, t('Copied. Paste into your Agent.'));
     },
     [copyToClipboard, ensureRun, integration, locale, run, scenario, t],
+  );
+
+  const chrome = useOptionalWorkspaceChrome();
+  /**
+   * Make the full kit with Super Agent in the background: a new chat starts right
+   * away with the workflow attached and the full run instructions passed behind the
+   * scenes, while people stay on this page and watch the outputs fill in.
+   * Resolves the chat and run ids, or null when nothing started in the background (no local
+   * Agent can run, so Super Agent opens to set one up, or the start failed).
+   */
+  const handleRunInSuperAgent = useCallback(
+    async (idea?: string): Promise<{ chatId: string; runId: string | null } | null> => {
+      let ensuredRun: ScenarioRun | null = null;
+      try {
+        ensuredRun = await ensureRun();
+      } catch {
+        ensuredRun = run;
+      }
+      const instructions = scenarioConcisePrompt(scenario, ensuredRun, { locale, integration });
+      const visible = (idea ?? '').trim();
+      const payload = buildSuperAgentHandoff(
+        { kind: 'workflow', id: scenario.id, title: t(scenario.title), subtitle: t(scenario.subtitle), category: scenario.category, ...(ensuredRun ? { runId: ensuredRun.id } : {}) },
+        {
+          prompt: visible
+            ? t('Make the full kit for this workflow: {idea}', { idea: visible })
+            : t('Make the full kit for this workflow'),
+          hiddenInstructions: instructions,
+          locale,
+          autoSend: true,
+          newChat: true,
+        },
+      );
+      try {
+        const started = await startBackgroundSuperAgentTask({ ...payload, title: t(scenario.title) });
+        if (started.ok) return { chatId: started.chat.id, runId: ensuredRun?.id ?? null };
+        chrome?.openInSuperAgent?.(payload);
+        return null;
+      } catch (error) {
+        toast.showToast(error instanceof Error && error.message ? error.message : t('Could not start Super Agent'), 'error', 'feedback');
+        return null;
+      }
+    },
+    [chrome, ensureRun, integration, locale, run, scenario, t, toast],
   );
 
   const handleCopyAgentHandoff = useCallback(
@@ -631,6 +688,7 @@ export function ScenarioWorkspace({
   const handleExportBundle = useCallback(
     async (options?: {
       poolItemIds?: string[];
+      stepIds?: string[];
       activeOnly?: boolean;
       includeStandaloneHtml?: boolean;
       includeMotionSource?: boolean;
@@ -647,6 +705,7 @@ export function ScenarioWorkspace({
             includeStandaloneHtml: options?.includeStandaloneHtml ?? true,
             includeMotionSource: options?.includeMotionSource ?? false,
             ...(options?.poolItemIds?.length ? { poolItemIds: options.poolItemIds } : {}),
+            ...(!options?.poolItemIds?.length && options?.stepIds?.length ? { stepIds: options.stepIds } : {}),
           },
         );
         const downloadUrl = bundleDownloadUrl(res.bundle.bundleId);
@@ -1138,10 +1197,37 @@ export function ScenarioWorkspace({
       <div
         className="om-scenario-body"
         data-mode={activeMode}
-        data-pool-collapsed={activeMode === 'agent' ? 'true' : poolCollapsed ? 'true' : 'false'}
+        data-pool-collapsed={activeMode !== 'manual' ? 'true' : poolCollapsed ? 'true' : 'false'}
         data-resizing-pool={activeMode === 'manual' && (resizingPool || resizingWorkbench) ? 'true' : undefined}
       >
-        {activeMode === 'agent' ? (
+        {activeMode === 'studio' ? (
+          loading ? (
+            <div className="om-agent-mode-state">{loadingStateNode}</div>
+          ) : errorStateNode ? (
+            <div className="om-agent-mode-state">{errorStateNode}</div>
+          ) : (
+            <ScenarioStudioView
+              key={scenario.id}
+              scenario={scenario}
+              run={run}
+              api={stepApi}
+              toast={stepToast}
+              poolItems={poolItems}
+              onAddPoolItems={handleAddPoolItems}
+              onRemovePoolItem={handleRemovePoolItem}
+              onRegisterFlush={flush => { studioFlushRef.current = flush; }}
+              onOpenDesignProject={onOpenDesignProject}
+              onOpenMotionProject={onOpenMotionProject}
+              onCopyAgentPrompt={handleCopyAgentPrompt}
+              onRunInSuperAgent={chrome?.openInSuperAgent ? handleRunInSuperAgent : undefined}
+              onOpenAgentChat={chrome?.openSuperAgentChat}
+              onExportBundle={handleExportBundle}
+              exportingBundle={exportingBundle}
+              onSwitchToManual={() => handleModeChange('manual')}
+              onOpenMcp={onOpenMcp}
+            />
+          )
+        ) : activeMode === 'agent' ? (
           loading ? (
             <div className="om-agent-mode-state">{loadingStateNode}</div>
           ) : errorStateNode ? (

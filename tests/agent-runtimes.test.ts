@@ -564,6 +564,7 @@ test('standalone bridge script stays in Codex event and workingDir parity with g
   }
   assert.ok(standaloneScript.includes('dispatch.workingDir'), 'standalone bridge must support dispatch.workingDir');
   assert.ok(standaloneScript.includes("'workspace-write'"), 'standalone bridge must enable workspace-write sandbox for validated workingDir');
+  assert.ok(standaloneScript.includes('isForeignCodexNotification'), 'standalone bridge must ignore foreign-thread Codex subagent notifications');
 });
 
 test('local bridge forwards Coding workingDir and validates it on the bridge machine', () => fixture(async store => {
@@ -664,5 +665,141 @@ test('local bridge forwards Coding workingDir and validates it on the bridge mac
     await agentRuntimesFor(store.directory).close();
     await running.close();
     await rm(workDir, { recursive: true, force: true });
+  }
+}));
+
+test('local bridge Codex runner ignores subagent turn/completed and error notifications while answering subagent tool calls', () => fixture(async store => {
+  const running = await startServer(store, 0, { editor: false });
+  const port = (running.server.address() as { port: number }).port;
+  const origin = `http://127.0.0.1:${port}`;
+  let bridgeHandle: Awaited<ReturnType<typeof startAgentBridge>> | null = null;
+
+  try {
+    const enrollRes = await fetch(`${origin}${AGENT_RUNTIMES_API}/bridge/tokens`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: 'Bridge Subagent Host' }),
+    });
+    assert.equal(enrollRes.status, 200);
+    const bundle = await enrollRes.json() as any;
+
+    let rootFinished = false;
+    let subagentToolAnswered = false;
+
+    class SubagentBridgeCodexRpc {
+      onMessage: (msg: any) => void;
+      closed = false;
+      constructor(_bin: string, _cwd: string, onMessage: (msg: any) => void) {
+        this.onMessage = onMessage;
+      }
+      async request(method: string) {
+        if (method === 'initialize') return {};
+        if (method === 'thread/start') return { thread: { id: 'bridge-root-thread' } };
+        if (method === 'turn/start') {
+          queueMicrotask(() => {
+            void this.onMessage({
+              id: 801,
+              method: 'item/tool/call',
+              params: {
+                threadId: 'bridge-subagent-thread',
+                turnId: 'sub-turn-1',
+                callId: 'sub-tool-1',
+                tool: 'openmotion_present_artifact',
+                arguments: { kind: 'web', title: 'Subagent Web Result', url: 'https://example.com' },
+              },
+            });
+          });
+          return { turn: { id: 'bridge-root-turn' } };
+        }
+        return {};
+      }
+      send(payload: any) {
+        if (payload.id === 801) {
+          subagentToolAnswered = payload.result?.success === true;
+          queueMicrotask(() => {
+            void this.onMessage({
+              method: 'item/completed',
+              params: { threadId: 'bridge-subagent-thread', item: { id: 'sub-a1', type: 'agentMessage', text: 'Subagent ignored text' } },
+            });
+            void this.onMessage({
+              method: 'turn/completed',
+              params: { threadId: 'bridge-subagent-thread', turn: { id: 'sub-turn-1', status: 'completed' } },
+            });
+            setTimeout(() => {
+              if (this.closed) return;
+              rootFinished = true;
+              void this.onMessage({
+                method: 'item/completed',
+                params: { threadId: 'bridge-root-thread', item: { id: 'root-a1', type: 'agentMessage', text: 'Root bridge done.' } },
+              });
+              void this.onMessage({
+                method: 'turn/completed',
+                params: { threadId: 'bridge-root-thread', turn: { id: 'bridge-root-turn', status: 'completed' } },
+              });
+            }, 30);
+          });
+        }
+      }
+      close() {
+        this.closed = true;
+      }
+    }
+
+    bridgeHandle = await startAgentBridge({
+      serverUrl: origin,
+      token: bundle.token,
+      name: 'Bridge Subagent Host',
+      heartbeatMs: 10_000,
+      resolveBin: async bin => (bin === 'codex' ? '/usr/local/bin/codex' : null),
+      inspectAgent: async id => ({
+        id,
+        label: id === 'codex' ? 'Codex' : id,
+        bin: id,
+        icon: 'openai',
+        website: 'https://openai.com',
+        installed: id === 'codex',
+        auth: id === 'codex' ? 'signed-in' : 'not-installed',
+        models: id === 'codex' ? [{ id: 'gpt-5', label: 'GPT-5', source: 'cli' }] : [],
+      }),
+      rpcFactory: SubagentBridgeCodexRpc as any,
+    });
+
+    const createChat = await fetch(`${origin}${SUPER_AGENT_API}/chats`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runtimeId: bridgeHandle.runtimeId, engine: 'codex', intent: 'general' }),
+    });
+    assert.equal(createChat.status, 200);
+    const { conversation: createdChat } = await createChat.json() as any;
+
+    const startTurn = await fetch(`${origin}${SUPER_AGENT_API}/chats/${createdChat.id}/turn`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId: 'bridge-subagent-req-1',
+        runtimeId: bridgeHandle.runtimeId,
+        engine: 'codex',
+        text: 'Coordinate subagent work',
+      }),
+    });
+    assert.equal(startTurn.status, 200);
+
+    let finalChat: any;
+    for (let i = 0; i < 80; i++) {
+      const poll = await fetch(`${origin}${SUPER_AGENT_API}/chats/${createdChat.id}`);
+      finalChat = (await poll.json() as any).conversation;
+      if (finalChat.state === 'idle' || finalChat.state === 'failed') break;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+
+    assert.equal(subagentToolAnswered, true);
+    assert.equal(rootFinished, true);
+    assert.equal(finalChat.state, 'idle');
+    assert.equal(finalChat.messages.some((m: any) => m.text.includes('Subagent ignored text')), false);
+    assert.equal(finalChat.messages.some((m: any) => m.text === 'Root bridge done.'), true);
+  } finally {
+    await bridgeHandle?.stop();
+    await agentRuntimesFor(store.directory).close();
+    await running.close();
   }
 }));

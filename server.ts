@@ -11,6 +11,14 @@ import { mcpHttpFor } from './gateway/mcp-http.ts';
 import { contentBatchesFor } from './gateway/content-batch.ts';
 import { triggersFor } from './gateway/triggers.ts';
 import { closeWebPublishFor, webPublishFor } from './gateway/web-publish.ts';
+import { workspaceCollabFor } from './gateway/workspace-collab.ts';
+import { messageCenterFor, MessageCenterRequestError } from './gateway/message-center.ts';
+import { touchpointsFor, TouchpointRequestError } from './gateway/touchpoints.ts';
+import { whatsNewFor } from './gateway/whats-new.ts';
+import { collectUnifiedLibraryIndex } from './gateway/library-index.ts';
+import { isValidLibraryCategory, isValidLibraryOrigin, isValidLibrarySort } from './shared/library-index.ts';
+import { collectUnifiedWorkspaceProjects } from './gateway/workspace-projects.ts';
+import { workspaceProjectKinds, type CommentSyncState, type ProjectVisibility, type WorkspaceCloudDestination, type WorkspaceInviteRowInput, type WorkspaceProjectKind } from './shared/workspace-collab.ts';
 import { closeDesignDeployFor } from './gateway/design-deploy.ts';
 import { AdaptivePoller } from './shared/lifecycle.ts';
 import { mapWebPublishError, resolveWebPublishTarget } from './gateway/web-publish-ops.ts';
@@ -326,6 +334,14 @@ async function invokePhase1WithTracking(
     result = previewTrackingContext(result, originUrl, token);
   }
   return result;
+}
+
+// Legacy callers can send an empty POST. The gateway validates both optional attribution fields.
+async function accountAttribution(req: IncomingMessage) {
+  if (!req.headers['content-type']?.startsWith('application/json')
+    || (!req.headers['transfer-encoding'] && !Number(req.headers['content-length']))) return {};
+  const body = await input(req, 4096);
+  return { hookId: body?.hookId, entryId: body?.entryId };
 }
 
 function revision(value: unknown): asserts value is string {
@@ -795,9 +811,13 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
               { targetKind, targetId, sourcePath, filePath, title, embedUrl },
               originUrl,
             );
+            const account = gatewayFor(store, context.tracking).account;
+            const explicitWorkspaceId = typeof body?.workspaceId === 'string' && body.workspaceId.trim()
+              ? body.workspaceId.trim()
+              : (await workspaceCollabFor(account).getActiveWorkspaceId()) ?? undefined;
             const result = await publishService.publish(target, {
               filePath,
-              workspaceId: typeof body?.workspaceId === 'string' ? body.workspaceId : undefined,
+              workspaceId: explicitWorkspaceId,
               mode: body?.deployMode as WebPublishMode | undefined,
               name: title,
               visibility,
@@ -849,11 +869,14 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     if (motionRequest && url.pathname.startsWith('/api/super-agent')) {
       const superAgent = superAgentConversations(store);
       if (url.pathname === '/api/super-agent/resources' && req.method === 'GET') {
+        const modality = url.searchParams.get('modality');
         return json(res, 200, await collectWorkspaceResources(store.workspaceStore ?? store, {
           kind: url.searchParams.get('kind') ?? undefined,
           query: url.searchParams.get('query') ?? undefined,
           limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined,
           locale: url.searchParams.get('locale') ?? undefined,
+          modality: modality === 'image' || modality === 'video' || modality === 'audio' ? modality : undefined,
+          offset: url.searchParams.has('offset') ? Number(url.searchParams.get('offset')) : undefined,
         }));
       }
       if (url.pathname === '/api/super-agent/uploads' && req.method === 'POST') {
@@ -1116,6 +1139,39 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       }
       return json(res, 405, { error: 'Unsupported Super Agent request' });
     }
+    if (motionRequest && url.pathname === '/api/library/index') {
+      if (req.method !== 'GET') return json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+      const rawCategory = url.searchParams.get('category');
+      const rawOrigin = url.searchParams.get('origin');
+      const rawSort = url.searchParams.get('sort');
+      const rawQuery = url.searchParams.get('query');
+      const rawOffset = url.searchParams.get('offset');
+      const rawLimit = url.searchParams.get('limit');
+      const category = rawCategory === null ? 'all' : isValidLibraryCategory(rawCategory) ? rawCategory : null;
+      const origin = rawOrigin === null ? 'all' : isValidLibraryOrigin(rawOrigin) ? rawOrigin : null;
+      const sort = rawSort === null ? 'newest' : isValidLibrarySort(rawSort) ? rawSort : null;
+      if (!category) return json(res, 400, { error: 'INVALID_LIBRARY_CATEGORY' });
+      if (!origin) return json(res, 400, { error: 'INVALID_LIBRARY_ORIGIN' });
+      if (!sort) return json(res, 400, { error: 'INVALID_LIBRARY_SORT' });
+      const offset = rawOffset !== null ? Number(rawOffset) : 0;
+      const limit = rawLimit !== null ? Number(rawLimit) : 100;
+      if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 200) {
+        return json(res, 400, { error: 'INVALID_LIBRARY_PAGINATION' });
+      }
+      if (rawQuery && rawQuery.length > 200) return json(res, 400, { error: 'INVALID_LIBRARY_QUERY' });
+      return json(
+        res,
+        200,
+        await collectUnifiedLibraryIndex(store, {
+          category,
+          origin,
+          sort,
+          query: rawQuery ?? undefined,
+          offset,
+          limit,
+        }),
+      );
+    }
     if (motionRequest && url.pathname.startsWith('/api/assets/conversations')) {
       const chats = assetConversations(store);
       if (url.pathname === '/api/assets/conversations') {
@@ -1323,16 +1379,167 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       }
       if (url.pathname === '/api/settings/account' && req.method === 'GET') return json(res, 200, await gateway.account.summary(url.searchParams.get('refresh') === 'true'));
       if (url.pathname === '/api/settings/account/login' && req.method === 'POST') {
-        const body = await input(req).catch(() => ({}));
-        return json(res, 200, await gateway.account.login({ hookId: body.hookId, entryId: body.entryId }));
+        return json(res, 200, await gateway.account.login(await accountAttribution(req)));
       }
       if (url.pathname === '/api/settings/account/cancel' && req.method === 'POST') return json(res, 200, await gateway.account.cancel());
       if (url.pathname === '/api/settings/account/logout' && req.method === 'POST') return json(res, 200, await gateway.account.logout());
       if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') {
-        const body = await input(req).catch(() => ({}));
-        return json(res, 200, await gateway.account.openSubscription(undefined, { hookId: body.hookId, entryId: body.entryId }));
+        return json(res, 200, await gateway.account.openSubscription(undefined, await accountAttribution(req)));
       }
       return json(res, 404, { error: 'Settings endpoint not found' });
+    }
+    if (motionRequest && url.pathname === '/api/workspace/projects' && req.method === 'GET') {
+      const account = gatewayFor(store, context.tracking).account;
+      const collab = workspaceCollabFor(account);
+      return json(res, 200, await collectUnifiedWorkspaceProjects(store, collab));
+    }
+    if (motionRequest && (url.pathname === '/api/workspace/collab' || url.pathname.startsWith('/api/workspace/collab/'))) {
+      const collab = workspaceCollabFor(gatewayFor(store, context.tracking).account);
+      if (url.pathname === '/api/workspace/collab' && req.method === 'GET') {
+        return json(res, 200, await collab.getSnapshot({ refresh: url.searchParams.get('refresh') === 'true' }));
+      }
+      if (url.pathname === '/api/workspace/collab/members' && req.method === 'GET') {
+        return json(res, 200, await collab.listWorkspaceMembers(url.searchParams.get('workspaceId') ?? undefined));
+      }
+      if (url.pathname === '/api/workspace/collab/preflight' && req.method === 'GET') {
+        return json(res, 200, await collab.preflightWorkspace({
+          model: url.searchParams.get('model') ?? undefined,
+          workspaceId: url.searchParams.get('workspaceId') ?? undefined,
+        }));
+      }
+      if (url.pathname === '/api/workspace/collab/concurrency' && req.method === 'GET') {
+        return json(res, 200, await collab.getRequestConcurrency(url.searchParams.get('workspaceId') ?? undefined));
+      }
+      if (url.pathname === '/api/workspace/collab/switch' && req.method === 'POST') {
+        const body = await input(req);
+        if (typeof body.workspaceId !== 'string') return json(res, 400, { error: 'workspaceId is required' });
+        return json(res, 200, await collab.switchWorkspace(body.workspaceId));
+      }
+      if (url.pathname === '/api/workspace/collab/recover-personal' && req.method === 'POST') {
+        return json(res, 200, await collab.recoverToPersonalWorkspace());
+      }
+      if (url.pathname === '/api/workspace/collab/invites' && req.method === 'POST') {
+        const body = await input(req, 64 * 1024);
+        const rows = Array.isArray(body.rows) ? (body.rows as WorkspaceInviteRowInput[]) : [];
+        return json(res, 200, await collab.inviteMembers(typeof body.workspaceId === 'string' ? body.workspaceId : undefined, rows));
+      }
+      if (url.pathname === '/api/workspace/collab/cloud-link' && req.method === 'POST') {
+        const body = await input(req);
+        const allowedDestinations: readonly WorkspaceCloudDestination[] = [
+          'plans', 'billing', 'members', 'create-workspace', 'billing-recovery', 'referral', 'workspace-settings',
+        ];
+        if (!allowedDestinations.includes(body.destination as WorkspaceCloudDestination)) {
+          return json(res, 400, { error: 'Invalid cloud destination' });
+        }
+        return json(res, 200, await collab.openCloudDestination(
+          body.destination as WorkspaceCloudDestination,
+          typeof body.workspaceId === 'string' ? body.workspaceId : undefined,
+          { launch: body.launch !== false },
+        ));
+      }
+      const moveMatch = url.pathname.match(/^\/api\/workspace\/collab\/projects\/([^/]+)\/move$/);
+      if (moveMatch && req.method === 'POST') {
+        const body = await input(req);
+        if (typeof body.workspaceId !== 'string') return json(res, 400, { error: 'workspaceId is required' });
+        const kind = typeof body.kind === 'string' && (workspaceProjectKinds as readonly string[]).includes(body.kind)
+          ? (body.kind as WorkspaceProjectKind)
+          : undefined;
+        const title = typeof body.title === 'string' ? body.title : undefined;
+        return json(res, 200, await collab.moveProjectToWorkspace(
+          decodeURIComponent(moveMatch[1]),
+          body.workspaceId,
+          body.skipConfirm === true,
+          { ...(kind ? { kind } : {}), ...(title ? { title } : {}) },
+        ));
+      }
+      const removeFromTeamMatch = url.pathname.match(/^\/api\/workspace\/collab\/projects\/([^/]+)\/remove-from-team$/);
+      if (removeFromTeamMatch && req.method === 'POST') {
+        const body = await input(req).catch(() => ({} as Record<string, unknown>));
+        return json(res, 200, await collab.removeProjectFromTeam(
+          decodeURIComponent(removeFromTeamMatch[1]),
+          body.skipConfirm === true,
+        ));
+      }
+      const visibilityMatch = url.pathname.match(/^\/api\/workspace\/collab\/projects\/([^/]+)\/visibility$/);
+      if (visibilityMatch && req.method === 'POST') {
+        const body = await input(req);
+        if (body.visibility !== 'private' && body.visibility !== 'workspace') {
+          return json(res, 400, { error: 'visibility must be private or workspace' });
+        }
+        return json(res, 200, await collab.setProjectVisibility(
+          decodeURIComponent(visibilityMatch[1]),
+          body.visibility as ProjectVisibility,
+        ));
+      }
+      const commentSyncMatch = url.pathname.match(/^\/api\/workspace\/collab\/comments\/([^/]+)\/sync$/);
+      if (commentSyncMatch && req.method === 'POST') {
+        const body = await input(req).catch(() => ({} as Record<string, unknown>));
+        const targetId = decodeURIComponent(commentSyncMatch[1]);
+        if (body.state === 'pending' || body.state === 'failed' || body.state === 'synced') {
+          return json(res, 200, await collab.reportCommentSyncState(
+            targetId,
+            body.state as CommentSyncState,
+            typeof body.pendingCount === 'number' ? body.pendingCount : 0,
+            typeof body.lastError === 'string' ? body.lastError : undefined,
+          ));
+        }
+        return json(res, 200, await collab.retryCommentSync(targetId));
+      }
+      if (url.pathname === '/api/workspace/collab/preferences' && req.method === 'POST') {
+        const body = await input(req);
+        return json(res, 200, await collab.updatePreferences({
+          skipMoveToTeamConfirm: typeof body.skipMoveToTeamConfirm === 'boolean' ? body.skipMoveToTeamConfirm : undefined,
+          skipRemoveFromTeamConfirm: typeof body.skipRemoveFromTeamConfirm === 'boolean' ? body.skipRemoveFromTeamConfirm : undefined,
+          dismissBanner: typeof body.dismissBanner === 'string' ? body.dismissBanner : undefined,
+        }));
+      }
+      return json(res, 404, { error: 'Workspace collaboration endpoint not found' });
+    }
+    if (motionRequest && url.pathname.startsWith('/api/message-center')) {
+      try {
+        const messageCenter = messageCenterFor(gatewayFor(store, context.tracking).account);
+        if (url.pathname === '/api/message-center/messages' && req.method === 'GET') {
+          return json(res, 200, await messageCenter.listMessages(url.searchParams.get('locale') ?? 'en'));
+        }
+        if (url.pathname === '/api/message-center/read-all' && req.method === 'POST') {
+          return json(res, 200, await messageCenter.markAllRead());
+        }
+        const readMatch = url.pathname.match(/^\/api\/message-center\/messages\/([^/]+)\/read$/);
+        if (readMatch && req.method === 'POST') {
+          return json(res, 200, await messageCenter.markRead(decodeURIComponent(readMatch[1])));
+        }
+        return json(res, 404, { error: 'Message center endpoint not found' });
+      } catch (error) {
+        if (error instanceof MessageCenterRequestError) {
+          return json(res, error.status, { error: error.code, message: error.message });
+        }
+        return json(res, 502, { error: 'message_center_unavailable' });
+      }
+    }
+    if (motionRequest && url.pathname.startsWith('/api/touchpoints')) {
+      try {
+        const touchpoints = touchpointsFor(gatewayFor(store, context.tracking).account);
+        if (url.pathname === '/api/touchpoints/production' && req.method === 'GET') {
+          return json(res, 200, await touchpoints.getProductionTouchpoint({
+            placementKey: url.searchParams.get('placementKey') ?? '',
+            locale: url.searchParams.get('locale') ?? 'en',
+            activeDecisionId: url.searchParams.get('activeDecisionId') ?? undefined,
+          }));
+        }
+        if (url.pathname === '/api/touchpoints/events' && req.method === 'POST') {
+          const body = await input(req, 16 * 1024);
+          return json(res, 200, await touchpoints.reportTouchpointEvent(body));
+        }
+        return json(res, 404, { error: 'Touchpoint endpoint not found' });
+      } catch (error) {
+        if (error instanceof TouchpointRequestError) {
+          return json(res, error.status, { error: error.code, message: error.message });
+        }
+        return json(res, 502, { error: 'touchpoint_unavailable' });
+      }
+    }
+    if (motionRequest && url.pathname === '/api/whats-new' && req.method === 'GET') {
+      return json(res, 200, await whatsNewFor().readWhatsNew());
     }
     if (motionRequest && url.pathname.startsWith('/api/capabilities')) {
       if (url.pathname === '/api/capabilities' && req.method === 'GET') {

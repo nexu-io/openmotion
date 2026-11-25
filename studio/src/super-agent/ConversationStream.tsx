@@ -8,8 +8,13 @@ import type { GameCard } from '../../../shared/game-contract';
 import type { GatewayStatus, Model } from '../../../shared/gateway';
 import type { LocalAgent } from '../../../shared/local-agents';
 import {
+  classifyBillingErrorCode,
+} from '../../../shared/workspace-collab';
+import {
   modeToSuperAgentIntent,
+  superAgentChatPresentation,
   superAgentIntentMeta,
+  type SuperAgentActionCard,
   type SuperAgentArtifact,
   type SuperAgentChat,
   type SuperAgentChatSummary,
@@ -63,6 +68,8 @@ import { gatewayRequest } from '../motion/gatewayClient';
 import { inspectBridgeAgent, notifyRuntimesChanged } from '../motion/useAgentRuntimes';
 import { notifyAgentsChanged } from '../motion/useLocalAgents';
 import { WorkspaceBack } from '../motion/WorkspaceBack';
+import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
+import { UpgradeCard } from '../motion/collab/UpgradeCard';
 import { AgentModelPicker } from './AgentModelPicker';
 import { compactDirLabel } from './ChangedFilesTree';
 import { ApprovalCard, ExecutionTimeline } from './ExecutionTimeline';
@@ -168,13 +175,12 @@ const EXTRA_STARTERS: {
   { key: 'image', id: 'design', designModule: 'image', tone: 'image', icon: 'image-line', title: 'Generate image' },
   { key: 'website', id: 'design', designModule: 'prototype', tone: 'image', icon: 'layout-line', title: 'Build a website' },
   { key: 'audio', id: 'audio', tone: 'audio', icon: 'music-2-line', title: 'Create audio' },
-  { key: 'media', id: 'media', tone: 'video', icon: 'clapperboard-line', title: 'Cinema video' },
   { key: 'coding', id: 'coding', tone: 'coding', icon: 'code-s-slash-line', title: 'Coding' },
 ];
 
-const COMPOSER_MODES = [...PRIMARY_STARTERS, ...EXTRA_STARTERS]
-  .map(starter => findSuperAgentMode(starter.id))
-  .filter((mode, index, all): mode is NonNullable<typeof mode> => mode !== null && all.findIndex(item => item?.id === mode.id) === index);
+const COMPOSER_MODES = (['game', 'design', 'motion', 'research', 'visualization', 'audio', 'media', 'coding'] satisfies SuperAgentCreationModeId[])
+  .map(findSuperAgentMode)
+  .filter(mode => mode !== null);
 
 export type AgentSelection = {
   runtimeId?: string;
@@ -291,6 +297,7 @@ export function ConversationStream({
   onNotify,
   onRunCommand,
   onOpenAccountSettings,
+  onTriggerActionCard,
   onOpenInDesignStudio,
   onOpenInMotionStudio,
   onOpenInAssets,
@@ -382,6 +389,7 @@ export function ConversationStream({
   onNotify?: (message: string, tone?: 'info' | 'error') => void;
   onRunCommand?: (command: ComposerCommandId) => void;
   onOpenAccountSettings?: () => void;
+  onTriggerActionCard?: (card: SuperAgentActionCard) => void;
   onOpenInDesignStudio?: (projectId: string) => void;
   onOpenInMotionStudio?: (projectId: string) => void;
   onOpenInAssets?: (assetId: string, versionId?: string) => void;
@@ -394,6 +402,7 @@ export function ConversationStream({
   onError: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
   const [text, setText] = useState('');
   const [segments, setSegments] = useState<SuperAgentPromptSegment[]>([]);
   const [inlineMentions, setInlineMentions] = useState<SuperAgentResourceAttachment[]>([]);
@@ -446,17 +455,15 @@ export function ConversationStream({
   const pendingSampleUploadRef = useRef<Promise<void> | null>(null);
   const submittingRef = useRef(false);
   const activeMode = findSuperAgentMode(activeModeId);
-  const headerIntentMeta = superAgentIntentMeta(
-    chat?.intent ?? (
-      activeMode
-        ? activeMode.id === 'design'
-          ? (modeOptions.designFormat === 'image'
-            ? 'image'
-            : (modeOptions.designScenario === 'deck' || modeOptions.designScenario === 'document' ? 'slides' : 'design'))
-          : modeToSuperAgentIntent(activeMode.id)
-        : undefined
-    ),
-  );
+  const headerPresentation = chat ? superAgentChatPresentation(chat) : {
+    intent: activeMode?.id === 'design' && modeOptions.designFormat === 'image'
+      ? 'image' as const
+      : modeToSuperAgentIntent(activeMode?.id),
+    designScenario: activeMode?.id === 'design' && modeOptions.designFormat === 'html' ? modeOptions.designScenario : undefined,
+    isGeneratedVideo: (activeMode?.id === 'motion' && modeOptions.motionEngine === 'video-model')
+      || (activeMode?.id === 'media' && modeOptions.mediaSubMode === 'video'),
+  };
+  const headerIntentMeta = superAgentIntentMeta(headerPresentation.intent, headerPresentation);
   const modeOptionsRef = useRef<ModeComposerOptions>(modeOptions);
   modeOptionsRef.current = modeOptions;
   const templatePromptRef = useRef<string | null>(null);
@@ -511,9 +518,22 @@ export function ConversationStream({
     mediaProvidersRef.current = cat.providers ?? [];
   }, []);
 
+  const handledBillingErrorRef = useRef<string | null>(null);
   useEffect(() => {
     setBrowsingEngine(selection.engine);
   }, [selection.engine]);
+
+  useEffect(() => {
+    if (!chat?.error || !collab) {
+      handledBillingErrorRef.current = null;
+      return;
+    }
+    if (!classifyBillingErrorCode(chat.error)) return;
+    const errorKey = `${chat.id}:${chat.updatedAt}:${chat.error}`;
+    if (handledBillingErrorRef.current === errorKey) return;
+    handledBillingErrorRef.current = errorKey;
+    void collab.handleBillingError(chat.error);
+  }, [chat?.error, chat?.id, chat?.updatedAt, collab]);
 
   const appliedDraftSeedRef = useRef<number | null>(null);
   const pendingHiddenInstructionsRef = useRef<string | undefined>(undefined);
@@ -1075,6 +1095,18 @@ export function ConversationStream({
     if (!canSubmit || submittingRef.current) return;
     submittingRef.current = true;
     try {
+      const activeLifecycle = collab?.snapshot?.activeWorkspace?.lifecycleState;
+      if (
+        collab?.snapshot?.signedIn
+        && (activeLifecycle === 'locked'
+          || activeLifecycle === 'billing_past_due'
+          || collab.snapshot.quota?.hasAvailableFunds === false)
+      ) {
+        const preflight = await collab.checkPreflightNow();
+        if ((preflight && !preflight.funded) || activeLifecycle === 'locked') {
+          return;
+        }
+      }
       if (pendingSampleUploadRef.current) {
         await pendingSampleUploadRef.current;
       }
@@ -1777,6 +1809,7 @@ export function ConversationStream({
             onCopyText={onCopyText}
             onNotify={onNotify}
             onOpenAccountSettings={onOpenAccountSettings}
+            onTriggerActionCard={onTriggerActionCard}
             onOpenInDesignStudio={onOpenInDesignStudio}
             onOpenInMotionStudio={onOpenInMotionStudio}
             onOpenInAssets={onOpenInAssets}
@@ -1791,6 +1824,7 @@ export function ConversationStream({
       </div>
 
       <div className="om-sa-composer-wrap">
+        <UpgradeCard />
         {hasPendingApproval && (
           <div className="om-sa-approval-dock" role="region" aria-label={t('Approval needed')}>
             {pendingApprovals.map(approval => (
@@ -2049,6 +2083,7 @@ export function ConversationStream({
                   }
 
                   const annot = att.annotation;
+                  const previewUrl = resourceImagePreviewUrl(att);
                   const sourceLoc = annot?.element?.sourceFile
                     ? `${annot.element.sourceFile}${typeof annot.element.sourceLine === 'number' ? `:${annot.element.sourceLine}` : ''}`
                     : '';
@@ -2061,7 +2096,7 @@ export function ConversationStream({
                     >
                       <ResourceThumbImage
                         className="om-sa-attachment-thumb"
-                        src={resourceImagePreviewUrl(att)}
+                        src={previewUrl}
                         fallback={<RemixIcon name={resourceIcon(att)} size={13} />}
                       />
                       <span>{chipTitle}</span>
@@ -2085,8 +2120,8 @@ export function ConversationStream({
                         trigger={chipTrigger}
                       >
                         <div className="om-sa-annot-preview-body">
-                          {att.previewUrl && (
-                            <img className="om-sa-annot-preview-img" src={att.previewUrl} alt={chipTitle} />
+                          {previewUrl && (
+                            <img className="om-sa-annot-preview-img" src={previewUrl} alt={chipTitle} />
                           )}
                           <div className="om-sa-annot-preview-meta">
                             <strong>{chipTitle}</strong>

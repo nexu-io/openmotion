@@ -661,3 +661,97 @@ test('gateway runs up to 4 OpenDesign jobs concurrently while keeping BYOK and l
     for (const job of localJobs) assert.equal((await gateway.getJob(job.id)).state, 'completed');
   } finally { await gateway.close(); }
 }));
+
+test('OpenDesign model discovery hydrates fallback routing traits, prefers server-published metadata, indexes tags, and never fabricates unknown models', () => fixture(async store => {
+  const gateway = new ModelGateway(store, {
+    detect: async () => [],
+    fetcher: (async (u) => {
+      const url = String(u);
+      if (url.endsWith('/api/v1/media/models')) {
+        return Response.json({
+          models: [
+            // Existing model without server routing metadata -> hydrated from fallback profile.
+            { model: 'gpt-image-2.6-flare', kind: 'image', capabilities: { edits: true, background: ['auto', 'transparent', 'opaque'] } },
+            // Existing model WITH server-published routing metadata -> server fields take precedence,
+            // and an invalid top-level tier falls through to a valid nested capabilities.tier.
+            {
+              model: 'seedream-5.5',
+              kind: 'image',
+              tier: 'ultra-invalid',
+              best_for: ['Server Tag', 'editorial-key-art'],
+              description: 'Server-published Seedream description.',
+              capabilities: { edits: true, tier: 'balanced' },
+            },
+            // Existing model WITH explicit empty server metadata -> stays cleared (never overwritten by fallback).
+            {
+              model: 'gpt-image-2.6-sunburst',
+              kind: 'image',
+              best_for: [],
+              description: '',
+              capabilities: { edits: true },
+            },
+            // Brand-new unseen model WITH server-published metadata under capabilities -> flows through untouched.
+            {
+              model: 'gpt-image-3-pro',
+              kind: 'image',
+              capabilities: {
+                edits: true,
+                max_input_images: 12,
+                tier: 'flagship',
+                best_for: ['3d-concept', 'sprite-sheets'],
+                description: 'Next-gen image model published directly by AMR.',
+              },
+            },
+            // Brand-new unseen model WITHOUT server routing metadata -> no fabricated traits.
+            { model: 'future-mystery-v9', kind: 'video', capabilities: {} },
+          ],
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as Fetcher,
+  });
+  try {
+    await gateway.configureProvider('opendesign', { apiKey: 'test-key', baseUrl: 'https://cloud.example' });
+    const listed = await gateway.listModels({ provider: 'opendesign', refresh: true });
+    const byId = new Map(listed.models.map(model => [model.modelId, model]));
+
+    const flare = byId.get('gpt-image-2.6-flare')!;
+    assert.equal(flare.tier, 'fast');
+    assert(flare.bestFor?.includes('transparent-cutout'));
+    assert(flare.description && flare.description.length > 0);
+
+    const seedream = byId.get('seedream-5.5')!;
+    assert.equal(seedream.tier, 'balanced');
+    assert.deepEqual(seedream.bestFor, ['server-tag', 'editorial-key-art']);
+    assert.equal(seedream.description, 'Server-published Seedream description.');
+
+    const sunburst = byId.get('gpt-image-2.6-sunburst')!;
+    assert.equal(sunburst.tier, 'flagship');
+    assert.deepEqual(sunburst.bestFor, []);
+    assert.equal(sunburst.description, '');
+
+    const nextGen = byId.get('gpt-image-3-pro')!;
+    assert.equal(nextGen.tier, 'flagship');
+    assert.deepEqual(nextGen.bestFor, ['3d-concept', 'sprite-sheets']);
+    assert.equal(nextGen.description, 'Next-gen image model published directly by AMR.');
+
+    const unseen = byId.get('future-mystery-v9')!;
+    assert.equal(unseen.tier, undefined);
+    assert.equal(unseen.bestFor, undefined);
+    assert.equal(unseen.description, undefined);
+
+    // Search indexes tier and bestFor tags (both fallback and server-published), and respects server-cleared tags.
+    const zhSpeech = await gateway.listModels({ provider: 'opendesign', query: 'zh-speech' });
+    assert.equal(zhSpeech.models[0]?.modelId, 'byteplus-tts-2');
+    const spriteSheets = await gateway.listModels({ provider: 'opendesign', query: 'sprite-sheets' });
+    assert.equal(spriteSheets.models[0]?.modelId, 'gpt-image-3-pro');
+    const transparentCutout = await gateway.listModels({ provider: 'opendesign', modality: 'image', query: 'transparent-cutout' });
+    assert(transparentCutout.models.some(m => m.modelId === 'gpt-image-2.6-flare'));
+    assert(!transparentCutout.models.some(m => m.modelId === 'gpt-image-2.6-sunburst'));
+
+    // Non-OpenDesign models do not receive OpenDesign fallback traits.
+    const falModels = await gateway.listModels({ provider: 'fal' });
+    assert(falModels.models.length > 0);
+    assert(falModels.models.every(m => m.tier === undefined && m.bestFor === undefined));
+  } finally { await gateway.close(); }
+}));

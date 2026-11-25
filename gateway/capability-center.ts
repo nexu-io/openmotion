@@ -171,6 +171,13 @@ function providerRank(providerId: string): number {
   return 2;
 }
 
+function tierRank(tier: Model['tier']): number {
+  if (tier === 'flagship') return 0;
+  if (tier === 'balanced') return 1;
+  if (tier === 'fast') return 2;
+  return 3;
+}
+
 function recommendedModelFor(capability: CapabilityDefinition): string | undefined {
   if (capability.executor.kind === 'prompt-preset' || capability.executor.kind === 'dedicated-model') {
     return capability.executor.recommendedModel;
@@ -199,6 +206,8 @@ function selectCompatibleModels(
     }
     const pDiff = providerRank(a.provider) - providerRank(b.provider);
     if (pDiff !== 0) return pDiff;
+    const tDiff = tierRank(a.tier) - tierRank(b.tier);
+    if (tDiff !== 0) return tDiff;
     return a.id.localeCompare(b.id);
   });
 }
@@ -394,6 +403,11 @@ export async function capabilityDiscover(
           modelId: m.modelId,
           label: m.label,
           mode: m.mode,
+          ...(m.tier ? { tier: m.tier } : {}),
+          ...(m.bestFor?.length ? { bestFor: m.bestFor } : {}),
+          ...(m.description ? { description: m.description } : {}),
+          ...(m.supportsImageReference !== undefined ? { supportsImageReference: m.supportsImageReference } : {}),
+          ...(m.maxInputImages !== undefined ? { maxInputImages: m.maxInputImages } : {}),
         }))
       : [];
     return {

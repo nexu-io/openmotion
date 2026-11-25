@@ -1,3 +1,4 @@
+import type { ExploreCampaign } from '../motion/campaignAttribution';
 import { Suspense, type ReactNode, type RefObject } from 'react';
 import { creativeStudios, type CreativeStudio, type TechniqueStudio } from '../../../shared/studio-catalog';
 import { findScenario, type ScenarioId } from '../../../shared/scenarios';
@@ -15,7 +16,8 @@ import type { SoundTabId } from '../motion/soundTabs';
 import { reportBlackFridayEntry } from '../motion/templateLibraryTracking';
 import { WorkspaceBreadcrumb } from '../motion/WorkspaceBreadcrumb';
 import type { WorkspaceChrome } from '../motion/WorkspaceChromeContext';
-import type { ExploreFilters, SettingsSection, WorkspacePage } from '../motion/workspacePageRouting';
+import type { ExploreFilters, SettingsSection, WorkspacePage, WorkspacePagePatch } from '../motion/workspacePageRouting';
+import type { ProviderSetupEntry } from '../../../shared/workspace-url';
 import type { WorkspaceSource } from '../utils/workspaceHistory';
 import {
   LazyAssetsPage,
@@ -29,6 +31,7 @@ import {
   LazyModelHub,
   LazyModelOverview,
   LazyMotionStudioPage,
+  LazyProjectsPage,
   LazyScenarioHub,
   LazyScenarioWorkspace,
   LazySettingsCenter,
@@ -59,6 +62,7 @@ export type RouteViewportProps = {
   templatesPage: boolean;
   connectionsOpen: boolean;
   lastExplore: ExploreFilters;
+  exploreCampaign: ExploreCampaign;
   motionEditorDisabled: boolean;
   motionTemplatesOpen: boolean;
   standaloneMcp: boolean;
@@ -72,8 +76,8 @@ export type RouteViewportProps = {
   libraryTrigger: RefObject<HTMLElement | null>;
   openLibrary: WorkspaceChrome['openLibrary'];
   openModelSettings: () => void;
-  openProviderSettings?: (provider: string) => void;
-  navigatePage: (patch: Partial<WorkspacePage>, replace?: boolean, mode?: 'from-page' | 'keep') => void;
+  openProviderSettings?: (provider?: string, entryFrom?: ProviderSetupEntry) => void;
+  navigatePage: (patch: WorkspacePagePatch, replace?: boolean, mode?: 'from-page' | 'keep') => void;
   openHome: () => void;
   openSettings: (section: SettingsSection, entry?: McpEntry) => void;
   closeSettings: () => void;
@@ -89,6 +93,8 @@ export type RouteViewportProps = {
   openScenario: (scenario: ScenarioId, runId?: string, fromPage?: boolean) => void;
   openMotionEditor: (selection: 'first' | 'last') => Promise<void>;
   openMotionProject: (id: string) => Promise<boolean>;
+  onCreateMotionProject?: () => void;
+  onImportMotionZip?: () => void;
   returnToExplore: () => void;
   selectAssetRoute: (assetId: string | null, assetVersion: string | null) => void;
 };
@@ -102,6 +108,7 @@ export function RouteViewport({
   templatesPage,
   connectionsOpen,
   lastExplore,
+  exploreCampaign,
   motionEditorDisabled,
   motionTemplatesOpen,
   standaloneMcp,
@@ -132,6 +139,8 @@ export function RouteViewport({
   openScenario,
   openMotionEditor,
   openMotionProject,
+  onCreateMotionProject,
+  onImportMotionZip,
   returnToExplore,
   selectAssetRoute,
 }: RouteViewportProps) {
@@ -175,6 +184,7 @@ export function RouteViewport({
       >
         <RouteSurface>
           <LazyExploreStudios
+            campaign={exploreCampaign}
             initialTemplateCollection={page.templateCollection}
             onModel={openModelFromPage}
             onModelHub={openModelHub}
@@ -221,6 +231,49 @@ export function RouteViewport({
           />
         </RouteSurface>
       </KeepAliveSlot>
+
+      {page.projects && !templatesPage && !settings && (
+        <div className="om-assets-host om-route-surface" style={{ padding: 0 }}>
+          <RouteSurface>
+            <LazyProjectsPage
+              active={!connectionsOpen}
+              scope={page.projectScope}
+              projectType={page.projectType}
+              manageProject={page.manageProject}
+              onFilterChange={patch => navigatePage(patch, true)}
+              onOpenMotionProject={id => openMotionProject(id)}
+              onOpenDesignProject={id =>
+                navigatePage(
+                  { designScene: 'projects', designProject: id, templates: false, ...lastExplore },
+                  false,
+                  'from-page',
+                )
+              }
+              onOpenGameProject={gameId => {
+                const gameStudio = creativeStudios.find(
+                  (s): s is TechniqueStudio => s.surface === 'techniques' && s.id === 'game',
+                );
+                if (gameStudio) {
+                  navigatePage(
+                    { specialty: gameStudio, gameId, skill: null, templates: false, ...lastExplore },
+                    false,
+                    'from-page',
+                  );
+                }
+              }}
+              onCreateMotionProject={onCreateMotionProject}
+              onCreateGameProject={() => {
+                navigatePage(
+                  { superAgent: true, superAgentChat: null, superAgentMode: 'game', templates: false },
+                  false,
+                  'from-page',
+                );
+              }}
+              onImportMotionZip={onImportMotionZip}
+            />
+          </RouteSurface>
+        </div>
+      )}
 
       {page.scenarioHub && !templatesPage && !settings && (
         <div className="om-explore-host om-route-surface">
@@ -340,6 +393,7 @@ export function RouteViewport({
               onModel={openModelFromPage}
               onSettings={openSettings}
               onProvider={provider => navigatePage({ settings: 'providers', provider, templates: false })}
+              onScene={openStudioFromPage}
               onUse={() => chooseStudio(motionStudio)}
               onStartScenario={
                 page.modelHub === 'gemini-4' ? () => openScenario('gemini-4-neon', undefined, true) : undefined
@@ -470,6 +524,39 @@ export function RouteViewport({
             routeId={page.assetId}
             routeVersion={page.assetVersion}
             onAssetRoute={selectAssetRoute}
+            onOpenMotionProject={id => { void openMotionProject(id); }}
+            onOpenDesignProject={id =>
+              navigatePage(
+                { designScene: 'projects', designProject: id, templates: false, ...lastExplore },
+                false,
+                'from-page',
+              )
+            }
+            onOpenGameProject={gameId => {
+              const gameStudio = creativeStudios.find(
+                (s): s is TechniqueStudio => s.surface === 'techniques' && s.id === 'game',
+              );
+              if (gameStudio) {
+                navigatePage(
+                  { specialty: gameStudio, gameId, skill: null, templates: false, ...lastExplore },
+                  false,
+                  'from-page',
+                );
+              }
+            }}
+            onOpenBrandKit={kitId =>
+              navigatePage(
+                { settings: 'brand-kit', brandKit: kitId && !kitId.startsWith('catalog:') ? kitId : null, templates: false },
+              )
+            }
+            onOpenSuperAgentChat={chatId =>
+              navigatePage(
+                { superAgent: true, superAgentChat: chatId, superAgentMode: null, templates: false },
+                false,
+                'from-page',
+              )
+            }
+            onOpenScenario={(scenarioId, runId) => openScenario(scenarioId as ScenarioId, runId)}
           />
         </RouteSurface>
       </KeepAliveSlot>
@@ -518,6 +605,7 @@ export function RouteViewport({
             onOpenBrandKit={kitId => navigatePage({ settings: 'brand-kit', brandKit: kitId && !kitId.startsWith('catalog:') ? kitId : null, templates: false })}
             onOpenAgentSettings={() => openSettings('local')}
             onOpenModelSettings={() => openSettings('models')}
+            onOpenProviderSettings={openProviderSettings}
             onOpenAccountSettings={() => openSettings('account')}
             onOpenMcp={() => openMcp(undefined, undefined, true)}
           />

@@ -44,7 +44,8 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   const { t, locale } = useI18n();
   const landingTabsRef = useRef<HTMLElement>(null);
   const comingSoon = studioComingSoon(destination?.studio);
-  const catalog = useMediaCatalog(active && Boolean(destination) && !comingSoon);
+  const catalog = useMediaCatalog(active && Boolean(destination) && !comingSoon,
+    destination?.studio.id === 'design' || destination?.studio.id === 'cinema');
   const landingSceneId = destination?.landing ? destination.scene.id : null;
   useEffect(() => {
     if (!landingSceneId) return;
