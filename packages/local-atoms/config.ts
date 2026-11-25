@@ -491,6 +491,14 @@ function parseTomlSectionHeader(line: string): string[] | null {
   return parseTomlKeySegments(inner);
 }
 
+function parseTomlArrayTableHeader(line: string): string[] | null {
+  const stripped = stripTomlComment(line).trim();
+  if (!stripped.startsWith('[[') || !stripped.endsWith(']]')) return null;
+  const inner = stripped.slice(2, -2).trim();
+  if (!inner || inner.startsWith('[') || inner.endsWith(']')) return null;
+  return parseTomlKeySegments(inner);
+}
+
 function parseTomlKeyValueLine(line: string): { key: string; rawValue: string } | null {
   const stripped = stripTomlComment(line).trim();
   if (!stripped || stripped.startsWith('[')) return null;
@@ -584,6 +592,10 @@ export function parseTomlMcpEntry(
       if (arraysEqual(currentSection, targetSection)) {
         foundTargetSection = true;
       }
+      continue;
+    }
+    if (parseTomlArrayTableHeader(line)) {
+      currentSection = [];
       continue;
     }
 
@@ -702,7 +714,7 @@ function validateMergedTomlBasicStructure(text: string): { ok: true } | { ok: fa
       i += 1;
       continue;
     }
-    if (parseTomlSectionHeader(line)) {
+    if (parseTomlSectionHeader(line) || parseTomlArrayTableHeader(line)) {
       i += 1;
       continue;
     }
@@ -748,6 +760,10 @@ export function upsertTomlMcpEntry(
       if (arraysEqual(currentSection, targetSection) && targetHeaderLineIdx === -1) {
         targetHeaderLineIdx = i;
       }
+      continue;
+    }
+    if (parseTomlArrayTableHeader(line)) {
+      currentSection = [];
       continue;
     }
 
@@ -804,7 +820,7 @@ export function upsertTomlMcpEntry(
       let sectionEnd = targetHeaderLineIdx + 1;
       while (sectionEnd < lines.length) {
         const line = lines[sectionEnd]!;
-        if (parseTomlSectionHeader(line)) break;
+        if (parseTomlSectionHeader(line) || parseTomlArrayTableHeader(line)) break;
         const kv = parseTomlKeyValueLine(line);
         if (kv) {
           sectionEnd = findTomlValueEndLine(lines, sectionEnd, kv.rawValue) + 1;

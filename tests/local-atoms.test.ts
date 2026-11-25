@@ -26,6 +26,7 @@ import {
   defaultCodeSignatureVerifier,
   evaluateWindowsAuthenticodeResult,
   parseMacOsCodesignTeamId,
+  parseTomlMcpEntry,
   resolveWindowsCmdShimInvocation,
   upsertTomlMcpEntry,
   type CommandRunnerInput,
@@ -1487,6 +1488,64 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
       assert.match(replaced.content, /url = "https:\/\/motion\.open-design\.ai\/mcp"/);
       assert.match(replaced.content, /startup_timeout_sec = 30/);
       assert.match(replaced.content, /\[mcp_servers\.other\]/);
+    }
+  });
+
+  it('preserves valid TOML [[array-of-tables]] sections when adding or replacing MCP entries', () => {
+    const withArrayTables = [
+      'model = "gpt-5"',
+      '',
+      '[[profiles]]',
+      'name = "default"',
+      'url = "https://example.invalid/profile"',
+      '',
+      '[[history.entries]]',
+      'id = "1"',
+      '',
+    ].join('\n');
+
+    const added = upsertTomlMcpEntry(
+      withArrayTables,
+      'mcp_servers',
+      { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+      'abort',
+    );
+    assert.equal(added.ok, true);
+    if (added.ok) {
+      assert.match(added.content, /\[\[profiles\]\]/);
+      assert.match(added.content, /\[\[history\.entries\]\]/);
+      assert.match(added.content, /\[mcp_servers\.openmotion\]\nurl = "https:\/\/motion\.open-design\.ai\/mcp"/);
+    }
+
+    // Replacing a legacy stdio section immediately followed by [[profiles]] must stop at [[profiles]]
+    // and never misattribute keys from [[profiles]] to [mcp_servers.openmotion].
+    const stdioFollowedByArrayTable = [
+      '[mcp_servers.openmotion]',
+      'command = "node"',
+      'args = ["server.js"]',
+      '',
+      '[[profiles]]',
+      'url = "https://example.invalid/profile"',
+      '',
+    ].join('\n');
+
+    const parsedBefore = parseTomlMcpEntry(stdioFollowedByArrayTable, 'mcp_servers', 'openmotion');
+    assert.equal(parsedBefore.ok, true);
+    if (parsedBefore.ok) {
+      assert.equal(parsedBefore.entry?.url, undefined);
+    }
+
+    const replaced = upsertTomlMcpEntry(
+      stdioFollowedByArrayTable,
+      'mcp_servers',
+      { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+      'replace',
+    );
+    assert.equal(replaced.ok, true);
+    if (replaced.ok) {
+      assert.match(replaced.content, /\[mcp_servers\.openmotion\]\nurl = "https:\/\/motion\.open-design\.ai\/mcp"/);
+      assert.match(replaced.content, /\[\[profiles\]\]\nurl = "https:\/\/example\.invalid\/profile"/);
+      assert.equal(replaced.content.includes('command ='), false);
     }
   });
 
