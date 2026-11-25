@@ -283,14 +283,14 @@ export function ModelHub({ id, onExplore, onProvider, onOpenMcp, onModel, onUse,
       .some(field => field.toLowerCase().includes(normalizedQuery));
   });
   const impressionResultKey = `${hub?.id ?? ''}:${selectedTag}`;
-  const impressionCatalogKey = `${impressionResultKey}:${filteredCases.map(item => item.id).join(',')}`;
+  const impressionCatalogKey = `${impressionResultKey}:${masonryCount}:${filteredCases.map(item => item.id).join(',')}`;
   useTemplateImpressions(
     pageRef,
     impressionCatalogKey,
-    isShowcaseHub && filteredCases.length > 0 && !activeCaseId,
+    isShowcaseHub && filteredCases.length > 0 && !activeCaseId && accountKnown,
     impressionResultKey,
     templateId => {
-      if (!hub || activeCaseId) return false;
+      if (!hub || activeCaseId || !accountKnown) return false;
       let seen = seenShowcaseImpressions.get(impressionResultKey);
       if (seen?.has(templateId)) return true;
       const position = filteredCases.findIndex(entry => entry.id === templateId);

@@ -6,8 +6,9 @@ import { validProperties } from '../../../tracking/core.ts';
 import { studioEvents } from '../../../tracking/events.ts';
 
 const sent: { event: string; properties: Record<string, unknown> }[] = [];
+let accountSummaryMock: { account: { state: string } | null; error: boolean } = { account: { state: 'signed-out' }, error: false };
 vi.mock('./tracking', () => ({ trackMotion: vi.fn(async (event: string, properties: Record<string, unknown>) => { sent.push({ event, properties }); return 'queued'; }) }));
-vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: { state: 'signed-out' }, error: false }) }));
+vi.mock('./AccountSettings', () => ({ useAccountSummary: () => accountSummaryMock }));
 vi.mock('./useMediaCatalog', () => ({ useMediaCatalog: () => ({ catalog: { models: [], status: { providers: [{ id: 'gemini', label: 'Gemini', available: false }] } }, failed: false, retry: () => {} }) }));
 const { ModelHub, resetModelHubCaseImpressions } = await import('./ModelHub');
 const { I18nProvider } = await import('../i18n/I18n');
@@ -23,6 +24,7 @@ const button = (label: string, scope: ParentNode = document) => [...scope.queryS
   .find(node => node.getAttribute('aria-label') === label || node.textContent?.trim() === label)!;
 beforeEach(() => {
   sent.length = 0;
+  accountSummaryMock = { account: { state: 'signed-out' }, error: false };
   resetModelHubCaseImpressions();
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.removeAttribute('open'); };
@@ -303,6 +305,91 @@ it('pauses showcase card impression observers while the lightbox is open and ded
     });
     expect(of('surface_view')).toHaveLength(1);
   } finally {
+    vi.stubGlobal('IntersectionObserver', origIO);
+    vi.useRealTimers();
+  }
+});
+
+it('re-subscribes showcase card impressions after a masonry column re-pack and waits until account state is known', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+  vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
+
+  type ObserverCallback = (entries: IntersectionObserverEntry[]) => void;
+  let observerCb: ObserverCallback | undefined;
+  let observed = new Set<Element>();
+  let observerCount = 0;
+  class MockIntersectionObserver {
+    constructor(cb: ObserverCallback) {
+      observerCount++;
+      observerCb = cb;
+      observed = new Set<Element>();
+    }
+    observe(el: Element) { observed.add(el); }
+    disconnect() {}
+  }
+  const origIO = globalThis.IntersectionObserver;
+  const origInnerWidth = window.innerWidth;
+  vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+
+  const hub = findModelHub('seedance-2-5')!;
+  const firstCase = hub.cases![0];
+  const secondCase = hub.cases![1];
+  try {
+    // 1. Account state still loading: observer does not start and no false signed_in:false impression fires.
+    accountSummaryMock = { account: null, error: false };
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    await act(async () => root.render(
+      <I18nProvider initialLocale="en">
+        <ModelHub id="seedance-2-5" hasProject onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onScene={() => {}} onSettings={() => {}} />
+      </I18nProvider>,
+    ));
+    expect(observerCount).toBe(0);
+    act(() => { vi.advanceTimersByTime(1500); });
+    expect(of('surface_view')).toHaveLength(0);
+
+    // 2. Account resolves as signed-in: observer attaches and reports signed_in:true.
+    accountSummaryMock = { account: { state: 'signed-in' }, error: false };
+    await act(async () => root.render(
+      <I18nProvider initialLocale="en">
+        <ModelHub id="seedance-2-5" hasProject onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onScene={() => {}} onSettings={() => {}} />
+      </I18nProvider>,
+    ));
+    expect(observerCount).toBe(1);
+    const firstCardBefore = container.querySelector<HTMLElement>(`.om-hub-showcase-card[data-template-id="${firstCase.id}"]`)!;
+    expect(observed.has(firstCardBefore)).toBe(true);
+    act(() => {
+      observerCb?.([{ target: firstCardBefore, isIntersecting: true, intersectionRatio: 0.7 } as IntersectionObserverEntry]);
+      vi.advanceTimersByTime(1000);
+    });
+    expect(of('surface_view')).toEqual([
+      expect.objectContaining({
+        event: 'surface_view',
+        properties: expect.objectContaining({ template_id: firstCase.id, signed_in: true }),
+      }),
+    ]);
+
+    // 3. Window resizes across masonry breakpoint (4 cols -> 2 cols): DOM card nodes re-mount,
+    // observer re-subscribes to the fresh nodes, new card reports, and already-seen card does not double-count.
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 640 });
+    await act(async () => { window.dispatchEvent(new Event('resize')); });
+    expect(observerCount).toBe(2);
+    const firstCardAfter = container.querySelector<HTMLElement>(`.om-hub-showcase-card[data-template-id="${firstCase.id}"]`)!;
+    const secondCardAfter = container.querySelector<HTMLElement>(`.om-hub-showcase-card[data-template-id="${secondCase.id}"]`)!;
+    expect(observed.has(secondCardAfter)).toBe(true);
+    act(() => {
+      observerCb?.([
+        { target: firstCardAfter, isIntersecting: true, intersectionRatio: 0.8 } as IntersectionObserverEntry,
+        { target: secondCardAfter, isIntersecting: true, intersectionRatio: 0.8 } as IntersectionObserverEntry,
+      ]);
+      vi.advanceTimersByTime(1000);
+    });
+    expect(of('surface_view')).toHaveLength(2);
+    expect(of('surface_view')[1]).toMatchObject({
+      event: 'surface_view',
+      properties: expect.objectContaining({ template_id: secondCase.id, signed_in: true }),
+    });
+  } finally {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: origInnerWidth });
     vi.stubGlobal('IntersectionObserver', origIO);
     vi.useRealTimers();
   }
