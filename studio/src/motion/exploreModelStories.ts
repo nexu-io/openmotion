@@ -1,5 +1,7 @@
 import type { Model } from '../../../shared/gateway';
 import { mediaEditorDestination, type StudioDestination } from './creativeStudios';
+import { isOpenDesignProvider, providerRank, studioModelRank } from './imageMenuModels';
+import { MODEL_HUB_MATCHERS, prefersModelHubText, type ModelHubId } from './modelHubMeta';
 import { sceneExamples, type SceneExample } from './sceneShowcase';
 import type { loadGateway } from './gatewayClient';
 import { archivedSkillPoster } from './skillCatalog';
@@ -27,7 +29,7 @@ export const floatingCity: SceneExample = {
 
 // Match versioned family names in the installation catalogue, including dated Cloud IDs.
 export const seedanceStory: ModelStory = {
-  id: 'seedance', modality: 'video', title: 'Seedance 2.5', family: /seedance[\s._/-]*v?2[.\s_-]5(?!\d|\.\d)/i,
+  id: 'seedance', modality: 'video', title: 'Seedance 2.5', family: MODEL_HUB_MATCHERS['seedance-2-5'].modelPattern,
   description: 'Direct an anime opening, freeze a splash or move the light across a product.',
   cases: [
     { destination: mediaEditorDestination('text-to-video'), example: floatingCity },
@@ -37,7 +39,7 @@ export const seedanceStory: ModelStory = {
 };
 
 export const gptImageStory: ModelStory = {
-  id: 'gpt-image', modality: 'image', title: 'GPT Image 2.6', family: /gpt[\s._/-]*image[\s._/-]*v?2[.\s_-]6(?!\d|\.\d)/i,
+  id: 'gpt-image', modality: 'image', title: 'GPT Image 2.6', family: MODEL_HUB_MATCHERS['gpt-image-2-6'].modelPattern,
   description: 'Design a character, lay out a two-ink gig poster or light a product portrait.',
   cases: [
     { destination: mediaEditorDestination('text-to-image'), example: { title: 'Paint an anime character', prompt: 'Paint a young witch in an oversized hat, lit from below by a shower of sparks. Use a dark teal background and keep the silhouette clear.', poster: character, posterPosition: '50% 32%', credit: artCredit, creditUrl: 'https://www.peppercarrot.com/en/viewer/artworks-src__2021-10-10_Pepper_by-David-Revoy.html' } },
@@ -50,12 +52,24 @@ export const modelStories = [seedanceStory, gptImageStory];
 
 export function matchesStory(story: ModelStory, model: Model) {
   return model.modality === story.modality
-    && (story.family.test(model.modelId) || story.family.test(model.label));
+    && (story.family.test(model.id) || story.family.test(model.modelId) || story.family.test(model.label));
 }
+
+const storyHubIds: Record<string, ModelHubId> = {
+  seedance: 'seedance-2-5',
+  'gpt-image': 'gpt-image-2-6',
+};
 
 export function storyModels(story: ModelStory, catalog: Awaited<ReturnType<typeof loadGateway>> | undefined) {
   if (!catalog) return [];
+  const hubId = storyHubIds[story.id];
   const available = new Set(catalog.status.providers.filter(p => p.available && p.mediaEntitlement !== 'not-included').map(p => p.id));
   return catalog.models.filter(model => matchesStory(story, model))
-    .sort((a, b) => Number(available.has(b.provider)) - Number(available.has(a.provider)));
+    .sort((a, b) =>
+      (hubId ? Number(prefersModelHubText(hubId, [b.id, b.modelId, b.label])) - Number(prefersModelHubText(hubId, [a.id, a.modelId, a.label])) : 0)
+      || Number(available.has(b.provider)) - Number(available.has(a.provider))
+      || Number(isOpenDesignProvider(b.provider)) - Number(isOpenDesignProvider(a.provider))
+      || providerRank(a.provider) - providerRank(b.provider)
+      || studioModelRank(a) - studioModelRank(b),
+    );
 }

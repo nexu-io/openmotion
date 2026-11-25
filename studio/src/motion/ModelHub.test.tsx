@@ -4,11 +4,22 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const account = vi.hoisted(() => ({ state: 'signed-out' as string }));
+const defaultCatalog = vi.hoisted(() => ({
+  models: [] as Array<Record<string, unknown>>,
+  status: { providers: [{ id: 'gemini', label: 'Gemini', available: false }] as Array<Record<string, unknown>>, routes: {} as Record<string, string>, agents: [], capabilities: [] },
+}));
+const catalogState = vi.hoisted(() => ({
+  catalog: defaultCatalog as typeof defaultCatalog | undefined,
+  failed: false,
+}));
 vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: { state: account.state } }) }));
-vi.mock('./useMediaCatalog', () => ({ useMediaCatalog: () => ({ catalog: { models: [], status: { providers: [{ id: 'gemini', label: 'Gemini', available: false }] } }, failed: false, retry: () => {} }) }));
+vi.mock('./useMediaCatalog', () => ({ useMediaCatalog: () => ({ catalog: catalogState.catalog, failed: catalogState.failed, retry: () => {} }) }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn(async () => 'queued') }));
 import { ModelHub } from './ModelHub';
 import { findModelHub } from './modelHubs';
+import { creationModels } from './creationModels';
+import { mediaEditorDestination } from './creativeStudios';
+import { gptImageStory, storyModels } from './exploreModelStories';
 import { I18nProvider } from '../i18n/I18n';
 import modelHubUi from '../i18n/model-hub-ui.json';
 
@@ -21,6 +32,8 @@ afterEach(() => {
     root = undefined;
   }
   container?.remove();
+  catalogState.catalog = defaultCatalog;
+  catalogState.failed = false;
 });
 async function render() {
   container = document.createElement('div'); document.body.append(container);
@@ -290,4 +303,149 @@ it('only mounts showcase card video playback on hover/focus and stops when leavi
     playSpy.mockRestore();
     pauseSpy.mockRestore();
   }
+});
+
+it('carries and preselects the hub model on remix and hero CTA only when returned by the backend catalog', async () => {
+  const opendesignProvider = { id: 'opendesign', label: 'OpenDesign', protocol: 'opendesign', category: 'gateway', kinds: ['image', 'video'], configured: true, enabled: true, available: true };
+  const imageModelsWithGpt2 = [
+    { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'Seedream 5.5', modality: 'image', mode: 'text-to-image', source: 'builtin' },
+    { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'GPT Image 2.6 Sunburst', modality: 'image', mode: 'text-to-image', source: 'builtin' },
+    { id: 'opendesign:gpt-image-2.0', provider: 'opendesign', modelId: 'gpt-image-2.0', label: 'GPT Image 2.0', modality: 'image', mode: 'text-to-image', source: 'builtin' },
+  ];
+  const videoModelsWithSeedance = [
+    { id: 'opendesign:wan-2.7', provider: 'opendesign', modelId: 'wan-2.7', label: 'Wan 2.7', modality: 'video', mode: 'text-to-video', source: 'builtin' },
+    { id: 'opendesign:doubao-seedance-2-5-flash-261115', provider: 'opendesign', modelId: 'doubao-seedance-2-5-flash-261115', label: 'Seedance 2.5 Flash', modality: 'video', mode: 'text-to-video', source: 'builtin' },
+    { id: 'opendesign:doubao-seedance-2-5-260628', provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video', source: 'builtin' },
+  ];
+
+  // 1. Backend returns GPT Image 2.0 + Seedance 2.5 -> remix & hero CTA carry and preselect exact preferred model
+  for (const [hubId, models, expectedId] of [
+    ['gpt-image-2-6', imageModelsWithGpt2, 'opendesign:gpt-image-2.0'],
+    ['seedance-2-5', videoModelsWithSeedance, 'opendesign:doubao-seedance-2-5-260628'],
+  ] as const) {
+    catalogState.catalog = {
+      models: [...models],
+      status: { providers: [opendesignProvider], routes: {}, agents: [], capabilities: [] },
+    };
+    const onScene = vi.fn();
+    container = document.createElement('div'); document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root!.render(
+      <I18nProvider initialLocale="zh-CN">
+        <ModelHub id={hubId} onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onScene={onScene} onSettings={() => {}} />
+      </I18nProvider>,
+    ));
+
+    // Card "做同款" CTA
+    await act(async () => container.querySelector<HTMLButtonElement>('.om-hub-showcase-cta')!.click());
+    expect(onScene).toHaveBeenCalledTimes(1);
+    const [remixDest, remixDraft] = onScene.mock.calls[0];
+    expect(remixDest.model).toBe(expectedId);
+    expect(remixDraft.preferredModel).toBe(expectedId);
+
+    // Creation page resolves and selects that exact model
+    const resolved = creationModels(
+      catalogState.catalog as Parameters<typeof creationModels>[0],
+      remixDest.scene.modality,
+      remixDest.model,
+      remixDest.scene,
+      false,
+      0,
+      remixDraft.preferredModel,
+    );
+    expect(resolved.selected?.id).toBe(expectedId);
+    expect(resolved.preferred?.id).toBe(expectedId);
+
+    // Hero primary CTA ("前往生图" / "开始创作") also carries the matched model
+    await act(async () => container.querySelector<HTMLButtonElement>('.om-hub-editorial-cta')!.click());
+    expect(onScene).toHaveBeenCalledTimes(2);
+    expect(onScene.mock.calls[1][0].model).toBe(expectedId);
+
+    act(() => root!.unmount());
+    root = undefined;
+    container.remove();
+  }
+
+  // 2. Backend does NOT return GPT Image 2.x -> remix & hero CTA leave model unselected (no fake pin)
+  const catalogWithoutGpt2 = {
+    models: [
+      { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'Seedream 5.5', modality: 'image', mode: 'text-to-image', source: 'builtin' },
+      { id: 'opendesign:nano-banana-2', provider: 'opendesign', modelId: 'nano-banana-2', label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'builtin' },
+    ],
+    status: { providers: [opendesignProvider], routes: { image: 'opendesign:seedream-5.5' }, agents: [], capabilities: [] },
+  };
+  catalogState.catalog = catalogWithoutGpt2;
+  const onSceneMissing = vi.fn();
+  container = document.createElement('div'); document.body.append(container);
+  root = createRoot(container);
+  await act(async () => root!.render(
+    <I18nProvider initialLocale="zh-CN">
+      <ModelHub id="gpt-image-2-6" onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onScene={onSceneMissing} onSettings={() => {}} />
+    </I18nProvider>,
+  ));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-hub-showcase-cta')!.click());
+  const [missingDest, missingDraft] = onSceneMissing.mock.calls[0];
+  expect(missingDest.model).toBeNull();
+  expect(missingDraft.preferredModel).toBeUndefined();
+  const resolvedMissing = creationModels(
+    catalogWithoutGpt2 as Parameters<typeof creationModels>[0],
+    'image',
+    missingDest.model,
+    missingDest.scene,
+    false,
+    0,
+    missingDraft.preferredModel,
+  );
+  expect(resolvedMissing.selected?.id).toBe('opendesign:seedream-5.5');
+  act(() => root!.unmount());
+  root = undefined;
+  container.remove();
+
+  // 3. Catalog still loading on ModelHub -> passes soft hub hint; creationModels selects only if backend returns it
+  catalogState.catalog = undefined;
+  const onSceneLoading = vi.fn();
+  container = document.createElement('div'); document.body.append(container);
+  root = createRoot(container);
+  await act(async () => root!.render(
+    <I18nProvider initialLocale="zh-CN">
+      <ModelHub id="gpt-image-2-6" onExplore={() => {}} onProvider={() => {}} onModel={() => {}} onUse={() => {}} onScene={onSceneLoading} onSettings={() => {}} />
+    </I18nProvider>,
+  ));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-hub-showcase-cta')!.click());
+  const [loadingDest, loadingDraft] = onSceneLoading.mock.calls[0];
+  expect(loadingDest.model).toBeNull();
+  expect(loadingDraft.preferredModel).toBe('hub:gpt-image-2-6');
+
+  const liveWithGpt2 = {
+    models: [
+      { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'Seedream 5.5', modality: 'image', mode: 'text-to-image', source: 'builtin' },
+      { id: 'opendesign:gpt-image-2', provider: 'opendesign', modelId: 'gpt-image-2', label: 'GPT Image 2.0', modality: 'image', mode: 'text-to-image', source: 'builtin' },
+    ],
+    status: { providers: [opendesignProvider], routes: { image: 'opendesign:seedream-5.5' }, agents: [], capabilities: [] },
+  };
+  expect(creationModels(liveWithGpt2 as Parameters<typeof creationModels>[0], 'image', null, loadingDest.scene, false, 0, loadingDraft.preferredModel).selected?.id)
+    .toBe('opendesign:gpt-image-2');
+  expect(creationModels(catalogWithoutGpt2 as Parameters<typeof creationModels>[0], 'image', null, loadingDest.scene, false, 0, loadingDraft.preferredModel).selected?.id)
+    .toBe('opendesign:seedream-5.5');
+  // Explicit user switch overrides soft hub hint
+  expect(creationModels(liveWithGpt2 as Parameters<typeof creationModels>[0], 'image', 'opendesign:seedream-5.5', loadingDest.scene, false, 0, loadingDraft.preferredModel).selected?.id)
+    .toBe('opendesign:seedream-5.5');
+
+  // 4. Explore story models + Cinema template preferredModel work for both live and guest/compatible catalogs
+  expect(storyModels(gptImageStory, liveWithGpt2 as Parameters<typeof storyModels>[1])[0]?.id).toBe('opendesign:gpt-image-2');
+  expect(storyModels(gptImageStory, catalogWithoutGpt2 as Parameters<typeof storyModels>[1])).toEqual([]);
+  const guestVideoCatalog = {
+    models: videoModelsWithSeedance,
+    status: { providers: [], routes: {}, agents: [], capabilities: [] },
+  };
+  const guestCinemaResolved = creationModels(
+    guestVideoCatalog as Parameters<typeof creationModels>[0],
+    'video',
+    null,
+    mediaEditorDestination('text-to-video').scene,
+    false,
+    0,
+    'doubao-seedance-2-5-260628',
+  );
+  expect(guestCinemaResolved.preferred?.id).toBe('opendesign:doubao-seedance-2-5-260628');
 });

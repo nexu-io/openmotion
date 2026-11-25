@@ -568,9 +568,14 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     // A brief started from a technique studio keeps its Skill so its draft stays separate from other studios' briefs.
     const skill = typeof seed === 'object' && (studio?.studio.surface === 'techniques' || (studio?.landing && page.specialty)) ? page.skill : null;
     if (studio && seed) {
-      studioDrafts.current.set(studioDraftKey(studio, skill), typeof seed === 'string'
+      const key = studioDraftKey(studio, skill);
+      const existing = studioDrafts.current.get(key);
+      const nextDraft: AssetDraft = typeof seed === 'string'
         ? { modality: studio.scene.modality, prompt: seed, references: [] }
-        : seed);
+        : (!seed.prompt && !seed.guideExample && !seed.references.length && existing?.prompt
+          ? { ...existing, model: undefined, preferredModel: seed.preferredModel ?? existing.preferredModel }
+          : seed);
+      studioDrafts.current.set(key, nextDraft);
       setStudioVisit(number => number + 1);
     }
     navigatePage({ studio, skill, settings: null, assets: false, skills: false, templates: false, ...lastExplore.current },

@@ -5,7 +5,7 @@ import { studioDestination, type StudioDestination } from './creativeStudios';
 import seedanceHeroPoster from './model-hubs/seedance-2-5/hero.webp?no-inline';
 import gptImageHeroPoster from './model-hubs/gpt-image-2-6/hero.webp?no-inline';
 import { buildGptImageShowcaseCases, buildSeedanceShowcaseCases } from './model-hubs/curatedCases';
-import { MODEL_HUB_LATEST_MODELS } from './modelHubMeta';
+import { MODEL_HUB_LATEST_MODELS, MODEL_HUB_MATCHERS } from './modelHubMeta';
 
 /** Local posters for posts whose X cover is a blank first frame; captured mid-video. */
 const posterOverrides: Record<string, string> = Object.fromEntries(Object.entries(import.meta.glob('./model-hubs/gemini-4/posters/*.avif', { query: '?url', import: 'default', eager: true }) as Record<string, string>)
@@ -88,7 +88,7 @@ export const modelHubs: ModelHub[] = [
 
     poster: seedanceHeroPoster,
     provider: 'opendesign',
-    modelPattern: /seedance[\s._/-]*v?2[.\s_-]5(?!\d|\.\d)/i,
+    modelPattern: MODEL_HUB_MATCHERS['seedance-2-5'].modelPattern,
     companionPattern: /seedream|kling|veo|wan/i,
     primaryDestination: cinemaTextToVideo,
     primaryCta: 'Start Creating',
@@ -112,7 +112,7 @@ export const modelHubs: ModelHub[] = [
 
     poster: gptImageHeroPoster,
     provider: 'opendesign',
-    modelPattern: /gpt[\s._/-]*image[\s._/-]*v?2[.\s_-][06](?!\d|\.\d)/i,
+    modelPattern: MODEL_HUB_MATCHERS['gpt-image-2-6'].modelPattern,
     companionPattern: /seedream|nano-banana|flux|imagen/i,
     primaryDestination: designTextToImage,
     primaryCta: 'Create Image',
@@ -135,7 +135,7 @@ export const modelHubs: ModelHub[] = [
     summary: 'Google’s newest frontier model writes whole animations in code. The hottest Gemini 4 videos on X are all here.',
     poster: geminiPoster,
     provider: 'gemini',
-    modelPattern: /gemini-4/i,
+    modelPattern: MODEL_HUB_MATCHERS['gemini-4'].modelPattern,
     companionPattern: /google\/|nano-banana|veo|imagen/i,
     videos: gemini4Videos.map(withPoster),
   },

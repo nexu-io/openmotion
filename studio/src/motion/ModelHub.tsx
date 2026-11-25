@@ -14,6 +14,7 @@ import { ModelAvatar } from './settingsPrimitives';
 import { useMediaCatalog } from './useMediaCatalog';
 import { useAccountSummary } from './AccountSettings';
 import { mediaLabels, sceneDestination, type StudioDestination } from './creativeStudios';
+import { selectModelForHub } from './creationModels';
 import { isOpenDesignProvider } from './imageMenuModels';
 import type { AssetDraft } from './AssetComposer';
 import { findModelHub, type HubShowcaseCase } from './modelHubs';
@@ -285,15 +286,22 @@ export function ModelHub({ id, onExplore, onProvider, onOpenMcp, onModel, onUse,
     });
   const companions = catalog?.models.filter(model => !served.includes(model) && (hub.companionPattern.test(model.id) || hub.companionPattern.test(model.modelId))) ?? [];
   const gateway = catalog?.status.providers.find(item => item.id === 'opendesign') ?? catalog?.status.providers[0];
-  const preferredModelId = served[0]?.id;
+  const matchHubModel = (scene?: StudioDestination['scene']) =>
+    selectModelForHub(hub.id, catalog?.models ?? [], scene, catalog?.status.providers);
+  const primaryMatchedModel = matchHubModel(hub.primaryDestination?.scene);
   const track = (area: Parameters<typeof reportHubClick>[1], element: Parameters<typeof reportHubClick>[2], fields: Parameters<typeof reportHubClick>[3] = {}) =>
     reportHubClick(hub.id, area, element, { signedIn, ...fields });
 
   const openDestination = (destination: StudioDestination, seed?: string | AssetDraft) => {
-    const resolved = preferredModelId
-      ? sceneDestination(destination.scene, destination, preferredModelId)
-      : destination;
-    if (onScene) onScene(resolved, seed);
+    const matched = matchHubModel(destination.scene);
+    const resolved = sceneDestination(destination.scene, destination, matched?.id ?? null);
+    const nextSeed = seed ?? (!matched && !catalog && !failed ? {
+      modality: destination.scene.modality,
+      prompt: '',
+      preferredModel: `hub:${hub.id}`,
+      references: [],
+    } satisfies AssetDraft : undefined);
+    if (onScene) onScene(resolved, nextSeed);
     else onUse();
   };
 
@@ -302,10 +310,11 @@ export function ModelHub({ id, onExplore, onProvider, onOpenMcp, onModel, onUse,
     const aspect = aspectRatioLabel(item.aspectRatio);
     const modality = item.destination.scene.modality;
     const remixClip = item.videoHd || item.video;
+    const matched = matchHubModel(item.destination.scene);
     const draft: AssetDraft = {
       modality,
       prompt,
-      preferredModel: preferredModelId,
+      preferredModel: matched?.id ?? (!catalog && !failed ? `hub:${hub.id}` : undefined),
       shotPreferences: { aspect, duration: modality === 'video' ? 5 : undefined },
       guideExample: {
         title: t(item.title),
@@ -317,7 +326,7 @@ export function ModelHub({ id, onExplore, onProvider, onOpenMcp, onModel, onUse,
       references: [],
     };
     setActiveCaseId(null);
-    track('hub_hero', 'open_in_studio', { model: preferredModelId ?? hub.id });
+    track('hub_hero', 'open_in_studio', { model: matched?.id ?? primaryMatchedModel?.id ?? hub.id });
     openDestination(item.destination, draft);
   };
 
