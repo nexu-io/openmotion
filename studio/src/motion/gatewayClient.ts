@@ -109,6 +109,10 @@ function normalizeStatus(raw: Partial<GatewayStatus> | null | undefined): Gatewa
   };
 }
 
+function isLegacyRouteNotFound(err: unknown): boolean {
+  return (err as CloudApiError | null)?.status === 404;
+}
+
 export async function loadGateway(): Promise<{ status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }> {
   ensureGatewayInvalidationListener();
   if (cacheEnabled && cachedGateway && cachedGateway.expiresAt > Date.now()) {
@@ -119,10 +123,16 @@ export async function loadGateway(): Promise<{ status: GatewayStatus; models: Mo
   const run = Promise.all([
     gatewayRequest<Partial<GatewayStatus>>('models/status')
       .then(res => (Array.isArray(res?.providers) ? res : gatewayRequest<Partial<GatewayStatus>>('models/capabilities').catch(() => res)))
-      .catch(() => gatewayRequest<Partial<GatewayStatus>>('models/capabilities')),
+      .catch((err: unknown) => {
+        if (isLegacyRouteNotFound(err)) return gatewayRequest<Partial<GatewayStatus>>('models/capabilities');
+        throw err;
+      }),
     gatewayRequest<{ models?: Model[]; mode?: 'opendesign' | 'mock' }>('models/catalog')
       .then(async res => (Array.isArray(res?.models) ? res : { models: await loadModels(), mode: res?.mode }))
-      .catch(async () => ({ models: await loadModels(), mode: undefined })),
+      .catch(async (err: unknown) => {
+        if (isLegacyRouteNotFound(err)) return { models: await loadModels(), mode: undefined };
+        throw err;
+      }),
   ]).then(([rawStatus, catalog]) => {
     const result = {
       status: normalizeStatus(rawStatus),

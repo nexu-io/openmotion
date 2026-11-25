@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Button } from 'open-design-ui/button';
 import { RemixIcon } from '../../../../packages/design-system/react/RemixIcons';
 import { designBriefPrompt, designScenarios, findDesignScenario, type DesignTemplateSummary } from '../../../../shared/design-project';
@@ -17,27 +17,56 @@ import '../design.css';
  * Design Studio HTML scenarios and live-preview starter template shelf embedded in Explore.
  */
 export function ExploreDesignSection({
+  active = true,
+  scrollRoot,
+  observerTargetRef,
   onSelectDesignScene,
   onOpenProject,
 }: {
+  active?: boolean;
+  scrollRoot?: RefObject<HTMLElement | null>;
+  observerTargetRef?: RefObject<HTMLElement | null>;
   onSelectDesignScene: (scene: DesignTabId) => void;
   onOpenProject: (projectId: string) => void;
 }) {
   const { t, locale } = useI18n();
   const { info: integrationInfo } = useIntegrationInfo();
   const toast = useToast();
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const [templatesRequested, setTemplatesRequested] = useState(false);
   const [templates, setTemplates] = useState<DesignTemplateSummary[]>([]);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const [remixing, setRemixing] = useState(false);
   const previewTrigger = useRef<HTMLButtonElement>(null);
+  const requestTemplates = () => setTemplatesRequested(true);
 
   useEffect(() => {
-    let active = true;
+    if (!active || templatesRequested) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setTemplatesRequested(true);
+      return;
+    }
+    // Observe the outer content-visibility host when provided so preloading fires at the full 800px lead distance.
+    const node = observerTargetRef?.current ?? sectionRef.current;
+    if (!node) return;
+    const root = scrollRoot?.current ?? node.closest('.om-explore');
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      observer.disconnect();
+      setTemplatesRequested(true);
+    }, { root, rootMargin: '0px 0px 800px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [active, templatesRequested, scrollRoot, observerTargetRef]);
+
+  useEffect(() => {
+    if (!templatesRequested) return;
+    let mounted = true;
     designClient.listTemplates({ limit: 8 }).then(res => {
-      if (active && Array.isArray(res?.items)) setTemplates(res.items);
+      if (mounted && Array.isArray(res?.items)) setTemplates(res.items);
     }).catch(() => { /* optional in offline/mocked tests */ });
-    return () => { active = false; };
-  }, []);
+    return () => { mounted = false; };
+  }, [templatesRequested]);
 
   const openPreview = (index: number, trigger: HTMLButtonElement) => {
     const template = templates[index];
@@ -83,7 +112,13 @@ export function ExploreDesignSection({
   };
 
   return (
-    <div className="om-design-explore-block" data-design-explore-section="">
+    <div
+      ref={sectionRef}
+      className="om-design-explore-block"
+      data-design-explore-section=""
+      onPointerEnter={templatesRequested ? undefined : requestTemplates}
+      onFocusCapture={templatesRequested ? undefined : requestTemplates}
+    >
       <div className="om-design-section-head">
         <span className="om-design-muted">{t('HTML design scenarios · built with your MCP Agent')}</span>
         <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="folder-open-line" size={14} />} onClick={() => onSelectDesignScene('projects')}>

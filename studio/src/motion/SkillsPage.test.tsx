@@ -294,9 +294,14 @@ it('serves Skill covers from first-party assets and streams previews only during
   act(() => root.render(<SkillMedia skill={skill} />));
   expect(container.querySelector('video')).toBeNull();
   act(() => root.render(<SkillMedia skill={skill} playing />));
-  expect(container.querySelector('video')?.getAttribute('src')).toBe(skill.cover?.video);
+  const activeVideo = container.querySelector('video')!;
+  expect(activeVideo.getAttribute('src')).toBe(skill.cover?.video);
+  expect(activeVideo.getAttribute('preload')).toBe('none');
+  const loadSpy = vi.spyOn(activeVideo, 'load').mockImplementation(() => {});
   act(() => root.render(<SkillMedia skill={skill} playing={false} />));
   expect(container.querySelector('video')).toBeNull();
+  expect(activeVideo.hasAttribute('src')).toBe(false);
+  expect(loadSpy).toHaveBeenCalledTimes(1);
   expect(container.querySelectorAll('img')).toHaveLength(2);
 });
 

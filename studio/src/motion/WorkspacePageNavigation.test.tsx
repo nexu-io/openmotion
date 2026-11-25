@@ -1043,7 +1043,24 @@ it('opens a collection with its filters and opens individual Explore cards direc
   expect(container.querySelector('dialog[open] h2')).toBeTruthy();
 });
 
+function stubExploreVisibility() {
+  const observed = new Map<Element, () => void>();
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) { observed.set(target, () => this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }])); }
+    unobserve(target: Element) { observed.delete(target); }
+    disconnect() {}
+  });
+  return async (selector: string) => {
+    const target = container.querySelector(selector)!;
+    expect(target, selector).toBeTruthy();
+    expect(observed.has(target), `observed(${selector})`).toBe(true);
+    await act(async () => observed.get(target)!());
+  };
+}
+
 it('previews an Explore Design template from its cover and title and creates a project with Use', async () => {
+  const reveal = stubExploreVisibility();
   const fallback = fetcher.getMockImplementation()!;
   const createDesign = vi.fn<(body: RequestInit['body']) => Response>(() => Response.json({ project: { id: 'my-design' } }));
   fetcher.mockImplementation((input: string, init?: RequestInit) => {
@@ -1054,6 +1071,7 @@ it('previews an Explore Design template from its cover and title and creates a p
   });
   await mount();
   await click('Explore');
+  await reveal('section[data-studio="design"]');
   const card = container.querySelector<HTMLElement>('[data-design-explore-section] [data-design-template="fixture-prototype"]')!;
   const cover = card.querySelector<HTMLElement>('.om-design-card-thumb')!;
   const title = card.querySelector<HTMLButtonElement>('.om-design-card-open')!;
@@ -1388,9 +1406,29 @@ it('rotates the visible Explore spotlight and plays visible Skill previews witho
     expect(hero.dataset.scene).toBe('text-to-image');
     await act(async () => { vi.advanceTimersByTime(6000); });
     expect(hero.dataset.scene).toBe('ai-influencer');
+    const pausedVideos = new Set<HTMLMediaElement>();
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (this: HTMLMediaElement) {
+      pausedVideos.add(this);
+    });
+    const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
     act(() => { observed.get(hero)!(false); cards.forEach(card => observed.get(card)!(false)); });
     expect(hero.querySelector('video[src]')).toBeNull();
-    for (const card of cards) expect(card.querySelector('video[src]')).toBeNull();
+    // Bounded warm-pause retention keeps recently visible Explore cards paused without unloading src
+    // until the tab hides or the pool evicts them.
+    for (const card of cards) {
+      const video = card.querySelector<HTMLVideoElement>('video[src]');
+      expect(video).toBeTruthy();
+      expect(pausedVideos.has(video!)).toBe(true);
+    }
+    try {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+      for (const card of cards) expect(card.querySelector('video[src]')).toBeNull();
+    } finally {
+      if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
+      else delete (document as { hidden?: boolean }).hidden;
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    }
     act(() => { vi.advanceTimersByTime(6000); });
     expect(hero.dataset.scene).toBe('ai-influencer');
     await act(async () => hero.querySelector<HTMLButtonElement>('.om-media-segments [aria-label="Featured · Motion Studio"]')!.click());
@@ -2046,6 +2084,7 @@ it.each(['three-js', 'babylon-js', 'lume', 'blender', 'openmotion-surreal-3d-pos
 });
 
 it('opens model cases with a compatible provider and the same prompt from both discovery entries', async () => {
+  const reveal = stubExploreVisibility();
   const baseFetch = fetcher.getMockImplementation()!;
   const image = { id: 'cloud:gpt-image-2.6-flare', provider: 'cloud', modelId: 'gpt-image-2.6-flare', label: 'GPT Image 2.6', modality: 'image', mode: 'text-to-image', source: 'live' };
   const edit = { ...image, id: 'cloud:gpt-image-2.6/edit', modelId: 'gpt-image-2.6/edit', supportsImageReference: true, mode: 'image-to-image' };
@@ -2057,6 +2096,7 @@ it('opens model cases with a compatible provider and the same prompt from both d
     return baseFetch(input, init);
   });
   await mount(); await click('Explore');
+  await reveal('section[aria-labelledby="explore-gpt-image"]');
   const section = () => container.querySelector('section[aria-labelledby="explore-gpt-image"]')!;
   const choose = async (scope: Element, selector: string) => {
     const target = scope.querySelector<HTMLButtonElement>(selector)!;
@@ -2142,7 +2182,9 @@ it.each([
 });
 
 it('keeps unlisted model briefs usable and links an Explore workflow to the Claude handbook example', async () => {
+  const reveal = stubExploreVisibility();
   await mount(); await click('Explore');
+  await reveal('section[aria-labelledby="explore-seedance"]');
   const fallback = container.querySelector<HTMLButtonElement>('[aria-labelledby="explore-seedance"] .om-story-card')!;
   expect(fallback.querySelector('.om-feed-card-label')).toBeNull();
   await act(async () => fallback.click());
@@ -2185,6 +2227,7 @@ it('opens the same libraries from the Explore header, shelf actions and Skills f
 });
 
 it('opens Creators in the shared Explore shell and keeps its search and history', async () => {
+  const reveal = stubExploreVisibility();
   const fallback = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
     const path = new URL(input, location.origin).pathname;
@@ -2198,6 +2241,7 @@ it('opens Creators in the shared Explore shell and keeps its search and history'
   });
   await mount();
   await click('Explore');
+  await reveal('section[aria-labelledby="explore-seedance"]');
   const header = container.querySelector('.om-app-header');
   const entry = container.querySelector<HTMLButtonElement>('[aria-labelledby="explore-community"] header button')!;
   expect(entry.className).toBe(button('Manage providers').className);

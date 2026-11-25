@@ -7,6 +7,7 @@ import { isNotFoundSpaPath, isStandaloneSpaPath } from '../../../shared/spa-rout
 import { activeWorkspaceInterval, subscribeProjectActivity, watchWorkspaceRead } from './workspaceRefresh';
 import { getStudioSaveSnapshot, subscribeStudioSaves } from '../utils/studioSaveState';
 import { diagnosticFetch } from './diagnosticRequests';
+import { setDiagnosticsAuthState } from './diagnostics';
 import { initializeWorkspaceHistory, WORKSPACE_LOCATION_CHANGED, workspaceHistoryIndex, workspaceHistorySession, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { readWorkspacePage } from './workspacePageRouting';
 import {
@@ -86,6 +87,8 @@ export function useWorkspace(
   options?: {
     externalHistoryGuard?: boolean;
     allowUnscopedStatusFallback?: boolean;
+    /** Skip the unscoped `/project/status` probe on non-editor pages until `/projects` confirms authentication. */
+    deferUnscopedStatusUntilCatalog?: boolean;
     onStaleProjectId?: (projectId: string) => void;
   },
 ) {
@@ -129,6 +132,7 @@ export function useWorkspace(
   const checkingConnection = statusRead.attempt < connectionCheck || catalogRead.attempt < connectionCheck;
   const retryConnection = useCallback(() => setConnectionCheck(value => value + 1), []);
   const refreshWorkspaceCatalog = useRef<((delay: number) => void) | null>(null);
+  const refreshWorkspaceStatus = useRef<((delay: number) => void) | null>(null);
   const knownCatalog = useRef<readonly SavedProject[] | null>(null);
   const acting = useRef(false);
   const pendingSession = useRef<{ key: string; id: string } | null>(null);
@@ -217,6 +221,7 @@ export function useWorkspace(
         const status = (err as { status?: number } | null)?.status;
         if (status === 401) {
           if (!controller.signal.aborted) {
+            setDiagnosticsAuthState(false);
             setAuthRequired(true);
             setCatalogLoaded(false);
             setCatalogRead({ attempt: connectionCheck, error: '' });
@@ -226,6 +231,7 @@ export function useWorkspace(
         throw err;
       }
       if (controller.signal.aborted) return Infinity;
+      setDiagnosticsAuthState(true);
       setAuthRequired(false);
       setCatalogLoaded(true);
       updateCatalog(catalog);
@@ -253,7 +259,27 @@ export function useWorkspace(
     };
   }, [editingProject, sessionWithoutProject, updateCatalog, connectionCheck, navigate]);
 
+  const deferUnscopedStatus = Boolean(
+    options?.deferUnscopedStatusUntilCatalog && !effectiveProjectId && !sessionWithoutProject,
+  );
+  const statusReadAllowed = !deferUnscopedStatus || catalogLoaded;
+
   useEffect(() => {
+    const handleAccountChanged = () => {
+      setProjects([]);
+      setActiveProjectId(null);
+      setSessions([]);
+      setAuthRequired(false);
+      setCatalogLoaded(false);
+      refreshWorkspaceStatus.current?.(0);
+      refreshWorkspaceCatalog.current?.(0);
+    };
+    window.addEventListener('motion:account-changed', handleAccountChanged);
+    return () => window.removeEventListener('motion:account-changed', handleAccountChanged);
+  }, []);
+
+  useEffect(() => {
+    if (!statusReadAllowed) return;
     const controller = new AbortController();
     const refreshStatus = watchWorkspaceRead(controller.signal, async () => {
       let data: WorkspaceStatus;
@@ -294,6 +320,7 @@ export function useWorkspace(
       // Keep a bounded reconciliation for missed events and non-editor views.
       return exporting ? activeWorkspaceInterval : 120_000;
     }, error => setStatusRead({ attempt: connectionCheck, error }));
+    refreshWorkspaceStatus.current = refreshStatus;
 
     // Local writes and server-backed history both update the project save store.
     let savedAt = getStudioSaveSnapshot(effectiveProjectId ?? null).savedAt;
@@ -311,23 +338,13 @@ export function useWorkspace(
         refreshWorkspaceCatalog.current?.(0);
       } else if (event === 'render-updated') refreshStatus(activeWorkspaceInterval);
     });
-    const handleAccountChanged = () => {
-      setProjects([]);
-      setActiveProjectId(null);
-      setSessions([]);
-      setAuthRequired(false);
-      setCatalogLoaded(false);
-      refreshStatus(0);
-      refreshWorkspaceCatalog.current?.(0);
-    };
-    window.addEventListener('motion:account-changed', handleAccountChanged);
     return () => {
       controller.abort();
+      refreshWorkspaceStatus.current = null;
       unsubscribeSaves();
       unsubscribeActivity();
-      window.removeEventListener('motion:account-changed', handleAccountChanged);
     };
-  }, [effectiveProjectId, request, connectionCheck, sessionWithoutProject]);
+  }, [effectiveProjectId, request, connectionCheck, sessionWithoutProject, statusReadAllowed]);
 
   const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string; requestId?: string }, route: { session?: boolean; revealArtifact?: boolean; existing?: OpenTarget } = {}) => {
     if (acting.current) return false;

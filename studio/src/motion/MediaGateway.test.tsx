@@ -40,8 +40,8 @@ it('hides the empty guide during generation, restores it on close, and removes i
   const job = { id: 'completed', projectId: 'project', state: 'completed', prompt: 'a forest', model,
     assets: [{ path: 'assets/generated/one.png', bytes: 1000, mimeType: 'image/png' }] } as GenerationJob;
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    if (url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], routes: {} });
-    if (url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
+    if (url.includes('models/status') || url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], routes: {} });
+    if (url.includes('models/catalog') || url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
     if (url.includes('project/status')) return Response.json({ projectId: 'project' });
     if (url.includes('/generations?')) return Response.json({ jobs: [job] });
     throw new Error('Unexpected request ' + url);
@@ -79,8 +79,8 @@ it('generates for its own project while another project is globally active, then
   const place = vi.fn().mockResolvedValue(undefined);
   const jobs: GenerationJob[] = []; let submitted: Record<string, unknown> | undefined;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], agents: [], routes: {}, capabilities: [] });
-    if (url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
+    if (url.includes('models/status') || url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], agents: [], routes: {}, capabilities: [] });
+    if (url.includes('models/catalog') || url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
     if (url.includes('project/status')) return Response.json({ projectId: url.includes('projectId=native-project') ? 'native-project' : 'workspace-project' });
     if ((url.endsWith('/generations') || url.endsWith('/models/generate')) && init?.method === 'POST') {
       submitted = JSON.parse(init.body as string);
@@ -116,8 +116,8 @@ it('edits a reference with a supported model, preserves placement and applies on
   let submitted: Record<string, unknown> | undefined;
   const jobs: GenerationJob[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }, { id: 'fal', available: true }], routes: { image: 'fal:flux' } });
-    if (url.includes('/models?')) return Response.json({ models: [{ ...model, supportsImageReference: true }, { ...model, id: 'fal:flux', provider: 'fal', label: 'Flux' }], nextOffset: null });
+    if (url.includes('models/status') || url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }, { id: 'fal', available: true }], routes: { image: 'fal:flux' } });
+    if (url.includes('models/catalog') || url.includes('/models?')) return Response.json({ models: [{ ...model, supportsImageReference: true }, { ...model, id: 'fal:flux', provider: 'fal', label: 'Flux' }], nextOffset: null });
     if (url.includes('project/status')) return Response.json({ projectId: 'native' });
     if ((url.endsWith('/generations') || url.endsWith('/models/generate')) && init?.method === 'POST') {
       submitted = JSON.parse(init.body as string);
@@ -141,8 +141,8 @@ it('edits a reference with a supported model, preserves placement and applies on
 
 it('hides generation controls with the owning Viewer without losing the unsent prompt or submitting a request', async () => {
   const fetcher = vi.fn(async (url: string) => {
-    if (url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], routes: {} });
-    if (url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
+    if (url.includes('models/status') || url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], routes: {} });
+    if (url.includes('models/catalog') || url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
     if (url.endsWith('project/status')) return Response.json({ projectId: 'project' });
     if (url.includes('/generations?')) return Response.json({ jobs: [] });
     throw new Error('Unexpected request ' + url);

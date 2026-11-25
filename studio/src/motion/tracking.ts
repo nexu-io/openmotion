@@ -29,6 +29,13 @@ export function initializeTracking() {
         const response = await fetch('/motion-api/tracking', {
           redirect: 'error', signal: AbortSignal.any([request.signal, AbortSignal.timeout(1000)]),
         });
+        if (response.status === 401 || response.status === 403) {
+          if (!request.signal.aborted) {
+            configuration = 'unavailable';
+            retryAt = Date.now() + 30_000;
+          }
+          return;
+        }
         if (!response.ok) throw new Error('CONFIG_UNAVAILABLE');
         const config: unknown = await response.json();
         if (!config || typeof config !== 'object' || !('enabled' in config) || typeof config.enabled !== 'boolean') throw new Error('INVALID_CONFIG');

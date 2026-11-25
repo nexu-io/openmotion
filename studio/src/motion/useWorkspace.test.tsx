@@ -561,3 +561,43 @@ it('does not fall back on 404 status when editing an active project route', asyn
   expect(workspace.status).toBeNull();
   expect(workspace.connectionError).toContain('not found');
 });
+
+it('skips the unscoped /project/status probe for unauthenticated non-editor pages and resumes after sign-in', async () => {
+  const seenUrls: string[] = [];
+  let signedIn = false;
+  fetcher.mockImplementation(async (url: string) => {
+    seenUrls.push(url);
+    const parsed = new URL(url, location.origin);
+    if (!signedIn) {
+      return Response.json(
+        { code: 'UNAUTHORIZED', errorCode: 'auth_required', error: 'Authentication required' },
+        { status: 401 },
+      );
+    }
+    if (parsed.pathname.endsWith('/projects')) {
+      return Response.json({ activeId: first, projects: [{ id: first, title: 'First' }], sessions: [] });
+    }
+    return Response.json(status);
+  });
+  function Harness() {
+    workspace = useWorkspace(async () => {}, undefined, undefined, undefined, {
+      allowUnscopedStatusFallback: true,
+      deferUnscopedStatusUntilCatalog: true,
+    });
+    return null;
+  }
+  await act(async () => root.render(<Harness />));
+  expect(workspace.authRequired).toBe(true);
+  expect(seenUrls).toEqual(['/motion-api/projects']);
+
+  // Signing in fires motion:account-changed, reloads /projects, and then loads /project/status.
+  signedIn = true;
+  seenUrls.length = 0;
+  await act(async () => {
+    window.dispatchEvent(new Event('motion:account-changed'));
+    await new Promise(resolve => setTimeout(resolve, 20));
+  });
+  expect(workspace.authRequired).toBe(false);
+  expect(workspace.status?.projectId).toBe(first);
+  expect(seenUrls).toEqual(['/motion-api/projects', '/motion-api/project/status?view=summary']);
+});

@@ -66,11 +66,13 @@ export function TemplatePoster({ template, eager = false, coverUrl, brandedFallb
 }
 
 export const TemplateGalleryCard = memo(function TemplateGalleryCard({
-  template, onSelect, active, onPriority, playbackId, footer, brandCredit = false, resourceKind = 'template', animatedPreview, coverUrl, showAvatar = true, showCoverDuration = true, brandedFallback = false,
+  template, onSelect, active, retained, onPriority, playbackId, footer, brandCredit = false, resourceKind = 'template', animatedPreview, coverUrl, showAvatar = true, showCoverDuration = true, brandedFallback = false,
 }: {
   template: GalleryTemplate;
   onSelect: (template: GalleryTemplate, trigger: HTMLButtonElement) => void;
   active: boolean;
+  /** Keep the loaded video element paused offscreen inside a bounded LRU pool to avoid re-fetching on short scrolls. */
+  retained?: boolean;
   onPriority: (id: string | null) => void;
   playbackId?: string;
   footer?: ReactNode;
@@ -83,10 +85,18 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
   brandedFallback?: boolean;
 }) {
   const { t } = useI18n();
+  const keepLoaded = Boolean(retained ?? active);
   const video = useRef<HTMLVideoElement>(null);
+  const resumedFromWarmPause = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [animate, setAnimate] = useState(false);
+  useEffect(() => {
+    resumedFromWarmPause.current = false;
+    setFailed(false);
+    setRetryCount(0);
+  }, [template.previewUrl]);
   useEffect(() => {
     if (!active || !animatedPreview) { setAnimate(false); return; }
     const intent = setTimeout(() => setAnimate(true), 250);
@@ -94,14 +104,29 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
   }, [active, animatedPreview]);
   useEffect(() => {
     const element = video.current;
-    if (!element || !active || !template.previewUrl || failed) return;
-    let cancelled = false;
-    element.src = template.previewUrl;
-    void element.play().catch(() => { if (!cancelled) setPlaying(false); });
+    if (!element || !keepLoaded || !template.previewUrl || failed) return;
+    if (element.getAttribute('src') !== template.previewUrl) element.src = template.previewUrl;
     return () => {
-      cancelled = true; element.pause(); element.removeAttribute('src'); element.load(); setPlaying(false);
+      resumedFromWarmPause.current = false;
+      element.pause();
+      element.removeAttribute('src');
+      element.load();
+      setPlaying(false);
     };
-  }, [active, template.previewUrl, failed]);
+  }, [keepLoaded, template.previewUrl, failed, retryCount]);
+  useEffect(() => {
+    const element = video.current;
+    if (!element || !keepLoaded || !template.previewUrl || failed) return;
+    if (!active) {
+      resumedFromWarmPause.current = true;
+      element.pause();
+      return;
+    }
+    let cancelled = false;
+    if (element.getAttribute('src') !== template.previewUrl) element.src = template.previewUrl;
+    void element.play().catch(() => { if (!cancelled) setPlaying(false); });
+    return () => { cancelled = true; };
+  }, [active, keepLoaded, template.previewUrl, failed, retryCount]);
   const brandName = brandCredit ? template.brand?.trim() : undefined;
   const credit = template.authorName || template.author || template.brand;
   const linkedSource = resourceKind === 'brand-kit' && Boolean(template.sourceUrl);
@@ -111,7 +136,18 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
       onMouseEnter={() => onPriority(playbackId ?? template.id)} onMouseLeave={() => onPriority(null)} onFocus={() => onPriority(playbackId ?? template.id)} onBlur={() => onPriority(null)}
       aria-label={t(resourceKind === 'brand-kit' ? 'Preview Brand Kit {title}' : 'Preview template {title}', { title: template.title })}>
       <TemplatePoster key={template.posterUrl} template={template} coverUrl={coverUrl} brandedFallback={brandedFallback} />
-      {template.previewUrl && <video ref={video} muted playsInline loop preload="none" aria-hidden="true" onPlaying={() => setPlaying(true)} onError={() => { setFailed(true); setPlaying(false); }} style={{ opacity: active && playing ? 1 : 0 }} />}
+      {template.previewUrl && <video ref={video} muted playsInline loop preload="none" aria-hidden="true" onPlaying={() => {
+        resumedFromWarmPause.current = false;
+        setPlaying(true);
+      }} onError={() => {
+        setPlaying(false);
+        if (resumedFromWarmPause.current && retryCount === 0 && active) {
+          resumedFromWarmPause.current = false;
+          setRetryCount(1);
+          return;
+        }
+        setFailed(true);
+      }} style={{ opacity: keepLoaded && playing ? 1 : 0 }} />}
       {animatedPreview && active && animate && <iframe className="om-gallery-animation" src={animatedPreview} loading="lazy" sandbox="allow-scripts" title={template.title} tabIndex={-1} aria-hidden="true" />}
       <span className="om-gallery-card-shade" />
       <span className="om-gallery-card-top">{resourceKind === 'brand-kit' && <span>{t('Brand Kit')}</span>}{resourceKind === 'template' && <span>{t(isEditableTemplate(template) ? 'Ready to edit' : template.styles?.[0] || 'Motion design')}</span>}{showCoverDuration && template.duration != null && <span>{t('{value}s', { value: Number(template.duration.toFixed(1)) })}</span>}</span>

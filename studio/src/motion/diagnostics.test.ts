@@ -120,3 +120,28 @@ it('measures polling overhead without network or storage side effects', async ()
   expect(vi.mocked(fetch).mock.calls.every(([url]) => url === '/motion-api/project/status')).toBe(true);
   process.stdout.write('DIAGNOSTIC_OVERHEAD ' + JSON.stringify({ scope: 'mocked healthy request, median of 5 x 2000 calls; not a playback benchmark', baselineMs, instrumentedMs, addedMs: instrumentedMs - baselineMs }) + '\n');
 });
+
+it('pauses remote diagnostic uploads when unauthenticated or after 401, and resumes after sign-in', async () => {
+  diagnostics.setDiagnosticsAuthState(false);
+  diagnostics.recordBrowserDiagnostic('failure', 'guest-error');
+  await vi.advanceTimersByTimeAsync(10_000);
+  await diagnostics.flushBrowserDiagnostics();
+  expect(fetch).not.toHaveBeenCalled();
+  expect(diagnostics.browserDiagnostics().some(event => event.message === 'guest-error')).toBe(true);
+
+  // Signing in resumes remote uploads; a 401 response stops subsequent uploads until next sign-in.
+  vi.mocked(fetch).mockResolvedValueOnce(new Response('unauthorized', { status: 401 }))
+    .mockResolvedValueOnce(new Response('ok', { status: 202 }));
+  window.dispatchEvent(new Event('motion:account-changed'));
+  diagnostics.recordBrowserDiagnostic('failure', 'expired-session-error');
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(fetch).toHaveBeenCalledTimes(1);
+
+  diagnostics.recordBrowserDiagnostic('failure', 'second-error-while-logged-out');
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(fetch).toHaveBeenCalledTimes(1);
+
+  window.dispatchEvent(new Event('motion:account-changed'));
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

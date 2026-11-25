@@ -66,3 +66,22 @@ it('hides the count when the request times out', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => { throw new DOMException('Timed out', 'TimeoutError'); }));
   expect(await createRepositoryStarsReader()()).toBeNull();
 });
+
+it('persists GitHub 403 rate-limit backoff across readers using x-ratelimit-reset', async () => {
+  let now = 10_000_000;
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const resetEpochSeconds = Math.ceil((now + 5 * 60_000) / 1000);
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(new Response('', { status: 403, headers: { 'x-ratelimit-reset': String(resetEpochSeconds) } }))
+    .mockResolvedValueOnce(Response.json({ stargazers_count: 10001 }));
+  vi.stubGlobal('fetch', fetcher);
+
+  expect(await createRepositoryStarsReader()()).toBeNull();
+  // A fresh reader after page reload respects the persisted backoff without issuing another 403 request.
+  expect(await createRepositoryStarsReader()()).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+
+  now += 5 * 60_000 + 1000;
+  expect(await createRepositoryStarsReader()()).toBe(10001);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});

@@ -298,6 +298,8 @@ const CorridorStage = memo(function CorridorStage({
                   src={tile.logo.src}
                   alt={tile.logo.label}
                   draggable={false}
+                  loading={eager ? 'eager' : 'lazy'}
+                  fetchPriority="low"
                   decoding="async"
                 />
               </div>

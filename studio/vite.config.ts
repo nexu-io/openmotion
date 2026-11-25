@@ -22,10 +22,72 @@ const modelHubPreviewHashes = Object.fromEntries(
   previewAssets.filter(([name]) => name.startsWith('hub-')).map(([name, { lock }]) => [name, lock.sha256]),
 );
 
+/**
+ * `startStudio.ts` dynamically imports `./main` so locale discovery stays decoupled from React.
+ * Emit `modulepreload` / `preload as="style"` hints in the built `index.html` for `main.tsx` and
+ * its static transitive imports so browsers fetch the app shell in the first round trip.
+ */
+function preloadMainShellPlugin() {
+  return {
+    name: 'openmotion-preload-main-shell',
+    enforce: 'post' as const,
+    generateBundle(_options: unknown, bundle: Record<string, unknown>) {
+      type BundleEntry = {
+        type?: string;
+        name?: string;
+        fileName?: string;
+        facadeModuleId?: string | null;
+        imports?: string[];
+        viteMetadata?: { importedCss?: Set<string> };
+        source?: string | Uint8Array;
+      };
+      const htmlAsset = bundle['index.html'] as BundleEntry | undefined;
+      if (!htmlAsset || htmlAsset.type !== 'asset' || typeof htmlAsset.source !== 'string') return;
+      const chunks = Object.values(bundle) as BundleEntry[];
+      const mainChunk = chunks.find(
+        chunk => chunk.type === 'chunk'
+          && (chunk.name === 'main'
+            || (typeof chunk.facadeModuleId === 'string' && /\/src\/main\.tsx$/.test(chunk.facadeModuleId.replace(/\\/g, '/')))),
+      );
+      if (!mainChunk?.fileName) return;
+      const jsFiles = new Set<string>();
+      const cssFiles = new Set<string>();
+      const queue = [mainChunk.fileName];
+      while (queue.length > 0) {
+        const fileName = queue.shift()!;
+        if (jsFiles.has(fileName)) continue;
+        const chunk = bundle[fileName] as BundleEntry | undefined;
+        if (!chunk || chunk.type !== 'chunk') continue;
+        jsFiles.add(fileName);
+        if (chunk.viteMetadata?.importedCss) {
+          for (const css of chunk.viteMetadata.importedCss) cssFiles.add(css);
+        }
+        for (const imp of chunk.imports ?? []) queue.push(imp);
+      }
+      const links: string[] = [];
+      for (const fileName of jsFiles) {
+        const href = `/${fileName}`;
+        if (!htmlAsset.source.includes(`href="${href}"`) && !htmlAsset.source.includes(`src="${href}"`)) {
+          links.push(`    <link rel="modulepreload" crossorigin href="${href}">`);
+        }
+      }
+      for (const fileName of cssFiles) {
+        const href = `/${fileName}`;
+        if (!htmlAsset.source.includes(`href="${href}"`)) {
+          links.push(`    <link rel="preload" as="style" crossorigin href="${href}">`);
+        }
+      }
+      if (links.length > 0) {
+        htmlAsset.source = htmlAsset.source.replace('  </head>', `${links.join('\n')}\n  </head>`);
+      }
+    },
+  };
+}
+
 export default defineConfig({
   base: '/',
   root: local('./'),
-  plugins: [react(), tailwindcss(), openmotionI18nPlugin(), {
+  plugins: [react(), tailwindcss(), openmotionI18nPlugin(), preloadMainShellPlugin(), {
     name: 'openmotion-design-system',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {

@@ -7,12 +7,12 @@ import { TemplatePoster } from './TemplateGalleryCard';
 import type { ModelStory } from './exploreModelStories';
 import { supportsScene, type StudioDestination } from './creativeStudios';
 
-export function StoryCard({ title, label, description, poster, position, credit, creditUrl, onClick, disabled, brandedFallback = true }: {
+export function StoryCard({ title, label, description, poster, position, credit, creditUrl, onClick, onPrefetch, disabled, brandedFallback = true }: {
   title: string; label?: string; description?: string; poster: string; position?: string; credit?: string; creditUrl?: string;
-  onClick: MouseEventHandler<HTMLButtonElement>; disabled?: boolean; brandedFallback?: boolean;
+  onClick: MouseEventHandler<HTMLButtonElement>; onPrefetch?: () => void; disabled?: boolean; brandedFallback?: boolean;
 }) {
   const { t } = useI18n();
-  return <article className="om-story-item"><Button type="button" variant="ghost" className="om-scene-tile om-story-card h-auto whitespace-normal font-normal items-stretch justify-normal enabled:hover:bg-transparent enabled:active:scale-100" onClick={onClick} disabled={disabled}>
+  return <article className="om-story-item"><Button type="button" variant="ghost" className="om-scene-tile om-story-card h-auto whitespace-normal font-normal items-stretch justify-normal enabled:hover:bg-transparent enabled:active:scale-100" onClick={onClick} onPointerEnter={onPrefetch} onFocus={onPrefetch} disabled={disabled}>
     <span className="om-scene-tile-art" style={{ objectPosition: position }}>
       <TemplatePoster key={poster} template={{ title: t(title), posterUrl: poster }} brandedFallback={brandedFallback} />
     </span>

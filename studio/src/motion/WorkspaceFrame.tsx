@@ -215,6 +215,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const workspace = useWorkspace(beforeViewChange, projectId, sessionId, navigate, {
     externalHistoryGuard: Boolean(onNavigate),
     allowUnscopedStatusFallback: !editorRoute,
+    deferUnscopedStatusUntilCatalog: !editorRoute,
     onStaleProjectId: onInvalidProject,
   });
   const fallbackActingRef = useRef(false);
@@ -402,6 +403,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [editorActive, openSettings, toggleSidebar]);
   const cloudWeb = useCloudWebMode();
   const guestMode = Boolean(workspace.authRequired);
+  const authResolving = !guestMode && !workspace.catalogLoaded && !workspace.status && !workspace.connectionError;
   useEffect(() => {
     if (!guestMode || typeof window === 'undefined') return;
     if (!window.location.hash.startsWith('#project/')) return;
@@ -558,7 +560,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     openLibrary(trigger);
     if (narrow) setSidebarOpen(false);
   };
-  const value: WorkspaceChrome = { workspace, switchingDisabled, guestMode, startGuestSignIn, saveState: editorState?.saveState || saveState, registerEditor, beforeViewChange,
+  const value: WorkspaceChrome = { workspace, switchingDisabled, guestMode, authResolving, startGuestSignIn, saveState: editorState?.saveState || saveState, registerEditor, beforeViewChange,
     openLibrary,
     openConnections: entry => {
       connectionEntry.current = entry;

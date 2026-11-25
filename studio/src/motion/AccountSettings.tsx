@@ -14,6 +14,7 @@ import { gatewayRequest, type CloudApiError } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
+import { setDiagnosticsAuthState } from './diagnostics';
 import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
@@ -241,6 +242,8 @@ export function isInsufficientBalanceError(error: string | null | undefined): bo
 }
 
 let cachedAccountSummary: CloudAccountSummary | null = null;
+let accountSummaryVersion = 0;
+let inflightAccountSummary: { promise: Promise<{ error: boolean }>; billing: boolean; version: number } | null = null;
 const accountSummaryListeners = new Set<(value: CloudAccountSummary | null) => void>();
 
 function publishAccountSummary(value: CloudAccountSummary | null): void {
@@ -252,13 +255,68 @@ function publishAccountSummary(value: CloudAccountSummary | null): void {
 
 /** Test hook: clear cached account summary between isolated component tests. */
 export function resetAccountSummaryCacheForTest(): void {
+  accountSummaryVersion++;
+  inflightAccountSummary = null;
   publishAccountSummary(null);
+}
+
+function loadSharedAccountSummary(billing: boolean): Promise<{ error: boolean }> {
+  if (inflightAccountSummary && (!billing || inflightAccountSummary.billing)) {
+    return inflightAccountSummary.promise;
+  }
+  const version = ++accountSummaryVersion;
+  const entry = {
+    billing,
+    version,
+    promise: (async (): Promise<{ error: boolean }> => {
+      try {
+        const raw = await gatewayRequest<CloudSummaryApiResponse>('account/summary' + (billing ? '?refresh=true' : ''));
+        if (version !== accountSummaryVersion) return { error: false };
+        const normalized = normalizeAccountSummary(raw);
+        if (normalized.state === 'signed-in') {
+          markAuthenticatedSession(true);
+          setDiagnosticsAuthState(true);
+        } else if (normalized.state === 'signed-out') {
+          setDiagnosticsAuthState(false);
+        }
+        const scopeChanged = setPrivateSwrIdentity(
+          normalized.state === 'signed-in'
+            ? {
+                userId: normalized.userId ?? normalized.user?.email ?? 'signed-in',
+                workspaceId: normalized.activeWorkspace?.id ?? 'default',
+              }
+            : null,
+        );
+        publishAccountSummary(normalized);
+        if (scopeChanged) {
+          window.dispatchEvent(new Event('motion:account-changed'));
+        }
+        return { error: false };
+      } catch (err) {
+        if (version !== accountSummaryVersion) return { error: false };
+        const apiErr = err as CloudApiError;
+        if (apiErr.status === 401) {
+          setDiagnosticsAuthState(false);
+          setPrivateSwrIdentity(null);
+          publishAccountSummary({ state: 'signed-out', consoleUrl: DEFAULT_CONSOLE_URL, authMode: 'oidc' });
+          return { error: false };
+        }
+        return { error: true };
+      } finally {
+        if (inflightAccountSummary?.version === version) inflightAccountSummary = null;
+      }
+    })(),
+  };
+  inflightAccountSummary = entry;
+  return entry.promise;
 }
 
 export function useAccountSummary(options?: { eager?: boolean }) {
   const eager = options?.eager ?? true;
   const [account, updateAccountState] = useState<CloudAccountSummary | null>(() => cachedAccountSummary);
   const updateAccount = useCallback((value: CloudAccountSummary) => {
+    accountSummaryVersion++;
+    inflightAccountSummary = null;
     publishAccountSummary(value);
   }, []);
   useEffect(() => {
@@ -282,39 +340,11 @@ export function useAccountSummary(options?: { eager?: boolean }) {
   }, [updateAccount]);
   const refresh = useCallback(async (billing = false) => {
     const current = ++request.current;
-    try {
-      const raw = await gatewayRequest<CloudSummaryApiResponse>('account/summary' + (billing ? '?refresh=true' : ''));
-      if (current === request.current) {
-        const normalized = normalizeAccountSummary(raw);
-        if (normalized.state === 'signed-in') {
-          markAuthenticatedSession(true);
-        }
-        const scopeChanged = setPrivateSwrIdentity(
-          normalized.state === 'signed-in'
-            ? {
-                userId: normalized.userId ?? normalized.user?.email ?? 'signed-in',
-                workspaceId: normalized.activeWorkspace?.id ?? 'default',
-              }
-            : null,
-        );
-        updateAccount(normalized);
-        if (scopeChanged) {
-          window.dispatchEvent(new Event('motion:account-changed'));
-        }
-        setError(false);
-      }
-    } catch (err) {
-      if (current !== request.current) return;
-      const apiErr = err as CloudApiError;
-      if (apiErr.status === 401) {
-        setPrivateSwrIdentity(null);
-        updateAccount({ state: 'signed-out', consoleUrl: DEFAULT_CONSOLE_URL, authMode: 'oidc' });
-        setError(false);
-        return;
-      }
-      setError(true);
+    const result = await loadSharedAccountSummary(billing);
+    if (current === request.current) {
+      setError(result.error);
     }
-  }, [updateAccount]);
+  }, []);
   useEffect(() => {
     if (eager) void refresh();
     const update = () => void refresh();

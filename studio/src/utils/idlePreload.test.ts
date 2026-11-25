@@ -51,3 +51,26 @@ it("waits until a background tab becomes visible", async () => {
   expect(load).toHaveBeenCalledOnce();
   dispose();
 });
+
+it("waits for window load plus delayMs before scheduling speculative downloads, and cancels cleanly on dispose", async () => {
+  const readyState = vi.spyOn(document, "readyState", "get").mockReturnValue("interactive");
+  const load = vi.fn(async () => {});
+  const dispose = scheduleIdlePreloads([load], { delayMs: 4000 });
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(load).not.toHaveBeenCalled();
+
+  readyState.mockReturnValue("complete");
+  window.dispatchEvent(new Event("load"));
+  await vi.advanceTimersByTimeAsync(3999);
+  expect(load).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(200);
+  expect(load).toHaveBeenCalledOnce();
+  dispose();
+
+  const cancelled = vi.fn(async () => {});
+  const stop = scheduleIdlePreloads([cancelled], { delayMs: 4000 });
+  await vi.advanceTimersByTimeAsync(2000);
+  stop();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(cancelled).not.toHaveBeenCalled();
+});

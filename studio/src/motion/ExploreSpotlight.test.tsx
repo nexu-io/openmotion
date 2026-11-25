@@ -78,3 +78,33 @@ it('respects reduced motion, releases an active transfer when Save-Data turns on
   expect(video()).toBeNull();
   expect(resumed.hasAttribute('src')).toBe(false);
 });
+
+it('pauses without stripping src when scrolling past the hero in normal mode, then resumes cleanly and releases when inactive', async () => {
+  const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  await render();
+  act(() => intersect(true));
+  const player = video()!;
+  expect(player.getAttribute('src')).toBe(motionStudioCover?.video);
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1);
+
+  // Scrolling offscreen pauses in place without unloading the video element.
+  act(() => intersect(false));
+  expect(video()).toBe(player);
+  expect(player.getAttribute('src')).toBe(motionStudioCover?.video);
+  expect(pauseSpy).toHaveBeenCalled();
+  expect(HTMLMediaElement.prototype.load).not.toHaveBeenCalled();
+
+  // Scrolling back resumes playback on the same video element.
+  act(() => intersect(true));
+  expect(video()).toBe(player);
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
+  expect(HTMLMediaElement.prototype.load).not.toHaveBeenCalled();
+
+  // Leaving Explore (active=false) releases the media source immediately.
+  await act(async () => root.render(<I18nProvider initialLocale="en"><ExploreSpotlight active={false}
+    onNavigate={vi.fn()} onOpenMotionEditor={vi.fn()} motionEditorDisabled={false} onOpenBlackFriday={vi.fn()} onModelHub={vi.fn()} />
+  </I18nProvider>));
+  expect(video()).toBeNull();
+  expect(player.hasAttribute('src')).toBe(false);
+  expect(HTMLMediaElement.prototype.load).toHaveBeenCalledTimes(1);
+});
