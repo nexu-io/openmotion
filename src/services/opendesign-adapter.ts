@@ -527,11 +527,11 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
         }
         endpoint = '/audio/speech';
         if (input.modelId === 'elevenlabs-v3' && typeof speechOptions.speed === 'number') {
-          const settings = speechOptions.voice_settings;
-          if (settings != null && (typeof settings !== 'object' || Array.isArray(settings))) {
+          const settings = speechOptions.voice_settings ?? {};
+          if (typeof settings !== 'object' || Array.isArray(settings)) {
             throw new GatewayError('invalid_request', 'voice_settings must be an object', { status: 400 });
           }
-          speechOptions.voice_settings = { ...(settings ?? {}), speed: speechOptions.speed };
+          speechOptions.voice_settings = { ...settings, speed: speechOptions.speed };
           delete speechOptions.speed;
         }
         payload = {
