@@ -31,7 +31,8 @@ export async function readCurrentProjectSource(
           try { data = await response.json(); } catch { /* Caller reports invalid source JSON. */ }
         }
         return { response, data };
-      });
+      }, cached?.version ?? base?.version);
+      signal?.throwIfAborted();
       const latest = confirmedSource(project, path);
       const version = data?.version ?? response.headers?.get("etag");
       if (started !== read.changed && (!version || version !== read.changed?.version)) {

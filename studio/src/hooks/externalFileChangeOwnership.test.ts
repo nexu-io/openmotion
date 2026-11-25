@@ -22,7 +22,7 @@ describe("external file-change subscription ownership", () => {
       new URL("./useExternalFileChangeCoordinator.ts", import.meta.url),
       "utf8",
     );
-    expect(coordinator).toContain("sseFileChangeChannel(handler, catchUp, historyHandler)");
+    expect(coordinator).toContain("sseFileChangeChannel(handler, catchUp, historyHandler, drainingRef.current)");
   });
 
   it("asks to catch up on every reconnect, since changes made while disconnected are never resent", () => {

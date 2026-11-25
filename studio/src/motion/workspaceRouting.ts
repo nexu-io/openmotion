@@ -18,8 +18,9 @@ export function requestedProject(search: string, hash: string, pathname = ''): s
   return query ?? parseProjectIdFromHash(hash) ?? (hash.startsWith('#project/') ? '' : null);
 }
 
-export type OpenedPreview = { projectId?: string; sessionId?: string; artifact?: SessionArtifact | null };
-export type WorkspaceRoute = { sessionId: string; artifact?: SessionArtifact };
+export type OpenedPreview = { projectId?: string; revision?: string; sessionId?: string; artifact?: SessionArtifact | null };
+export type OpeningHead = { projectId: string; revision: string };
+export type WorkspaceRoute = { sessionId: string; artifact?: SessionArtifact; openingHead?: OpeningHead };
 
 export function confirmedRoute(opened: OpenedPreview, projectId: string, sessionId: string | null): WorkspaceRoute | null {
   if (sessionId && opened.sessionId && sessionId !== opened.sessionId) throw new Error('该产物不属于此会话');

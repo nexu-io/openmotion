@@ -1,7 +1,8 @@
 import { observeEditAssets } from '../utils/confirmedTextSources';
 import { readEditorOpeningTree } from "../utils/editorOpeningValidation";
 import { buildProjectApiPath } from "../utils/projectRouting";
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useContext, useEffect, useMemo, useRef } from "react";
+import { EditorOpeningHeadContext } from "../motion/StudioHost";
 import { FONT_EXT } from "../utils/mediaTypes";
 import { fontFamilyFromAssetPath, type ImportedFontAsset } from "../components/editor/fontAssets";
 import { captureProjectProvenance } from "../components/feedback/projectProvenance";
@@ -105,6 +106,7 @@ function assetDetailsFromListing(data: TreeListing, previous?: FetchedFileTree |
 }
 
 async function readTreeListing(projectId: string, signal?: AbortSignal): Promise<TreeListing> {
+  signal?.throwIfAborted(); // Don't start a fallback read for a superseded opening.
   const res = await studioApiFetch(buildProjectApiPath(projectId) + "?view=editor", { signal });
   if (!res.ok) throw new Error(`tree fetch failed: ${res.status}`);
   return res.json();
@@ -120,6 +122,7 @@ function reportRefreshFailure(err: unknown): void {
  * whenever that id doesn't match the current one, so a switch can't read another project's tree.
  */
 export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
+  const openingHead = useContext(EditorOpeningHeadContext);
   const [fetched, setFetched] = useState<FetchedFileTree | null>(null);
   const cacheByProjectRef = useRef<Map<string, FetchedFileTree>>(new Map());
   const refreshRequestRef = useRef(0);
@@ -152,7 +155,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {
     if (!projectId) return;
-    let cancelled = false;
+    const controller = new AbortController();
     const requestId = ++refreshRequestRef.current;
     const warm = cacheByProjectRef.current.get(projectId);
     if (warm) {
@@ -162,9 +165,9 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     } else {
       setFetched({ projectId, loaded: false, fileTree: [], compositionPaths: [], projectDir: null });
     }
-    readEditorOpeningTree(projectId, () => readTreeListing(projectId))
+    readEditorOpeningTree(projectId, () => readTreeListing(projectId, controller.signal), openingHead)
       .then((data: TreeListing) => {
-        if (cancelled || requestId < appliedRequestRef.current) return;
+        if (controller.signal.aborted || requestId < appliedRequestRef.current) return;
         appliedRequestRef.current = requestId;
         if (typeof data.dir === "string" && data.dir.startsWith("/virtual/")) {
           setCachedCloudDisklessMode(true);
@@ -192,7 +195,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         void captureProjectProvenance(projectId, data.files ?? [], data.compositions ?? []);
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!controller.signal.aborted && requestId >= appliedRequestRef.current) {
           cacheByProjectRef.current.delete(projectId);
           setFetched((prev) =>
             prev?.projectId === projectId
@@ -202,9 +205,9 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         }
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [projectId, rememberProjectTree]);
+  }, [projectId, rememberProjectTree, openingHead]);
 
   const refreshFileTree = useCallback(async (options?: FileTreeRefreshOptions) => {
     const pid = options?.projectId ?? projectIdRef.current;

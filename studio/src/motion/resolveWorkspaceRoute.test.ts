@@ -30,6 +30,12 @@ it.each([null, sessionId])('opens an explicit cloud project in one scoped reques
   expect(fetcher).toHaveBeenCalledExactlyOnceWith(path, { method: 'POST', signal, priority: 'high' });
 });
 
+it.each(['r1', '', null, 17])('supplies only a nonempty string revision from the validated scoped open (%s)', async revision => {
+  fetcher.mockResolvedValue(Response.json({ ...opened, revision }));
+  const route = await resolveWorkspaceRoute(projectId, sessionId, false, signal);
+  expect(route?.openingHead).toEqual(revision === 'r1' ? { projectId, revision } : undefined);
+});
+
 it.each([401, 403, 404, 409])('propagates scoped open HTTP %s without retrying through other endpoints', async status => {
   fetcher.mockResolvedValue(Response.json({ error: 'Could not open this project' }, { status }));
   await expect(resolveWorkspaceRoute(projectId, sessionId, false, signal)).rejects.toMatchObject({ status });

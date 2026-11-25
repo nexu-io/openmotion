@@ -1,5 +1,5 @@
 import { isolatedPreviewOrigin, preparePreviewLease, type PreparedPreviewLease } from "../player/lib/previewLease";
-import { InitialPreviewLeaseContext, useStudioHost } from "./StudioHost";
+import { EditorOpeningHeadContext, InitialPreviewLeaseContext, useStudioHost } from "./StudioHost";
 import { Button } from 'open-design-ui/button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useInRouterContext, useLocation } from 'react-router';
@@ -129,7 +129,9 @@ function MotionAppContent() {
         {error ? <><div className="motion-home-navigation"><WorkspaceMenuButton /></div><RecoveryScreen title={t('Could not open project')} message={error}><Button variant="ghost" className="om-button h-auto" data-primary onClick={() => retry(value => value + 1)}>{t('Retry')}</Button><a className="om-button" href="/editor">{t('Open active project')}</a></RecoveryScreen></>
           : ready ? ready.artifact ? (
             <InitialPreviewLeaseContext.Provider value={previewScope}>
-              <ArtifactViewer key={ready.artifact.projectId} artifact={ready.artifact} />
+              <EditorOpeningHeadContext.Provider value={ready.openingHead}>
+                <ArtifactViewer key={ready.artifact.projectId} artifact={ready.artifact} />
+              </EditorOpeningHeadContext.Provider>
             </InitialPreviewLeaseContext.Provider>
           ) : <div className="motion-route-state"><WorkspaceMenuButton />{t('Create a project with your Agent to start editing.')}</div>
           : libraryOnly ? <TemplateLibraryLanding /> : null}

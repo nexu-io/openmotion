@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 
-import { act, useImperativeHandle, useRef, forwardRef } from "react";
+import { act, useEffect, useImperativeHandle, useRef, forwardRef, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useFileTree } from "./useFileTree";
+import { sseFileChangeChannel } from './useExternalFileChangeCoordinator';
+import { EditorOpeningHeadContext } from '../motion/StudioHost';
 
 vi.mock("../components/feedback/projectProvenance", () => ({
   captureProjectProvenance: vi.fn(),
@@ -41,6 +43,104 @@ const Harness = forwardRef<Handle, { projectId: string }>(function Harness({ pro
     refreshFileTree,
   ]);
   return null;
+});
+
+it('keeps the fast opening and late catch-up owned by the current StrictMode editor', async () => {
+  const projectId = 'direct-editor', otherId = 'next-editor';
+  const head = { projectId, revision: 'r1' };
+  const link = document.createElement('link');
+  link.dataset.editorBootstrap = ''; link.href = `/api/projects/${projectId}?view=editor`; document.head.append(link);
+  const streams: FakeStream[] = [];
+  class FakeStream extends EventTarget {
+    constructor(readonly url: string) { super(); streams.push(this); }
+    close() {}
+    send(type: string, data: object) { this.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) })); }
+  }
+  vi.stubGlobal('EventSource', FakeStream);
+  const listing = (revision: string) => Response.json({ revision, files: ['index.html'], compositions: [revision] });
+  const staleTree = Promise.withResolvers<Response>();
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(staleTree.promise)
+    .mockResolvedValueOnce(listing('r1')).mockResolvedValueOnce(listing('r2')).mockResolvedValueOnce(listing('other'));
+  const onReconnect = vi.fn();
+  function Editor({ id }: { id: string }) {
+    const projectIdRef = useRef(id);
+    projectIdRef.current = id;
+    const tree = useFileTree({ projectId: id, projectIdRef });
+    const refresh = tree.refreshFileTree;
+    useEffect(() => sseFileChangeChannel(() => {}, () => { onReconnect(); void refresh(); }), [id, refresh]);
+    return <span>{tree.compositions.join(',')}</span>;
+  }
+  const host = document.createElement('div');
+  root = createRoot(host);
+  const show = async (id: string) => {
+    history.replaceState(null, '', `/editor/${id}`);
+    await act(async () => root!.render(<StrictMode><EditorOpeningHeadContext.Provider value={head}><Editor id={id}/></EditorOpeningHeadContext.Provider></StrictMode>));
+  };
+  try {
+    await show(projectId);
+    expect(host.textContent).toBe('r1');
+    expect(streams).toHaveLength(2);
+    expect(streams[1].url).toContain('openingHead=1');
+    streams[0].send('connected', { projectId, revision: 'stale-stream' });
+    expect(onReconnect).not.toHaveBeenCalled();
+    await act(async () => streams[1].send('connected', { projectId, revision: 'r2' }));
+    expect(host.textContent).toBe('r2');
+    expect(onReconnect).toHaveBeenCalledOnce();
+    await show(otherId);
+    expect(streams[2].url).not.toContain('openingHead=1');
+    streams[1].send('open', {}); streams[1].send('open', {});
+    await act(async () => staleTree.resolve(listing('superseded')));
+    expect(host.textContent).toBe('other');
+    expect(onReconnect).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  } finally {
+    act(() => root?.unmount()); root = null; link.remove();
+    history.replaceState(null, '', '/'); fetcher.mockRestore(); vi.unstubAllGlobals();
+  }
+});
+
+it.each(['silent', 'unknown head', 'matching head', 'leave'] as const)('keeps a background live-read deadline without holding the first tree (%s)', async mode => {
+  vi.useFakeTimers();
+  const projectId = `deadline-${mode.replace(' ', '-')}`;
+  const head = { projectId, revision: 'r1' };
+  const link = document.createElement('link');
+  link.dataset.editorBootstrap = ''; link.href = `/api/projects/${projectId}?view=editor`; document.head.append(link);
+  history.replaceState(null, '', `/editor/${projectId}`);
+  let stream!: EventTarget;
+  vi.stubGlobal('EventSource', class extends EventTarget { constructor() { super(); stream = this; } close() {} });
+  const listing = (revision: string) => Response.json({ revision, files: ['index.html'], compositions: [revision] });
+  // The document preloaded r1 and the scoped open confirmed it. The peer has
+  // already committed r2 before the editor subscribes: no file event can replay it.
+  const liveRevision = mode === 'matching head' ? 'r1' : 'r2';
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(listing('r1'))
+    .mockImplementation(async () => listing(liveRevision));
+  const host = document.createElement('div');
+  root = createRoot(host);
+  function Editor() {
+    const tree = useFileTree({ projectId, projectIdRef: useRef(projectId) });
+    const refresh = tree.refreshFileTree;
+    useEffect(() => sseFileChangeChannel(() => {}, () => { void refresh(); }), [refresh]);
+    return <span>{tree.compositions.join(',')}</span>;
+  }
+  const connected = (revision?: string) => stream.dispatchEvent(new MessageEvent('connected', { data: JSON.stringify({ projectId, revision }) }));
+  try {
+    await act(async () => root!.render(<EditorOpeningHeadContext.Provider value={head}><Editor /></EditorOpeningHeadContext.Provider>));
+    expect(host.textContent).toBe('r1'); // No timers advanced; SSE hasn't delivered anything.
+    await act(async () => { await vi.advanceTimersByTimeAsync(1199); });
+    expect(fetcher).toHaveBeenCalledOnce();
+    if (mode === 'leave') { act(() => root?.unmount()); root = null; }
+    if (mode === 'matching head') await act(async () => { connected('r1'); });
+    if (mode === 'unknown head') await act(async () => { connected(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    const reconciled = mode === 'silent' || mode === 'unknown head';
+    expect(fetcher).toHaveBeenCalledTimes(reconciled ? 2 : 1);
+    if (mode !== 'leave') expect(host.textContent).toBe(reconciled ? 'r2' : 'r1');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(fetcher).toHaveBeenCalledTimes(reconciled ? 2 : 1); // Not polling; no duplicate after connected.
+  } finally {
+    act(() => root?.unmount()); root = null; link.remove();
+    history.replaceState(null, '', '/'); fetcher.mockRestore(); vi.unstubAllGlobals(); vi.useRealTimers();
+  }
 });
 
 it.each([false, true])("renders the directory before font inspection and reuses matching details (legacy response %s)", async (legacy) => {

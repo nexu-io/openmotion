@@ -1,9 +1,11 @@
-// A fetch preload may finish before Studio subscribes to project changes. Accept its
-// data only against the project head observed after subscription. Only the direct
-// editor navigation has these links; SPA switches and ordinary refreshes use live reads.
+import type { OpeningHead } from '../motion/workspaceRouting';
+
+// Only direct navigations have these links. A matching scoped open can verify the
+// preload before subscription; the post-subscribe head still has to close the gap.
 type OpeningTree = { revision?: string; entryVersion?: string | null };
 type Source = { content?: string; version?: string | null; missing?: boolean };
 type SourceRead = { response: Response; data?: Source };
+const OPENING_DEADLINE_MS = 1200;
 
 function versionSignal() {
   let resolve!: (version: string | null) => void;
@@ -14,10 +16,10 @@ function versionSignal() {
 function createOpening(projectId: string) {
   return { projectId, connected: versionSignal(), tree: versionSignal(),
     fileChangeReceived: false, connectionSeen: false, missingConnection: false,
-    treeConsumed: false, sourceConsumed: false };
+    beforeSubscription: null as string | null, deadlineExpired: false, treeRequest: 0, treeConsumed: false, sourceConsumed: false };
 }
 
-// One direct navigation per document. Only the two opaque versions are retained.
+// One direct navigation per document. Keep only opaque versions, never source bytes.
 let active: ReturnType<typeof createOpening> | undefined;
 let completed: string | undefined;
 
@@ -32,7 +34,7 @@ function openingFor(projectId: string) {
 }
 
 function finish(opening: ReturnType<typeof createOpening>) {
-  if (active === opening && opening.treeConsumed && opening.sourceConsumed && !opening.missingConnection) {
+  if (active === opening && opening.treeConsumed && opening.sourceConsumed && !opening.missingConnection && !opening.beforeSubscription) {
     completed = opening.projectId;
     active = undefined;
   }
@@ -54,8 +56,26 @@ export function leaveEditorOpening(projectId: string) {
 async function briefly<T>(pending: Promise<T>): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([pending, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 1200); })]);
+    return await Promise.race([pending, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), OPENING_DEADLINE_MS); })]);
   } finally { clearTimeout(timer); }
+}
+
+// A blocked stream won't necessarily report an error or reopen. Keep the live
+// HTTP fallback, but do it in the background if the route already verified the tree.
+export function watchOpeningDeadline(projectId: string, catchUp: () => void) {
+  const opening = openingFor(projectId);
+  if (!opening) return;
+  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => { stopped = true; clearTimeout(timer); };
+  void opening.connected.promise.then(stop);
+  void opening.tree.promise.then(() => {
+    if (!stopped && opening.beforeSubscription) timer = setTimeout(() => {
+      if (active !== opening || !opening.beforeSubscription || opening.deadlineExpired) return;
+      opening.deadlineExpired = true;
+      catchUp();
+    }, OPENING_DEADLINE_MS);
+  });
+  return stop;
 }
 
 export function noteOpeningConnection(projectId: string, revision: string | null): boolean {
@@ -63,7 +83,12 @@ export function noteOpeningConnection(projectId: string, revision: string | null
   if (!opening) return false;
   opening.connectionSeen = true;
   opening.connected.resolve(revision);
-  const needsCatchUp = opening.missingConnection;
+  const needsCatchUp = opening.missingConnection || (opening.beforeSubscription !== null &&
+    (revision !== opening.beforeSubscription || opening.fileChangeReceived));
+  // The source preload may still be in flight, or not yet requested. Do not
+  // confirm it against an entry version from a tree that now needs reconciliation.
+  if (needsCatchUp) opening.fileChangeReceived = true;
+  opening.beforeSubscription = null;
   opening.missingConnection = false;
   finish(opening);
   return needsCatchUp;
@@ -73,29 +98,36 @@ export function noteOpeningFileChange(projectId: string) {
   if (active?.projectId === projectId) active.fileChangeReceived = true;
 }
 
-export async function readEditorOpeningTree<T extends OpeningTree>(projectId: string, read: () => Promise<T>): Promise<T> {
+export async function readEditorOpeningTree<T extends OpeningTree>(projectId: string, read: () => Promise<T>, scopedHead?: OpeningHead): Promise<T> {
   const opening = openingFor(projectId);
   if (!opening || opening.treeConsumed) return read();
+  const request = ++opening.treeRequest;
   try {
     const early = await read();
-    const head = await briefly(opening.connected.promise);
-    if (!opening.connectionSeen) opening.missingConnection = true;
-    // If a file event raced the handshake its ordering relative to the head is
-    // unknown. The first read consumed the preload, so a second read goes to HTTP.
-    // Subsequent file-list changes already trigger a newer listing in useFileTree.
-    // A busy editor never has to wait for a quiet interval to use this snapshot.
-    const tree = head && !opening.fileChangeReceived && early.revision === head ? early : await read();
-    opening.treeConsumed = true;
-    opening.tree.resolve(tree.entryVersion ?? null);
-    finish(opening);
+    let tree = early;
+    if (active === opening && request === opening.treeRequest && !opening.connectionSeen && !opening.fileChangeReceived &&
+        scopedHead?.projectId === projectId && early.revision && early.revision === scopedHead.revision) {
+      opening.beforeSubscription = early.revision;
+    } else {
+      const head = await briefly(opening.connected.promise);
+      if (request === opening.treeRequest && !opening.connectionSeen) opening.missingConnection = true;
+      // A file event racing the handshake has unknown ordering. The preload has
+      // been consumed, so the second read goes to HTTP; don't wait for quiescence.
+      if (active !== opening || !head || opening.fileChangeReceived || early.revision !== head) tree = await read();
+    }
+    if (request === opening.treeRequest) {
+      opening.treeConsumed = true;
+      opening.tree.resolve(tree.entryVersion ?? null);
+      finish(opening);
+    }
     return tree;
   } finally {
     // A failed/unauthorized listing must never strand the independent source read.
-    opening.tree.resolve(null);
+    if (request === opening.treeRequest) opening.tree.resolve(null);
   }
 }
 
-export async function readEditorOpeningSource(projectId: string, url: string, read: (base?: { content: string; version: string }) => Promise<SourceRead>): Promise<SourceRead> {
+export async function readEditorOpeningSource(projectId: string, url: string, read: (base?: { content: string; version: string }) => Promise<SourceRead>, knownVersion?: string): Promise<SourceRead> {
   if (url !== `/api/projects/${encodeURIComponent(projectId)}/files/index.html`) return read();
   const opening = openingFor(projectId);
   if (!opening || opening.sourceConsumed) return read();
@@ -104,7 +136,8 @@ export async function readEditorOpeningSource(projectId: string, url: string, re
   if (!version && !opening.connectionSeen) opening.missingConnection = true;
   const etag = early.data?.version ?? early.response.headers?.get("etag");
   const content = early.data?.content;
-  const verified = version && !opening.fileChangeReceived && etag === version ? early
+  const verified = active === opening && version && !opening.fileChangeReceived && !opening.deadlineExpired && etag === version &&
+    (!knownVersion || knownVersion === version) ? early
     : await read(etag && typeof content === "string" ? { content, version: etag } : undefined);
   opening.sourceConsumed = true;
   finish(opening);

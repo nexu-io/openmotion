@@ -1,5 +1,5 @@
 import { trackSourceReadStream } from "../utils/confirmedTextSources";
-import { hasEditorOpeningPreload, leaveEditorOpening, noteOpeningConnection, noteOpeningFileChange } from "../utils/editorOpeningValidation";
+import { hasEditorOpeningPreload, leaveEditorOpening, noteOpeningConnection, noteOpeningFileChange, watchOpeningDeadline } from "../utils/editorOpeningValidation";
 import { extractIndexHeadMarkup } from '../../../shared/preview-impact';
 import { orderedFileChange, projectOrderedFile } from './orderedFileChanges';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
@@ -155,8 +155,8 @@ export function sseFileChangeChannel(
   onDelivery: (delivery: unknown) => void,
   onReconnect: () => void,
   onHistoryChanged: (delivery: unknown) => void = () => {},
+  needsCatchUp = false,
 ): () => void {
-  let needsCatchUp = false;
   const url = studioProjectUrl('/api/events?orderedEdits=1');
   const project = new URLSearchParams(url.split("?")[1]).get("projectId");
   let stopTrackingSources: (() => void) | undefined;
@@ -164,9 +164,16 @@ export function sseFileChangeChannel(
     let revision: string | null = null;
     const bootstrap = project && hasEditorOpeningPreload(project);
     const eventSource = new EventSource(bootstrap ? url + "&openingHead=1" : url);
+    // Ignore queued deliveries from a replaced stream (offline, project switch,
+    // or StrictMode replay), even when the new editor has the same project ID.
+    const listen = (type: string, handler: (delivery: Event) => void) => eventSource.addEventListener(type, event => {
+      if (stream === eventSource) handler(event);
+    });
     stopTrackingSources = trackSourceReadStream(project, eventSource);
-    eventSource.addEventListener("file-change", delivery => {
+    listen("file-change", delivery => {
       const payload = decodeFileChange(delivery);
+      const deliveredProject = readFileChangeField(payload, "projectId");
+      if (project && deliveredProject && deliveredProject !== project) return;
       if (bootstrap) noteOpeningFileChange(project);
       const ordered = orderedFileChange(payload);
       const next = readFileChangeField(payload, 'revision');
@@ -179,12 +186,12 @@ export function sseFileChangeChannel(
       onDelivery(delivery);
       if (ordered) onHistoryChanged(delivery);
     });
-    eventSource.addEventListener("history-changed", delivery => {
+    listen("history-changed", delivery => {
       // An older SSE gateway may relay the legacy notification over a negotiated stream.
       if ((decodeFileChange(delivery) as {includedInOrderedEdit?: boolean} | null)?.includedInOrderedEdit) return;
       onHistoryChanged(delivery);
     });
-    eventSource.addEventListener("connected", event => {
+    listen("connected", event => {
       const connected = decodeFileChange(event);
       const projectId = readFileChangeField(connected, "projectId");
       if (bootstrap && project === projectId) {
@@ -194,31 +201,31 @@ export function sseFileChangeChannel(
       }
       if (projectId) notifyProjectActivity(projectId, "connected");
     });
-    eventSource.addEventListener("catalog-changed", (event) => {
+    listen("catalog-changed", (event) => {
       const projectId = readFileChangeField(decodeFileChange(event), "projectId");
       if (projectId) notifyProjectActivity(projectId, "catalog-changed");
     });
-    eventSource.addEventListener("render-updated", (event) => {
+    listen("render-updated", (event) => {
       const projectId = readFileChangeField(decodeFileChange(event), "projectId");
       if (projectId) notifyProjectActivity(projectId, "render-updated");
     });
     // Derived media (sprite/waveform/thumbnail/proxy/metadata) notifications update
     // timeline & sidebar caches without reloading the preview iframe.
-    eventSource.addEventListener("media-derived-ready", (event) => {
+    listen("media-derived-ready", (event) => {
       const decoded = decodeFileChange(event);
       if (isMediaDerivedReadyEvent(decoded)) {
         emitMediaDerived(decoded);
       }
     });
     // External / MCP media ingest placeholder & stage updates (never reload preview iframe).
-    eventSource.addEventListener("media-ingest-status", (event) => {
+    listen("media-ingest-status", (event) => {
       const decoded = decodeFileChange(event);
       if (isMediaIngestStatusEvent(decoded)) {
         emitMediaIngestStatus(decoded);
       }
     });
-    eventSource.addEventListener("error", () => { needsCatchUp = true; revision = null; });
-    eventSource.addEventListener("open", () => {
+    listen("error", () => { needsCatchUp = true; revision = null; });
+    listen("open", () => {
       if (needsCatchUp) onReconnect();
       needsCatchUp = true;
     });
@@ -226,6 +233,7 @@ export function sseFileChangeChannel(
   }
 
   let stream: EventSource | null = connect();
+  const stopOpeningDeadline = project ? watchOpeningDeadline(project, onReconnect) : undefined;
   // Chrome can retain an open EventSource across an offline interval while its
   // dependent preview/file requests fail. Reopen it before reconciling the project.
   function offline() {
@@ -240,10 +248,12 @@ export function sseFileChangeChannel(
   globalThis.addEventListener?.("offline", offline);
   globalThis.addEventListener?.("online", online);
   return () => {
+    stopOpeningDeadline?.();
     globalThis.removeEventListener?.("offline", offline);
     globalThis.removeEventListener?.("online", online);
     stopTrackingSources?.();
     stream?.close();
+    stream = null;
     if (project) leaveEditorOpening(project);
   };
 }
@@ -669,7 +679,9 @@ export function useExternalFileChangeCoordinator({
       processChangeRef.current({ path: "." });
       processHistoryChangeRef.current({ projectId }, false);
     };
-    return sseFileChangeChannel(handler, catchUp, historyHandler);
+    // If ownership switches during a drain, the replacement stream's first
+    // open queues recovery for the current project, not the retired stream.
+    return sseFileChangeChannel(handler, catchUp, historyHandler, drainingRef.current);
   }, [projectId, useHotChannel]);
 
   const retry = useCallback(async () => {

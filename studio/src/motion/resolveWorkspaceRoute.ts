@@ -42,7 +42,8 @@ export async function resolveWorkspaceRoute(projectId: string | null, sessionId:
     opened = await openPreview(projectId, signal);
     if (opened.projectId !== projectId) throw new Error('项目状态与当前页面不匹配，请重新打开对应项目。');
     const route = confirmedRoute(opened, projectId, sessionId);
-    if (route) return route;
+    if (route) return typeof opened.revision === 'string' && opened.revision.trim()
+      ? { ...route, openingHead: { projectId, revision: opened.revision } } : route;
   }
 
   let catalog: ProjectCatalog;

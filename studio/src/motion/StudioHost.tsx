@@ -1,4 +1,5 @@
 import type { PreparedPreviewLease } from "../player/lib/previewLease";
+import type { OpeningHead } from './workspaceRouting';
 import { createContext, useContext, type ReactNode, type ComponentType } from 'react';
 
 /** Product chrome only. Editing, panel state and rendering stay owned by Studio. */
@@ -32,3 +33,4 @@ export const useStudioHost = () => useContext(StudioHostContext);
 export const useMvpEditor = () => useStudioHost()?.mvpEditor === true;
 
 export const InitialPreviewLeaseContext = createContext<PreparedPreviewLease | undefined>(undefined);
+export const EditorOpeningHeadContext = createContext<OpeningHead | undefined>(undefined);
