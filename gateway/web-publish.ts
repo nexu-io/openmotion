@@ -156,9 +156,10 @@ export function verifiedShareUrl(rawUrl: unknown, projectId: string, slug: strin
 }
 
 /**
- * Game shares are meant to be played, not reviewed: with `kind=game` the cloud
- * share viewer hides its comments UI and shows the "Made with OpenMotion" bar
- * with one-click Remix. Other target kinds keep the default review viewer.
+ * Game shares keep `kind=game` so the cloud viewer launches full-screen for play
+ * with the comments rail collapsed by default and the "Made with OpenDesign"
+ * remix + Comments toggle bar at the bottom. Users can open the bar to comment,
+ * ask follow-up questions, attach images, and reply (1-level) without clutter.
  */
 export const SHARE_VIEWER_KIND_PARAM = 'kind';
 export const SHARE_VIEWER_GAME_KIND = 'game';

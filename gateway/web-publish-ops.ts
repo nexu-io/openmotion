@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DesignError, designProjectsFor } from '../design-projects.ts';
 import { GameError, GameProjects } from '../game-projects.ts';
+import { parseCloudShareUrl } from '../shared/cloud-comments.ts';
 import {
   webPublishTargetKinds,
   type WebPublishMode,
@@ -426,4 +427,64 @@ export async function webPublishOperation(
   }
 
   throw new Error('INVALID_ARGUMENT: webPublish.command must be publish, status, unpublish, or list');
+}
+
+export async function cloudDeployOperation(
+  store: WorkspaceStore,
+  rawInput: Record<string, unknown> | undefined,
+  origin: string,
+  serviceOverride?: WebPublishService,
+): Promise<unknown> {
+  const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
+  const hasTargetInput = Boolean(
+    input.targetKind || input.targetId || input.sourcePath || input.embedUrl,
+  );
+  const command =
+    typeof input.action === 'string' && input.action.trim()
+      ? input.action.trim()
+      : hasTargetInput
+        ? 'publish'
+        : 'list';
+  const targetKind =
+    typeof input.targetKind === 'string' && input.targetKind.trim()
+      ? input.targetKind.trim()
+      : typeof input.sourcePath === 'string' && input.sourcePath.trim()
+        ? 'html'
+        : undefined;
+
+  const result = await webPublishOperation(
+    store,
+    {
+      ...input,
+      command,
+      ...(targetKind ? { targetKind } : {}),
+    },
+    origin,
+    serviceOverride,
+  );
+
+  if (result && typeof result === 'object') {
+    const typed = result as {
+      url?: unknown;
+      publication?: { url?: unknown };
+      active?: { url?: unknown };
+    };
+    const candidateUrl =
+      typeof typed.url === 'string' && typed.url.trim()
+        ? typed.url
+        : typeof typed.publication?.url === 'string' && typed.publication.url.trim()
+          ? typed.publication.url
+          : typeof typed.active?.url === 'string' && typed.active.url.trim()
+            ? typed.active.url
+            : undefined;
+    if (candidateUrl) {
+      try {
+        const share = parseCloudShareUrl(candidateUrl);
+        return { ...result, share };
+      } catch {
+        return result;
+      }
+    }
+  }
+  return result;
 }
