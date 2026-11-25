@@ -1016,13 +1016,38 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
           return json(res, 200, { conversation: await superAgent.create(data) });
         }
       }
-      const saBrowser = url.pathname.match(/^\/api\/super-agent\/chats\/([^/]+)\/browser\/([a-z0-9-]{1,80})(?:\/(events|command|resize|input|inspect|screenshot|console))?$/);
-      if (saBrowser) {
-        const [, chatId, tabId, action] = saBrowser;
-        await superAgent.get(chatId);
-        if (!context.runtimeRoot) throw new Error('浏览器服务尚未就绪');
-        const browser = context.browser ??= new WorkspaceBrowser(context.runtimeRoot);
-        const browserSession = `sa-${chatId}`;
+      if (url.pathname === '/api/super-agent/browser/warm' && req.method === 'POST') {
+        if (context.runtimeRoot) {
+          const browser = context.browser ??= new WorkspaceBrowser(context.runtimeRoot);
+          void browser.warm().catch(() => {});
+        }
+        return json(res, 200, { warming: Boolean(context.runtimeRoot) });
+      }
+      const saChatBrowser = url.pathname.match(/^\/api\/super-agent\/chats\/([^/]+)\/browser\/([a-z0-9-]{1,80})(?:\/(events|command|resize|input|inspect|screenshot|console))?$/);
+      const saPreviewBrowser = saChatBrowser
+        ? null
+        : url.pathname.match(/^\/api\/super-agent\/browser\/tabs\/([a-z0-9-]{1,80})(?:\/(events|command|resize|input|inspect|screenshot|console))?$/);
+      if (saChatBrowser || saPreviewBrowser) {
+        const existingBrowser = context.runtimeRoot ? (context.browser ??= new WorkspaceBrowser(context.runtimeRoot)) : undefined;
+        let browserSession: string;
+        let tabId: string;
+        let action: string | undefined;
+        if (saChatBrowser) {
+          const [, chatId, matchedTabId, matchedAction] = saChatBrowser;
+          browserSession = `sa-${chatId}`;
+          tabId = matchedTabId;
+          action = matchedAction;
+          if (!(action === 'input' && req.method === 'POST' && existingBrowser?.has(browserSession, tabId))) {
+            await superAgent.get(chatId);
+          }
+        } else {
+          const [, matchedTabId, matchedAction] = saPreviewBrowser!;
+          browserSession = 'sa-preview';
+          tabId = matchedTabId;
+          action = matchedAction;
+        }
+        if (!existingBrowser) throw new Error('浏览器服务尚未就绪');
+        const browser = existingBrowser;
         if (!action && req.method === 'POST') {
           const data = await input(req);
           return json(res, 200, (await browser.open(browserSession, tabId, data.url, { width: data.width, height: data.height, dpr: data.dpr })).state);

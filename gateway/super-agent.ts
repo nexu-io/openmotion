@@ -650,6 +650,18 @@ function sameOriginRelativeUrl(raw: unknown): string | undefined {
   return trimmed;
 }
 
+function validateArtifactUrl(
+  kind: SuperAgentArtifact['kind'],
+  raw: unknown,
+  hasProjectId = false,
+): string | undefined {
+  if (kind === 'web') return webAddress(raw);
+  if (kind === 'game-project' && !hasProjectId && typeof raw === 'string' && /^https?:\/\//i.test(raw.trim())) {
+    return webAddress(raw);
+  }
+  return sameOriginRelativeUrl(raw);
+}
+
 function stripAnsiEscapes(text: string): string {
   return text.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, '');
 }
@@ -776,9 +788,7 @@ function buildValidatedArtifact(input: Partial<SuperAgentArtifact>, now = Date.n
   if (!input.kind || !ALLOWED_ARTIFACT_KINDS.has(input.kind)) {
     throw new Error('Unsupported artifact kind');
   }
-  const validatedUrl = input.kind === 'web'
-    ? webAddress(input.url)
-    : sameOriginRelativeUrl(input.url);
+  const validatedUrl = validateArtifactUrl(input.kind, input.url, Boolean(input.projectId));
   const validatedDownloadUrl = input.kind === 'web'
     ? undefined
     : sameOriginRelativeUrl(input.downloadUrl);
@@ -2824,9 +2834,7 @@ export class SuperAgentConversations {
         }, true);
       } else if (ev.type === 'artifact.upsert' && ev.artifact?.kind && ALLOWED_ARTIFACT_KINDS.has(ev.artifact.kind)) {
         const now = Date.now();
-        const validatedUrl = ev.artifact.kind === 'web'
-          ? webAddress(ev.artifact.url)
-          : sameOriginRelativeUrl(ev.artifact.url);
+        const validatedUrl = validateArtifactUrl(ev.artifact.kind, ev.artifact.url, Boolean(ev.artifact.projectId));
         const validatedDownloadUrl = ev.artifact.kind === 'web'
           ? undefined
           : sameOriginRelativeUrl(ev.artifact.downloadUrl);

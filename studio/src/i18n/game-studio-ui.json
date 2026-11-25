@@ -147,7 +147,8 @@
     "Edit in Agent": "在 Agent 中编辑",
     "This game has no shareable link yet.": "这个游戏还没有可分享的链接。",
     "Local link copied. It only opens on this computer — use Share to publish online.": "本地链接已复制，仅限本机打开——点击“分享”即可发布到线上。",
-    "Local link copied. It only opens on this computer.": "本地链接已复制，仅限本机打开。"
+    "Local link copied. It only opens on this computer.": "本地链接已复制，仅限本机打开。",
+    "Jump into a surprise community game — swipe for more": "随机打开社区小游戏，支持上下刷不停"
   },
   "ja": {
     "3D": "3D",
@@ -297,7 +298,8 @@
     "Edit in Agent": "Agent で編集",
     "This game has no shareable link yet.": "このゲームにはまだ共有できるリンクがありません。",
     "Local link copied. It only opens on this computer — use Share to publish online.": "ローカルリンクをコピーしました。このパソコンでのみ開けます。オンライン公開には「共有」を使用してください。",
-    "Local link copied. It only opens on this computer.": "ローカルリンクをコピーしました。このパソコンでのみ開けます。"
+    "Local link copied. It only opens on this computer.": "ローカルリンクをコピーしました。このパソコンでのみ開けます。",
+    "Jump into a surprise community game — swipe for more": "コミュニティのゲームをランダムにすぐプレイ、スワイプで次々切り替え"
   },
   "ko": {
     "3D": "3D",
@@ -447,7 +449,8 @@
     "Edit in Agent": "Agent에서 편집",
     "This game has no shareable link yet.": "이 게임에는 아직 공유할 수 있는 링크가 없습니다.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "로컬 링크를 복사했습니다. 이 컴퓨터에서만 열 수 있으며, 온라인 게시는 공유를 사용하세요.",
-    "Local link copied. It only opens on this computer.": "로컬 링크를 복사했습니다. 이 컴퓨터에서만 열 수 있습니다."
+    "Local link copied. It only opens on this computer.": "로컬 링크를 복사했습니다. 이 컴퓨터에서만 열 수 있습니다.",
+    "Jump into a surprise community game — swipe for more": "커뮤니티 게임을 무작위로 바로 플레이하고 스와이프로 계속 넘겨보세요"
   },
   "de": {
     "3D": "3D",
@@ -597,7 +600,8 @@
     "Edit in Agent": "Im Agent bearbeiten",
     "This game has no shareable link yet.": "Dieses Spiel hat noch keinen teilbaren Link.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "Lokaler Link kopiert. Er öffnet sich nur auf diesem Computer – nutze Teilen zum Veröffentlichen im Web.",
-    "Local link copied. It only opens on this computer.": "Lokaler Link kopiert. Er öffnet sich nur auf diesem Computer."
+    "Local link copied. It only opens on this computer.": "Lokaler Link kopiert. Er öffnet sich nur auf diesem Computer.",
+    "Jump into a surprise community game — swipe for more": "Starte ein zufälliges Community-Spiel und wische für mehr"
   },
   "fr": {
     "3D": "3D",
@@ -747,7 +751,8 @@
     "Edit in Agent": "Modifier dans Agent",
     "This game has no shareable link yet.": "Ce jeu n’a pas encore de lien partageable.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "Lien local copié. Il ne s’ouvre que sur cet ordinateur : utilisez Partager pour le publier en ligne.",
-    "Local link copied. It only opens on this computer.": "Lien local copié. Il ne s’ouvre que sur cet ordinateur."
+    "Local link copied. It only opens on this computer.": "Lien local copié. Il ne s’ouvre que sur cet ordinateur.",
+    "Jump into a surprise community game — swipe for more": "Lancez un jeu aléatoire de la communauté et faites défiler pour en découvrir d'autres"
   },
   "ru": {
     "3D": "3D",
@@ -897,7 +902,8 @@
     "Edit in Agent": "Изменить в Agent",
     "This game has no shareable link yet.": "У этой игры ещё нет ссылки для отправки.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "Локальная ссылка скопирована. Она открывается только на этом компьютере — используйте «Поделиться» для публикации онлайн.",
-    "Local link copied. It only opens on this computer.": "Локальная ссылка скопирована. Она открывается только на этом компьютере."
+    "Local link copied. It only opens on this computer.": "Локальная ссылка скопирована. Она открывается только на этом компьютере.",
+    "Jump into a surprise community game — swipe for more": "Запустите случайную игру сообщества и листайте дальше"
   },
   "es": {
     "3D": "3D",
@@ -1047,7 +1053,8 @@
     "Edit in Agent": "Editar en Agent",
     "This game has no shareable link yet.": "Este juego aún no tiene un enlace para compartir.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "Enlace local copiado. Solo se abre en este ordenador; usa Compartir para publicarlo en línea.",
-    "Local link copied. It only opens on this computer.": "Enlace local copiado. Solo se abre en este ordenador."
+    "Local link copied. It only opens on this computer.": "Enlace local copiado. Solo se abre en este ordenador.",
+    "Jump into a surprise community game — swipe for more": "Abre un juego sorpresa de la comunidad y desliza para ver más"
   },
   "pt-BR": {
     "3D": "3D",
@@ -1197,7 +1204,8 @@
     "Edit in Agent": "Editar no Agent",
     "This game has no shareable link yet.": "Este jogo ainda não tem um link para compartilhar.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "Link local copiado. Ele só abre neste computador — use Compartilhar para publicar online.",
-    "Local link copied. It only opens on this computer.": "Link local copiado. Ele só abre neste computador."
+    "Local link copied. It only opens on this computer.": "Link local copiado. Ele só abre neste computador.",
+    "Jump into a surprise community game — swipe for more": "Abra um jogo surpresa da comunidade e deslize para ver mais"
   },
   "it": {
     "3D": "3D",
@@ -1347,7 +1355,8 @@
     "Edit in Agent": "Modifica in Agent",
     "This game has no shareable link yet.": "Questo gioco non ha ancora un link da condividere.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "Link locale copiato. Si apre solo su questo computer: usa Condividi per pubblicarlo online.",
-    "Local link copied. It only opens on this computer.": "Link locale copiato. Si apre solo su questo computer."
+    "Local link copied. It only opens on this computer.": "Link locale copiato. Si apre solo su questo computer.",
+    "Jump into a surprise community game — swipe for more": "Apri subito un gioco a sorpresa della community e scorri per scoprirne altri"
   },
   "tr": {
     "3D": "3D",
@@ -1497,6 +1506,7 @@
     "Edit in Agent": "Agent’ta düzenle",
     "This game has no shareable link yet.": "Bu oyunun henüz paylaşılabilir bağlantısı yok.",
     "Local link copied. It only opens on this computer — use Share to publish online.": "Yerel bağlantı kopyalandı. Yalnızca bu bilgisayarda açılır — çevrimiçi yayınlamak için Paylaş’ı kullanın.",
-    "Local link copied. It only opens on this computer.": "Yerel bağlantı kopyalandı. Yalnızca bu bilgisayarda açılır."
+    "Local link copied. It only opens on this computer.": "Yerel bağlantı kopyalandı. Yalnızca bu bilgisayarda açılır.",
+    "Jump into a surprise community game — swipe for more": "Sürpriz bir topluluk oyununu hemen açın, daha fazlası için kaydırın"
   }
 }
