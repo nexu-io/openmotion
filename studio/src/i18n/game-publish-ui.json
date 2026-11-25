@@ -606,9 +606,7 @@
     "Play link": "试玩链接",
     "Publishing…": "发布中…",
     "Only OpenDesign": "只发 OpenDesign",
-    "Open": "打开",
-    "Show link": "显示链接",
-    "Hide link": "收起链接"
+    "Open": "打开"
   },
   "ja": {
     "WeChat Mini Game": "WeChat ミニゲーム",
@@ -1217,9 +1215,7 @@
     "Play link": "プレイリンク",
     "Publishing…": "公開中…",
     "Only OpenDesign": "OpenDesign だけ",
-    "Open": "開く",
-    "Show link": "リンクを表示",
-    "Hide link": "リンクを隠す"
+    "Open": "開く"
   },
   "ko": {
     "WeChat Mini Game": "WeChat 미니게임",
@@ -1828,9 +1824,7 @@
     "Play link": "플레이 링크",
     "Publishing…": "게시 중…",
     "Only OpenDesign": "OpenDesign만",
-    "Open": "열기",
-    "Show link": "링크 보기",
-    "Hide link": "링크 숨기기"
+    "Open": "열기"
   },
   "de": {
     "WeChat Mini Game": "WeChat-Minispiel",
@@ -2439,9 +2433,7 @@
     "Play link": "Spiel-Link",
     "Publishing…": "Wird veröffentlicht…",
     "Only OpenDesign": "Nur OpenDesign",
-    "Open": "Öffnen",
-    "Show link": "Link anzeigen",
-    "Hide link": "Link ausblenden"
+    "Open": "Öffnen"
   },
   "fr": {
     "WeChat Mini Game": "Mini-jeu WeChat",
@@ -3050,9 +3042,7 @@
     "Play link": "Lien de jeu",
     "Publishing…": "Publication…",
     "Only OpenDesign": "Seulement OpenDesign",
-    "Open": "Ouvrir",
-    "Show link": "Afficher le lien",
-    "Hide link": "Masquer le lien"
+    "Open": "Ouvrir"
   },
   "ru": {
     "WeChat Mini Game": "Мини-игра WeChat",
@@ -3661,9 +3651,7 @@
     "Play link": "Ссылка на игру",
     "Publishing…": "Публикация…",
     "Only OpenDesign": "Только OpenDesign",
-    "Open": "Открыть",
-    "Show link": "Показать ссылку",
-    "Hide link": "Скрыть ссылку"
+    "Open": "Открыть"
   },
   "es": {
     "WeChat Mini Game": "Minijuego de WeChat",
@@ -4272,9 +4260,7 @@
     "Play link": "Enlace para jugar",
     "Publishing…": "Publicando…",
     "Only OpenDesign": "Solo OpenDesign",
-    "Open": "Abrir",
-    "Show link": "Mostrar enlace",
-    "Hide link": "Ocultar enlace"
+    "Open": "Abrir"
   },
   "pt-BR": {
     "WeChat Mini Game": "Minijogo do WeChat",
@@ -4883,9 +4869,7 @@
     "Play link": "Link para jogar",
     "Publishing…": "Publicando…",
     "Only OpenDesign": "Só OpenDesign",
-    "Open": "Abrir",
-    "Show link": "Mostrar link",
-    "Hide link": "Ocultar link"
+    "Open": "Abrir"
   },
   "it": {
     "WeChat Mini Game": "Minigioco WeChat",
@@ -5494,9 +5478,7 @@
     "Play link": "Link di gioco",
     "Publishing…": "Pubblicazione…",
     "Only OpenDesign": "Solo OpenDesign",
-    "Open": "Apri",
-    "Show link": "Mostra link",
-    "Hide link": "Nascondi link"
+    "Open": "Apri"
   },
   "tr": {
     "WeChat Mini Game": "WeChat Mini Oyunu",
@@ -6105,8 +6087,6 @@
     "Play link": "Oyun bağlantısı",
     "Publishing…": "Yayınlanıyor…",
     "Only OpenDesign": "Yalnızca OpenDesign",
-    "Open": "Aç",
-    "Show link": "Bağlantıyı göster",
-    "Hide link": "Bağlantıyı gizle"
+    "Open": "Aç"
   }
 }

@@ -569,10 +569,7 @@
 .om-gp-compact-link-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--motion-space-10); }
 .om-gp-compact-link .om-gp-text-btn { font-size: var(--motion-text-xs); color: var(--motion-muted); text-decoration: underline; cursor: pointer; }
 .om-gp-compact-link .om-gp-text-btn:hover { color: var(--motion-text); }
-.om-gp-compact-link .om-gp-link-value { margin-top: 0; user-select: all; }
 .om-gp-od-line { flex-wrap: wrap; }
 .om-gp-od-line[data-done] .om-gp-od-line-text { flex: 0 1 auto; color: var(--motion-text); }
 .om-gp-od-line[data-done] { flex-wrap: nowrap; white-space: nowrap; }
 .om-gp-od-line[data-done] .om-gp-compact-link-row { flex-wrap: nowrap; gap: var(--motion-space-8); }
-.om-gp-od-line[data-done]:has(.om-gp-link-value) { flex-wrap: wrap; white-space: normal; }
-.om-gp-od-line[data-done]:has(.om-gp-link-value) .om-gp-compact-link { flex-basis: 100%; }
