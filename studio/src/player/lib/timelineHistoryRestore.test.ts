@@ -41,6 +41,13 @@ it("handles a standalone nested template in that source file's local coordinates
   expect(usePlayerStore.getState().elements[0]).toMatchObject({ key: "scenes/one.html#a", start: 1, duration: 5, sourceDuration: 100 });
 });
 
+it("preserves a newer millisecond drag when predicting undo from a centisecond start", () => {
+  usePlayerStore.setState({ elements: [row("a", 3.334, 4)], duration: 20 });
+  const files = { "index.html": { previous: page(clip("a", 3.33, 4)), restored: page(clip("a", 1, 4)) } };
+  expect(syncHistoryTimelineFromFiles(null, files, "predict")).toBe(false);
+  expect(usePlayerStore.getState().elements[0].start).toBe(3.334);
+});
+
 it("restores removed audio flags, automation and fades through the shared source parser", () => {
   const attrs = 'muted data-volume="0.4" data-fade-in="1" data-automation=\'{"version":1,"lanes":[]}\'';
   usePlayerStore.setState({ elements: [{ ...row("a", 0, 8), muted: true, volume: 0.4, fadeIn: 1, automation: '{"version":1,"lanes":[]}' }], duration: 20 });

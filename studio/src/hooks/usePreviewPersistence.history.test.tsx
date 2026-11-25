@@ -331,7 +331,7 @@ it("restores split/delete clip structure before the replacement preview has load
   expect(iframe.contentDocument!.querySelectorAll("audio")).toHaveLength(2);
 });
 
-it("projects the quantized move into a cross-origin timeline immediately and preserves a later drag on refusal", () => {
+it.each([3.334, 3.33])("projects a saved move at %s into a cross-origin timeline immediately and preserves a later drag on refusal", (start) => {
   const path = 'index.html', project = 'project-history-geometry';
   const html = (t: number) => `<main data-composition-id="root" data-duration="12"><audio id="song" data-start="${t}" data-duration="4"></audio></main>`;
   const iframe = document.body.appendChild(document.createElement('iframe'));
@@ -341,7 +341,7 @@ it("projects the quantized move into a cross-origin timeline immediately and pre
   const mounted = '"sha256:' + 'a'.repeat(64) + '"';
   rememberPeerTimingDocument(iframe,'grant','test-document',undefined,{},false,{[path]:mounted});
   rememberSource(project,path,{content:html(1), version:mounted});
-  const element = {id:'song', key:'index.html#song', sourceFile:path, domId:'song', tag:'audio', start:3.334, duration:4, track:0};
+  const element = {id:'song', key:'index.html#song', sourceFile:path, domId:'song', tag:'audio', start, duration:4, track:0};
   usePlayerStore.setState({timelineProjectId:project, elements:[element], duration:12, currentTime:8});
   let hook!: ReturnType<typeof usePreviewPersistence>;
   function Harness() {
@@ -349,7 +349,7 @@ it("projects the quantized move into a cross-origin timeline immediately and pre
     return null;
   }
   mountReactHarness(<Harness />);
-  const files = {[path]:{previous:html(3.33),restored:html(1),versions:{previous:new Set([mounted]),restored:mounted}}};
+  const files = {[path]:{previous:html(start),restored:html(1),versions:{previous:new Set([mounted]),restored:mounted}}};
   const rollback = hook.showHistoryRestoreNow(files,true)!;
   expect(usePlayerStore.getState().elements[0].start).toBe(1);
   expect(hasPendingHistoryTimeline(iframe)).toBe(true);
