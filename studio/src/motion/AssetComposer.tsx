@@ -45,7 +45,8 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   onUploadFiles?: (files: File[], source?: 'drop' | 'paste') => void; uploadingReferences?: boolean;
   onCreated: (job: GenerationJob) => void; onResume?: (job: GenerationJob) => Promise<void>; onError: (message: string) => void; onInfo?: (message: string) => void; onClose: () => void;
 }) {
-  const { t } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
+  const { t, formatNumber } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
+  const formatCount = (value: number) => (typeof formatNumber === 'function' ? formatNumber(value) : value.toLocaleString());
   const scene = studio?.destination.scene;
   const imageWorkspace = studio?.destination.studio.id === 'design' && scene?.modality === 'image';
   const videoLanding = Boolean(studio?.destination.landing && scene?.modality === 'video');
@@ -290,12 +291,12 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const speechPrompt = scene?.id === 'speech' || selected?.mode === 'text-to-speech';
   const promptCountId = `${promptId}-count`;
   const promptErrorId = `${promptId}-error`;
-  const promptCount = <span id={promptCountId} className="om-eyebrow" data-invalid={promptTooLong || undefined}>{trimmedPromptLength.toLocaleString()} / {promptLimit.toLocaleString()}</span>;
+  const promptCount = <span id={promptCountId} className="om-eyebrow" data-invalid={promptTooLong || undefined}>{formatCount(trimmedPromptLength)} / {formatCount(promptLimit)}</span>;
   const promptError = promptTooLong ? (
     <p id={promptErrorId} className="om-prompt-error" role="alert">
       {promptExcess === 1
-        ? t('Remove 1 character to stay within the {limit}-character limit.', { limit: promptLimit.toLocaleString() })
-        : t('Remove {count} characters to stay within the {limit}-character limit.', { count: promptExcess.toLocaleString(), limit: promptLimit.toLocaleString() })}
+        ? t('Remove 1 character to stay within the {limit}-character limit.', { limit: formatCount(promptLimit) })
+        : t('Remove {count} characters to stay within the {limit}-character limit.', { count: formatCount(promptExcess), limit: formatCount(promptLimit) })}
     </p>
   ) : null;
   const promptDescribedBy = [
@@ -304,7 +305,6 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   ].filter(Boolean).join(' ') || undefined;
   const promptInput: ComponentProps<'textarea'> = {
     id: promptId,
-    maxLength: promptLimit,
     'aria-label': imageWorkspace ? undefined : t('Asset prompt'),
     'aria-describedby': promptDescribedBy,
     'aria-invalid': promptTooLong || undefined,

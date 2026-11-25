@@ -903,7 +903,9 @@ it('relights one image with Seedream 5.5 by default and writes the chosen light 
   expect(promptInput.labels?.[0]?.textContent).toBe('Detailed description');
   expect(promptInput.parentElement?.getAttribute('data-form-field')).toBe('intrinsic');
   expect([...promptInput.parentElement!.children]).toEqual([promptInput]);
-  expect(promptInput.maxLength + imageFeaturePrompt('relight', 'x', { direction: 'back', temperature: 'cool', mood: 'neon' }).length - 1).toBe(20_000);
+  const relightLimit = 20_000 - (imageFeaturePrompt('relight', 'x', { direction: 'back', temperature: 'cool', mood: 'neon' }).length - 1);
+  expect(promptInput.hasAttribute('maxlength')).toBe(false);
+  expect(document.getElementById(promptInput.getAttribute('aria-describedby')!)!.textContent).toBe(`${'Keep the logo sharp.'.length.toLocaleString()} / ${relightLimit.toLocaleString()}`);
   expect(container.querySelector('button[aria-label="Generation model"]')?.textContent).toContain('Seedream 5.5');
   // One reference is the limit, so the picker offers no second one.
   expect(container.querySelector('.om-source-actions')).toBeNull();
@@ -998,7 +1000,7 @@ it.each([
   const input = () => container.querySelector<HTMLTextAreaElement>('textarea')!;
 
   await renderVideoPrompt(scene, 'x'.repeat(19_995), choices);
-  expect(input().maxLength).toBe(limit);
+  expect(input().hasAttribute('maxlength')).toBe(false);
   expect(submit().disabled).toBe(Boolean(feature));
   expect(container.querySelector('.om-creation-prompt-footer')!.textContent).toContain(`${(19_995).toLocaleString()} / ${limit.toLocaleString()}`);
   await renderVideoPrompt(scene, 'x'.repeat(limit + 1), choices);
@@ -1022,7 +1024,7 @@ it('updates the camera prompt budget when the selected camera movement changes',
   expect(submit().disabled).toBe(false);
   expect(container.querySelector('[role="alert"]')).toBeNull();
   await renderVideoPrompt('video-camera-control', prompt, { movement: 'static' });
-  expect(input().maxLength).toBeLessThan(prompt.length);
+  expect(input().hasAttribute('maxlength')).toBe(false);
   expect(input().value).toBe(prompt);
   expect(input().getAttribute('aria-invalid')).toBe('true');
   expect(submit().disabled).toBe(true);
@@ -1036,10 +1038,11 @@ it('updates the camera prompt budget when the selected camera movement changes',
   expect(container.querySelector('[role="alert"]')?.textContent).toBe('Remove 1 character to stay within the {limit}-character limit.');
   expect(submit().disabled).toBe(true);
 
-  // Outer whitespace trimmed before submission must not trigger a false over-limit block.
+  // Outer whitespace trimmed before submission must not trigger a false over-limit block or native maxLength clipping.
   generate.mockResolvedValue({ job: { id: 'trimmed-boundary-job' } });
   const paddedBoundary = `\n${'x'.repeat(staticLimit)}\n`;
   await renderVideoPrompt('video-camera-control', paddedBoundary, { movement: 'static' });
+  expect(input().value).toBe(paddedBoundary);
   expect(input().getAttribute('aria-invalid')).toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(submit().disabled).toBe(false);
@@ -1078,7 +1081,7 @@ it.each(['remove-background', 'relight', 'character'] as const)('honors the asse
 
   await renderFeature(feature, { prompt: assetPromptForReuse(submitted, 'image'), references, relight });
   const input = container.querySelector<HTMLTextAreaElement>('.om-image-prompt')!;
-  expect(input.maxLength).toBe(limit);
+  expect(input.hasAttribute('maxlength')).toBe(false);
   expect(input.value).toBe(text);
   expect(document.getElementById(input.getAttribute('aria-describedby')!)!.textContent).toBe(`${limit.toLocaleString()} / ${limit.toLocaleString()}`);
   expect(submit().disabled).toBe(false);
