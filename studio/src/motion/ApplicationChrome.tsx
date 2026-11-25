@@ -372,7 +372,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
           <div className="om-account-hub-card-head">
             <span className="om-account-hub-plan-row">
               <span className="om-account-hub-plan-emblem">{quota.planLabel}</span>
-              {campaign && <span className="om-account-hub-promo-chip">50% OFF</span>}
+              {campaign && <span className="om-account-hub-promo-chip">{t('50% OFF')}</span>}
             </span>
             <span className="om-account-hub-head-actions">
               <IconButton

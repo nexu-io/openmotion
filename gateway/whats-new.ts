@@ -98,6 +98,9 @@ export type WhatsNewSourceMode =
   | { kind: 'local' };
 
 export function resolveWhatsNewSource(env: NodeJS.ProcessEnv = process.env): WhatsNewSourceMode {
+  if (env.OPENMOTION_WHATS_NEW_ENABLED?.trim() === '0') {
+    return { kind: 'disabled' };
+  }
   const overrideUrl = env.OPENMOTION_WHATS_NEW_URL?.trim();
   if (overrideUrl) {
     return isAllowedWhatsNewOverrideUrl(overrideUrl) ? { kind: 'url', url: overrideUrl } : { kind: 'disabled' };
@@ -106,10 +109,11 @@ export function resolveWhatsNewSource(env: NodeJS.ProcessEnv = process.env): Wha
     return { kind: 'local' };
   }
   const channel = (env.OPENMOTION_RELEASE_CHANNEL || env.MOTION_RELEASE_CHANNEL || '').trim().toLowerCase();
-  if (WHATS_NEW_RELEASE_CHANNELS.has(channel)) {
-    return { kind: 'local' };
+  if (channel) {
+    return WHATS_NEW_RELEASE_CHANNELS.has(channel) ? { kind: 'local' } : { kind: 'disabled' };
   }
-  return { kind: 'disabled' };
+  // Default packaged browser/desktop/Docker installs serve the shipped docs/whats-new.json.
+  return { kind: 'local' };
 }
 
 export interface WhatsNewServiceOptions {

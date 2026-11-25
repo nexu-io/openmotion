@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MessageCenterMessage, ProductionTouchpointDecision } from '../../../../shared/growth-surfaces';
 import type { WorkspaceCollabSnapshot, WorkspaceDirectoryEntry } from '../../../../shared/workspace-collab';
-import { buildWorkspacePermissions } from '../../../../shared/workspace-collab';
+import { buildWorkspacePermissions, EMPTY_WORKSPACE_PERMISSIONS } from '../../../../shared/workspace-collab';
 import { I18nProvider } from '../../i18n/I18n';
 import { setMotionTrackingEnabled } from '../tracking';
 import { WorkspaceCollabProvider } from '../WorkspaceCollabContext';
@@ -63,28 +63,21 @@ function makeCollabSnapshot(planId = 'plus', signedIn = true): WorkspaceCollabSn
     workspaces: signedIn ? [active] : [],
     activeWorkspaceId: signedIn ? active.workspaceId : null,
     activeWorkspace: signedIn ? active : null,
-    permissions: signedIn
-      ? buildWorkspacePermissions(active)
-      : {
-          canSwitchWorkspace: false,
-          canInviteMembers: false,
-          canInviteAdmins: false,
-          canManageMembers: false,
-          canManageBilling: false,
-          canShareProjects: false,
-          canPublishToTeam: false,
-        },
+    permissions: signedIn ? buildWorkspacePermissions(active) : EMPTY_WORKSPACE_PERMISSIONS,
     removedFromWorkspace: null,
     quota: signedIn
       ? {
+          workspaceId: active.workspaceId,
           planId,
           planLabel: planId === 'free' ? 'Free' : 'Plus',
           billingState: planId === 'free' ? 'free' : 'active',
+          lifecycleState: active.lifecycleState,
           creditsUsd: '42.00',
           weeklyPercentLeft: 95,
           weeklyResetsAt: null,
           hasAvailableFunds: true,
           weeklyLimitExhausted: false,
+          creditsExhausted: false,
         }
       : null,
     referral: null,
@@ -592,7 +585,7 @@ describe('Phase C retention, support, and social share surfaces', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes('/motion-api/tracking')) return jsonResponse({ enabled: false });
-      if (url.includes('/motion-api/collab/state')) return jsonResponse(makeCollabSnapshot('plus'));
+      if (url.includes('/motion-api/workspace/collab')) return jsonResponse(makeCollabSnapshot('plus'));
       return jsonResponse({});
     });
 
@@ -642,7 +635,7 @@ describe('Phase C retention, support, and social share surfaces', () => {
         }
         return jsonResponse({ enabled: true });
       }
-      if (url.includes('/motion-api/collab/state')) return jsonResponse(makeCollabSnapshot('plus'));
+      if (url.includes('/motion-api/workspace/collab')) return jsonResponse(makeCollabSnapshot('plus'));
       return jsonResponse({});
     });
 
@@ -748,7 +741,7 @@ describe('Phase C retention, support, and social share surfaces', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: string | URL | Request) => {
       const url = String(input);
-      if (url.includes('/motion-api/collab/state')) return jsonResponse(makeCollabSnapshot('plus'));
+      if (url.includes('/motion-api/workspace/collab')) return jsonResponse(makeCollabSnapshot('plus'));
       return jsonResponse({});
     });
 

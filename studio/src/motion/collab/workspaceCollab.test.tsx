@@ -519,7 +519,7 @@ describe('OpenDesign client collaboration components', () => {
     });
     await flush();
     expect(container.querySelector('[data-testid="comment-sync-banner"]')).toBeNull();
-    expect(container.querySelector('[data-testid="comment-team-presence"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="comment-team-presence"]')).toBeNull();
 
     // Open WebPublishPopover to confirm dual-flow team visibility block mounts.
     await act(async () => {

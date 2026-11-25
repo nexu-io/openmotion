@@ -302,10 +302,23 @@ test('TouchpointService caches per scope, replays unexpired on 5xx, and purges i
 });
 
 test("WhatsNewService honors channel gating, validates schema/HTTPS links, and localizes docs/whats-new.json", async () => {
-  const disabled = new WhatsNewService({ env: {} });
-  const disabledRes = await disabled.readWhatsNew();
-  assert.equal(disabledRes.id, null);
-  assert.equal(disabledRes.content, null);
+  // Default packaged environment serves the shipped docs/whats-new.json.
+  const defaultPackaged = new WhatsNewService({ env: {}, version: '1.2.3' });
+  const defaultRes = await defaultPackaged.readWhatsNew();
+  assert.equal(defaultRes.version, '1.2.3');
+  assert.ok(defaultRes.id);
+  assert.ok(defaultRes.content);
+
+  // Explicit opt-out or non-release channel disables What's New.
+  const optedOut = new WhatsNewService({ env: { OPENMOTION_WHATS_NEW_ENABLED: '0' } });
+  const optedOutRes = await optedOut.readWhatsNew();
+  assert.equal(optedOutRes.id, null);
+  assert.equal(optedOutRes.content, null);
+
+  const devChannel = new WhatsNewService({ env: { OPENMOTION_RELEASE_CHANNEL: 'dev' } });
+  const devRes = await devChannel.readWhatsNew();
+  assert.equal(devRes.id, null);
+  assert.equal(devRes.content, null);
 
   const localStable = new WhatsNewService({
     env: { OPENMOTION_RELEASE_CHANNEL: 'stable' },
@@ -351,8 +364,8 @@ test('server.ts exposes /api/message-center/*, /api/touchpoints/*, and /api/what
     const whatsNew = await req('/motion-api/whats-new');
     assert.equal(whatsNew.status, 200);
     const whatsNewJson = await whatsNew.json();
-    assert.equal(whatsNewJson.id, null);
-    assert.equal(whatsNewJson.content, null);
+    assert.ok(whatsNewJson.id);
+    assert.ok(whatsNewJson.content);
 
     const invalidTp = await req('/motion-api/touchpoints/production?placementKey=bad.slot');
     assert.equal(invalidTp.status, 400);

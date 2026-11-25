@@ -825,6 +825,7 @@ export function AssetsPage({
           onViewModeChange={unifiedLibrary.setViewMode}
           loading={unifiedLibrary.loading}
           loadingMore={unifiedLibrary.loadingMore}
+          loadingMoreError={unifiedLibrary.loadingMoreError}
           error={unifiedLibrary.error}
           onRetry={unifiedLibrary.retry}
           onLoadMore={() => { void unifiedLibrary.loadMore(); }}

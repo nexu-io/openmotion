@@ -290,6 +290,7 @@ export type LibraryTimelineViewProps = {
   onViewModeChange: (mode: UnifiedLibraryViewMode) => void;
   loading: boolean;
   loadingMore: boolean;
+  loadingMoreError?: boolean;
   error: boolean;
   onRetry: () => void;
   onLoadMore: () => void;
@@ -323,6 +324,7 @@ export function LibraryTimelineView({
   onViewModeChange,
   loading,
   loadingMore,
+  loadingMoreError = false,
   error,
   onRetry,
   onLoadMore,
@@ -545,7 +547,7 @@ export function LibraryTimelineView({
           <p>
             {hasFilters
               ? t('No matching creations found.')
-              : t('Creations from Super Agent, Studios, MCP, and Workflows will appear here.')}
+              : t('Creations from Super Agent, Studios, Workflows, and MCP will appear here.')}
           </p>
           <div className="om-library-empty-actions">
             {hasFilters ? (
@@ -660,6 +662,11 @@ export function LibraryTimelineView({
 
       {nextOffset !== null && items.length > 0 && (
         <div className="om-library-load-more">
+          {loadingMoreError && (
+            <span className="om-muted" role="status">
+              {t('Could not load more items.')}
+            </span>
+          )}
           <Button
             variant="plain"
             type="button"
@@ -667,7 +674,7 @@ export function LibraryTimelineView({
             disabled={loadingMore}
             onClick={onLoadMore}
           >
-            {t(loadingMore ? 'Loading…' : 'Load more')}
+            {t(loadingMore ? 'Loading…' : loadingMoreError ? 'Retry' : 'Load more')}
           </Button>
         </div>
       )}

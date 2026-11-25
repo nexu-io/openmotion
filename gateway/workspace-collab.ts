@@ -409,9 +409,19 @@ export class WorkspaceCollabService {
         typeof data?.inviteeWindowActive === 'boolean'
           ? data.inviteeWindowActive
           : Boolean(inviteeWindowEndsAt && Date.parse(inviteeWindowEndsAt) > Date.now());
+      let referralUrl = rawUrl;
+      if (!referralUrl) {
+        if (code) {
+          const parsedUrl = new URL(fallbackUrl);
+          parsedUrl.searchParams.set('code', code);
+          referralUrl = parsedUrl.toString();
+        } else {
+          referralUrl = fallbackUrl;
+        }
+      }
       return {
         available: true,
-        referralUrl: rawUrl || (code ? `${fallbackUrl}?code=${encodeURIComponent(code)}` : fallbackUrl),
+        referralUrl,
         referralCode: code,
         resetCardsAvailable,
         invitedCount,
@@ -1029,8 +1039,16 @@ export class WorkspaceCollabService {
       upsertArgs.push('--display-name', options.title.trim().slice(0, 120));
     }
     const upserted = await this.syncVelaTeamProjectsCommand(target.workspaceId, upsertArgs);
-    if (upserted) {
-      await this.syncVelaTeamProjectsCommand(target.workspaceId, ['visibility', cleanProjectId, 'team']);
+    if (!upserted) {
+      throw new Error('Could not sync project to the team workspace. Please retry when connected.');
+    }
+    const visibilitySynced = await this.syncVelaTeamProjectsCommand(target.workspaceId, [
+      'visibility',
+      cleanProjectId,
+      'team',
+    ]);
+    if (!visibilitySynced) {
+      throw new Error('Could not update project visibility in the team workspace. Please retry when connected.');
     }
     this.invalidateTeamProjectsCache(target.workspaceId);
 
@@ -1045,7 +1063,7 @@ export class WorkspaceCollabService {
         ...(kind ? { kind } : {}),
         ownerMemberId: target.workspaceMemberId,
         ...(ownerName ? { ownerName } : {}),
-        teamSynced: upserted,
+        teamSynced: true,
         movedAt: Date.now(),
       };
       if (skipFutureConfirm) {
@@ -1084,7 +1102,10 @@ export class WorkspaceCollabService {
       throw new Error('Target team workspace is locked or read-only');
     }
 
-    await this.syncVelaTeamProjectsCommand(teamWs.workspaceId, ['remove', cleanProjectId]);
+    const removed = await this.syncVelaTeamProjectsCommand(teamWs.workspaceId, ['remove', cleanProjectId]);
+    if (!removed) {
+      throw new Error('Could not remove project from the team workspace. Please retry when connected.');
+    }
     this.invalidateTeamProjectsCache(teamWs.workspaceId);
 
     const personalWs =
@@ -1136,11 +1157,14 @@ export class WorkspaceCollabService {
       ) {
         throw new Error('Only the project creator can change visibility');
       }
-      await this.syncVelaTeamProjectsCommand(teamWs.workspaceId, [
+      const synced = await this.syncVelaTeamProjectsCommand(teamWs.workspaceId, [
         'visibility',
         cleanProjectId,
         visibility === 'workspace' ? 'team' : 'private',
       ]);
+      if (!synced) {
+        throw new Error('Could not update project visibility in the team workspace. Please retry when connected.');
+      }
       this.invalidateTeamProjectsCache(teamWs.workspaceId);
     }
 
@@ -1204,7 +1228,13 @@ export class WorkspaceCollabService {
         'Workspace is locked. Restore access before syncing comments.',
       );
     }
-    return this.reportCommentSyncState(cleanProjectId, 'synced', 0);
+    const pendingCount = Math.max(1, snapshot.commentSync[cleanProjectId]?.pendingCount ?? 1);
+    return this.reportCommentSyncState(
+      cleanProjectId,
+      'failed',
+      pendingCount,
+      'Cloud comment sync is not available yet. Pending comments stay saved locally.',
+    );
   }
 
   async preflightWorkspace(

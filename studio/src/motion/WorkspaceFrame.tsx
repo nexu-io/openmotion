@@ -598,28 +598,41 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
           // Ignore malformed internal action paths.
         }
       }}
-      onUseCampaignModel={(modelId, modelLabel) => {
-        void loadModels()
-          .then(models => {
-            const matched = models.find(item => item.id === modelId || item.modelId === modelId);
-            if (!matched) return;
-            return gatewayRequest(`models/routes/${matched.modality}`, 'PUT', { model: matched.id });
-          })
-          .catch(() => {});
-        navigatePage({
-          superAgent: true,
-          superAgentChat: null,
-          settings: null,
-          assets: false,
-          skills: false,
-          templates: false,
-          template: null,
-        });
-        navigationToast.showToast(
-          t('Switched to {model}', { model: modelLabel || modelId }),
-          'info',
-          'feedback',
-        );
+      onUseCampaignModel={async (modelId, modelLabel) => {
+        const displayModel = modelLabel || modelId;
+        try {
+          const models = await loadModels();
+          const matched = models.find(item => item.id === modelId || item.modelId === modelId);
+          if (!matched) {
+            navigationToast.showToast(
+              t('Could not switch to {model}', { model: displayModel }),
+              'error',
+              'feedback',
+            );
+            return;
+          }
+          await gatewayRequest(`models/routes/${matched.modality}`, 'PUT', { model: matched.id });
+          navigatePage({
+            superAgent: true,
+            superAgentChat: null,
+            settings: null,
+            assets: false,
+            skills: false,
+            templates: false,
+            template: null,
+          });
+          navigationToast.showToast(
+            t('Switched to {model}', { model: displayModel }),
+            'info',
+            'feedback',
+          );
+        } catch {
+          navigationToast.showToast(
+            t('Could not switch to {model}', { model: displayModel }),
+            'error',
+            'feedback',
+          );
+        }
       }}
     >
     {archives.manager}

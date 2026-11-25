@@ -63,6 +63,7 @@ export function useUnifiedLibrary({
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingMoreError, setLoadingMoreError] = useState(false);
   const [error, setError] = useState(false);
   const [supported, setSupported] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
@@ -106,6 +107,7 @@ export function useUnifiedLibrary({
       setLoading(true);
     }
     setError(false);
+    setLoadingMoreError(false);
 
     void gatewayRequest<unknown>(buildPath(0))
       .then(data => {
@@ -137,6 +139,7 @@ export function useUnifiedLibrary({
     if (!active || !enabled || nextOffset === null || loadingMore) return;
     const seq = requestSeqRef.current;
     setLoadingMore(true);
+    setLoadingMoreError(false);
     try {
       const data = await gatewayRequest<unknown>(buildPath(nextOffset));
       if (seq !== requestSeqRef.current || !isUnifiedLibraryResponse(data)) return;
@@ -148,7 +151,7 @@ export function useUnifiedLibrary({
       setTotal(data.total);
       setNextOffset(data.nextOffset);
     } catch {
-      setError(true);
+      if (seq === requestSeqRef.current) setLoadingMoreError(true);
     } finally {
       setLoadingMore(false);
     }
@@ -156,6 +159,8 @@ export function useUnifiedLibrary({
 
   const retry = useCallback(() => {
     setError(false);
+    setLoadingMoreError(false);
+    setLoadingMoreError(false);
     setRetryCount(v => v + 1);
   }, []);
 
@@ -176,6 +181,7 @@ export function useUnifiedLibrary({
     nextOffset,
     loading,
     loadingMore,
+    loadingMoreError,
     error,
     supported,
     hasLoaded: hasLoadedRef.current,

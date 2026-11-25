@@ -203,11 +203,15 @@ export class TouchpointService {
   }
 
   private async readCache(): Promise<TouchpointCacheFile> {
-    const raw = await readSettings<Partial<TouchpointCacheFile>>(this.cachePath, {});
-    return {
-      schemaVersion: 1,
-      entries: isRecord(raw.entries) ? (raw.entries as Record<string, CachedTouchpointEntry>) : {},
-    };
+    try {
+      const raw = await readSettings<Partial<TouchpointCacheFile>>(this.cachePath, {});
+      return {
+        schemaVersion: 1,
+        entries: isRecord(raw.entries) ? (raw.entries as Record<string, CachedTouchpointEntry>) : {},
+      };
+    } catch {
+      return { schemaVersion: 1, entries: {} };
+    }
   }
 
   private mutateCache<T>(mutator: (cache: TouchpointCacheFile) => Promise<T> | T): Promise<T> {
@@ -312,35 +316,40 @@ export class TouchpointService {
         await this.purgeRevoked(slotKey, scope, {
           activityId: readString(receipt.activityId) || null,
           deploymentId: readString(receipt.deploymentId) || null,
-        });
+        }).catch(() => {});
         return { status: 'revoked', decision: null, offlineReplay: false };
       }
 
       if (response.status === 401 || response.status === 403) {
-        await this.purgeScope(scope);
+        await this.purgeScope(scope).catch(() => {});
         return { status: 'unauthorized', decision: null, offlineReplay: false };
       }
 
       if (response.status === 404) {
-        await this.removeSlot(slotKey);
+        await this.removeSlot(slotKey).catch(() => {});
         return { status: 'none', decision: null, offlineReplay: false };
       }
 
       if (response.ok) {
+        let parsedOk = false;
+        let decision: ProductionTouchpointDecision | null = null;
+        const now = this.now();
         try {
           const raw = await response.json();
-          const now = this.now();
-          const decision = normalizeTouchpointDecision(raw, placementKey, locale, now);
-          if (decision) {
-            await this.mutateCache(cache => {
-              cache.entries[slotKey] = { scope, cachedAt: now, decision };
-            });
-            return { status: 'active', decision, offlineReplay: false };
-          }
-          await this.removeSlot(slotKey);
-          return { status: 'none', decision: null, offlineReplay: false };
+          decision = normalizeTouchpointDecision(raw, placementKey, locale, now);
+          parsedOk = true;
         } catch {
           // Incomplete or malformed 200 payload falls through to offline replay check.
+        }
+        if (parsedOk) {
+          if (decision) {
+            await this.mutateCache(cache => {
+              cache.entries[slotKey] = { scope, cachedAt: now, decision: decision! };
+            }).catch(() => {});
+            return { status: 'active', decision, offlineReplay: false };
+          }
+          await this.removeSlot(slotKey).catch(() => {});
+          return { status: 'none', decision: null, offlineReplay: false };
         }
       }
     }
@@ -353,7 +362,7 @@ export class TouchpointService {
       if (entryValidAt(cached.decision, now)) {
         return { status: 'active', decision: cached.decision, offlineReplay: true };
       }
-      await this.removeSlot(slotKey);
+      await this.removeSlot(slotKey).catch(() => {});
     }
 
     return { status: 'none', decision: null, offlineReplay: false };

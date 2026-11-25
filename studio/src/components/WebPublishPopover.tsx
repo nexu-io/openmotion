@@ -250,7 +250,7 @@ export function WebPublishPopover({
     } finally {
       setActiveOp(null);
     }
-  }, [activeOp, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
+  }, [activeOp, collab, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
 
   // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes for this exact target.
   useEffect(() => {

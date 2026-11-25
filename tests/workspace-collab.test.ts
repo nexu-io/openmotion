@@ -91,6 +91,9 @@ function createMockAccountClient(rootDir: string, options: {
         if (!options.velaSnapshot) throw new Error('snapshot unsupported');
         return JSON.stringify(options.velaSnapshot);
       }
+      if (args[0] === 'team-projects') {
+        return JSON.stringify({ ok: true });
+      }
       throw new Error('unsupported command');
     },
     async openCloudUrl(targetPath, entrySource, _launch, attribution) {
@@ -369,8 +372,17 @@ test('move project to team, visibility toggle, comment sync, and Cloud link rout
 
     await service.reportCommentSyncState('proj_1', 'pending', 3);
     const afterSync = await service.retryCommentSync('proj_1');
-    assert.equal(afterSync.commentSync.proj_1.state, 'synced');
-    assert.equal(afterSync.commentSync.proj_1.pendingCount, 0);
+    assert.equal(afterSync.commentSync.proj_1.state, 'failed');
+    assert.equal(afterSync.commentSync.proj_1.pendingCount, 3);
+
+    // Failed team-projects sync must reject without persisting local metadata.
+    const origRun = mock.client.run;
+    mock.client.run = async () => {
+      throw new Error('vela offline');
+    };
+    await assert.rejects(() => service.moveProjectToWorkspace('proj_offline', 'ws_team_1', false), /Could not sync project/);
+    assert.equal((await service.getSnapshot()).projectMeta.proj_offline, undefined);
+    mock.client.run = origRun;
 
     await service.switchWorkspace('ws_team_1');
     await service.openCloudDestination('members');

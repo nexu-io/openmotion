@@ -823,19 +823,23 @@ export function WorkspaceCollabProvider({
 
   const retryCommentSync = useCallback(
     async (projectId: string) => {
-      const next = normalizeSnapshot(
-        await gatewayRequest<WorkspaceCollabSnapshot>(
-          `workspace/collab/comments/${encodeURIComponent(projectId)}/sync`,
-          'POST',
-          {},
-        ),
-      );
-      setSnapshot(next);
-      const result = next.commentSync[projectId];
-      if (result?.state === 'failed') {
-        showToast(result.lastError || t('Could not sync comments. Please try again.'), 'error');
-      } else {
-        showToast(t('Comments synced with your workspace'), 'info');
+      try {
+        const next = normalizeSnapshot(
+          await gatewayRequest<WorkspaceCollabSnapshot>(
+            `workspace/collab/comments/${encodeURIComponent(projectId)}/sync`,
+            'POST',
+            {},
+          ),
+        );
+        setSnapshot(next);
+        const result = next.commentSync[projectId];
+        if (result?.state === 'failed') {
+          showToast(result.lastError || t('Could not sync comments. Please try again.'), 'error');
+        } else {
+          showToast(t('Comments synced with your workspace'), 'info');
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : t('Could not sync comments. Please try again.'), 'error');
       }
     },
     [showToast, t],
