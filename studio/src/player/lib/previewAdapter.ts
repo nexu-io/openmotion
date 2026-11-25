@@ -12,6 +12,7 @@ export const PREVIEW_BRIDGE_PARENT_SOURCE = "openmotion-studio" as const;
 export const PREVIEW_BRIDGE_VERSION = 1 as const;
 
 export type PreviewBridgeMessageType =
+  | "preview-document"
   | "preview-ready"
   | "preview-build-busy"
   | "asset-readiness"
@@ -43,6 +44,29 @@ export type PreviewBridgeMessageType =
   | "browser-export-progress"
   | "handshake"
   | "response";
+
+// A cross-origin WindowProxy survives navigation. The bridge identifies each Document
+// before it accepts input and reports pagehide, even if its first native load is still pending.
+const documents = new WeakMap<HTMLIFrameElement, string>();
+const DOCUMENT_LEFT = "hf-preview-document-left";
+
+export function observePreviewDocument(frame: HTMLIFrameElement, id: string, leaving: boolean) {
+  const previous = documents.get(frame);
+  if (leaving && previous !== id) return;
+  if (leaving) documents.delete(frame);
+  else documents.set(frame, id);
+  if (previous && (leaving || previous !== id)) frame.dispatchEvent(new Event(DOCUMENT_LEFT));
+}
+
+export function onPreviewDocumentLeft(frame: HTMLIFrameElement, listener: () => void) {
+  const legacyLoad = () => { if (!documents.has(frame)) listener(); };
+  frame.addEventListener(DOCUMENT_LEFT, listener);
+  frame.addEventListener("load", legacyLoad);
+  return () => {
+    frame.removeEventListener(DOCUMENT_LEFT, listener);
+    frame.removeEventListener("load", legacyLoad);
+  };
+}
 
 export interface PreviewBridgeMessage {
   readonly source: typeof PREVIEW_BRIDGE_SOURCE | typeof PREVIEW_BRIDGE_PARENT_SOURCE;

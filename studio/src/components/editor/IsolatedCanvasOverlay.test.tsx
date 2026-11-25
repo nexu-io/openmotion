@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as sources from "../../utils/confirmedTextSources";
 import { IsolatedCanvasOverlay } from "./IsolatedCanvasOverlay";
-import { PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
+import { observePreviewDocument, PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
 import { liveTime, usePlayerStore } from "../../player/store/playerStore";
 import { announcePreviewPromoted } from "../../player/sceneSwap";
 
@@ -251,6 +251,26 @@ it("hands consecutive ordered gestures to the project transport before any save 
   expect(state.commitDomEditPatchBatches.mock.calls.map(call => call[0][0].box.left)).toEqual([120, 150, 180]);
   expect(state.showToast).not.toHaveBeenCalled();
   await act(async () => first.resolve({ durable: true, changed: true }));
+});
+
+it.each([false, true])("preserves an interactive document's drag through load until the actual document leaves (navigation %s)", async navigate => {
+  observePreviewDocument(frame, "current", false);
+  pointer("pointerdown", 60);
+  pointer("pointermove", 90);
+  act(() => {
+    frame.dispatchEvent(new Event("load"));
+    observePreviewDocument(frame, "retired", true);
+    if (navigate) observePreviewDocument(frame, "current", true);
+  });
+  pointer("pointerup", 90);
+  if (navigate) {
+    expect(messages.at(-1)?.phase).toBe("cancel");
+    expect(state.showToast).toHaveBeenCalledOnce();
+  } else {
+    await reply("finish", result);
+    expect(state.commitDomEditPatchBatches).toHaveBeenCalledOnce();
+    expect(state.showToast).not.toHaveBeenCalled();
+  }
 });
 
 it("rejects a measurement returned after a same-URL document load", async () => {

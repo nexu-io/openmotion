@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import { useDomEditActionsContext, useDomEditSelectionContext } from "../../contexts/DomEditContext";
 import { useStudioShellContext } from "../../contexts/StudioContext";
 import { useI18n } from "../../i18n/I18n";
-import { createPreviewAdapter, type PreviewAdapter } from "../../player/lib/previewAdapter";
+import { createPreviewAdapter, onPreviewDocumentLeft, type PreviewAdapter } from "../../player/lib/previewAdapter";
 import { projectPreviewAdapter } from "../../player/lib/projectPreviewAdapter";
 import { onPreviewPromoted, SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwap";
 import { usePlayerStore } from "../../player/store/playerStore";
@@ -102,9 +102,9 @@ export function IsolatedCanvasOverlay() {
   }, [domEditSelection]);
 
   const session = useRef(0);
-  const frameLoad = useRef(0);
+  const documentGeneration = useRef(0);
   const reportUnapplied = useCallback(() => showToast(t("This canvas edit was not saved. Try again when the preview is ready."), "error"), [showToast, t]);
-  const observedFrame = useRef<HTMLIFrameElement | null>(null);
+  const observedFrame = useRef<{ frame: HTMLIFrameElement; stop(): void } | null>(null);
   const cancel = useCallback(() => {
     const active = drag.current;
     active?.unwatch?.();
@@ -118,8 +118,8 @@ export function IsolatedCanvasOverlay() {
 
   const notifyUnapplied = useRef(reportUnapplied);
   notifyUnapplied.current = reportUnapplied;
-  const handleFrameLoad = useCallback(() => {
-    frameLoad.current++;
+  const handleDocumentLeft = useCallback(() => {
+    documentGeneration.current++;
     if (drag.current?.offset) notifyUnapplied.current();
     cancel();
   }, [cancel]);
@@ -127,8 +127,8 @@ export function IsolatedCanvasOverlay() {
   useEffect(() => {
     const releaseRetired = ({ retired }: { retired: HTMLIFrameElement | null }) => {
       if (!retired) return;
-      if (observedFrame.current === retired) {
-        retired.removeEventListener("load", handleFrameLoad);
+      if (observedFrame.current?.frame === retired) {
+        observedFrame.current.stop();
         observedFrame.current = null;
       }
       if (lastPick.current?.adapter.iframe === retired) {
@@ -140,11 +140,11 @@ export function IsolatedCanvasOverlay() {
     return () => {
       session.current++;
       stopPromoted();
-      observedFrame.current?.removeEventListener("load", handleFrameLoad);
+      observedFrame.current?.stop();
       observedFrame.current = null;
       cancel();
     };
-  }, [projectId, select, writeBlockedReason, cancel, handleFrameLoad]);
+  }, [projectId, select, writeBlockedReason, cancel, handleDocumentLeft]);
 
   function showBounds(active: Drag) {
     if (!active.bounds) return;
@@ -178,10 +178,9 @@ export function IsolatedCanvasOverlay() {
       adapter.send("layer-select", { x, y });
       return;
     }
-    if (observedFrame.current !== iframe) {
-      observedFrame.current?.removeEventListener("load", handleFrameLoad);
-      observedFrame.current = iframe;
-      iframe.addEventListener("load", handleFrameLoad);
+    if (observedFrame.current?.frame !== iframe) {
+      observedFrame.current?.stop();
+      observedFrame.current = { frame: iframe, stop: onPreviewDocumentLeft(iframe, handleDocumentLeft) };
     }
     const batchWrites = !!projectId && supportsOrderedTextEdits(projectId);
     const active: Drag = {
@@ -267,11 +266,11 @@ export function IsolatedCanvasOverlay() {
     let committed = false;
     let changed = false;
     const gestureSession = session.current;
-    const issuedAtLoad = frameLoad.current;
+    const issuedInDocument = documentGeneration.current;
     const wholePath = event.altKey || !usePlayerStore.getState().autoKeyframeEnabled;
     void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
       if (gestureSession !== session.current) return;
-      if (frameLoad.current !== issuedAtLoad || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
+      if (documentGeneration.current !== issuedInDocument || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
         reportUnapplied();
         return;
       }
