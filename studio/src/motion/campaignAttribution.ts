@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { attributedEntryId, PRODUCT_UTM_SOURCE } from '../../../shared/product-identity';
+import { isDesktopApp } from '../utils/platformHost';
 import type { ExploreFilters } from './workspacePageRouting';
 
 /**
@@ -128,4 +129,17 @@ export function campaignPricingUrl(locale: string, source: CampaignEntrySource, 
     utm_source: PRODUCT_UTM_SOURCE, utm_medium: utmMedium[source], ...(campaign ? { utm_campaign: BLACK_FRIDAY_CAMPAIGN } : {}),
   }).toString();
   return url.toString();
+}
+
+/**
+ * In a top-level browser tab, navigate to Pricing in the same tab so the browser Back button returns straight to
+ * OpenMotion. In the Electron desktop app or an embedded iframe, open externally in a new window/tab so the app
+ * shell stays intact and X-Frame-Options never blocks the Pricing page.
+ */
+export function pricingLinkTargetProps(): { target?: '_blank'; rel?: 'noopener noreferrer' } {
+  if (typeof window === 'undefined') return {};
+  if (isDesktopApp() || window.parent !== window) {
+    return { target: '_blank', rel: 'noopener noreferrer' };
+  }
+  return {};
 }

@@ -29,6 +29,19 @@
   transition: none;
 }
 
+/* Hold signature entrance keyframes until Explore actually becomes active */
+.hero[data-intro-active="false"] .stageGlow,
+.hero[data-intro-active="false"] .kicker,
+.hero[data-intro-active="false"] .serifRoman,
+.hero[data-intro-active="false"] .serifItalic,
+.hero[data-intro-active="false"] .cnHeadline,
+.hero[data-intro-active="false"] .thinClockRow,
+.hero[data-intro-active="false"] .metaLine,
+.hero[data-intro-active="false"] .actions,
+.hero[data-intro-active="false"] .scrollHint {
+  animation-play-state: paused;
+}
+
 /* 3D Perspective Infinite Corridor — pure template media walls + dark void rhythm */
 .corridorStage {
   position: absolute;
