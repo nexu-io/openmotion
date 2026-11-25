@@ -2218,22 +2218,27 @@ it('shows the Explore shortcuts, fills two complete rows across Skills and techn
   expect(footer?.querySelector('h2')?.textContent).toBe('Open Design');
   expect(footer?.closest('.om-discovery-page')).toBeNull();
 });
-it('hides the Black Friday banner on Explore home, shows it on other tabs, and keeps dismissal for the day', async () => {
+it.each([
+  ['2026-11-25T12:00:00+08:00', true],
+  ['2026-11-25T20:00:00+08:00', false],
+] as const)('shows the Explore banner until the hero takes over and honors dismissal at %s', async (now, exploreBannerVisible) => {
   vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
+  vi.setSystemTime(Date.parse(now));
   localStorage.clear();
   resetBannerDismissal();
   try {
     history.replaceState(null, '', '/?page=explore');
     await mount();
     const banner = () => container.querySelector('aside[aria-label="Black Friday campaign banner"]');
-    expect(banner()).toBeNull();
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
 
     await click('Motion Studio');
     expect(banner()).not.toBeNull();
 
     await click('Explore');
-    expect(banner()).toBeNull();
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
 
     await click('Design Studio');
     expect(banner()).not.toBeNull();

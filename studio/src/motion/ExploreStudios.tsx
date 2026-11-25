@@ -30,6 +30,9 @@ import { ExploreActionLabel, ExploreTemplateCard, TemplatePromptAction, useExplo
 import { ClaudeStories, ExploreHighlights, ModelCollection } from './ExploreStories';
 import { gptImageStory, seedanceStory } from './exploreModelStories';
 import { ExploreSpotlight, featuredSceneIds } from './ExploreSpotlight';
+import { ExploreBlackFridayHero } from './ExploreBlackFridayHero';
+import { ExploreBlackFridaySpotlight } from './ExploreBlackFridaySpotlight';
+import { useExploreCampaign, type ExploreCampaign } from './campaignAttribution';
 import { SkillMedia } from './SkillMedia';
 import { ExploreShelf } from './ExploreShelf';
 import { TemplateGalleryCard, TemplatePoster, TopBrandsLabel } from './TemplateGalleryCard';
@@ -75,6 +78,7 @@ const featuredSkills = Array.from({ length: Math.max(...coveredByCategory.map(li
   coveredByCategory.flatMap(list => list[round] ?? [])).flat().slice(0, templatePreviewLimit);
 
 type ExploreProps = {
+  campaign?: ExploreCampaign;
   initialTemplateCollection?: TemplateCollection | null;
   onSkill: (id: string) => void;
   onChooseStudio: (studio: CreativeStudio) => void;
@@ -395,7 +399,7 @@ function CapabilityIndex({ active, onModel, onNavigate, onChooseStudio, onBrandK
   </footer>;
 }
 
-function ExploreCollection({ community, root, firstPages, ...props }: ExploreProps & { firstPages: Map<string, TemplatePage>; community?: ExploreCommunity; root: RefObject<HTMLElement | null> }) {
+function ExploreCollection({ community, root, firstPages, blackFridayHero, ...props }: ExploreProps & { firstPages: Map<string, TemplatePage>; community?: ExploreCommunity; root: RefObject<HTMLElement | null>; blackFridayHero: boolean }) {
   const { t, locale } = useI18n();
   const gameStudioEnabled = useCloudFeatureEnabled('gameStudio');
   const { active, onNavigate, onChooseStudio, onSkill, filters } = props;
@@ -459,14 +463,17 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
   const feedError = templates.error && (medium || !initialTemplateError);
   const feedEmpty = !templates.error && !templates.loading && !firstPage.length;
   const templateError = <div className="om-discovery-empty"><span>{t('Templates could not be loaded.')}</span><Button variant="ghost" className="om-button h-auto" onClick={templates.retry}>{t('Retry')}</Button></div>;
+  const showFeatureSplit = !blackFridayHero && Boolean(featuredTemplate || initialTemplateError || initialLoading);
   return <>
-    {!medium && <div className="om-explore-features" data-split={Boolean(featuredTemplate || initialTemplateError || initialLoading)}>
+    {!medium && <div className="om-explore-features" data-split={showFeatureSplit}>
       {community ? <CommunitySpotlight community={community} skill={skills[0]} onChooseStudio={onChooseStudio} /> :
+        blackFridayHero ? <ExploreBlackFridaySpotlight active={active} onOpenBlackFriday={props.onOpenBlackFriday} onNavigate={onNavigate}
+          onOpenMotionEditor={props.onOpenMotionEditor} motionEditorDisabled={props.motionEditorDisabled} onModelHub={props.onModelHub} /> :
         <ExploreSpotlight active={active} onOpenBlackFriday={props.onOpenBlackFriday} onNavigate={onNavigate}
           onOpenMotionEditor={props.onOpenMotionEditor} motionEditorDisabled={props.motionEditorDisabled} onModelHub={props.onModelHub} onStartScenario={props.onStartScenario} />}
-      {featuredTemplate && <TemplateSpotlight item={featuredTemplate} onTry={tryVideoPrompt} />}
-      {initialTemplateError && templateError}
-      {initialLoading && <CoverPlaceholder className="om-featured-template-skeleton" />}
+      {!blackFridayHero && featuredTemplate && <TemplateSpotlight item={featuredTemplate} onTry={tryVideoPrompt} />}
+      {!blackFridayHero && initialTemplateError && templateError}
+      {!blackFridayHero && initialLoading && <CoverPlaceholder className="om-featured-template-skeleton" />}
     </div>}
     {home && <>
       {props.onStartScenario && props.onOpenScenarioHub && (
@@ -563,12 +570,17 @@ export function ExploreStudios(props: ExploreProps) {
   }, [onHome, preloadHost]);
   const root = useRef<HTMLElement>(null);
   const [firstPages] = useState(() => new Map<string, TemplatePage>());
+  const fallbackCampaign = useExploreCampaign(props.filters);
+  const campaign = props.campaign ?? fallbackCampaign;
   const community = exploreCommunities.find(item => item.id === props.filters.community);
+  const isExploreHome = !community && !props.filters.medium;
+  const showBlackFridayHero = isExploreHome && campaign.showHero;
   return <main ref={root} className="om-explore" hidden={!props.active} role={props.active ? undefined : 'none'}>
+    {showBlackFridayHero && <ExploreBlackFridayHero active={props.active} onExpire={campaign.expire} />}
     <div className="om-discovery-page">
-      <header className="om-discovery-heading">
-        <h1 className="om-explore-title">{t(!community && props.filters.medium ? mediaLabels[props.filters.medium] : 'Explore')}</h1>
-        {!community && !props.filters.medium && <nav className="om-explore-nav om-choice-tabs" aria-label={t('Explore')}>
+      <header className={showBlackFridayHero ? 'om-discovery-heading om-discovery-heading-compact' : 'om-discovery-heading'}>
+        {!showBlackFridayHero && <h1 className="om-explore-title">{t(!community && props.filters.medium ? mediaLabels[props.filters.medium] : 'Explore')}</h1>}
+        {isExploreHome && <nav className="om-explore-nav om-choice-tabs" aria-label={t('Explore')}>
           <Button type="button" variant="ghost" className="om-nav-item" icon={<RemixIcon name="apps-2-line" size={16} />} onClick={event => {
             track('explore_tabs', 'template_library');
             openLibrary(event.currentTarget);
@@ -579,8 +591,8 @@ export function ExploreStudios(props: ExploreProps) {
           }}>{t('Skills')}</Button>
         </nav>}
       </header>
-      <div className="om-explore-sections" data-explore-home={!community && !props.filters.medium}>
-        <ExploreCollection key={locale + '/' + (community?.id ?? '')} firstPages={firstPages} community={community} root={root} {...props} />
+      <div className="om-explore-sections" data-explore-home={isExploreHome}>
+        <ExploreCollection key={locale + '/' + (community?.id ?? '')} firstPages={firstPages} community={community} root={root} blackFridayHero={showBlackFridayHero} {...props} />
       </div>
     </div>
     <CapabilityIndex {...props} />

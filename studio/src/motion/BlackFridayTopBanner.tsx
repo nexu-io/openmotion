@@ -4,30 +4,12 @@ import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHos
 import { useI18n } from '../i18n/I18n';
 import flameArtUrl from './bf-dusk-flame.jpg';
 import styles from './BlackFridayTopBanner.module.css';
-import { BLACK_FRIDAY_CAMPAIGN, BLACK_FRIDAY_ENDS_AT, blackFridayActive, campaignPricingUrl, newCampaignEntryId } from './campaignAttribution';
+import { BLACK_FRIDAY_CAMPAIGN, COUNTDOWN_CYCLE_SECONDS, blackFridayActive, campaignPricingUrl, newCampaignEntryId, readBlackFridayCountdown } from './campaignAttribution';
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
 
-export const COUNTDOWN_CYCLE_SECONDS = 24 * 60 * 60; // 24h rolling cycle
-
-export function readBlackFridayCountdown(now = Date.now()) {
-  const remainingMs = Math.max(0, BLACK_FRIDAY_ENDS_AT - now);
-  const diffSec = remainingMs > 0 ? Math.floor((remainingMs - 1) / 1000) : 0;
-  const remaining = remainingMs > 0 ? diffSec % COUNTDOWN_CYCLE_SECONDS : 0;
-  const hours = Math.floor(remaining / 3600);
-  const minutes = Math.floor((remaining % 3600) / 60);
-  const seconds = remaining % 60;
-  const hh = String(hours).padStart(2, '0');
-  const mm = String(minutes).padStart(2, '0');
-  const ss = String(seconds).padStart(2, '0');
-  return {
-    hours: hh,
-    minutes: mm,
-    seconds: ss,
-    datetime: `PT${hh}H${mm}M${ss}S`,
-  };
-}
+export { COUNTDOWN_CYCLE_SECONDS, readBlackFridayCountdown };
 
 // One impression per page load: the banner remounts when the workspace frame does, which is not a new view.
 let impressionReported = false;
@@ -105,9 +87,9 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
   const copy = {
     aria: t('Black Friday campaign banner'),
     timerLabel: t('Ends in'),
-    offerBefore: t('Black Friday lowest of the year! DeepSeek V4.1 Flash & Eco '),
-    offerHighlight: t('7-day unlimited'),
-    offerAfter: t(', up to 50% off annual'),
+    offerBefore: t('Black Friday lowest of the year! '),
+    offerHighlight: t('7-day unlimited image gen'),
+    offerAfter: t(' · Unlimited top models · Up to 50% off'),
     bfCta: t('Claim offer'),
     closeLabel: t('Close campaign banner'),
   };

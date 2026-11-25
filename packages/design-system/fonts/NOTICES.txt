@@ -7,3 +7,5 @@ Copyright IBM Corp. 2017.
 SIL Open Font License 1.1; see IBM-Plex-Mono-OFL.txt.
 
 These fonts are served locally. No remote font service is used.
+
+Instrument Serif (Latin, regular and italic) is distributed under the SIL Open Font License 1.1. See Instrument-Serif-OFL.txt. Source: @fontsource/instrument-serif 5.3.0.

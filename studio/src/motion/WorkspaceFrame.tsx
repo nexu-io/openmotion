@@ -43,7 +43,7 @@ import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
 import { DesktopUpdatePrompt } from './DesktopUpdatePrompt';
-import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
+import { dismissBannerToday, shouldShowBlackFridayBanner, useExploreCampaign, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { MobileEditorDesktopGuide } from './MobileEditorDesktopGuide';
@@ -260,10 +260,11 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const [mobileViewport, setMobileViewport] = useState(() => window.innerWidth < 640);
   const [phone] = useState(() => isMobile(window.navigator).phone);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
-  // Shown inside the campaign window on non-Explore tabs unless dismissed today; re-checked each minute for the end and the next day.
+  // Shown inside the campaign window unless dismissed today or superseded by the active Explore takeover hero.
   const [bfBannerShown, setBfBannerShown] = useMinuteCondition(shouldShowBlackFridayBanner);
-  const onExploreTab = page.explore && !templatesPage && !settings;
-  const bfBannerVisible = !hostChrome && !onExploreTab && bfBannerShown;
+  const exploreCampaign = useExploreCampaign(lastExplore.current);
+  const exploreShowsHero = exploreCampaign.showHero && page.explore && !templatesPage && !settings;
+  const bfBannerVisible = !hostChrome && bfBannerShown && !exploreShowsHero;
   const closeBfBanner = useCallback(() => { dismissBannerToday(); setBfBannerShown(false); }, [setBfBannerShown]);
   const expireBfBanner = useCallback(() => setBfBannerShown(false), [setBfBannerShown]);
   const [projectQuery, setProjectQuery] = useState('');
@@ -768,6 +769,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         templatesPage={templatesPage}
         connectionsOpen={connectionsOpen}
         lastExplore={lastExplore.current}
+        exploreCampaign={exploreCampaign}
         motionEditorDisabled={motionEditorDisabled}
         motionTemplatesOpen={motionTemplatesOpen}
         standaloneMcp={standaloneMcp}

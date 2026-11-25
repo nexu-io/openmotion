@@ -13,7 +13,7 @@ import { useI18n } from '../../i18n/I18n';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { GallerySearchField } from '../../motion/GalleryFilters';
 import { reportCreativeClick } from '../../motion/exploreTracking';
-import designArtwork from '../../motion/scene-art/studio-glass-sculpture.jpg';
+import designArtwork from '../../motion/scene-art/studio-glass-sculpture.avif';
 import { useIntegrationInfo } from '../../motion/useIntegrationInfo';
 import { isDeferredP2Error } from '../../motion/p2Deferred';
 import { BrandKitPicker, type SelectedBrandKit } from '../BrandKitPicker';
