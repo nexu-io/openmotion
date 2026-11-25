@@ -30,7 +30,9 @@ import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
 import {
   exportDesktopDiagnosticBundle,
   getDesktopHostBridge,
+  isDesktopApp,
   openExternalUrl,
+  startDesktopBrowserLogin,
   subscribeDesktopMenuActions,
 } from '../utils/platformHost';
 import { discord, feishu } from './CommunityLink';
@@ -45,6 +47,13 @@ import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AuthRecoveryNotice } from './authRecovery';
+import {
+  clearAuthPendingDraft,
+  currentReturnToPath,
+  readAuthPendingDraft,
+  saveAuthPendingDraft,
+} from './authRecoveryStore';
+import { buildLoginUrl } from './AccountSettings';
 import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type SettingsSection, type WorkspacePage } from './workspacePageRouting';
 import type { SoundTabId } from './soundTabs';
 import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, navigateWorkspaceHistory, readLocationWorkspaceSource, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
@@ -61,7 +70,7 @@ import { useWorkspaceBlocker } from '../router/useWorkspaceBlocker';
 import { isNotFoundSpaPath } from '../../../shared/spa-routes';
 import { isCloudFeatureEnabled, useCloudFeatureEnabled } from '../utils/cloudFeatures';
 
-import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
+import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard, type GuestSignInIntent } from './WorkspaceChromeContext';
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 
 type WorkspaceFrameProps = {
@@ -350,11 +359,57 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [editorActive, openSettings, toggleSidebar]);
+  const guestMode = Boolean(workspace.authRequired);
+  const startGuestSignIn = useCallback((intent: GuestSignInIntent) => {
+    const returnTo = currentReturnToPath();
+    saveAuthPendingDraft({
+      action: intent.action,
+      templateId: intent.templateId,
+      instruction: intent.instruction,
+      idempotencyKey: intent.idempotencyKey,
+      returnTo,
+      autoResume: true,
+    });
+    const loginUrl = buildLoginUrl(returnTo);
+    if (isDesktopApp()) {
+      void startDesktopBrowserLogin({ loginUrl, returnTo });
+    } else {
+      window.location.assign(loginUrl);
+    }
+  }, []);
+  const autoResumedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!workspace.status || guestMode || workspace.busy) return;
+    const pending = readAuthPendingDraft();
+    if (!pending?.autoResume) return;
+    if (autoResumedKeyRef.current === pending.idempotencyKey) return;
+    autoResumedKeyRef.current = pending.idempotencyKey;
+    clearAuthPendingDraft();
+    if (pending.action === 'use_template' && pending.templateId) {
+      void (sessionId
+        ? workspace.createArtifact(sessionId, pending.templateId)
+        : workspace.startSession(pending.instruction, pending.templateId, 'motion', pending.idempotencyKey));
+    } else if (pending.action === 'create_project') {
+      void workspace.create(pending.instruction, pending.idempotencyKey);
+    } else if (pending.action === 'open_editor') {
+      const target = workspace.projects[0];
+      if (target) {
+        if (target.id === projectId) openEditor();
+        else void workspace.open('projects', target.id);
+      } else {
+        void workspace.create(undefined, pending.idempotencyKey);
+      }
+    }
+  }, [workspace.status, guestMode, workspace.busy, workspace.projects, projectId, sessionId]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
-  const switchingDisabled = libraryBusy || !workspace.status;
-  const motionEditorDisabled = switchingDisabled || workspace.projects.length === 0;
+  const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
+  const motionEditorDisabled = libraryBusy || (!guestMode && (!workspace.status || workspace.projects.length === 0));
   const openMotionEditor = async (selection: 'first' | 'last') => {
     if (motionEditorDisabled) return;
+    if (guestMode) {
+      startGuestSignIn({ action: 'open_editor' });
+      return;
+    }
     const current = projectId ?? workspace.activeProjectId;
     const previous = selection === 'last' ? workspace.projects.find(project => project.id === current) : undefined;
     const target = previous ?? workspace.projects[0];
@@ -392,7 +447,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     openLibrary(trigger);
     if (narrow) setSidebarOpen(false);
   };
-  const value: WorkspaceChrome = { workspace, switchingDisabled, saveState: editorState?.saveState || saveState, registerEditor, beforeViewChange,
+  const value: WorkspaceChrome = { workspace, switchingDisabled, guestMode, startGuestSignIn, saveState: editorState?.saveState || saveState, registerEditor, beforeViewChange,
     openLibrary,
     openConnections: entry => {
       connectionEntry.current = entry;
@@ -532,7 +587,12 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const visibleSettings = templatesPage || standaloneMcp ? null : settings;
   const showStudioBackToExplore = page.studio?.scene.modality === 'image' && fromExplore && !sourcePage.community && !sourcePage.medium;
   const openTemplateFromOverlay = (id: string) => {
-    if (!switchingDisabled) void (sessionId ? workspace.createArtifact(sessionId, id) : workspace.startSession(undefined, id));
+    if (switchingDisabled) return;
+    if (guestMode) {
+      startGuestSignIn({ action: 'use_template', templateId: id });
+      return;
+    }
+    void (sessionId ? workspace.createArtifact(sessionId, id) : workspace.startSession(undefined, id));
   };
   const overlaySharedProps = {
     page,
@@ -544,6 +604,9 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     detailOnly,
     libraryBusy,
     switchingDisabled,
+    guestMode,
+    onGuestTemplateSignIn: (templateId: string, requestId: string) =>
+      startGuestSignIn({ action: 'use_template', templateId, idempotencyKey: requestId }),
     workspaceError: workspace.error,
     cardPreview,
     libraryTrigger,
@@ -575,15 +638,16 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         onOpenScenarioHub={workflowsEnabled ? () => openScenarioHub() : undefined}
         onNavigate={openStudio} onNavigateSound={openAudioNav} />
       <AuthRecoveryNotice
+        signedIn={!guestMode && Boolean(workspace.status)}
         onRetry={workspace.retryConnection}
         onResumePendingDraft={async (draft) => {
           if (draft.templateId) {
             return sessionId
               ? workspace.createArtifact(sessionId, draft.templateId)
-              : workspace.startSession(draft.instruction, draft.templateId);
+              : workspace.startSession(draft.instruction, draft.templateId, 'motion', draft.idempotencyKey);
           }
           if (draft.instruction) {
-            return workspace.startSession(draft.instruction);
+            return workspace.startSession(draft.instruction, undefined, 'motion', draft.idempotencyKey);
           }
           return true;
         }}
@@ -660,7 +724,7 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
   openTemplates: (trigger?: HTMLElement) => void;
 }) {
   const { t } = useI18n();
-  const { workspace, switchingDisabled } = useWorkspaceChrome();
+  const { workspace, switchingDisabled, guestMode, startGuestSignIn } = useWorkspaceChrome();
   const projects = workspace.projects;
   const filtered = projects.filter(project => project.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const loadingProjects = !workspace.status && !workspace.error && projects.length === 0;
@@ -679,7 +743,11 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
         <Tooltip label={t('New project')}>
           <IconButton variant="ghost" type="button" className="motion-icon-button" aria-label={t('New project')} disabled={switchingDisabled} onClick={event => {
             void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
-            void workspace.create();
+            if (guestMode && startGuestSignIn) {
+              startGuestSignIn({ action: 'create_project' });
+            } else {
+              void workspace.create();
+            }
             onNavigate?.();
           }} icon={<MotionIcon name="plus-thin" size={20} />} />
         </Tooltip>

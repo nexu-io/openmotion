@@ -3,8 +3,16 @@ import type { LibraryAsset } from '../../../shared/asset-library';
 import { MAX_ASSET_BYTES } from '../../../shared/asset-limits';
 import { AssetUploadError, uploadResponseError } from './assetUploadError';
 
+const READ_ONLY_ASSET_ACTIONS = new Set(['list', 'get', 'jobs']);
+
 export async function assetRequest<T>(args: Record<string, unknown>): Promise<T> {
-  return gatewayRequest<T>('phase1/call', 'POST', { name: 'openmotion_assets_use', arguments: args });
+  const action = typeof args.action === 'string' ? args.action : '';
+  return gatewayRequest<T>(
+    'phase1/call',
+    'POST',
+    { name: 'openmotion_assets_use', arguments: args },
+    READ_ONLY_ASSET_ACTIONS.has(action) ? { suppressAuthRecovery: true } : undefined,
+  );
 }
 
 interface PresignedTicketResponse {

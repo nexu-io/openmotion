@@ -88,6 +88,7 @@ export interface GatewayBillingSummary {
   readonly hasBalance?: boolean;
   readonly balanceUsd?: string | null;
   readonly unavailable?: boolean;
+  readonly errorStatus?: number;
 }
 
 export interface LinkModelEntry {
@@ -120,7 +121,10 @@ export interface PlatformModelGateway {
     ctx: GatewayCallContext,
     output: GatewayTaskOutput,
   ): Promise<ReadableStream<Uint8Array>>;
-  getBillingSummary?(ctx: GatewayCallContext): Promise<GatewayBillingSummary>;
+  getBillingSummary?(
+    ctx: GatewayCallContext,
+    options?: { refresh?: boolean },
+  ): Promise<GatewayBillingSummary>;
   transcribeAudio?(
     ctx: GatewayCallContext,
     input: {

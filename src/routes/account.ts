@@ -38,7 +38,7 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
         deps.authStore.findWorkspaceById(auth.workspaceId),
         deps.authStore.listUserWorkspaces(auth.userId),
         deps.gateway.getBillingSummary
-          ? deps.gateway.getBillingSummary(gatewayCtx)
+          ? deps.gateway.getBillingSummary(gatewayCtx, { refresh })
           : Promise.resolve(null),
         deps.gateway.listMediaModels(gatewayCtx, { refresh }).catch(() => null),
       ]);
@@ -76,6 +76,7 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
           mediaEntitlement: 'unknown',
           unavailable: true,
         },
+        ...(billing?.errorStatus ? { billingError: { status: billing.errorStatus } } : {}),
         modelGateway: {
           provider: deps.gateway.providerId,
           mode: deps.gateway.mode,

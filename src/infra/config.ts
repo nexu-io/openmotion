@@ -100,7 +100,7 @@ const rawConfigSchema = z.object({
   OPENDESIGN_S2S_API_KEY: optionalNonEmptyString,
   AMR_IDENTITY_CACHE_TTL_SEC: z.coerce.number().int().min(1).max(60).default(60),
   OPENDESIGN_ASR_URL: optionalUrl,
-  OPENDESIGN_BILLING_SYNC_ENABLED: booleanEnv.default(false),
+  OPENDESIGN_BILLING_SYNC_ENABLED: booleanEnv.default(true),
   ALLOW_DOH_FAKEIP_FALLBACK: booleanEnv.default(false),
 
   // Worker tuning, history coalescing & GC

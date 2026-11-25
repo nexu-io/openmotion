@@ -17,6 +17,8 @@ export type OverlayLayerProps = {
   detailOnly: boolean;
   libraryBusy: boolean;
   switchingDisabled: boolean;
+  guestMode?: boolean;
+  onGuestTemplateSignIn?: (templateId: string, requestId: string) => void;
   workspaceError: string;
   cardPreview: RefObject<{ template: GalleryTemplate; locale: string } | null>;
   libraryTrigger: RefObject<HTMLElement | null>;
@@ -41,6 +43,8 @@ export function OverlayLayer({
   detailOnly,
   libraryBusy,
   switchingDisabled,
+  guestMode,
+  onGuestTemplateSignIn,
   workspaceError,
   cardPreview,
   libraryTrigger,
@@ -108,6 +112,8 @@ export function OverlayLayer({
             }}
             busy={libraryBusy}
             openingDisabled={switchingDisabled}
+            guestMode={guestMode}
+            onGuestTemplateSignIn={onGuestTemplateSignIn}
             error={workspaceError}
             onClose={
               detailOnly

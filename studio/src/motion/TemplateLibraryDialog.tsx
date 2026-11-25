@@ -82,7 +82,7 @@ function DetailMedia({ template }: { template: GalleryTemplate }) {
 }
 
 
-type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
+type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; guestMode?: boolean; onGuestTemplateSignIn?: (templateId: string, requestId: string) => void; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
 
 /** Full-window discovery using the existing catalog and guarded editable-project actions. */
 function DetailScroll({ enabled, container, children }: { enabled: boolean; container: RefObject<HTMLDivElement | null>; children: ReactNode }) {
@@ -209,7 +209,14 @@ export function TemplateLibraryDialog(props: Props) {
       : { ...progress, state: 'open_failed', error: t('The project is retained. Retry opening it without creating another copy.') });
   }
   async function prepareProject(template: GalleryTemplate) {
-    if (!isEditableTemplate(template) || !props.onPrepareTemplate || props.openingDisabled || props.busy) return;
+    if (!isEditableTemplate(template) || props.openingDisabled || props.busy) return;
+    if (props.guestMode && props.onGuestTemplateSignIn) {
+      const requestId = progressRef.current[template.id]?.requestId ?? crypto.randomUUID();
+      tracking.reportUseClicked(template, 'open_edit', detailView.current, undefined, requestId);
+      props.onGuestTemplateSignIn(template.id, requestId);
+      return;
+    }
+    if (!props.onPrepareTemplate) return;
     const previous = progressRef.current[template.id];
     if (previous?.state === 'creating' || previous?.state === 'opening' || previous?.state === 'unknown') return;
     const requestId = previous?.requestId ?? crypto.randomUUID();

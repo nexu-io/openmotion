@@ -17,6 +17,7 @@ import { mediaEditorDestination, mediaLabels, sceneFeature, scenesForStudio, stu
 import { DesignSceneTabs, type DesignTabId } from '../design/scenes/DesignSceneTabs';
 import { SoundSceneTabs } from './SoundSceneTabs';
 import { findSoundTab, isSfxModel, type SoundTabId } from './soundTabs';
+import { readPersistedStudioDrafts, savePersistedStudioDraft } from './authRecoveryStore';
 
 export type StudioCreation = {
   destination: StudioDestination;
@@ -59,7 +60,10 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     ? (destination.landing ? (scene.id === 'speech' ? 'speech' : 'music') : (soundTab ?? (scene.id === 'speech' ? 'speech' : 'music')))
     : undefined;
   const draftKey = activeSoundTab ? `sound/${activeSoundTab}` : studioDraftKey(destination, skill) + (cinemaTemplate ? '/' + cinemaTemplate.id : '');
-  const initialDraft: AssetDraft | undefined = drafts.current.get(draftKey) ?? (cinemaTemplate && {
+  const persistedDraft = !drafts.current.has(draftKey)
+    ? readPersistedStudioDrafts<AssetDraft>()[draftKey]
+    : undefined;
+  const initialDraft: AssetDraft | undefined = drafts.current.get(draftKey) ?? persistedDraft ?? (cinemaTemplate && {
     modality: 'video',
     prompt: (locale === 'zh-CN' ? cinemaTemplate.zh : cinemaTemplate.en).prompt,
     preferredModel: cinemaTemplate.model.id,
@@ -149,6 +153,6 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     </header>
     </>}
     <AssetsPage key={isSoundStudio ? `sound/${visit}${destination.home ? ':home' : ''}` : draftKey + visit} active={active} hasProject={hasProject} studio={{ destination, catalog, draftKey, soundTab: activeSoundTab, selectSoundTab, useAsFirstFrame, reuseInScene, initialDraft,
-      remember: draft => drafts.current.set(draftKey, draft), chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
+      remember: draft => { drafts.current.set(draftKey, draft); savePersistedStudioDraft(draftKey, draft); }, chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
   </div>;
 }

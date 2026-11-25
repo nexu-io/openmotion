@@ -152,6 +152,22 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const txCookieValue = cookies[OIDC_TX_COOKIE_NAME] ?? null;
 
     try {
+      if (oauthError) {
+        const { returnTo } = await deps.oidc.resolveCancelledCallback({
+          state,
+          txCookieValue,
+          iss,
+          error: oauthError,
+        });
+        const redirectTarget = new URL(assertSafeReturnTo(returnTo), 'http://local.invalid');
+        redirectTarget.searchParams.set('auth_cancelled', '1');
+        const location = `${redirectTarget.pathname}${redirectTarget.search}${redirectTarget.hash}`;
+        const headers = new Headers();
+        headers.append('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'));
+        headers.set('Location', location);
+        return new Response(null, { status: 302, headers });
+      }
+
       const { membership, returnTo } = await deps.oidc.completeCallback(deps.store, {
         code,
         state,

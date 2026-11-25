@@ -12,6 +12,7 @@ import { StudioToastViewport } from '../components/StudioToastViewport';
 import { gatewayRequest, type CloudApiError } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
+import { markAuthenticatedSession } from './authRecoveryStore';
 import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 import {
@@ -153,6 +154,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
     plan,
     balance: normalizeBalance(raw.billing?.balanceUsd),
     billingUnavailable: raw.billing?.unavailable,
+    billingError: raw.billingError,
     authMode: raw.authMode ?? 'oidc',
     authMethod: raw.authMethod,
     activeWorkspace: raw.activeWorkspace ?? null,
@@ -184,6 +186,9 @@ export function useAccountSummary() {
       const raw = await gatewayRequest<CloudSummaryApiResponse>('account/summary' + (billing ? '?refresh=true' : ''));
       if (current === request.current) {
         const normalized = normalizeAccountSummary(raw);
+        if (normalized.state === 'signed-in') {
+          markAuthenticatedSession(true);
+        }
         const scopeChanged = setPrivateSwrIdentity(
           normalized.state === 'signed-in'
             ? {
@@ -325,6 +330,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       const data = await response.json().catch(() => ({})) as { ok?: boolean; endSessionUrl?: string };
       if (!response.ok) throw new Error(t('Could not sign out'));
+      markAuthenticatedSession(false);
       clearPrivateSwrCache();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       setTokens(null);
