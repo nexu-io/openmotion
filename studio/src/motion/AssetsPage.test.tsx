@@ -12,7 +12,7 @@ import type { LibraryAsset } from '../../../shared/asset-library';
 import type { GameCard } from '../../../shared/game-contract';
 import { gameApi } from './game/gameCatalog';
 
-vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15' }) }));
+vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15', formatNumber: (value: number) => value.toLocaleString() }) }));
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 let lastComposerOnCreated: ((job: import('../../../shared/gateway').GenerationJob) => void) | undefined;
 let lastShowCurrentJob: boolean | undefined;

@@ -46,7 +46,6 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   onCreated: (job: GenerationJob) => void; onResume?: (job: GenerationJob) => Promise<void>; onError: (message: string) => void; onInfo?: (message: string) => void; onClose: () => void;
 }) {
   const { t, formatNumber } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
-  const formatCount = (value: number) => (typeof formatNumber === 'function' ? formatNumber(value) : value.toLocaleString());
   const scene = studio?.destination.scene;
   const imageWorkspace = studio?.destination.studio.id === 'design' && scene?.modality === 'image';
   const videoLanding = Boolean(studio?.destination.landing && scene?.modality === 'video');
@@ -291,14 +290,16 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const speechPrompt = scene?.id === 'speech' || selected?.mode === 'text-to-speech';
   const promptCountId = `${promptId}-count`;
   const promptErrorId = `${promptId}-error`;
-  const promptCount = <span id={promptCountId} className="om-eyebrow" data-invalid={promptTooLong || undefined}>{formatCount(trimmedPromptLength)} / {formatCount(promptLimit)}</span>;
-  const promptError = promptTooLong ? (
-    <p id={promptErrorId} className="om-prompt-error" role="alert">
-      {promptExcess === 1
-        ? t('Remove 1 character to stay within the {limit}-character limit.', { limit: formatCount(promptLimit) })
-        : t('Remove {count} characters to stay within the {limit}-character limit.', { count: formatCount(promptExcess), limit: formatCount(promptLimit) })}
-    </p>
-  ) : null;
+  const promptCount = <span id={promptCountId} className="om-eyebrow" data-invalid={promptTooLong || undefined}>{formatNumber(trimmedPromptLength)} / {formatNumber(promptLimit)}</span>;
+  const promptError = (
+    <small id={promptErrorId} className="om-field-error" role={promptTooLong ? 'alert' : undefined}>
+      {promptTooLong
+        ? (promptExcess === 1
+          ? t('Remove 1 character to stay within the {limit}-character limit.', { limit: formatNumber(promptLimit) })
+          : t('Remove {count} characters to stay within the {limit}-character limit.', { count: formatNumber(promptExcess), limit: formatNumber(promptLimit) }))
+        : null}
+    </small>
+  );
   const promptDescribedBy = [
     !imageWorkspace || featureMode ? promptCountId : undefined,
     promptTooLong ? promptErrorId : undefined,

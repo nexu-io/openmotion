@@ -15,7 +15,7 @@ const { generate, loadGateway, gatewayRequest, chrome } = vi.hoisted(() => ({
 }));
 vi.mock('./assetClient', () => ({ assetRequest: generate }));
 vi.mock('./gatewayClient', () => ({ loadGateway, gatewayRequest, invalidateGatewayCache: vi.fn() }));
-vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string) => text }) }));
+vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string) => text, formatNumber: (value: number) => value.toLocaleString() }) }));
 vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => chrome }));
 const model: Model = { id: 'codex:image', provider: 'codex', modelId: 'image', label: 'Codex Image', modality: 'image', source: 'builtin', mode: 'text-to-image' };
 let root: Root, container: HTMLDivElement;
