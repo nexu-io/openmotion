@@ -12,6 +12,7 @@ import {
   gatewayCallContextFromAuth,
   type PlatformModelGateway,
 } from '../services/model-gateway.ts';
+import { buildOpenDesignPreviewModels } from '../services/preview-model-catalog.ts';
 
 const VALID_DEFAULT_MODEL_REGEX = /^(?:opendesign:)?[a-zA-Z0-9][a-zA-Z0-9._/-]{0,179}$/;
 
@@ -123,7 +124,8 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
     try {
       const auth = getOptionalAuth(c);
       if (!auth) {
-        const models = await loadPublicModels(c.req.raw.signal);
+        const liveModels = await loadPublicModels(c.req.raw.signal);
+        const models = liveModels.length > 0 ? liveModels : buildOpenDesignPreviewModels();
         return c.json({
           provider: deps.gateway.providerId,
           mode: deps.gateway.mode,
@@ -133,13 +135,19 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
       }
       assertScope(auth, 'assets:read');
       const refresh = c.req.query('refresh') === 'true';
-      const [models, defaults] = await Promise.all([
+      const [liveModels, defaults] = await Promise.all([
         deps.gateway.listMediaModels(
           gatewayCallContextFromAuth(auth, { signal: c.req.raw.signal }),
           { refresh },
         ),
         loadWorkspaceDefaults(auth.workspaceId),
       ]);
+      const models =
+        liveModels.length > 0
+          ? liveModels
+          : deps.gateway.mode === 'opendesign'
+            ? buildOpenDesignPreviewModels()
+            : liveModels;
       return c.json({
         provider: deps.gateway.providerId,
         mode: deps.gateway.mode,

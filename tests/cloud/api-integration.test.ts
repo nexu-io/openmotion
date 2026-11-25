@@ -890,10 +890,13 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     assert.equal(publicCatalogRes.status, 200);
     const publicCatalog = (await publicCatalogRes.json()) as {
       defaults?: Record<string, unknown>;
-      models?: unknown[];
+      models?: Array<{ modality?: string }>;
     };
     assert.deepEqual(publicCatalog.defaults, {});
-    assert.ok(Array.isArray(publicCatalog.models));
+    assert.ok(Array.isArray(publicCatalog.models) && publicCatalog.models.length > 0);
+    assert.ok(publicCatalog.models.some((m) => m.modality === 'image'));
+    assert.ok(publicCatalog.models.some((m) => m.modality === 'video'));
+    assert.ok(publicCatalog.models.some((m) => m.modality === 'audio'));
 
     const publicStatusRes = await app.request('/motion-api/models/status');
     assert.equal(publicStatusRes.status, 200);

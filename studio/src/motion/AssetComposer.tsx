@@ -333,11 +333,13 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       </Button>
     </div>
   );
+  const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
+  const hostedPlanUpgrade = (cloudWeb || isHostedSelected) ? upgradePlan(account) : undefined;
   const modelPicker = studio?.guestPreview ? <GenerationModelPickers models={compatible} preferred={preferred} modelHeading={studioModelHeading} disabled={!compatible.length} onChoose={chooseModel} /> : gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
     ? <CreationModelPicker models={compatible} providers={gateway.status.providers} selected={preferred} appearance={imageWorkspace ? 'boxed' : 'standard'}
       providerHeading={providerHeading} modelHeading={studioModelHeading} disabled={busy} onChoose={chooseModel} popupClassName={imagePopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
     : <GenerationModelPickers models={choices} preferred={preferred} modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} />) : <>
-    {modelHeading}
+    {!(cloudEmptyCatalog && hostedPlanUpgrade) && modelHeading}
     {cloudGuestSubmit && (failed || cloudEmptyCatalog)
       ? guestModelNotice
       : failed
@@ -345,13 +347,11 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
         : !gateway
           ? <Skeleton className="om-asset-model-skeleton" />
           : cloudEmptyCatalog
-            ? <CloudEmptyModelsNotice consoleUrl={gateway.status.consoleUrl} boxed={imageWorkspace} onOpenSubscription={openSubscription} />
+            ? (hostedPlanUpgrade ? null : <CloudEmptyModelsNotice consoleUrl={gateway.status.consoleUrl} boxed={imageWorkspace} onOpenSubscription={openSubscription} />)
             : cloudFeatureUnavailable
               ? cloudFeatureUnavailableNotice
               : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
-  const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
-  const hostedPlanUpgrade = (cloudWeb || isHostedSelected) ? upgradePlan(account) : undefined;
   const resolvedParameters = (() => {
     if (!selected) return undefined;
     try {
@@ -394,7 +394,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const entitlementGate = hostedPlanUpgrade
     ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
     : null;
-  const setup = cloudGuestSubmit ? null : <>
+  const setup = (cloudGuestSubmit || Boolean(hostedPlanUpgrade)) ? null : <>
       {unconfiguredPreferred && (imageWorkspace
         ? <ProviderSetupNotice message={t('{provider} needs setup before generating.', { provider: providerLabel })}>
           <Button variant="ghost" className="om-button h-auto" onClick={() => configureProvider(preferred!.provider)}>

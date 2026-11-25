@@ -1797,3 +1797,79 @@ it('shows a non-blocking low-balance notice with Top up balance CTA when an enti
   // Keep submit enabled so the user can retry immediately after topping up in another tab.
   expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
 });
+
+it('keeps model picker and parameters visible for signed-in Free users without rendering duplicate setup notices above', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { setCachedCloudDisklessMode } = await import('../utils/cloudRuntime');
+  const { subscribeEntitlementModal } = await import('./entitlementModalBus');
+  const existing = featureModels();
+  setCachedCloudDisklessMode(true);
+  const modalRequests: Array<{ mode: string; hookId: string }> = [];
+  const unsubscribe = subscribeEntitlementModal(req => modalRequests.push(req));
+  gatewayRequest.mockImplementation(async (path: string) => {
+    if (path.startsWith('account/summary')) {
+      return {
+        state: 'signed-in',
+        plan: 'free',
+        billingUnavailable: false,
+        email: 'free@example.com',
+        name: 'Free User',
+      };
+    }
+    return {};
+  });
+  try {
+    const previewCatalog = {
+      models: [existing.sunburst],
+      status: {
+        consoleUrl: 'https://console.example.test',
+        providers: [
+          {
+            id: 'opendesign',
+            label: 'OpenDesign',
+            enabled: true,
+            configured: true,
+            available: false,
+            credentialSource: 'environment' as const,
+            verification: 'verified' as const,
+            reason: 'No media models are currently available for this OpenDesign workspace. Upgrade your plan or sync models.',
+            mediaEntitlement: 'not-included' as const,
+            plan: 'free',
+            hasBalance: false,
+          },
+        ],
+        agents: [],
+        routes: {},
+        capabilities: [],
+      },
+      mode: 'opendesign' as const,
+    };
+    await act(async () => root.render(
+      <AssetComposer
+        {...props}
+        draft={{ modality: 'image', prompt: 'Amber glass bottle', references: [] }}
+        studio={{
+          catalog: { catalog: previewCatalog, failed: false, retry: vi.fn() },
+          chooseModel: vi.fn(),
+          remember: vi.fn(),
+          destination: mediaEditorDestination('text-to-image'),
+        }}
+      />,
+    ));
+    await act(async () => { await Promise.resolve(); });
+    // Model picker renders the preview model; no duplicate setup/empty notice above
+    expect(container.textContent).toContain('GPT Image 2.6 Sunburst');
+    expect(container.querySelector('[data-empty-models="true"]')).toBeNull();
+    expect(container.textContent).not.toContain('needs setup before generating');
+    // Only the bottom-left FreePlanGenerationGate upgrade card is shown
+    expect(container.querySelector('.om-entitlement-gate')).not.toBeNull();
+    // Clicking Generate opens the U1 upgrade modal
+    const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+    expect(submit.disabled).toBe(false);
+    await act(async () => submit.click());
+    expect(modalRequests).toEqual([{ mode: 'upgrade', hookId: 'studio_free_gate' }]);
+  } finally {
+    unsubscribe();
+    setCachedCloudDisklessMode(false);
+  }
+});

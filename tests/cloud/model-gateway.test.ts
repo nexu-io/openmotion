@@ -712,5 +712,20 @@ describe('Hono Routes: /motion-api/models/* & /motion-api/account/*', () => {
     };
     assert.equal(summaryBody.billing.unavailable, true);
     assert.equal(summaryBody.modelGateway.availableModelCount, 0);
+
+    // /models/catalog falls back to read-only built-in OpenDesign preview models so guests and
+    // Free/Go workspaces can still browse models & native parameters while generation stays gated.
+    const authedCatalogRes = await app.request('/motion-api/models/catalog', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(authedCatalogRes.status, 200);
+    const authedCatalogBody = (await authedCatalogRes.json()) as {
+      models: Array<{ id: string; modality: string; source: string; generationOptions?: { fields: unknown[] } }>;
+    };
+    assert.ok(authedCatalogBody.models.length >= 6);
+    assert.ok(authedCatalogBody.models.every((m) => m.source === 'builtin'));
+    assert.ok(authedCatalogBody.models.some((m) => m.modality === 'image'));
+    assert.ok(authedCatalogBody.models.some((m) => m.modality === 'video'));
+    assert.ok(authedCatalogBody.models.some((m) => m.modality === 'audio'));
   });
 });
