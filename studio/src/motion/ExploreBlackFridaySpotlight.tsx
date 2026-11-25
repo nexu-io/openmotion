@@ -6,8 +6,8 @@ import { findModelHub } from './modelHubs';
 import { motionStudioCover } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
-import seedanceHeroPoster from './corridor-covers/cover-26.avif?no-inline';
-import gptImageHeroPoster from './scene-art/studio-glass-sculpture.avif';
+import seedanceHeroPoster from './model-hubs/seedance-2-5/hero.webp?no-inline';
+import gptImageHeroPoster from './model-hubs/gpt-image-2-6/hero.webp?no-inline';
 import blackFridayHeroPoster from './scene-art/black-friday-spotlight.webp?no-inline';
 
 const track = (element: Parameters<typeof reportCreativeClick>[2], target: Parameters<typeof reportCreativeClick>[3]) => reportCreativeClick('explore', 'explore_spotlight', element, target);
@@ -34,12 +34,14 @@ interface FeaturedSlide {
 }
 
 const seedanceHub = findModelHub('seedance-2-5')!;
+const seedanceHeroClip = seedanceHub.cases?.find(item => item.id === 'sd-4')?.video
+  ?? 'https://cdn.higgsfield.ai/user_3Bu8iUt8Z18vHzF7CZ97RTvmPwE/hf_20260622_203156_b3512a1f-3311-4cd0-8ee1-9e80d09f656a_min.mp4';
 const gptImageHub = findModelHub('gpt-image-2-6')!;
 const geminiHub = findModelHub('gemini-4')!;
 
 const slides: FeaturedSlide[] = [{
   id: 'gpt-image-2-6',
-  title: 'GPT Image 2.6',
+  title: 'GPT Image 2.0',
   badge: '7 Days Unlimited',
 
   badgeTone: 'promo',
@@ -54,17 +56,15 @@ const slides: FeaturedSlide[] = [{
   badge: '50% Off Annual',
 
   badgeTone: 'top',
-  tagline: 'Cinema multi-shot video with Plus+ · 24 1-click templates',
+  tagline: 'Cinema multi-shot video with Plus+ · 70 1-click templates',
 
   icon: 'film-line',
   poster: seedanceHeroPoster,
+  clip: seedanceHeroClip,
   hub: seedanceHub.id,
 }, {
   id: 'black-friday',
   title: 'Black Friday collection',
-  badge: '36 Sale Templates',
-
-  badgeTone: 'promo',
   tagline: 'Black Friday promo templates · Ready to use',
 
   icon: 'sparkling-line',
@@ -72,9 +72,6 @@ const slides: FeaturedSlide[] = [{
 }, {
   id: 'hub-' + geminiHub.id,
   title: geminiHub.latestModel,
-  badge: 'Viral on X',
-
-  badgeTone: 'neutral',
   tagline: 'Generate code animations from one prompt',
 
   icon: 'sparkling-line',
@@ -102,7 +99,7 @@ function FeaturedClip({ src, poster, playing }: { src: string; poster: string; p
     if (playing) void video.play().catch(() => { /* The poster remains available if autoplay is blocked. */ });
     else video.pause();
   }, [playing, videoSource]);
-  return videoSource && !failed ? <video ref={player} src={videoSource} poster={poster} muted loop playsInline preload="none" aria-hidden="true" onError={() => setFailed(true)} /> : null;
+  return videoSource && !failed ? <video ref={player} src={videoSource} poster={poster} autoPlay muted loop playsInline preload="auto" aria-hidden="true" onError={() => setFailed(true)} /> : null;
 }
 
 export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEditor, motionEditorDisabled, onOpenBlackFriday, onModelHub }: {

@@ -92,7 +92,7 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
     ? { '--poster-aspect': String(example.posterAspect) } as CSSProperties
     : undefined;
   return <div ref={stage} className="om-scene-example-media" style={mediaStyle}>
-    {clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
+    {clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" referrerPolicy="no-referrer" />}
     {enabled && !videoGuide && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
       disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
       {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
@@ -111,10 +111,34 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
   </div>;
 }
 
-export function StudioIdeas({ destination, onPrompt, active = true, modelName }: { destination: StudioDestination; onPrompt: (prompt: string) => void; active?: boolean; modelName?: string }) {
+export function StudioIdeas({ destination, onPrompt, active = true, modelName, featuredExample }: {
+  destination: StudioDestination;
+  onPrompt: (prompt: string) => void;
+  active?: boolean;
+  modelName?: string;
+  featuredExample?: { title: string; prompt: string; poster: string; clip?: string; posterAspect?: number };
+}) {
   const { t } = useI18n();
   const [selected, setSelected] = useState(0);
   const { scene } = destination;
+  if (featuredExample) {
+    const remixExample: SceneExample = {
+      title: featuredExample.title,
+      prompt: featuredExample.prompt,
+      poster: featuredExample.poster,
+      clip: featuredExample.clip,
+      posterAspect: featuredExample.posterAspect,
+    };
+    return <section className="om-scene-guide om-scene-hero" data-remix-guide="true">
+      <div className="om-scene-hero-stage">
+        <ExampleMedia key={remixExample.poster} example={remixExample} enabled={active} videoGuide={scene.modality === 'video'} />
+      </div>
+      <div className="om-guide-heading">
+        <h2 className="om-title">{remixExample.title}</h2>
+        <p className="om-muted">{remixExample.prompt}</p>
+      </div>
+    </section>;
+  }
   if (scene.id === 'image-edit') return (
     <SceneComparisonGuide src={sofaEdit} width={1506} height={1032}
       alt="An armchair before and after changing the room"
