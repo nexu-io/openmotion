@@ -29,7 +29,74 @@ const OAUTH_TOUCH_THROTTLE_SEC = 60;
 // Concurrent refreshes from one client lose the rotation race within this window; that is not theft.
 const REFRESH_REUSE_GRACE_SEC = 30;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-export const DEFAULT_DCR_ALLOWED_HTTPS_HOSTS: readonly string[] = ['chatgpt.com', 'claude.ai'];
+export const DEFAULT_DCR_ALLOWED_HTTPS_HOSTS: readonly string[] = [
+  'chatgpt.com',
+  '*.chatgpt.com',
+  'chat.openai.com',
+  '*.openai.com',
+  'claude.ai',
+  '*.claude.ai',
+  'claude.com',
+  '*.claude.com',
+  '*.anthropic.com',
+  'cursor.com',
+  '*.cursor.com',
+  '*.cursor.sh',
+  'vscode.dev',
+  '*.vscode.dev',
+  'github.dev',
+  '*.open-design.ai',
+  '*.powerformer.net',
+];
+
+const BLOCKED_CUSTOM_URI_SCHEMES = new Set([
+  'http:',
+  'https:',
+  'javascript:',
+  'data:',
+  'vbscript:',
+  'file:',
+  'blob:',
+  'about:',
+  'chrome:',
+  'chrome-extension:',
+  'edge:',
+  'moz-extension:',
+  'safari-extension:',
+  'ftp:',
+  'ftps:',
+  'ws:',
+  'wss:',
+  'mailto:',
+  'tel:',
+  'sms:',
+]);
+const VALID_CUSTOM_SCHEME_RE = /^[a-z][a-z0-9+.-]*:$/;
+
+export function isAllowedNativeAppScheme(protocol: string): boolean {
+  const normalized = protocol.toLowerCase();
+  return (
+    VALID_CUSTOM_SCHEME_RE.test(normalized) &&
+    !BLOCKED_CUSTOM_URI_SCHEMES.has(normalized)
+  );
+}
+
+export function isAllowedHttpsHost(
+  host: string,
+  allowedHttpsHosts: readonly string[] = DEFAULT_DCR_ALLOWED_HTTPS_HOSTS,
+): boolean {
+  const normalized = host.trim().toLowerCase();
+  if (!normalized) return false;
+  return allowedHttpsHosts.some((allowed) => {
+    const target = allowed.trim().toLowerCase();
+    if (!target) return false;
+    if (target.startsWith('*.')) {
+      const suffix = target.slice(1);
+      return normalized.endsWith(suffix) && normalized.length > suffix.length;
+    }
+    return normalized === target;
+  });
+}
 
 export type McpOAuthMode = 'proxy' | 'delegated';
 
@@ -79,7 +146,7 @@ export function buildOAuth21Config(
     resourceMetadataUrl,
     supportedScopes: [...DEFAULT_PAT_SCOPES],
     allowedHttpsHosts: parseAllowedHttpsHosts(config.OAUTH_DCR_ALLOWED_HTTPS_HOSTS),
-    dcrRateLimitPerMin: config.OAUTH_DCR_RATE_LIMIT_PER_MIN ?? 10,
+    dcrRateLimitPerMin: config.OAUTH_DCR_RATE_LIMIT_PER_MIN ?? 30,
   };
 }
 
@@ -142,6 +209,10 @@ export function formatRedirectHostLabel(raw: string): string {
     if (parsed.protocol === 'http:' && LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())) {
       return `Local application (${parsed.hostname})`;
     }
+    if (isAllowedNativeAppScheme(parsed.protocol)) {
+      const scheme = parsed.protocol.slice(0, -1);
+      return parsed.host ? `Desktop app (${scheme}://${parsed.host})` : `Desktop app (${scheme})`;
+    }
     return parsed.host;
   } catch {
     return raw;
@@ -161,20 +232,15 @@ export function isAllowedOAuthRedirectUri(
   }
   if (parsed.hash || parsed.username || parsed.password) return false;
   if (parsed.protocol === 'https:') {
-    const host = parsed.hostname.toLowerCase();
-    if (!host) return false;
-    return allowedHttpsHosts.some((allowed) => {
-      const target = allowed.trim().toLowerCase();
-      if (!target) return false;
-      if (target.startsWith('*.')) {
-        const suffix = target.slice(1);
-        return host.endsWith(suffix) && host.length > suffix.length;
-      }
-      return host === target;
-    });
+    return isAllowedHttpsHost(parsed.hostname, allowedHttpsHosts);
   }
   if (parsed.protocol === 'http:') {
     return LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase());
+  }
+  if (isAllowedNativeAppScheme(parsed.protocol)) {
+    const hasAuthorityOrPath =
+      parsed.hostname.length > 0 || (parsed.pathname.length > 0 && parsed.pathname !== '/');
+    return hasAuthorityOrPath;
   }
   return false;
 }
@@ -236,7 +302,7 @@ export async function registerOAuthClient(
     if (typeof uri !== 'string' || !isAllowedOAuthRedirectUri(uri, allowedHttpsHosts)) {
       throw new CloudError(
         'INVALID_ARGUMENT',
-        'redirect_uris must contain only loopback HTTP URIs or allowlisted HTTPS hosts without fragments',
+        'redirect_uris must contain only loopback HTTP URIs, native app custom URI schemes, or allowlisted HTTPS hosts without fragments',
         { status: 400 },
       );
     }

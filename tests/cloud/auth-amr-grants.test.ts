@@ -15,6 +15,10 @@ import {
   getAuthContext,
   type AuthEnv,
 } from '../../src/auth/index.ts';
+import {
+  formatRedirectHostLabel,
+  isAllowedOAuthRedirectUri,
+} from '../../src/auth/oauth21.ts';
 import { parseConfig } from '../../src/infra/config.ts';
 import { CloudError } from '../../src/contracts/errors.ts';
 import { OpenDesignModelGateway } from '../../src/services/opendesign-adapter.ts';
@@ -581,5 +585,75 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
     });
     assert.equal(deniedSummary.unavailable, true);
     assert.equal(deniedSummary.errorStatus, 403);
+  });
+
+  it('allows RFC 8252 native-app custom URI schemes and major cloud MCP hosts in OAuth DCR while blocking unsafe schemes and untrusted domains', async () => {
+    for (const allowed of [
+      'cursor://anysphere.cursor-mcp/oauth/callback',
+      'vscode://openmotion.client/auth',
+      'openmotion://auth/callback',
+      'com.example.agent:/oauth/cb',
+      'https://claude.ai/api/mcp/auth_callback',
+      'https://claude.com/api/mcp/auth_callback',
+      'https://chatgpt.com/connector_platform_oauth_redirect',
+      'https://chat.openai.com/oauth/callback',
+      'https://app.cursor.com/oauth/callback',
+      'https://motion.open-design.ai/oauth/callback',
+      'https://openmotion.powerformer.net/oauth/callback',
+      'http://127.0.0.1:51234/callback',
+    ]) {
+      assert.equal(isAllowedOAuthRedirectUri(allowed), true, `expected allowed: ${allowed}`);
+    }
+
+    for (const blocked of [
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'vbscript:msgbox(1)',
+      'file:///etc/passwd',
+      'chrome-extension://abcdef/cb',
+      'cursor://',
+      'cursor://anysphere.cursor-mcp/oauth/callback#frag',
+      'cursor://user:pass@anysphere.cursor-mcp/oauth/callback',
+      'https://evil.example.com/callback',
+      'http://evil.example.com/callback',
+    ]) {
+      assert.equal(isAllowedOAuthRedirectUri(blocked), false, `expected blocked: ${blocked}`);
+    }
+
+    assert.equal(
+      formatRedirectHostLabel('cursor://anysphere.cursor-mcp/oauth/callback'),
+      'Desktop app (cursor://anysphere.cursor-mcp)',
+    );
+    assert.equal(
+      formatRedirectHostLabel('com.example.agent:/oauth/cb'),
+      'Desktop app (com.example.agent)',
+    );
+
+    const config = oidcConfig({ OAUTH_DCR_RATE_LIMIT_PER_MIN: '30' });
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+    const oauth21 = buildOAuth21Config(config);
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, oauth21 }));
+
+    const cursorDcr = await app.request('/oauth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.55' },
+      body: JSON.stringify({
+        client_name: 'Cursor',
+        redirect_uris: ['cursor://anysphere.cursor-mcp/oauth/callback'],
+      }),
+    });
+    assert.equal(cursorDcr.status, 201);
+
+    const jsDcr = await app.request('/oauth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.55' },
+      body: JSON.stringify({
+        client_name: 'XSS',
+        redirect_uris: ['javascript:alert(1)'],
+      }),
+    });
+    assert.equal(jsDcr.status, 400);
   });
 });

@@ -17,6 +17,11 @@ import {
   type AuthEnv,
   type AuthMiddlewareDeps,
 } from '../auth/middleware.ts';
+import {
+  isAllowedHttpsHost,
+  isAllowedNativeAppScheme,
+  parseAllowedHttpsHosts,
+} from '../auth/oauth21.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import type { AppConfig } from '../infra/config.ts';
 import {
@@ -255,9 +260,37 @@ export interface McpHttpTransportDeps {
   sseKeepAliveMs?: number;
 }
 
+export function isAllowedMcpOrigin(
+  originHeader: string,
+  allowedHosts: readonly string[],
+  allowedHttpsOrigins: readonly string[],
+): boolean {
+  const trimmed = originHeader.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'null') return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === 'http:') {
+    if (LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())) return true;
+    return validateOriginHeader(trimmed, [...allowedHosts]).ok;
+  }
+  if (parsed.protocol === 'https:') {
+    if (validateOriginHeader(trimmed, [...allowedHosts]).ok) return true;
+    return isAllowedHttpsHost(parsed.hostname, allowedHttpsOrigins);
+  }
+  if (isAllowedNativeAppScheme(parsed.protocol)) {
+    return parsed.hostname.length > 0 || (parsed.pathname.length > 0 && parsed.pathname !== '/');
+  }
+  return false;
+}
+
 export class McpStreamableHttpHandler {
   private readonly deps: McpHttpTransportDeps;
   private readonly allowedHosts: string[];
+  private readonly allowedHttpsOrigins: string[];
   private readonly maxBodyBytes: number;
   private readonly sseKeepAliveMs: number;
 
@@ -267,6 +300,7 @@ export class McpStreamableHttpHandler {
       deps.config.APP_PUBLIC_ORIGIN,
       deps.extraAllowedHosts,
     );
+    this.allowedHttpsOrigins = parseAllowedHttpsHosts(deps.config.OAUTH_DCR_ALLOWED_HTTPS_HOSTS);
     this.maxBodyBytes = deps.config.MCP_MAX_BODY_BYTES ?? DEFAULT_MCP_MAX_BODY_BYTES;
     this.sseKeepAliveMs = deps.sseKeepAliveMs ?? 15_000;
   }
@@ -283,10 +317,12 @@ export class McpStreamableHttpHandler {
 
     const originHeader = request.headers.get('origin');
     if (originHeader !== null) {
-      const originResult = validateOriginHeader(originHeader, this.allowedHosts);
-      if (originResult.ok === false) {
-        const msg = 'message' in originResult ? originResult.message : 'Invalid Origin header';
-        return jsonRpcErrorResponse(403, -32000, `Forbidden Origin header: ${msg}`);
+      if (!isAllowedMcpOrigin(originHeader, this.allowedHosts, this.allowedHttpsOrigins)) {
+        return jsonRpcErrorResponse(
+          403,
+          -32000,
+          `Forbidden Origin header: Origin "${originHeader}" is not allowed`,
+        );
       }
     }
     return null;
