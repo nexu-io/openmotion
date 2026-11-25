@@ -1331,9 +1331,12 @@ it('focuses and pulses the prompt field when promptAppliedToken increments in vi
   }
 });
 
-it('gates Plus 2K on size-based hosted models and downgrades the size field to 1K', async () => {
+it('opens upgrade modal directly when a Plus user clicks 2K on a size-based hosted model and keeps 1K selected', async () => {
   const { setCachedCloudDisklessMode } = await import('../utils/cloudRuntime');
+  const { subscribeEntitlementModal } = await import('./entitlementModalBus');
   setCachedCloudDisklessMode(true);
+  const modalRequests: Array<{ mode: string; hookId: string }> = [];
+  const unsubscribe = subscribeEntitlementModal(req => modalRequests.push(req));
   gatewayRequest.mockImplementation(async (path: string) => {
     if (path.startsWith('account/summary')) {
       return {
@@ -1376,7 +1379,7 @@ it('gates Plus 2K on size-based hosted models and downgrades the size field to 1
       modality: 'image',
       model: seedream.id,
       prompt: 'Studio lighting bottle',
-      parameters: { size: '2K' },
+      parameters: { size: '1K' },
       references: [],
     };
     function Harness() {
@@ -1386,19 +1389,35 @@ it('gates Plus 2K on size-based hosted models and downgrades the size field to 1
     }
     await act(async () => root.render(<Harness />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(container.querySelector('.om-entitlement-gate')).not.toBeNull();
-    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(true);
 
-    const downgradeBtn = container.querySelector<HTMLButtonElement>('.om-entitlement-gate button[data-primary="true"]')
-      ?? container.querySelector<HTMLButtonElement>('.om-entitlement-gate button');
-    expect(downgradeBtn).not.toBeNull();
-    await act(async () => downgradeBtn!.click());
+    // No inline resolution-cap small box is rendered.
+    expect(container.querySelector('.om-entitlement-gate')).toBeNull();
 
+    // Clicking 2K immediately triggers the commercial upgrade modal and preserves 1K.
+    const summaryBtn = container.querySelector<HTMLButtonElement>('.om-generation-summary');
+    if (summaryBtn) await act(async () => summaryBtn.click());
+    const resolutionSelect = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Resolution"]');
+    if (resolutionSelect) {
+      await act(async () => resolutionSelect.click());
+      const twoKOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        el => el.textContent?.trim() === '2K',
+      );
+      expect(twoKOption).toBeDefined();
+      await act(async () => twoKOption!.click());
+    } else {
+      const twoKButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+        btn => btn.textContent?.trim() === '2K',
+      );
+      expect(twoKButton).toBeDefined();
+      await act(async () => twoKButton!.click());
+    }
+
+    expect(modalRequests).toEqual([{ mode: 'upgrade', hookId: 'studio_res_gate' }]);
     expect(latestDraft.parameters?.size).toBe('1K');
-    expect(latestDraft.parameters?.resolution).toBeUndefined();
     expect(container.querySelector('.om-entitlement-gate')).toBeNull();
     expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
   } finally {
+    unsubscribe();
     setCachedCloudDisklessMode(null);
   }
 });
