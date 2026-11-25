@@ -599,7 +599,10 @@
     "Saved only on this computer, never in the conversation.": "只保存在这台电脑上，不会进入对话。",
     "Saved on this computer for {appid}; the conversation keeps no copy": "已为 {appid} 保存在这台电脑上，对话里不留副本",
     "Use a different .key file": "换一个 .key 文件",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "微信没有接受已保存的密钥。请重新选择这个 AppID 的 .key 文件。"
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "微信没有接受已保存的密钥。请重新选择这个 AppID 的 .key 文件。",
+    "Publish “{title}” to {name}": "把「{title}」上架到{name}",
+    "I installed {tool}": "我装好了{tool}",
+    "Download {tool}": "下载{tool}"
   },
   "ja": {
     "WeChat Mini Game": "WeChat ミニゲーム",
@@ -1201,7 +1204,10 @@
     "Saved only on this computer, never in the conversation.": "このコンピューターにのみ保存され、会話には入りません。",
     "Saved on this computer for {appid}; the conversation keeps no copy": "{appid} 用にこのコンピューターへ保存しました。会話にはコピーを残しません",
     "Use a different .key file": "別の .key ファイルを使う",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "保存済みのキーは WeChat に受け付けられませんでした。この AppID の .key ファイルを選び直してください。"
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "保存済みのキーは WeChat に受け付けられませんでした。この AppID の .key ファイルを選び直してください。",
+    "Publish “{title}” to {name}": "「{title}」を {name} に公開する",
+    "I installed {tool}": "{tool} をインストールしました",
+    "Download {tool}": "{tool} をダウンロード"
   },
   "ko": {
     "WeChat Mini Game": "WeChat 미니게임",
@@ -1803,7 +1809,10 @@
     "Saved only on this computer, never in the conversation.": "이 컴퓨터에만 저장되며 대화에는 들어가지 않습니다.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "{appid}용으로 이 컴퓨터에 저장했습니다. 대화에는 사본이 남지 않습니다",
     "Use a different .key file": "다른 .key 파일 사용",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "저장된 키를 WeChat이 받아들이지 않았습니다. 이 AppID의 .key 파일을 다시 선택하세요."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "저장된 키를 WeChat이 받아들이지 않았습니다. 이 AppID의 .key 파일을 다시 선택하세요.",
+    "Publish “{title}” to {name}": "\"{title}\"을(를) {name}에 출시하기",
+    "I installed {tool}": "{tool}을(를) 설치했습니다",
+    "Download {tool}": "{tool} 다운로드"
   },
   "de": {
     "WeChat Mini Game": "WeChat-Minispiel",
@@ -2405,7 +2414,10 @@
     "Saved only on this computer, never in the conversation.": "Nur auf diesem Computer gespeichert, nie in der Unterhaltung.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Für {appid} auf diesem Computer gespeichert; die Unterhaltung behält keine Kopie",
     "Use a different .key file": "Andere .key-Datei verwenden",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat hat den gespeicherten Schlüssel nicht akzeptiert. Wähle die .key-Datei für diese AppID erneut."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat hat den gespeicherten Schlüssel nicht akzeptiert. Wähle die .key-Datei für diese AppID erneut.",
+    "Publish “{title}” to {name}": "„{title}“ auf {name} veröffentlichen",
+    "I installed {tool}": "Ich habe {tool} installiert",
+    "Download {tool}": "{tool} herunterladen"
   },
   "fr": {
     "WeChat Mini Game": "Mini-jeu WeChat",
@@ -3007,7 +3019,10 @@
     "Saved only on this computer, never in the conversation.": "Enregistrée uniquement sur cet ordinateur, jamais dans la conversation.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Enregistrée sur cet ordinateur pour {appid} ; la conversation n'en garde aucune copie",
     "Use a different .key file": "Utiliser un autre fichier .key",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat n'a pas accepté la clé enregistrée. Choisissez à nouveau le fichier .key de cet AppID."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat n'a pas accepté la clé enregistrée. Choisissez à nouveau le fichier .key de cet AppID.",
+    "Publish “{title}” to {name}": "Publier « {title} » sur {name}",
+    "I installed {tool}": "J'ai installé {tool}",
+    "Download {tool}": "Télécharger {tool}"
   },
   "ru": {
     "WeChat Mini Game": "Мини-игра WeChat",
@@ -3609,7 +3624,10 @@
     "Saved only on this computer, never in the conversation.": "Сохраняется только на этом компьютере и не попадает в разговор.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Сохранено на этом компьютере для {appid}; в разговоре копии нет",
     "Use a different .key file": "Другой файл .key",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat не принял сохранённый ключ. Выберите файл .key для этого AppID ещё раз."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat не принял сохранённый ключ. Выберите файл .key для этого AppID ещё раз.",
+    "Publish “{title}” to {name}": "Опубликовать «{title}» в {name}",
+    "I installed {tool}": "Я установил {tool}",
+    "Download {tool}": "Скачать {tool}"
   },
   "es": {
     "WeChat Mini Game": "Minijuego de WeChat",
@@ -4211,7 +4229,10 @@
     "Saved only on this computer, never in the conversation.": "Se guarda solo en este equipo, nunca en la conversación.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Guardada en este equipo para {appid}; la conversación no guarda copia",
     "Use a different .key file": "Usar otro archivo .key",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat no aceptó la clave guardada. Vuelve a elegir el archivo .key de este AppID."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat no aceptó la clave guardada. Vuelve a elegir el archivo .key de este AppID.",
+    "Publish “{title}” to {name}": "Publicar «{title}» en {name}",
+    "I installed {tool}": "He instalado {tool}",
+    "Download {tool}": "Descargar {tool}"
   },
   "pt-BR": {
     "WeChat Mini Game": "Minijogo do WeChat",
@@ -4813,7 +4834,10 @@
     "Saved only on this computer, never in the conversation.": "Salva apenas neste computador, nunca na conversa.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Salva neste computador para {appid}; a conversa não guarda cópia",
     "Use a different .key file": "Usar outro arquivo .key",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "O WeChat não aceitou a chave salva. Escolha de novo o arquivo .key deste AppID."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "O WeChat não aceitou a chave salva. Escolha de novo o arquivo .key deste AppID.",
+    "Publish “{title}” to {name}": "Publicar “{title}” em {name}",
+    "I installed {tool}": "Instalei o {tool}",
+    "Download {tool}": "Baixar {tool}"
   },
   "it": {
     "WeChat Mini Game": "Minigioco WeChat",
@@ -5415,7 +5439,10 @@
     "Saved only on this computer, never in the conversation.": "Salvata solo su questo computer, mai nella conversazione.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Salvata su questo computer per {appid}; la conversazione non ne conserva copia",
     "Use a different .key file": "Usa un altro file .key",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat non ha accettato la chiave salvata. Scegli di nuovo il file .key di questo AppID."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat non ha accettato la chiave salvata. Scegli di nuovo il file .key di questo AppID.",
+    "Publish “{title}” to {name}": "Pubblica «{title}» su {name}",
+    "I installed {tool}": "Ho installato {tool}",
+    "Download {tool}": "Scarica {tool}"
   },
   "tr": {
     "WeChat Mini Game": "WeChat Mini Oyunu",
@@ -6017,6 +6044,9 @@
     "Saved only on this computer, never in the conversation.": "Yalnızca bu bilgisayarda saklanır, sohbete girmez.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "{appid} için bu bilgisayara kaydedildi; sohbette kopyası tutulmaz",
     "Use a different .key file": "Başka bir .key dosyası kullan",
-    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat kayıtlı anahtarı kabul etmedi. Bu AppID için .key dosyasını yeniden seçin."
+    "WeChat did not accept the saved key. Choose the .key file for this AppID again.": "WeChat kayıtlı anahtarı kabul etmedi. Bu AppID için .key dosyasını yeniden seçin.",
+    "Publish “{title}” to {name}": "\"{title}\" oyununu {name} platformunda yayınla",
+    "I installed {tool}": "{tool} kurdum",
+    "Download {tool}": "{tool} indir"
   }
 }

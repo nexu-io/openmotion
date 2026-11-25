@@ -161,17 +161,20 @@ describe('gamePublishStore', () => {
     expect(gamePublishSessionFor(input.artifactId)?.wechat?.status).toBeUndefined();
   });
 
-  it('a step left by choosing the platform again is not finished; a completed one is done', async () => {
+  it('other platforms hand the job to the Agent: no cards in the conversation, steps finish with a message to it', async () => {
     gamePublishActions.open(input);
     gamePublishActions.choose(input.artifactId, 'itch');
+    expect(handoff).toHaveBeenCalledWith(expect.objectContaining({ newChat: false, autoSend: true, mode: 'game', prompt: expect.stringContaining('Coin Jar') }));
+    const guide = handoff.mock.calls[0][0].hiddenInstructions as string;
+    expect(guide).toContain('abc12345');
+    expect(guide).toContain('Download the HTML5 zip');
+    expect(guide).toContain('One step per message');
     await settle();
-    gamePublishActions.completeStep(input.artifactId);
-    gamePublishActions.choose(input.artifactId, 'itch');
-    await settle();
-    const needs = gamePublishThreadFor('chat-1').filter(entry => entry.kind === 'need');
-    expect(needs[0]).toMatchObject({ closed: true, outcome: 'done', stepIndex: 0 });
-    expect(needs[1]).toMatchObject({ closed: true, outcome: 'abandoned', stepIndex: 1 });
-    expect(needs.at(-1)).toMatchObject({ closed: false });
+    gamePublishActions.completeStep(input.artifactId, { platformId: 'itch', stepIndex: 0 });
+    expect(handoff).toHaveBeenLastCalledWith({ prompt: 'Done: Download the HTML5 zip', mode: 'game', newChat: false, autoSend: true });
+    expect(gamePublishSessionFor(input.artifactId)?.stepIndex).toBe(1);
+    // Only real work is logged in the conversation (the package build); there are no step cards or local user lines.
+    expect(gamePublishThreadFor('chat-1').map(entry => entry.kind)).toEqual(['agent']);
   });
 
   it('copying the link reports a failed copy as a failure', async () => {
@@ -183,12 +186,12 @@ describe('gamePublishStore', () => {
     expect(notify).toHaveBeenCalledWith('Could not copy the link', 'error');
   });
 
-  it('"Later" on the tool dialog goes back to the platform list', () => {
+  it('a developer tool is asked for under the Agent message; "Later" goes back to the platform list', () => {
     gamePublishActions.open(input);
     gamePublishActions.choose(input.artifactId, 'qq');
     gamePublishActions.skipDevTool(input.artifactId);
     expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ view: 'list', platformId: undefined, toolCheck: undefined });
-    expect(gamePublishThreadFor('chat-1').find(entry => entry.kind === 'tool')).toMatchObject({ state: 'skipped' });
+    expect(gamePublishThreadFor('chat-1')).toEqual([]);
   });
 
   it('builds a real itch.io zip from the game files before the user can continue', async () => {
@@ -226,7 +229,7 @@ describe('gamePublishStore', () => {
     expect(html).not.toMatch(/window\.open\(/);
   });
 
-  it('a stale card for another platform or step does nothing', () => {
+  it('controls left from another platform or step do nothing', () => {
     gamePublishActions.open(input);
     gamePublishActions.choose(input.artifactId, 'telegram');
     gamePublishActions.completeStep(input.artifactId, { platformId: 'wechat', stepIndex: 0 });

@@ -10,10 +10,11 @@
 import { useSyncExternalStore } from 'react';
 import { buildPlatformZip, buildPlayable, gameSlug, loadGameHtml, type GamePackageResult, type GamePackageTarget } from './gamePackage';
 import { describeLinkError, publishGameLink, type GamePublishLinkTarget } from './gamePublishAdapter';
-import type { GamePublishDevToolId } from './devTools';
+import { gamePublishDevTool, type GamePublishDevToolId } from './devTools';
 import { gamePublishPlatform, storeLinkProblem, type GamePublishPlatform, type GamePublishPlatformId, type GamePublishStep } from './platforms';
 import { queueSuperAgentHandoff } from '../../motion/superAgentHandoff';
 import { wechatClient, type WechatPublishStatus } from './wechatClient';
+import { readLocale, translate } from '../../i18n/I18n';
 import wechatPortGuide from '../../../../skills/openmotion-game/references/wechat-minigame-port.md?raw';
 
 export type GamePublishView = 'list' | 'step' | 'result';
@@ -72,10 +73,9 @@ export interface GamePublishSession {
 export type GamePublishThreadEntry =
   | { id: string; artifactId: string; kind: 'user'; key: string; name?: string }
   | { id: string; artifactId: string; kind: 'agent'; title: string; name?: string; lines: Array<{ text: string; vars?: Record<string, string | number>; done: boolean }>; failed?: boolean }
-  | { id: string; artifactId: string; kind: 'need'; platformId: GamePublishPlatformId; stepIndex: number; closed: boolean; /** Set when closed: finished, or left unfinished (another choice, another conversation). */ outcome?: 'done' | 'abandoned' }
   | { id: string; artifactId: string; kind: 'result'; title: string; detail: string; vars?: Record<string, string>; action?: string; href?: string; link?: boolean }
   | { id: string; artifactId: string; kind: 'link-failed'; message: string; authRequired: boolean; closed: boolean }
-  | { id: string; artifactId: string; kind: 'tool'; toolId: GamePublishDevToolId; platformId: GamePublishPlatformId; state: 'missing' | 'ok' | 'skipped' };
+  ;
 
 const sessions = new Map<string, GamePublishSession>();
 const threads = new Map<string, GamePublishThreadEntry[]>();
@@ -126,10 +126,6 @@ function startWork(artifactId: string, title: string, name?: string) {
   };
 }
 
-function closeOpenCards(session: GamePublishSession, outcome: 'done' | 'abandoned' = 'abandoned') {
-  patchEntries(session, entry => (entry.kind === 'need' && !entry.closed ? { ...entry, closed: true, outcome } : entry));
-}
-
 function stepInProgress(session: GamePublishSession): boolean {
   const platform = gamePublishPlatform(session.platformId);
   return Boolean(platform && session.stepIndex < platform.steps.length);
@@ -144,11 +140,14 @@ export function stepBlocked(session: GamePublishSession, step: GamePublishStep):
     || (step.kind === 'link' && !session.linkUrl);
 }
 
-/** A conversation card only acts on the platform and step it was created for. */
+/** Controls under an Agent message only act on the platform and step they were shown for. */
 export interface GamePublishStepRef { platformId: GamePublishPlatformId; stepIndex: number }
 function matchesStep(session: GamePublishSession, ref: GamePublishStepRef) {
   return session.platformId === ref.platformId && session.stepIndex === ref.stepIndex && stepInProgress(session) && toolReady(session);
 }
+
+/** Text in the user's interface language, for messages the page sends into the conversation on their behalf. */
+function say(key: string, vars?: Record<string, string | number>) { return translate(readLocale(), key, vars); }
 
 const WAITING: GamePublishStatus = { tone: 'idle', key: 'Waiting for you' };
 
@@ -172,10 +171,38 @@ function wechatInstructions(session: GamePublishSession) {
   return `${wechatPortGuide}\n\nGame id: ${session.gameId}. Guide the user through publishing this game as a WeChat Mini Game, one step per message, starting with openmotion_game_wechat action "status". The panel on the right shows the same steps from that status; it has no instructions of its own.`;
 }
 
-/** Shows step `index` (skipping steps already done): its card in the conversation, and a package build if the step has one. */
+/**
+ * What the Agent is told, out of sight, when the user picks a platform other than WeChat: its steps and how the
+ * page shows them. The page owns the step state (the Agent has no tool for it): the user finishes a step with the
+ * button under the Agent's message, which also tells the Agent.
+ */
+function platformInstructions(session: GamePublishSession, platform: GamePublishPlatform) {
+  const steps = platform.steps.map((step, index) => [
+    `${index + 1}. ${step.title} (${step.short}). Why: ${step.why}`,
+    step.todo.length ? `   To do: ${step.todo.join(' → ')}` : '',
+    step.links?.length ? `   Pages: ${step.links.map(link => `${link.label} ${link.href}`).join('; ')}` : '',
+    step.kind === 'package' ? '   The page builds this package from the game files and shows its checks and a Download button under your message.' : '',
+    step.kind === 'link' ? '   The page publishes the OpenDesign play link and shows it, with Copy, under your message.' : '',
+    step.pick ? `   The user chooses one under your message: ${step.pick.join(', ')}.` : '',
+    step.fields ? `   The user fills in under your message: ${step.fields.map(field => field.label).join(', ')}.` : '',
+    `   Button under your message: "${step.cta}".`,
+  ].filter(Boolean).join('\n')).join('\n');
+  const tool = platform.devTool ? `\nBefore step 1 the user needs ${platform.devTool} installed; the page shows its download link and "I installed it, continue" under your message. Explain why it is needed and wait.` : '';
+  return `Guide the user through publishing the game "${session.gameTitle}" (game id ${session.gameId}) to ${platform.name}, in this conversation.
+
+Steps (the panel on the right shows the same list and which step is current; it has no instructions or buttons):
+${steps}${tool}
+
+How to guide:
+- One step per message. Start it with the step number as the panel shows it, in the user's language (for example 「第 1/${platform.steps.length} 步 · ${platform.steps[0]?.short ?? ''}」). Then say briefly where to go, what to click, what they will see and why. Keep the platform's own button and menu names.
+- Under your message the page shows that step's controls and its button. When the user presses it you receive a message like "Done: <step title>"; then continue with the next step. If the user only says a step is done in words, ask them to press the button under your message so the panel records it.
+- You cannot see the platform: never say the platform accepted, reviewed or published the game. After the last step, sum up what they did and what the platform does next.
+- You do not build packages or links yourself; the page does. Do not edit the game files for this.`;
+}
+
+/** Makes step `index` current, builds its package if it has one. The Agent explains it in the conversation. */
 function enterStep(artifactId: string, platform: GamePublishPlatform, index: number) {
   update(artifactId, { stepIndex: index, view: 'step', stepProblem: undefined, status: WAITING });
-  pushEntry(sessions.get(artifactId)!, { kind: 'need', platformId: platform.id, stepIndex: index, closed: false });
   const step = platform.steps[index];
   if (step.kind === 'package' && step.packageTarget) void gamePublishActions.buildPackage(artifactId);
 }
@@ -186,8 +213,6 @@ export const gamePublishActions = {
   open(input: GamePublishOpenInput) {
     const existing = sessions.get(input.artifactId);
     if (existing) {
-      // The game moved to another conversation: cards left in the old one can no longer act on it.
-      if (input.chatId && input.chatId !== existing.chatId) closeOpenCards(existing);
       // A checkpoint result (steps still to go) stays; a final result goes back to the list.
       const view: GamePublishView = existing.view === 'result' && !stepInProgress(existing) ? 'list' : existing.view === 'list' && stepInProgress(existing) ? 'step' : existing.view;
       update(input.artifactId, { open: true, view: existing.platformId === 'wechat' && view !== 'list' ? 'step' : view, chatId: input.chatId ?? existing.chatId, link: input.link ?? existing.link });
@@ -211,12 +236,6 @@ export const gamePublishActions = {
   reopen(artifactId: string) {
     const session = sessions.get(artifactId);
     if (session) gamePublishActions.open({ ...session, artifactId });
-  },
-  /** Bring the panel back to the step a conversation card belongs to, if that step is still the current one. */
-  resumeStep(artifactId: string, ref: GamePublishStepRef) {
-    const session = sessions.get(artifactId);
-    if (!session || !matchesStep(session, ref)) return;
-    update(artifactId, { open: true, view: 'step' });
   },
   toggle(input: GamePublishOpenInput) {
     if (sessions.get(input.artifactId)?.open) gamePublishActions.close(input.artifactId);
@@ -252,7 +271,6 @@ export const gamePublishActions = {
     const session = sessions.get(artifactId);
     const platform = gamePublishPlatform(platformId);
     if (!session || !platform) return;
-    closeOpenCards(session);
     platformRuns.set(artifactId, (platformRuns.get(artifactId) ?? 0) + 1);
     update(artifactId, {
       platformId,
@@ -265,16 +283,20 @@ export const gamePublishActions = {
       package: undefined,
       status: WAITING,
     });
-    const latest = sessions.get(artifactId)!;
-    // WeChat is guided by the Agent: the request goes into the conversation as a real message instead.
-    if (platform.id !== 'wechat') pushEntry(latest, { kind: 'user', key: 'Publish to {name}', name: platform.name });
     if (platform.id === 'wechat') {
       gamePublishActions.startWechat(artifactId);
       return;
     }
+    // Every platform is guided by the Agent: the request goes into the conversation as a real message.
+    queueSuperAgentHandoff({
+      prompt: say('Publish “{title}” to {name}', { title: session.gameTitle, name: say(platform.name) }),
+      hiddenInstructions: platformInstructions(session, platform),
+      mode: 'game',
+      newChat: false,
+      autoSend: true,
+    });
     if (platform.devTool) {
       update(artifactId, { toolCheck: { toolId: platform.devTool, state: 'missing' } });
-      pushEntry(sessions.get(artifactId)!, { kind: 'tool', toolId: platform.devTool, platformId: platform.id, state: 'missing' });
       return;
     }
     enterStep(artifactId, platform, 0);
@@ -287,15 +309,14 @@ export const gamePublishActions = {
     // WeChat does not wait for the tool: keep the current step.
     if (platform.id === 'wechat') { gamePublishActions.dismissDevTool(artifactId); return; }
     const { toolId } = session.toolCheck;
-    patchEntries(session, entry => (entry.kind === 'tool' && entry.state === 'missing' ? { ...entry, state: 'ok' } : entry));
     update(artifactId, { toolCheck: { toolId, state: 'ok' } });
     enterStep(artifactId, platform, 0);
+    tellAgent(say('I installed {tool}', { tool: say(gamePublishDevTool(toolId)?.name ?? toolId) }));
   },
   /** "Later": leave this platform and go back to the list. */
   skipDevTool(artifactId: string) {
     const session = sessions.get(artifactId);
     if (!session || session.toolCheck?.state !== 'missing') return;
-    patchEntries(session, entry => (entry.kind === 'tool' && entry.state === 'missing' ? { ...entry, state: 'skipped' } : entry));
     platformRuns.set(artifactId, (platformRuns.get(artifactId) ?? 0) + 1);
     update(artifactId, { view: 'list', platformId: undefined, toolCheck: undefined, stepIndex: 0, status: WAITING });
   },
@@ -403,7 +424,6 @@ export const gamePublishActions = {
   dismissDevTool(artifactId: string) {
     const session = sessions.get(artifactId);
     if (!session || session.toolCheck?.state !== 'missing') return;
-    patchEntries(session, entry => (entry.kind === 'tool' && entry.state === 'missing' ? { ...entry, state: 'skipped' } : entry));
     update(artifactId, { toolCheck: { ...session.toolCheck, state: 'ok' } });
   },
   /** The user finished the current step (from the panel or the conversation card). */
@@ -420,9 +440,9 @@ export const gamePublishActions = {
           : step.kind === 'link' && !session.linkUrl ? 'Publish the OpenDesign link first.'
             : undefined;
     if (problem) { update(artifactId, { open: true, view: 'step', stepProblem: problem }); return; }
-    closeOpenCards(session, 'done');
-    pushEntry(session, { kind: 'user', key: step.cta });
     const next = session.stepIndex + 1;
+    // The Agent learns it from the conversation, like any message from the user, and explains the next step.
+    tellAgent(say('Done: {title}', { title: say(step.title) }) + (step.pick && session.picked ? ` (${session.picked})` : ''));
     if (next < platform.steps.length) {
       enterStep(artifactId, platform, next);
       return;
@@ -434,15 +454,22 @@ export const gamePublishActions = {
       published: latest.published.includes(platform.id) ? latest.published : [...latest.published, platform.id],
       status: { tone: 'done', key: 'Recorded what you did' },
     });
-    pushEntry(sessions.get(artifactId)!, { kind: 'result', title: platform.resultTitle, detail: platform.resultDetail, action: platform.resultAction, href: platform.resultHref });
   },
 };
 
-/** The WeChat publish run of this conversation, if any: its inline controls (key file, preview code) live in the conversation. */
-export function useWechatPublishForChat(chatId: string | null | undefined): GamePublishSession | undefined {
+/** A message from the user into the current conversation, for the Agent to continue from. */
+function tellAgent(prompt: string) {
+  queueSuperAgentHandoff({ prompt, mode: 'game', newChat: false, autoSend: true });
+}
+
+/** The publish run of this conversation, if any: its step controls live under the Agent's messages. */
+export function usePublishForChat(chatId: string | null | undefined): GamePublishSession | undefined {
   return useSyncExternalStore(subscribe, () => {
     if (!chatId) return undefined;
-    for (const session of sessions.values()) if (session.chatId === chatId && session.platformId === 'wechat' && session.wechat) return session;
+    for (const session of sessions.values()) {
+      if (session.chatId !== chatId || !session.platformId) continue;
+      if (session.platformId === 'wechat' ? session.wechat : session.view === 'step') return session;
+    }
     return undefined;
   });
 }
