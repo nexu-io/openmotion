@@ -254,14 +254,29 @@ describe("VideoThumbnail", () => {
     expect(host.querySelector("img")?.parentElement?.style.width).toBe("108px");
   });
 
-  it("clears the loading shimmer when the scheduled decode fails", async () => {
-    vi.mocked(decodeVideoThumbnail).mockRejectedValue(new Error("decode failed"));
+  it("clears the loading shimmer, renders a bottom-right error badge, and reloads on click when decode fails", async () => {
+    vi.mocked(decodeVideoThumbnail)
+      .mockRejectedValueOnce(new Error("decode failed"))
+      .mockResolvedValueOnce({
+        value: { kind: "image", url: "blob:recovered", aspect: 16 / 9 },
+        weight: 128,
+      });
 
-    await render();
+    await render(60);
     await vi.waitFor(() => expect(thumbnailScheduler.getDiagnostics().active).toBe(0));
 
     expect(host.querySelector(".animate-pulse")).toBeNull();
     expect(host.querySelector("img")).toBeNull();
+
+    const errorBadge = host.querySelector<HTMLElement>('[data-testid="item-load-error"]');
+    expect(errorBadge).not.toBeNull();
+
+    await act(async () => {
+      errorBadge!.click();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:recovered"));
+    expect(host.querySelector('[data-testid="item-load-error"]')).toBeNull();
   });
 });
 

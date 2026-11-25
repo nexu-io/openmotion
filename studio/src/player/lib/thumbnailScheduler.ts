@@ -366,6 +366,32 @@ export class ThumbnailScheduler {
   }
 
   /**
+   * Re-queue a single failed thumbnail entry by request identity so an individual
+   * item can be reloaded in place without waiting for failure TTL or disturbing other items.
+   */
+  retryEntry(
+    request: Pick<ThumbnailRequest, "key" | "projectId" | "sessionEpoch" | "kind" | "rich"> | null,
+  ): boolean {
+    if (!request) return false;
+    const scopedKey = createThumbnailRequestIdentity(request);
+    const entry = this.entries.get(scopedKey);
+    if (!entry || entry.state !== "error") return false;
+    if (entry.leases.size === 0) {
+      this.deleteEntry(scopedKey, entry);
+      return true;
+    }
+    entry.state = "queued";
+    entry.error = undefined;
+    entry.failedAt = undefined;
+    entry.preempted = false;
+    entry.lastAccess = this.nextSequence++;
+    entry.snapshot = Object.freeze({ status: "queued" });
+    this.notify(entry);
+    this.pump();
+    return true;
+  }
+
+  /**
    * Re-queue failed thumbnail entries for `projectId` (optionally scoped to one normalized
    * `compositionPath`) so active consumers retry in place without waiting for failure TTL.
    */

@@ -1,9 +1,27 @@
 import { beginTimelineSourceRead, openTimelineSource } from "../../player/lib/peerTimeline";
 import { readCurrentProjectSource } from "../../utils/readCurrentProjectSource";
 import { buildProjectApiPath } from "../../utils/projectRouting";
-import { useContext, useState, useCallback, useRef, useEffect, useLayoutEffect, type ReactNode } from "react";
+import {
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useTimelinePlayer } from "../../player/hooks/useTimelinePlayer";
 import { usePlayerStore, type TimelineElement } from "../../player/store/playerStore";
+import { thumbnailRevisionOf } from "../../player/store/thumbnailSlice";
+import {
+  getCompositionCacheKeyRevision,
+  subscribeCompositionCacheRevision,
+} from "../../player/lib/clientCompositionCapture";
+import {
+  getCachedCompositionTimeline,
+  saveCachedCompositionTimeline,
+} from "../../player/lib/compositionTimelineCache";
 import type { PreviewIframeSlot } from "../../player/hooks/useTimelineSyncCallbacks";
 import type { CompositionLevel } from "./CompositionBreadcrumb";
 import { useCompositionStack } from "./useCompositionStack";
@@ -42,6 +60,9 @@ export interface NLEContextValue {
   handleNavigateComposition: (index: number) => void;
   handleDrillDown: (element: TimelineElement) => void;
   compIdToSrc: Map<string, string>;
+  initialTimelineElements?: TimelineElement[];
+  initialTimelineDuration?: number;
+  hasCachedTimelineSnapshot?: boolean;
   // layout state
   // composition loading
   compositionLoading: boolean;
@@ -297,6 +318,78 @@ export function NLEProvider({
   }, []);
   const timelineDisabled = shouldDisableTimelineWhileCompositionLoading(compositionLoading);
   const timelineSessionEpoch = usePlayerStore((state) => state.timelineSessionEpoch);
+  const timelineReady = usePlayerStore(
+    (state) => state.timelineProjectId === projectId && state.timelineReady,
+  );
+  const activeCompPreviewUrl =
+    compositionStack.length > 1
+      ? compositionStack[compositionStack.length - 1]!.previewUrl
+      : buildProjectApiPath(projectId, "/preview");
+  const activeThumbRevision = usePlayerStore((state) =>
+    thumbnailRevisionOf(state.thumbnailRevisions, activeSource),
+  );
+  const subscribeActiveCompRev = useCallback(
+    (listener: () => void) => subscribeCompositionCacheRevision(projectId, listener),
+    [projectId],
+  );
+  const getActiveCompRev = useCallback(
+    () => getCompositionCacheKeyRevision(projectId, activeCompPreviewUrl, activeThumbRevision),
+    [activeCompPreviewUrl, activeThumbRevision, projectId],
+  );
+  const activeCacheRev = useSyncExternalStore(subscribeActiveCompRev, getActiveCompRev, () => "");
+  const activeRevisionKey = `${activeCacheRev}|t:${activeThumbRevision}`;
+
+  // Persist settled timeline structure per composition so switching back renders tracks
+  // and cached thumbnails immediately while the live preview iframe boots.
+  useEffect(() => {
+    if (
+      compositionLoading ||
+      !timelineReady ||
+      !hasLoadedOnceRef.current ||
+      loadedScopeRef.current !== activePreviewScope
+    ) {
+      return;
+    }
+    const saveCurrent = () => {
+      const state = usePlayerStore.getState();
+      if (
+        state.timelineProjectId !== projectId ||
+        !state.timelineReady ||
+        state.elements.length === 0 ||
+        !(state.duration > 0)
+      ) {
+        return;
+      }
+      saveCachedCompositionTimeline({
+        projectId,
+        compPath: activeSource,
+        revisionKey: activeRevisionKey,
+        elements: state.elements,
+        duration: state.duration,
+      });
+    };
+    saveCurrent();
+    return usePlayerStore.subscribe((state, prev) => {
+      if (state.elements === prev.elements && state.duration === prev.duration) return;
+      saveCurrent();
+    });
+  }, [
+    activePreviewScope,
+    activeRevisionKey,
+    activeSource,
+    compositionLoading,
+    projectId,
+    timelineReady,
+  ]);
+
+  const stackMatchesActiveComp =
+    !activeCompositionPath ||
+    (activeCompositionPath === "index.html"
+      ? activeSource === "index.html"
+      : activeSource === activeCompositionPath);
+  const cachedTimeline = stackMatchesActiveComp
+    ? getCachedCompositionTimeline(projectId, activeSource, activeRevisionKey)
+    : null;
 
   useEffect(() => {
     onCompositionLoadingChange?.(compositionLoading);
@@ -329,6 +422,9 @@ export function NLEProvider({
     handleNavigateComposition,
     handleDrillDown,
     compIdToSrc,
+    initialTimelineElements: cachedTimeline?.elements,
+    initialTimelineDuration: cachedTimeline?.duration,
+    hasCachedTimelineSnapshot: Boolean(cachedTimeline),
     compositionLoading,
     setCompositionLoading,
     timelineDisabled,

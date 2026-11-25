@@ -52,6 +52,12 @@ interface SlotsContextValue {
 }
 
 const SlotsContext = createContext<SlotsContextValue | null>(null);
+const DockPanelVisibilityContext = createContext<boolean>(true);
+
+/** True while the enclosing `Dock.Panel` is the active visible tab and its zone is not collapsed. */
+export function useDockPanelVisible(): boolean {
+  return useContext(DockPanelVisibilityContext);
+}
 
 function useSlots(): SlotsContextValue {
   const value = useContext(SlotsContext);
@@ -379,16 +385,18 @@ function Panel({ id, title, children }: { id: PanelId; title?: string; children:
   const { t } = useI18n();
   const element = useSlots().slots[id];
   const definition: PanelDefinition = PANEL_DEFINITIONS[id];
-  const visible = useDockLayoutStore((state) => state.visiblePanels.has(id)
-    && !(definition.keepMounted === "after-first-show" && state.collapsedZones?.includes(definition.zone)));
+  const visible = useDockLayoutStore((state) =>
+    state.visiblePanels.has(id) && !(state.collapsedZones?.includes(definition.zone) ?? false),
+  );
   const controller = useDockLayoutStore((state) => state.controller);
   const open = useDockLayoutStore((state) => state.openPanels.has(id));
   const label = title ?? t(PANEL_DEFINITIONS[id].title);
   useEffect(() => {
     if (open) controller?.setTitle(id, label);
   }, [controller, id, label, open]);
-  // Captions and transcription keep in-progress work when hidden, but have no
-  // work to resume until their tab has actually appeared in this dock slot.
+  // Panels with `keepMounted: "after-first-show"` stay unmounted while collapsed or
+  // never visited, then remain alive after first open so tab switches and re-expands
+  // preserve DOM/scroll state while `useDockPanelVisible()` hibernates background work.
   const [visitedSlot, setVisitedSlot] = useState<HTMLElement | null>(null);
   const retained = definition.keepMounted === "after-first-show";
   const firstShow = visible && controller !== null;
@@ -398,9 +406,11 @@ function Panel({ id, title, children }: { id: PanelId; title?: string; children:
   const shown = retained ? firstShow || visitedSlot === element : visible || definition.keepMounted;
   if (!element || !shown) return null;
   return createPortal(
-    <Suspense fallback={<div role="status" className="p-2 text-panel-text-3">{t("Loading…")}</div>}>
-      {children}
-    </Suspense>,
+    <DockPanelVisibilityContext.Provider value={visible}>
+      <Suspense fallback={<div role="status" className="p-2 text-panel-text-3">{t("Loading…")}</div>}>
+        {children}
+      </Suspense>
+    </DockPanelVisibilityContext.Provider>,
     element,
   );
 }

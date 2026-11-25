@@ -284,8 +284,8 @@ it('keeps the item deadline active during a stalled HEAD probe and releases vide
       completed: 5,
       total: 5,
       failed: [
-        { id: 'img-0', label: 'stalled.png', kind: 'image', reason: 'timeout' },
-        { id: 'video-0', label: 'v1.mp4', kind: 'video', reason: 'timeout' },
+        { id: 'img-0', label: 'stalled.png', kind: 'image', reason: 'timeout', src: 'https://preview.test/assets/stalled.png' },
+        { id: 'video-0', label: 'v1.mp4', kind: 'video', reason: 'timeout', src: 'https://preview.test/assets/v1.mp4' },
       ],
     });
   } finally {

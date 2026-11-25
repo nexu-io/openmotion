@@ -41,6 +41,7 @@ import {
 } from "../lib/clientCompositionCapture";
 import { studioApiFetch } from "../../utils/studioApiFetch";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { ItemLoadErrorBadge } from "../../components/ui/ItemLoadErrorBadge";
 
 interface CompositionThumbnailProps {
   previewUrl: string;
@@ -635,6 +636,24 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
       : "";
   const mediaTitle = isSingleMediaStrip ? (label || (!selector ? compositionName : "")) : "";
   const showInlineMediaTitle = Boolean(mediaTitle) && container.width >= frameW + 48;
+  const captureFailed = captureEnabled ? captureSnapshot.status === "error" : true;
+  const posterFailed = !request || posterSnapshot.status === "error";
+  const showError =
+    !value &&
+    !idbPending &&
+    !autoRetryPending &&
+    captureFailed &&
+    posterFailed &&
+    (captureSnapshot.status === "error" || posterSnapshot.status === "error");
+  const handleReload = useCallback(() => {
+    autoRetriedKeyRef.current = null;
+    let retried = false;
+    if (captureRequest && thumbnailScheduler.retryEntry(captureRequest)) retried = true;
+    if (request && thumbnailScheduler.retryEntry(request)) retried = true;
+    if (!retried && projectId) {
+      thumbnailScheduler.retryFailed(projectId, compPath);
+    }
+  }, [captureRequest, compPath, projectId, request]);
   const showOverlayLabel = Boolean(label) && !isTextStrip && !showInlineMediaTitle;
 
   return (
@@ -738,8 +757,15 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
           </div>
         </div>
       )}
-      {!value && (snapshot.status !== "error" || autoRetryPending) && (
+      {!value && !showError && (snapshot.status !== "error" || autoRetryPending) && (
         <Skeleton style={{ position: "absolute", inset: 0 }} />
+      )}
+      {showError && (
+        <ItemLoadErrorBadge
+          nestedInButton
+          compact={container.width > 0 && container.width < 96}
+          onReload={handleReload}
+        />
       )}
       {showOverlayLabel && (
         <div className="absolute inset-y-0 left-3 z-10 flex items-center">

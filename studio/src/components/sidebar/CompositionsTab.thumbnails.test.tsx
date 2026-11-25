@@ -310,13 +310,73 @@ describe("composition card thumbnails", () => {
     }
   });
 
-  it("show a fallback when the render fails, and retry it at the next content revision", async () => {
+  it("show a fallback with bottom-right error reload badge when the render fails, and recover on click or next revision", async () => {
     const host = mount();
     renders[0]!.answer(500);
     await settle();
     expect(host.textContent).not.toContain("Preview unavailable");
     expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeTruthy();
-    await nextRevisionShows(host, "1", "blob:frame-1");
+
+    const reloadBtn = host.querySelector<HTMLButtonElement>('[data-testid="item-load-error"]');
+    expect(reloadBtn).not.toBeNull();
+
+    // Clicking reload retries immediately in place without waiting for a revision bump.
+    act(() => reloadBtn!.click());
+    expect(renders).toHaveLength(2);
+    renders[1]!.answer(200);
+    await settle();
+    expect(shown(host)).toBe("blob:frame-1");
+    act(() => host.querySelector("img")!.dispatchEvent(new Event("load")));
+    expect(host.querySelector('[data-testid="item-load-error"]')).toBeNull();
+    await nextRevisionShows(host, "1", "blob:frame-2");
+  });
+
+  it("never flashes back to the loading placeholder or remounts the cover image when a revision updates", async () => {
+    const host = mount();
+    renders[0]!.answer();
+    await settle();
+    const imgBefore = host.querySelector("img")!;
+    act(() => imgBefore.dispatchEvent(new Event("load")));
+    expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+    expect(imgBefore.className).toContain("opacity-100");
+
+    // Bump revision (simulating a timeline edit) and resolve the updated frame.
+    act(() => usePlayerStore.getState().bumpThumbnailRevisions(null));
+    expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+    expect(host.querySelector("img")).toBe(imgBefore);
+    expect(imgBefore.className).toContain("opacity-100");
+
+    renders.at(-1)!.answer();
+    await settle();
+    // Same DOM <img> updates in place without flashing opacity-0 or restoring the placeholder.
+    expect(host.querySelector("img")).toBe(imgBefore);
+    expect(imgBefore.getAttribute("src")).toBe("blob:frame-2");
+    expect(imgBefore.className).toContain("opacity-100");
+    expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+  });
+
+  it("reuses the first child composition's cover for the Root card so editing index.html does not re-render a Root cover", async () => {
+    const host = mountCompositionsTab({
+      compositions: ["index.html", "compositions/scene-1.html", "compositions/scene-2.html"],
+      masterCompositionPath: "index.html",
+    });
+    // Root card shares scene-1's thumbnail request — no separate request for index.html.
+    expect(renders.map((r) => r.url.pathname)).toEqual([
+      "/api/projects/demo/thumbnail/compositions/scene-1.html",
+      "/api/projects/demo/thumbnail/compositions/scene-2.html",
+    ]);
+    renders[0]!.answer();
+    renders[1]!.answer();
+    await settle();
+
+    const cards = [...host.querySelectorAll<HTMLElement>('[draggable="true"]')];
+    expect(cards[0]?.textContent).toContain("Root");
+    expect(cards[0]?.querySelector("img")?.getAttribute("src")).toBe("blob:frame-1");
+    expect(cards[1]?.querySelector("img")?.getAttribute("src")).toBe("blob:frame-1");
+
+    // Editing only index.html bumps index.html's revision without triggering a re-fetch for Root.
+    act(() => usePlayerStore.getState().bumpThumbnailRevisions(["index.html"]));
+    expect(renders).toHaveLength(2);
   });
 
   it("uses the same placeholder if the poster image fails, and recovers on a new revision", async () => {

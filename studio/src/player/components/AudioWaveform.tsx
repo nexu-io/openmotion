@@ -3,7 +3,15 @@ import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } f
 import { fadeGain } from "@hyperframes/core/audio-fade";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
-import { createThumbnailKey, type ThumbnailPriority } from "../lib/thumbnailScheduler";
+import {
+  createThumbnailKey,
+  thumbnailScheduler,
+  type ThumbnailPriority,
+} from "../lib/thumbnailScheduler";
+import { matchesFailedPreviewAsset } from "../lib/previewAssetReadiness";
+import { usePlayerStore } from "../store/playerStore";
+import { triggerEditorAssetRetry } from "../../components/EditorAssetLoadingOverlay";
+import { ItemLoadErrorBadge } from "../../components/ui/ItemLoadErrorBadge";
 import { decimatePeaks, loudnessToOpacity } from "./audioWaveformPeaks";
 import { ClipFadesContext, type ClipFadeShape } from "./TimelineClipFades";
 import { loadWaveform, UnavailableAudioError } from "../lib/audioWaveformLoader";
@@ -169,6 +177,15 @@ export const AudioWaveform = memo(function AudioWaveform({
     [audioUrl, cacheKey, priority, projectId, sessionEpoch, sourceKind, waveformUrl],
   );
   const snapshot = useThumbnailLease(cacheKey ? request : null);
+  const previewAssetFailed = usePlayerStore((s) =>
+    matchesFailedPreviewAsset(s.assetReadinessFailed, audioUrl),
+  );
+  const previewAssetRetrying = usePlayerStore((s) => s.assetReadinessRetrying);
+  const handleReload = useCallback(() => {
+    if (cacheKey) thumbnailScheduler.retryEntry(request);
+    if (previewAssetFailed) void triggerEditorAssetRetry();
+  }, [cacheKey, previewAssetFailed, request]);
+  const showErrorBadge = snapshot.status === "error" || previewAssetFailed;
   const errorLabel = t(
     snapshot.status === "error" && snapshot.error instanceof UnavailableAudioError
       ? "Media unavailable"
@@ -257,7 +274,7 @@ export const AudioWaveform = memo(function AudioWaveform({
         />
         {snapshot.status === "loading" && (
           <div
-            className="absolute inset-x-0 bottom-0 animate-pulse"
+            className="absolute inset-x-0 bottom-0 animate-pulse motion-reduce:animate-none"
             style={{
               top: labelInset,
               background: "var(--timeline-thumbnail-shimmer)",
@@ -280,6 +297,14 @@ export const AudioWaveform = memo(function AudioWaveform({
               </span>
             </Tooltip>
           </div>
+        )}
+        {showErrorBadge && (
+          <ItemLoadErrorBadge
+            nestedInButton
+            compact
+            reloading={previewAssetFailed && previewAssetRetrying}
+            onReload={handleReload}
+          />
         )}
         {label && (
           <div className="absolute inset-x-0 top-0 z-10 px-1.5 py-0.5">

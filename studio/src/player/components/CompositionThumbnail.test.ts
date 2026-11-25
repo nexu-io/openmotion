@@ -607,7 +607,7 @@ describe("CompositionThumbnail retained filmstrip during refresh", () => {
       );
 
       // Even if LRU evicts the old entry from memoryStripCache mid-refresh, its object URLs stay valid.
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 135; i++) {
         seedClientCompositionCaptureForTest(
           {
             projectId: "other-project",

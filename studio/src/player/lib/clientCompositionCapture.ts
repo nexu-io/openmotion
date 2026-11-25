@@ -41,9 +41,11 @@ const MAX_CONCURRENT_SAME_ORIGIN_CAPTURES = 2;
 const MAX_CONCURRENT_EDIT_REFRESH_CAPTURES = 1;
 const IDB_NAME = "openmotion-client-comp-thumbs-v1";
 const IDB_STORE = "strips";
-const IDB_MAX_ENTRIES = 120;
-const MEMORY_STRIP_CACHE_MAX = 64;
-const SHARED_COVER_CACHE_MAX = 128;
+/** Persistent IndexedDB strip budget (bytes) across projects, evicted oldest-first (LRU). */
+export const IDB_MAX_BYTES = 128 * 1024 * 1024;
+const IDB_TOUCH_INTERVAL_MS = 60_000;
+const MEMORY_STRIP_CACHE_MAX = 128;
+const SHARED_COVER_CACHE_MAX = 256;
 
 interface CachedStripRecord {
   key: string;
@@ -52,6 +54,8 @@ interface CachedStripRecord {
   height: number;
   blobs: Blob[];
   updatedAt: number;
+  /** Total persisted bytes of `blobs`, used for byte-budgeted LRU eviction. */
+  bytes?: number;
 }
 
 interface SharedCoverEntry {
@@ -285,6 +289,7 @@ export function clearClientCompositionCaptureCacheForTest(): void {
   }
   progressiveStrips.clear();
   progressiveListeners.clear();
+  idbMaxBytes = IDB_MAX_BYTES;
   clearRemoteCompositionFilmstripStateForTest();
   clearSharedPreviewGrantsForTest();
   thumbnailScheduler.setOpeningGateActive(usePlayerStore.getState().editorInputLocked);
@@ -907,6 +912,46 @@ async function waitUntilInteractiveIdle(signal: AbortSignal, gatePriority = fals
 // ---------------------------------------------------------------------------
 
 let idbOpenPromise: Promise<IDBDatabase | null> | null = null;
+let idbMaxBytes = IDB_MAX_BYTES;
+
+/** Tests only: override the IndexedDB byte budget to exercise LRU capacity eviction deterministically. */
+export function setClientCompositionIdbMaxBytesForTest(maxBytes: number | null): void {
+  idbMaxBytes =
+    maxBytes !== null && Number.isFinite(maxBytes) && maxBytes >= 0 ? maxBytes : IDB_MAX_BYTES;
+}
+
+/** Tests only: exercise IndexedDB persistence & byte-budgeted LRU eviction directly. */
+export async function writeClientCompositionStripToIdbForTest(
+  record: CachedStripRecord,
+): Promise<void> {
+  await writeCachedStrip(record);
+}
+
+/** Tests only: inspect whether a strip record is still persisted in IndexedDB. */
+export async function readClientCompositionStripFromIdbForTest(
+  key: string,
+): Promise<{ key: string; bytes: number; updatedAt: number; blobsCount: number } | null> {
+  const rec = await readCachedStrip(key);
+  if (!rec) return null;
+  return {
+    key: rec.key,
+    bytes: computeCachedStripBytes(rec),
+    updatedAt: rec.updatedAt,
+    blobsCount: rec.blobs.length,
+  };
+}
+
+function computeCachedStripBytes(record: Pick<CachedStripRecord, "blobs" | "bytes">): number {
+  if (typeof record.bytes === "number" && Number.isFinite(record.bytes) && record.bytes >= 0) {
+    return record.bytes;
+  }
+  let total = 0;
+  for (const blob of record.blobs) {
+    const size = typeof blob?.size === "number" && Number.isFinite(blob.size) ? blob.size : 0;
+    total += Math.max(0, size);
+  }
+  return total;
+}
 
 function openThumbDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
@@ -931,6 +976,21 @@ function openThumbDb(): Promise<IDBDatabase | null> {
   return idbOpenPromise;
 }
 
+function touchCachedStripTimestamp(db: IDBDatabase, record: CachedStripRecord): void {
+  const now = Date.now();
+  if (now - (record.updatedAt || 0) < IDB_TOUCH_INTERVAL_MS) return;
+  try {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put({
+      ...record,
+      bytes: computeCachedStripBytes(record),
+      updatedAt: now,
+    });
+  } catch {
+    // Best-effort LRU touch; ignore quota or read-only storage errors.
+  }
+}
+
 async function readCachedStrip(key: string): Promise<CachedStripRecord | null> {
   const db = await openThumbDb();
   if (!db) return null;
@@ -940,8 +1000,12 @@ async function readCachedStrip(key: string): Promise<CachedStripRecord | null> {
       const req = tx.objectStore(IDB_STORE).get(key);
       req.onsuccess = () => {
         const rec = req.result as CachedStripRecord | undefined;
-        if (rec && Array.isArray(rec.blobs) && rec.blobs.length > 0) resolve(rec);
-        else resolve(null);
+        if (rec && Array.isArray(rec.blobs) && rec.blobs.length > 0) {
+          touchCachedStripTimestamp(db, rec);
+          resolve(rec);
+        } else {
+          resolve(null);
+        }
       };
       req.onerror = () => resolve(null);
     } catch {
@@ -951,26 +1015,37 @@ async function readCachedStrip(key: string): Promise<CachedStripRecord | null> {
 }
 
 async function writeCachedStrip(record: CachedStripRecord): Promise<void> {
+  const bytes = computeCachedStripBytes(record);
+  const budget = idbMaxBytes;
+  if (bytes > budget) return;
   const db = await openThumbDb();
   if (!db) return;
+  const normalizedRecord: CachedStripRecord = { ...record, bytes };
   await new Promise<void>((resolve) => {
     try {
       const tx = db.transaction(IDB_STORE, "readwrite");
       const store = tx.objectStore(IDB_STORE);
-      store.put(record);
-      const countReq = store.count();
-      countReq.onsuccess = () => {
-        const overflow = (countReq.result || 0) - IDB_MAX_ENTRIES;
-        if (overflow <= 0) return;
-        let removed = 0;
-        const cursorReq = store.index("updatedAt").openCursor();
-        cursorReq.onsuccess = () => {
-          const cursor = cursorReq.result;
-          if (!cursor || removed >= overflow) return;
-          cursor.delete();
-          removed += 1;
+      store.put(normalizedRecord);
+      const oldestFirst: Array<{ key: IDBValidKey; bytes: number }> = [];
+      let totalBytes = 0;
+      const cursorReq = store.index("updatedAt").openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) {
+          const existing = cursor.value as CachedStripRecord | undefined;
+          const entryBytes = existing ? computeCachedStripBytes(existing) : 0;
+          oldestFirst.push({ key: cursor.primaryKey, bytes: entryBytes });
+          totalBytes += entryBytes;
           cursor.continue();
-        };
+          return;
+        }
+        if (totalBytes <= budget) return;
+        for (const item of oldestFirst) {
+          if (totalBytes <= budget) break;
+          if (item.key === normalizedRecord.key) continue;
+          store.delete(item.key);
+          totalBytes -= item.bytes;
+        }
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();

@@ -88,7 +88,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
         var it=items[i];
         if(it.settled) completed++;
         else if(!pendingAsset) pendingAsset=it.pendingAsset;
-        if(it.failedReason) failed.push({id:it.id,label:it.label,kind:it.kind,reason:it.failedReason});
+        if(it.failedReason) failed.push({id:it.id,label:it.label,kind:it.kind,reason:it.failedReason,src:it.src||undefined});
       }
       var s={status:(items.length===0 || completed>=items.length)?'ready':'loading',completed:completed,total:items.length,failed:failed};
       if(pendingAsset) s.pendingAsset=pendingAsset;
@@ -127,7 +127,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
       var orig=assetSource(img);
       if(img.loading==='lazy') img.loading='eager';
       var ok=img.complete && img.naturalWidth>0;
-      var it={id:'img-'+idx,label:assetLabel(orig,'image-'+(idx+1)),kind:'image',settled:ok,failedReason:null,retry:null};
+      var it={id:'img-'+idx,label:assetLabel(orig,'image-'+(idx+1)),kind:'image',src:orig,settled:ok,failedReason:null,retry:null};
       if(!ok) it.pendingAsset=previewAssetName(img);
       items.push(it);
       if(ok) return;
@@ -240,7 +240,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
       return !el.hasAttribute('data-hf-clip-hidden') && !(el.closest && el.closest('[data-hyperframes-ignore]')) && Boolean(assetSource(el));
     }).forEach(function(el,idx){
       var orig=assetSource(el), ok=!el.error && el.readyState>=3;
-      var it={id:'audio-'+idx,label:assetLabel(orig,'audio-'+(idx+1)),kind:'audio',settled:ok,failedReason:null,retry:null};
+      var it={id:'audio-'+idx,label:assetLabel(orig,'audio-'+(idx+1)),kind:'audio',src:orig,settled:ok,failedReason:null,retry:null};
       if(!ok) it.pendingAsset=previewAssetName(el);
       items.push(it);
       if(!ok) watchMedia(el,it,orig,3);
@@ -249,7 +249,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
       return !el.hasAttribute('data-hf-clip-hidden') && !(el.closest && el.closest('[data-hyperframes-ignore]')) && Boolean(assetSource(el));
     }).forEach(function(el,idx){
       var orig=assetSource(el), ok=!el.error && el.readyState>=2;
-      var it={id:'video-'+idx,label:assetLabel(orig,'video-'+(idx+1)),kind:'video',settled:ok,failedReason:null,retry:null};
+      var it={id:'video-'+idx,label:assetLabel(orig,'video-'+(idx+1)),kind:'video',src:orig,settled:ok,failedReason:null,retry:null};
       if(!ok) it.pendingAsset=previewAssetName(el);
       items.push(it);
       if(!ok) videoQueue.push(function(){ watchMedia(el,it,orig,2,function(){ activeVideos=Math.max(0,activeVideos-1); pumpVideos(); }); });

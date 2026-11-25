@@ -9,6 +9,35 @@ export interface PreviewAssetFailure {
   label: string;
   kind: PreviewAssetKind;
   reason: "error" | "timeout";
+  /** Optional raw or resolved asset source URL/path for per-item error matching. */
+  src?: string;
+}
+
+/** Normalize a media URL or project-relative path to a comparable suffix for error matching. */
+export function normalizeAssetSourcePath(raw: string | null | undefined): string {
+  const trimmed = raw?.trim();
+  if (!trimmed || /^(?:data|blob):/i.test(trimmed)) return "";
+  try {
+    const pathname = new URL(trimmed, "http://localhost/").pathname;
+    const previewMatch = /\/preview\/(.+)$/.exec(pathname);
+    const extracted = previewMatch ? previewMatch[1] : pathname;
+    return decodeURIComponent(extracted).replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+  } catch {
+    return trimmed.split(/[?#]/)[0].replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+  }
+}
+
+export function matchesFailedPreviewAsset(
+  failed: readonly PreviewAssetFailure[],
+  candidateSrc: string | null | undefined,
+): boolean {
+  if (failed.length === 0 || !candidateSrc) return false;
+  const target = normalizeAssetSourcePath(candidateSrc);
+  if (!target) return false;
+  return failed.some((item) => {
+    const itemPath = normalizeAssetSourcePath(item.src);
+    return Boolean(itemPath) && itemPath === target;
+  });
 }
 
 export interface PreviewAssetProgress {
@@ -150,6 +179,7 @@ interface TrackedAssetItem {
   label: string;
   pendingAsset?: string;
   kind: PreviewAssetKind;
+  src?: string;
   settled: boolean;
   failedReason: "error" | "timeout" | null;
   retryNow?: (attempt: number) => Promise<boolean>;
@@ -206,6 +236,7 @@ export function trackDocumentAssetReadiness(
           label: item.label,
           kind: item.kind,
           reason: item.failedReason,
+          ...(item.src ? { src: item.src } : {}),
         });
       }
     }
@@ -285,6 +316,7 @@ export function trackDocumentAssetReadiness(
       label: assetLabelFromUrl(originalSrc, `image-${index + 1}`),
       pendingAsset: readyNow ? undefined : previewAssetName(img),
       kind: "image",
+      src: originalSrc || undefined,
       settled: readyNow,
       failedReason: null,
     };
@@ -561,6 +593,7 @@ export function trackDocumentAssetReadiness(
       label: assetLabelFromUrl(originalSrc, `audio-${index + 1}`),
       pendingAsset: readyNow ? undefined : previewAssetName(audio),
       kind: "audio",
+      src: originalSrc || undefined,
       settled: readyNow,
       failedReason: null,
     };
@@ -596,6 +629,7 @@ export function trackDocumentAssetReadiness(
       label: assetLabelFromUrl(originalSrc, `video-${index + 1}`),
       pendingAsset: readyNow ? undefined : previewAssetName(video),
       kind: "video",
+      src: originalSrc || undefined,
       settled: readyNow,
       failedReason: null,
     };

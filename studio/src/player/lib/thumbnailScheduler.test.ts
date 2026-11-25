@@ -873,6 +873,42 @@ describe("ThumbnailScheduler", () => {
     gatedLease.release();
     nonGatedLease.release();
   });
+
+  it("retryEntry re-queues only the targeted failed entry without touching other entries", async () => {
+    const scheduler = new ThumbnailScheduler(
+      resolveTimelineViewportBudgets({ metadataFailureTtlMs: 60_000 }),
+    );
+    let targetAttempts = 0;
+    const targetReq = request("target-clip", async () => {
+      targetAttempts++;
+      if (targetAttempts === 1) throw new Error("network glitch");
+      return result("blob:recovered");
+    });
+    const otherLoad = vi.fn(async () => {
+      throw new Error("other error");
+    });
+    const otherReq = request("other-clip", otherLoad);
+
+    const targetLease = scheduler.acquire(targetReq, vi.fn());
+    const otherLease = scheduler.acquire(otherReq, vi.fn());
+    await flush();
+
+    expect(scheduler.getSnapshot(targetReq).status).toBe("error");
+    expect(scheduler.getSnapshot(otherReq).status).toBe("error");
+
+    expect(scheduler.retryEntry(targetReq)).toBe(true);
+    await flush();
+
+    expect(scheduler.getSnapshot(targetReq)).toMatchObject({
+      status: "ready",
+      value: { url: "blob:recovered" },
+    });
+    expect(scheduler.getSnapshot(otherReq).status).toBe("error");
+    expect(otherLoad).toHaveBeenCalledTimes(1);
+
+    targetLease.release();
+    otherLease.release();
+  });
 });
 
 describe("createThumbnailKey", () => {

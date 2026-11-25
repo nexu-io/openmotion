@@ -1,5 +1,4 @@
-import { useI18n } from "../../i18n/I18n";
-import { memo, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
 import { useLocalUploadPreview } from "../../utils/localUploadPreviewStore";
@@ -10,7 +9,10 @@ import {
 } from "../lib/thumbnailScheduler";
 import { bindThumbnailPlaybackHold } from "../lib/thumbnailPlaybackHold";
 import { createVideoThumbnailRequest } from "../lib/videoThumbnailRequest";
+import { matchesFailedPreviewAsset } from "../lib/previewAssetReadiness";
 import { usePlayerStore } from "../store/playerStore";
+import { triggerEditorAssetRetry } from "../../components/EditorAssetLoadingOverlay";
+import { ItemLoadErrorBadge } from "../../components/ui/ItemLoadErrorBadge";
 import { ThumbnailTiles } from "./ThumbnailTiles";
 import {
   computeThumbnailStrip,
@@ -101,7 +103,6 @@ export const VideoThumbnail = memo(function VideoThumbnail({
   sessionEpoch = 0,
   priority = "visible",
 }: VideoThumbnailProps) {
-  const { t } = useI18n();
   const [container, setContainerRef, watchGap] = useThumbnailStripSize();
   const localAssetPath = useMemo(() => {
     try {
@@ -141,11 +142,26 @@ export const VideoThumbnail = memo(function VideoThumbnail({
     measured && requestFrameCount > 1 ? richRequest : null,
     `${projectId}\0${videoSrc}`,
   );
+  const previewAssetFailed = usePlayerStore((s) =>
+    matchesFailedPreviewAsset(s.assetReadinessFailed, videoSrc),
+  );
+  const previewAssetRetrying = usePlayerStore((s) => s.assetReadinessRetrying);
+  const handleReload = useCallback(() => {
+    thumbnailScheduler.retryEntry(posterRequest);
+    if (requestFrameCount > 1) {
+      thumbnailScheduler.retryEntry(richRequest);
+    }
+    if (previewAssetFailed) {
+      void triggerEditorAssetRetry();
+    }
+  }, [posterRequest, previewAssetFailed, requestFrameCount, richRequest]);
   const value = snapshot.status === "ready" ? snapshot.value : null;
   const urls = value?.kind === "filmstrip" ? value.urls : value?.kind === "image" ? [value.url] : [];
   const aspect = value && value.kind !== "waveform" ? value.aspect : 16 / 9;
   const { frameW, frameCount } = computeThumbnailStrip(container.width, aspect, container.height);
   const showLoadingShimmer = snapshot.status === "loading" && !localPreviewUrl;
+  const thumbnailFailed = !localPreviewUrl && urls.length === 0 && snapshot.status === "error";
+  const showError = thumbnailFailed || previewAssetFailed;
 
   return (
     <div ref={setContainerRef} className="absolute inset-0 overflow-hidden">
@@ -186,11 +202,13 @@ export const VideoThumbnail = memo(function VideoThumbnail({
           }}
         />
       )}
-      {!localPreviewUrl && snapshot.status === "error" && (
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-900/60">
-          <span className="rounded-sm bg-black/50 px-1 text-[8px] text-neutral-500">
-            {t("no preview")}</span>
-        </div>
+      {showError && (
+        <ItemLoadErrorBadge
+          nestedInButton
+          compact={container.width > 0 && container.width < 96}
+          reloading={previewAssetFailed && previewAssetRetrying}
+          onReload={handleReload}
+        />
       )}
       {label && (
         <div

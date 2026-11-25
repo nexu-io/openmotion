@@ -17,7 +17,9 @@
     "Downloading this file for playback.": "正在下载此文件以供播放。",
     "The preview will appear when it is ready.": "预览就绪后会自动显示。",
     "You can keep editing while the preview loads.": "预览加载期间，你可以继续编辑。",
-    "Preparing the first preview frame": "正在准备预览首帧"
+    "Preparing the first preview frame": "正在准备预览首帧",
+    "Failed to load · Click to reload": "加载失败 · 点击重新加载",
+    "Reloading…": "正在重新加载…"
   },
   "ja": {
     "Preparing project assets": "プロジェクト素材を準備中",
@@ -37,7 +39,9 @@
     "Downloading this file for playback.": "再生用のファイルをダウンロードしています。",
     "The preview will appear when it is ready.": "準備ができるとプレビューが表示されます。",
     "You can keep editing while the preview loads.": "プレビューの読み込み中も編集を続けられます。",
-    "Preparing the first preview frame": "プレビューの最初のフレームを準備中"
+    "Preparing the first preview frame": "プレビューの最初のフレームを準備中",
+    "Failed to load · Click to reload": "読み込み失敗 · クリックして再読み込み",
+    "Reloading…": "再読み込み中…"
   },
   "ko": {
     "Preparing project assets": "프로젝트 에셋 준비 중",
@@ -57,7 +61,9 @@
     "Downloading this file for playback.": "재생을 위해 이 파일을 다운로드하고 있습니다.",
     "The preview will appear when it is ready.": "준비가 되면 미리보기가 표시됩니다.",
     "You can keep editing while the preview loads.": "미리보기를 불러오는 동안에도 계속 편집할 수 있습니다.",
-    "Preparing the first preview frame": "미리보기의 첫 프레임 준비 중"
+    "Preparing the first preview frame": "미리보기의 첫 프레임 준비 중",
+    "Failed to load · Click to reload": "불러오기 실패 · 클릭하여 다시 로드",
+    "Reloading…": "다시 불러오는 중…"
   },
   "de": {
     "Preparing project assets": "Projektmedien werden vorbereitet",
@@ -77,7 +83,9 @@
     "Downloading this file for playback.": "Diese Datei wird zur Wiedergabe heruntergeladen.",
     "The preview will appear when it is ready.": "Die Vorschau erscheint, sobald sie bereit ist.",
     "You can keep editing while the preview loads.": "Während die Vorschau lädt, kannst du weiterarbeiten.",
-    "Preparing the first preview frame": "Erstes Vorschaubild wird vorbereitet"
+    "Preparing the first preview frame": "Erstes Vorschaubild wird vorbereitet",
+    "Failed to load · Click to reload": "Laden fehlgeschlagen · Zum Neu laden klicken",
+    "Reloading…": "Wird neu geladen…"
   },
   "fr": {
     "Preparing project assets": "Préparation des médias du projet",
@@ -97,7 +105,9 @@
     "Downloading this file for playback.": "Téléchargement du fichier pour la lecture.",
     "The preview will appear when it is ready.": "L’aperçu s’affichera dès qu’il sera prêt.",
     "You can keep editing while the preview loads.": "Vous pouvez poursuivre le montage pendant le chargement de l’aperçu.",
-    "Preparing the first preview frame": "Préparation de la première image de l’aperçu"
+    "Preparing the first preview frame": "Préparation de la première image de l’aperçu",
+    "Failed to load · Click to reload": "Échec du chargement · Cliquer pour recharger",
+    "Reloading…": "Rechargement…"
   },
   "ru": {
     "Preparing project assets": "Подготовка материалов проекта",
@@ -117,7 +127,9 @@
     "Downloading this file for playback.": "Файл загружается для воспроизведения.",
     "The preview will appear when it is ready.": "Предпросмотр появится, когда будет готов.",
     "You can keep editing while the preview loads.": "Пока загружается предпросмотр, можно продолжать редактирование.",
-    "Preparing the first preview frame": "Подготовка первого кадра предпросмотра"
+    "Preparing the first preview frame": "Подготовка первого кадра предпросмотра",
+    "Failed to load · Click to reload": "Ошибка загрузки · Нажмите для повтора",
+    "Reloading…": "Перезагрузка…"
   },
   "es": {
     "Preparing project assets": "Preparando los recursos del proyecto",
@@ -137,7 +149,9 @@
     "Downloading this file for playback.": "Descargando este archivo para reproducirlo.",
     "The preview will appear when it is ready.": "La vista previa aparecerá cuando esté lista.",
     "You can keep editing while the preview loads.": "Puedes seguir editando mientras se carga la vista previa.",
-    "Preparing the first preview frame": "Preparando el primer fotograma de la vista previa"
+    "Preparing the first preview frame": "Preparando el primer fotograma de la vista previa",
+    "Failed to load · Click to reload": "Error al cargar · Haz clic para recargar",
+    "Reloading…": "Recargando…"
   },
   "pt-BR": {
     "Preparing project assets": "Preparando os recursos do projeto",
@@ -157,7 +171,9 @@
     "Downloading this file for playback.": "Baixando este arquivo para reprodução.",
     "The preview will appear when it is ready.": "A prévia aparecerá quando estiver pronta.",
     "You can keep editing while the preview loads.": "Você pode continuar editando enquanto a prévia carrega.",
-    "Preparing the first preview frame": "Preparando o primeiro quadro da prévia"
+    "Preparing the first preview frame": "Preparando o primeiro quadro da prévia",
+    "Failed to load · Click to reload": "Falha ao carregar · Clique para recarregar",
+    "Reloading…": "Recarregando…"
   },
   "it": {
     "Preparing project assets": "Preparazione delle risorse del progetto",
@@ -177,7 +193,9 @@
     "Downloading this file for playback.": "Download del file per la riproduzione.",
     "The preview will appear when it is ready.": "L’anteprima apparirà quando sarà pronta.",
     "You can keep editing while the preview loads.": "Puoi continuare a modificare il progetto mentre si carica l’anteprima.",
-    "Preparing the first preview frame": "Preparazione del primo fotogramma di anteprima"
+    "Preparing the first preview frame": "Preparazione del primo fotogramma di anteprima",
+    "Failed to load · Click to reload": "Caricamento non riuscito · Clicca per ricaricare",
+    "Reloading…": "Ricaricamento…"
   },
   "tr": {
     "Preparing project assets": "Proje varlıkları hazırlanıyor",
@@ -197,6 +215,8 @@
     "Downloading this file for playback.": "Bu dosya oynatılmak üzere indiriliyor.",
     "The preview will appear when it is ready.": "Önizleme hazır olduğunda gösterilecek.",
     "You can keep editing while the preview loads.": "Önizleme yüklenirken düzenlemeye devam edebilirsiniz.",
-    "Preparing the first preview frame": "Önizlemenin ilk karesi hazırlanıyor"
+    "Preparing the first preview frame": "Önizlemenin ilk karesi hazırlanıyor",
+    "Failed to load · Click to reload": "Yüklenemedi · Yeniden yüklemek için tıklayın",
+    "Reloading…": "Yeniden yükleniyor…"
   }
 }

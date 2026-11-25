@@ -10,9 +10,17 @@ import { useI18n } from "../../i18n/I18n";
  */
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Tooltip } from "../ui/Tooltip";
+import { ItemLoadErrorBadge } from "../ui/ItemLoadErrorBadge";
+import { triggerEditorAssetRetry } from "../EditorAssetLoadingOverlay";
+import { useDockPanelVisible } from "../dock/Dock";
 import { useNearViewport } from "../../hooks/useNearViewport";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { createVideoThumbnailRequest } from "../../player/lib/videoThumbnailRequest";
+import { thumbnailScheduler } from "../../player/lib/thumbnailScheduler";
+import {
+  matchesFailedPreviewAsset,
+  withRetryQueryParam,
+} from "../../player/lib/previewAssetReadiness";
 import { mediaThumbnailRevisionOf } from "../../player/store/thumbnailSlice";
 import { VIDEO_EXT, IMAGE_EXT } from "../../utils/mediaTypes";
 import { TIMELINE_ASSET_MIME } from "../../utils/timelineAssetDrop";
@@ -115,18 +123,44 @@ function useProbedDuration(src: string, skip: boolean): number | null | undefine
   return duration;
 }
 
-function AssetVideoPoster({ projectId, asset, src, duration, localPreview }: {
-  projectId: string; asset: string; src: string; duration?: number; localPreview: string | null;
+function useAssetVideoPoster({
+  enabled,
+  projectId,
+  src,
+  duration,
+}: {
+  enabled: boolean;
+  projectId: string;
+  src: string;
+  duration?: number;
 }) {
   const sessionEpoch = usePlayerStore((state) => state.timelineSessionEpoch);
-  const request = useMemo(() => createVideoThumbnailRequest({
-    projectId, sessionEpoch, videoSrc: src, duration: duration ?? 1, priority: "visible",
-  }, 1, false), [duration, projectId, sessionEpoch, src]);
+  const request = useMemo(
+    () =>
+      enabled
+        ? createVideoThumbnailRequest(
+            {
+              projectId,
+              sessionEpoch,
+              videoSrc: src,
+              duration: duration ?? 1,
+              priority: "visible",
+            },
+            1,
+            false,
+          )
+        : null,
+    [duration, enabled, projectId, sessionEpoch, src],
+  );
   const snapshot = useThumbnailLease(request);
-  const decoded = snapshot.status === "ready" && snapshot.value.kind === "image" ? snapshot.value.url : null;
-  const poster = decoded ?? localPreview;
-  return poster ? <img src={poster} alt="" draggable={false} className="w-full h-full object-cover"
-    onLoad={() => { if (decoded && localPreview) clearLocalUploadPreview(projectId, asset); }} /> : null;
+  const decoded =
+    snapshot.status === "ready" && snapshot.value.kind === "image" ? snapshot.value.url : null;
+  const loading = enabled && (snapshot.status === "queued" || snapshot.status === "loading");
+  const error = enabled && snapshot.status === "error";
+  const reload = useCallback(() => {
+    thumbnailScheduler.retryEntry(request);
+  }, [request]);
+  return { decoded, loading, error, reload };
 }
 
 export interface AssetCardProps {
@@ -168,14 +202,18 @@ export function AssetCard({
 }: AssetCardProps) {
   const mvp = useMvpEditor();
   const { t } = useI18n();
+  const panelVisible = useDockPanelVisible();
   const isCloudMode = useCloudDisklessMode();
   const localPreview = useLocalUploadPreview(projectId, asset);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [hovered, setHovered] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [card, setCard] = useState<HTMLDivElement | null>(null);
-  const visible = useNearViewport(card);
+  const visible = useNearViewport(card, panelVisible);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [imgRetryAttempt, setImgRetryAttempt] = useState(0);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const isCopied = copyFeedback?.path === asset && copyFeedback.ok;
   const fullName = displayName ?? asset.split("/").pop() ?? asset;
   const name = displayName ?? basename(asset);
@@ -183,12 +221,58 @@ export function AssetCard({
   const sourceUrl = resolveMediaPreviewUrl(asset, projectId);
   const revision = usePlayerStore((state) => mediaThumbnailRevisionOf(state.thumbnailRevisions, asset));
   const serveUrl = revision ? `${sourceUrl}?revision=${revision}` : sourceUrl;
+  const imgSrc = useMemo(() => {
+    if (imgRetryAttempt <= 0) return serveUrl;
+    const baseHref = typeof window !== "undefined" ? window.location.href : undefined;
+    return withRetryQueryParam(serveUrl, imgRetryAttempt, baseHref) ?? serveUrl;
+  }, [imgRetryAttempt, serveUrl]);
   const isVideo = VIDEO_EXT.test(asset);
   const isImage = IMAGE_EXT.test(asset);
-  useEffect(() => { setImgError(false); }, [serveUrl, localPreview]);
+  useEffect(() => {
+    if (!panelVisible) setHovered(false);
+  }, [panelVisible]);
+  useEffect(() => {
+    setImgError(false);
+    setImgLoaded(false);
+    setImgRetryAttempt(0);
+  }, [serveUrl, localPreview]);
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setImgLoaded(true);
+    }
+  }, [imgSrc]);
   // In cloud mode, duration comes from PG metadata; only fall back to <video> probe in local mode.
   const probedDuration = useProbedDuration(serveUrl, !visible || !isVideo || duration != null || isCloudMode);
   const resolvedDuration = duration ?? probedDuration ?? undefined;
+  const videoPoster = useAssetVideoPoster({
+    enabled: isVideo && visible,
+    projectId,
+    src: serveUrl,
+    duration: resolvedDuration,
+  });
+  const videoPosterUrl = videoPoster.decoded ?? localPreview;
+  const previewAssetFailed = usePlayerStore((s) =>
+    matchesFailedPreviewAsset(s.assetReadinessFailed, asset),
+  );
+  const previewAssetRetrying = usePlayerStore((s) => s.assetReadinessRetrying);
+  const itemError =
+    (isImage && imgError && !localPreview) ||
+    (isVideo && !videoPosterUrl && videoPoster.error) ||
+    previewAssetFailed;
+  const handleReloadItem = useCallback(() => {
+    if (isImage && imgError) {
+      setImgError(false);
+      setImgLoaded(false);
+      setImgRetryAttempt((attempt) => attempt + 1);
+    }
+    if (isVideo && videoPoster.error) {
+      videoPoster.reload();
+    }
+    if (previewAssetFailed) {
+      void triggerEditorAssetRetry();
+    }
+  }, [imgError, isImage, isVideo, previewAssetFailed, videoPoster]);
 
   // Drag-threshold click gate: track pointer-down position so we can ignore
   // pointer-up events that followed a real drag gesture.
@@ -266,30 +350,59 @@ export function AssetCard({
         }}
         onDragStart={(e) => writeAssetDragData(e, asset, resolvedDuration)}
         onContextMenu={(e) => openAssetContextMenu(e, setContextMenu)}
-        onPointerEnter={() => setHovered(true)}
+        onPointerEnter={() => {
+          if (panelVisible) setHovered(true);
+        }}
         onPointerLeave={() => setHovered(false)}
         className={`cursor-pointer rounded-md overflow-hidden bg-neutral-900 transition-colors outline-hidden focus-visible:bg-neutral-800/60 ${
           isCopied ? "bg-studio-accent/10" : "hover:bg-neutral-800"
         }`}
       >
         {/* Thumbnail */}
-        <div className="motion-asset-thumbnail w-full aspect-video overflow-hidden bg-neutral-900 relative">
+        <div
+          className="motion-asset-thumbnail w-full aspect-video overflow-hidden bg-neutral-900 relative"
+          data-item-error={itemError ? "true" : undefined}
+        >
+          {((isImage && !imgLoaded && !imgError && !localPreview) ||
+            (isVideo && !videoPosterUrl && videoPoster.loading)) && (
+            <div
+              className="pointer-events-none absolute inset-0 animate-pulse motion-reduce:animate-none"
+              style={{ background: "var(--timeline-thumbnail-shimmer)" }}
+              aria-hidden="true"
+            />
+          )}
           {isImage && localPreview && <img src={localPreview} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
           {isImage && !imgError && (
             <img
-              src={serveUrl}
+              ref={imgRef}
+              src={imgSrc}
               alt={name}
               draggable={false}
               loading="lazy"
               className="w-full h-full object-cover"
-              onLoad={() => { if (localPreview) clearLocalUploadPreview(projectId, asset); }}
+              onLoad={() => {
+                setImgLoaded(true);
+                if (localPreview) clearLocalUploadPreview(projectId, asset);
+              }}
               onError={() => setImgError(true)}
             />
           )}
           {isVideo && (
             <>
-              {visible && <AssetVideoPoster projectId={projectId} asset={asset} src={serveUrl} duration={resolvedDuration} localPreview={localPreview} />}
-              {hovered && (
+              {videoPosterUrl && (
+                <img
+                  src={videoPosterUrl}
+                  alt=""
+                  draggable={false}
+                  className="w-full h-full object-cover"
+                  onLoad={() => {
+                    if (videoPoster.decoded && localPreview) {
+                      clearLocalUploadPreview(projectId, asset);
+                    }
+                  }}
+                />
+              )}
+              {hovered && panelVisible && (
                 <video
                   src={serveUrl}
                   autoPlay
@@ -340,6 +453,12 @@ export function AssetCard({
           {/* Duration badge — top-right, media only */}
           <MediaDurationBadge duration={resolvedDuration} className="absolute top-1 right-1" />
           {onAddAssetToTimeline && <AssetQuickAdd asset={asset} onAdd={onAddAssetToTimeline} />}
+          {itemError && (
+            <ItemLoadErrorBadge
+              reloading={previewAssetFailed && previewAssetRetrying}
+              onReload={handleReloadItem}
+            />
+          )}
         </div>
 
         {/* Match catalog caption spacing and typography; keep actions beside the name. */}

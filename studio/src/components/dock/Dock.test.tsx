@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as dockLayout from "./dockLayout";
 import { I18nProvider, useI18n } from "../../i18n/I18n";
-import { Dock } from "./Dock";
+import { Dock, useDockPanelVisible } from "./Dock";
 import { StudioHostContext } from "../../motion/StudioHost";
 import { parseDockLayout } from "./dockLayoutSchema";
 import { useDockLayoutStore } from "./dockLayoutStore";
@@ -1432,4 +1432,58 @@ it.each(["captions", "transcript"] as const)("retains %s and custom widths while
       expect(api.getPanel(panel)!.api.isActive).toBe(true);
     }
   }
+});
+
+it("keeps collapsed left sidebar tabs unmounted until first expand, then preserves DOM while toggling panel visibility", async () => {
+  function VisibilityProbe({ id }: { id: string }) {
+    const visible = useDockPanelVisible();
+    return <div data-testid={`probe-${id}`} data-visible={String(visible)}>{id}</div>;
+  }
+  const host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  act(() => root?.render(
+    <I18nProvider initialLocale="en">
+      <Dock.Root projectId="lazy-left" panels={MVP_PANEL_IDS} fixedLayout initialCompactLayout dockWidth={() => 1400}>
+        {MVP_PANEL_IDS.map((id) => (
+          <Dock.Panel key={id} id={id}>
+            <VisibilityProbe id={id} />
+          </Dock.Panel>
+        ))}
+      </Dock.Root>
+    </I18nProvider>,
+  ));
+  const api = dockApi!;
+  act(() => { api.layout(1400, 800); vi.advanceTimersByTime(32); });
+
+  // While collapsed on initial load, neither compositions nor assets mounts.
+  expect(host.querySelector('[data-testid="probe-compositions"]')).toBeNull();
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBeNull();
+
+  // Expanding left sidebar mounts compositions with visible=true; assets stays unmounted.
+  const controller = useDockLayoutStore.getState().controller!;
+  await act(async () => { controller.setGroupCollapsed!("compositions", false); await Promise.resolve(); });
+  const compsNode = host.querySelector('[data-testid="probe-compositions"]');
+  expect(compsNode).not.toBeNull();
+  expect(compsNode?.getAttribute("data-visible")).toBe("true");
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBeNull();
+
+  // Switching to assets keeps compositions mounted in place (visible=false) and mounts assets (visible=true).
+  await act(async () => { useDockLayoutStore.getState().activatePanel("assets"); await Promise.resolve(); });
+  const assetsNode = host.querySelector('[data-testid="probe-assets"]');
+  expect(host.querySelector('[data-testid="probe-compositions"]')).toBe(compsNode);
+  expect(compsNode?.getAttribute("data-visible")).toBe("false");
+  expect(assetsNode?.getAttribute("data-visible")).toBe("true");
+
+  // Collapsing left sidebar keeps both mounted while marking both hidden.
+  await act(async () => { controller.setGroupCollapsed!("assets", true); await Promise.resolve(); });
+  expect(host.querySelector('[data-testid="probe-compositions"]')).toBe(compsNode);
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBe(assetsNode);
+  expect(compsNode?.getAttribute("data-visible")).toBe("false");
+  expect(assetsNode?.getAttribute("data-visible")).toBe("false");
+
+  // Re-expanding restores assets as visible without recreating DOM nodes.
+  await act(async () => { controller.setGroupCollapsed!("assets", false); await Promise.resolve(); });
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBe(assetsNode);
+  expect(assetsNode?.getAttribute("data-visible")).toBe("true");
 });

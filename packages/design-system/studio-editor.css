@@ -105,7 +105,63 @@
   cursor: default;
   opacity: 0.65;
 }
+
+/* Per-item bottom-right load-error indicator with one-click reload (clips, asset cards, comp cards). */
+.motion-item-error-badge {
+  position: absolute;
+  right: var(--motion-space-4);
+  bottom: var(--motion-space-4);
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--motion-space-2);
+  min-width: var(--motion-space-20);
+  height: var(--motion-space-20);
+  padding: 0 var(--motion-space-6);
+  border: 1px solid color-mix(in srgb, var(--motion-danger) 55%, transparent);
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-danger-soft);
+  color: var(--motion-danger);
+  box-shadow: var(--motion-shadow-xs);
+  pointer-events: auto;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-out),
+    border-color var(--motion-duration-fast) var(--motion-ease-out),
+    transform var(--motion-duration-fast) var(--motion-ease-out);
+}
+.motion-item-error-badge.is-inline {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  flex-shrink: 0;
+}
+.motion-item-error-badge.is-compact {
+  padding: 0 var(--motion-space-4);
+}
+.motion-item-error-badge.is-compact .motion-item-error-badge__reload {
+  display: none;
+}
+.motion-item-error-badge.is-compact:is(:hover, :focus-visible) .motion-item-error-badge__alert {
+  display: none;
+}
+.motion-item-error-badge.is-compact:is(:hover, :focus-visible) .motion-item-error-badge__reload {
+  display: inline-flex;
+}
+.motion-item-error-badge:not([data-reloading="true"]):not(:disabled):is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--motion-danger) 24%, var(--motion-danger-soft));
+  border-color: var(--motion-danger);
+  color: var(--motion-danger);
+}
+.motion-item-error-badge:is([data-reloading="true"], :disabled) {
+  cursor: default;
+  opacity: 0.75;
+}
 @media (prefers-reduced-motion: reduce) {
+  .motion-item-error-badge {
+    transition: none;
+  }
   .motion-preview-loading {
     opacity: 1;
     animation: none;

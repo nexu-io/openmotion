@@ -136,11 +136,29 @@ describe("ImageThumbnail", () => {
     expect(host.querySelector(".animate-pulse")).toBeNull();
   });
 
-  it("drops the shimmer and renders no tiles when a raster image fails to load", async () => {
+  it("drops the shimmer, shows a bottom-right error reload badge, and reloads on click", async () => {
     render({ imageSrc: "/api/projects/p/preview/assets/missing.png" });
     await resolveProbe((probe) => probe.onerror?.());
     expect(host.querySelectorAll("img").length).toBe(0);
     expect(host.querySelector(".animate-pulse")).toBeNull();
+
+    const errorBadge = host.querySelector<HTMLElement>('[data-testid="item-load-error"]');
+    expect(errorBadge).not.toBeNull();
+
+    act(() => {
+      errorBadge!.click();
+    });
+    const retriedProbe = lastProbe();
+    const retriedSrc = retriedProbe.src;
+    expect(retriedSrc).toContain("/api/projects/p/preview/assets/missing.png?_omRetry=1");
+
+    await resolveProbe((probe) => {
+      probe.naturalWidth = 1920;
+      probe.naturalHeight = 1080;
+      probe.onload?.();
+    });
+    expect(host.querySelector('[data-testid="item-load-error"]')).toBeNull();
+    expectFirstTileSrc(retriedSrc);
   });
 
   it("renders tiles at 16:9 when an SVG has no intrinsic dimensions (naturalWidth=0)", async () => {
