@@ -721,7 +721,14 @@ export function WebPublishPopover({
                   { value: 'workspace', label: t('Workspace members ({team})', { team: teamWs.workspaceName }) },
                   { value: 'private', label: t('Only you') },
                 ]}
-                onCommit={next => void collab.setProjectVisibility(targetId, next as ProjectVisibility)}
+                onCommit={next => {
+                  void collab.setProjectVisibility(targetId, next as ProjectVisibility).catch(err => {
+                    collab.notify(
+                      err instanceof Error ? err.message : t('Could not update visibility'),
+                      'error',
+                    );
+                  });
+                }}
               />
               <Button
                 variant="plain"

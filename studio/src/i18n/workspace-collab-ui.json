@@ -316,7 +316,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "项目「{title}」将退回你的个人工作区。「{team}」成员会立即失去访问权限，本地文件与编辑历史会完整保留。",
     "50% OFF": "5 折",
     "Could not switch to {model}": "无法切换到 {model}",
-    "Could not load more items.": "无法加载更多内容。"
+    "Could not load more items.": "无法加载更多内容。",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "云端评论同步暂不可用，待同步评论将继续保存在本地。"
   },
   "ja": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "実行中のタスクがあります。「{name}」に切り替えると新しい作業は切替先に適用され、実行中のタスクは元のワークスペースに課金されます。",
@@ -635,7 +636,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "「{title}」は個人ワークスペースに戻ります。「{team}」のメンバーは即座にアクセスできなくなりますが、ファイルと編集履歴はそのまま保持されます。",
     "50% OFF": "50% オフ",
     "Could not switch to {model}": "{model} に切り替えられませんでした",
-    "Could not load more items.": "さらに項目を読み込めませんでした。"
+    "Could not load more items.": "さらに項目を読み込めませんでした。",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "クラウドコメント同期はまだ利用できません。未同期のコメントはローカルに保存されたままです。"
   },
   "ko": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "실행 중인 작업이 있습니다. \"{name}\"으로 전환하면 이후 사용량과 프로젝트는 해당 워크스페이스에 적용되며 진행 중인 작업은 기존 워크스페이스에 청구됩니다.",
@@ -954,7 +956,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "“{title}”이(가) 개인 워크스페이스로 돌아갑니다. {team} 팀원의 접근 권한은 즉시 해제되지만 파일과 편집 기록은 그대로 유지됩니다.",
     "50% OFF": "50% 할인",
     "Could not switch to {model}": "{model}(으)로 전환하지 못했습니다",
-    "Could not load more items.": "항목을 더 불러오지 못했습니다."
+    "Could not load more items.": "항목을 더 불러오지 못했습니다.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "클라우드 댓글 동기화를 아직 사용할 수 없습니다. 대기 중인 댓글은 로컬에 안전하게 보관됩니다."
   },
   "de": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "Es läuft gerade eine Aufgabe. Beim Wechsel zu „{name}“ gelten künftige Nutzungen für den neuen Arbeitsbereich, laufende Aufgaben bleiben beim bisherigen.",
@@ -1273,7 +1276,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "„{title}“ kehrt in Ihren persönlichen Workspace zurück. Mitglieder von „{team}“ verlieren sofort den Zugriff; Dateien und Verlauf bleiben erhalten.",
     "50% OFF": "50 % Rabatt",
     "Could not switch to {model}": "Wechsel zu {model} fehlgeschlagen",
-    "Could not load more items.": "Weitere Einträge konnten nicht geladen werden."
+    "Could not load more items.": "Weitere Einträge konnten nicht geladen werden.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "Die Cloud-Kommentarsynchronisierung ist noch nicht verfügbar. Ausstehende Kommentare bleiben lokal gespeichert."
   },
   "fr": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "Une tâche est en cours. Passer à « {name} » applique les prochains usages au nouvel espace tout en facturant la tâche en cours sur l’ancien.",
@@ -1592,7 +1596,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "« {title} » reviendra dans votre espace personnel. Les membres de « {team} » perdront immédiatement l’accès, mais vos fichiers restent intacts.",
     "50% OFF": "-50 %",
     "Could not switch to {model}": "Impossible de passer à {model}",
-    "Could not load more items.": "Impossible de charger plus d’éléments."
+    "Could not load more items.": "Impossible de charger plus d’éléments.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "La synchronisation cloud des commentaires n’est pas encore disponible. Les commentaires en attente restent enregistrés en local."
   },
   "ru": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "Сейчас выполняется задача. При переключении на «{name}» новые проекты и списания будут относиться к нему, а текущая задача останется на прежнем.",
@@ -1911,7 +1916,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "Проект «{title}» вернётся в ваше личное пространство. Участники «{team}» сразу потеряют доступ, но файлы и история изменений сохранятся.",
     "50% OFF": "Скидка 50%",
     "Could not switch to {model}": "Не удалось переключиться на {model}",
-    "Could not load more items.": "Не удалось загрузить ещё элементы."
+    "Could not load more items.": "Не удалось загрузить ещё элементы.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "Облачная синхронизация комментариев пока недоступна. Ожидающие комментарии сохраняются локально."
   },
   "es": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "Hay una tarea en curso. Al cambiar a «{name}», los próximos proyectos usarán ese espacio mientras la tarea actual sigue en el espacio original.",
@@ -2230,7 +2236,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "“{title}” volverá a tu espacio personal. Los compañeros de {team} perderán acceso de inmediato, pero tus archivos se conservarán.",
     "50% OFF": "50 % DTO.",
     "Could not switch to {model}": "No se pudo cambiar a {model}",
-    "Could not load more items.": "No se pudieron cargar más elementos."
+    "Could not load more items.": "No se pudieron cargar más elementos.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "La sincronización de comentarios en la nube aún no está disponible. Los comentarios pendientes permanecen guardados localmente."
   },
   "pt-BR": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "Há uma tarefa em execução. Mudar para “{name}” aplica os próximos projetos ao novo espaço enquanto a tarefa atual continua no original.",
@@ -2549,7 +2556,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "“{title}” voltará para o seu espaço pessoal. Os colegas de {team} perderão acesso imediatamente, mas seus arquivos serão preservados.",
     "50% OFF": "50% OFF",
     "Could not switch to {model}": "Não foi possível alternar para {model}",
-    "Could not load more items.": "Não foi possível carregar mais itens."
+    "Could not load more items.": "Não foi possível carregar mais itens.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "A sincronização de comentários na nuvem ainda não está disponível. Os comentários pendentes continuam salvos localmente."
   },
   "it": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "È in corso un'attività. Passando a «{name}» i prossimi lavori useranno il nuovo spazio, mentre l'attività in corso resta sul precedente.",
@@ -2868,7 +2876,8 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "“{title}” tornerà nel tuo spazio personale. I membri di {team} perderanno subito l’accesso, ma i file resteranno intatti.",
     "50% OFF": "50% DI SCONTO",
     "Could not switch to {model}": "Impossibile passare a {model}",
-    "Could not load more items.": "Impossibile caricare altri elementi."
+    "Could not load more items.": "Impossibile caricare altri elementi.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "La sincronizzazione cloud dei commenti non è ancora disponibile. I commenti in sospeso restano salvati in locale."
   },
   "tr": {
     "A task is currently running. Switching to {name} applies future usage and projects to that workspace while running tasks stay billed to the original workspace.": "Şu anda çalışan bir görev var. \"{name}\" alanına geçmek yeni işlemleri o alana uygular; çalışan görev önceki alanda faturalandırılır.",
@@ -3187,6 +3196,7 @@
     "“{title}” will move back to your Personal workspace. Teammates in {team} will immediately lose access, while your files and edit history stay intact.": "“{title}” Kişisel çalışma alanınıza döner. {team} üyelerinin erişimi hemen kesilir, dosyalarınız ve geçmişiniz korunur.",
     "50% OFF": "%50 İNDİRİM",
     "Could not switch to {model}": "{model} modeline geçilemedi",
-    "Could not load more items.": "Daha fazla öğe yüklenemedi."
+    "Could not load more items.": "Daha fazla öğe yüklenemedi.",
+    "Cloud comment sync is not available yet. Pending comments stay saved locally.": "Bulut yorum eşitlemesi henüz kullanılamıyor. Bekleyen yorumlar yerel olarak kayıtlı kalır."
   }
 }
