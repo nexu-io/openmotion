@@ -193,6 +193,135 @@ export async function inspectProjectIsolated(
   }
 }
 
+function readHtmlAttribute(element: Element, name: string): string | undefined {
+  return Array.from(element.attributes).find((item) => item.name.toLowerCase() === name)?.value;
+}
+
+function findRootCompositionInDocument(
+  document: Document,
+  parseHTMLContent: (html: string) => Document,
+): Element | undefined {
+  const pickRoot = (doc: Document): Element | undefined => {
+    const compositions = Array.from(doc.querySelectorAll('*')) as Element[];
+    const roots = compositions.filter((element) => readHtmlAttribute(element, 'data-composition-id') !== undefined);
+    return roots.find((element) => readHtmlAttribute(element, 'data-root') === 'true') || roots[0];
+  };
+
+  const direct = pickRoot(document);
+  if (direct) return direct;
+
+  for (const template of Array.from(document.querySelectorAll('template')) as Element[]) {
+    const innerHtml = template.innerHTML;
+    if (!innerHtml) continue;
+    const innerRoot = pickRoot(parseHTMLContent(innerHtml));
+    if (innerRoot) return innerRoot;
+  }
+
+  return undefined;
+}
+
+function parsePositiveNumberAttr(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const parsed = Number(raw.trim());
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseDurationSecondsAttr(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const match = /^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)?$/i.exec(trimmed);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return match[2]?.toLowerCase() === 'ms' ? value / 1000 : value;
+}
+
+async function resolveSnapshotExportExpectation(
+  runtimeRoot: string,
+  directory: string,
+  compositionPath: string,
+  infoResult: Record<string, unknown>,
+  messages: { missingRoot: string; invalidFpsPrefix: string },
+) {
+  const coreRoot = path.join(runtimeRoot, 'node_modules/@hyperframes/core');
+  const core = JSON.parse(await readFile(path.join(coreRoot, 'package.json'), 'utf8'));
+  const [
+    { parseHTMLContent, isTemplateEntry, extractStandaloneEntryFromIndex },
+    { parseFps, fpsToNumber, CANVAS_DIMENSIONS },
+  ] = await Promise.all([
+    import(pathToFileURL(path.join(coreRoot, core.exports['./compiler'].import)).href),
+    import(pathToFileURL(path.join(coreRoot, core.exports['.'].import)).href),
+  ]);
+
+  const entryHtml = await readFile(path.join(directory, compositionPath), 'utf8');
+  const entryDoc = parseHTMLContent(entryHtml);
+  const sceneRoot = findRootCompositionInDocument(entryDoc, parseHTMLContent);
+  if (!sceneRoot) throw new Error(messages.missingRoot);
+
+  // Match hyperframes@0.9.7 producer: a <template>-wrapped sub-scene is rendered inside
+  // the host shell extracted from index.html (inheriting root canvas width/height and
+  // falling back to the host mount's data-duration when the scene omits data-duration).
+  let shellRoot: Element | undefined;
+  if (compositionPath !== 'index.html' && isTemplateEntry(entryHtml)) {
+    const indexHtml = await readFile(path.join(directory, 'index.html'), 'utf8').catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (indexHtml !== null) {
+      const standaloneHtml = extractStandaloneEntryFromIndex(indexHtml, compositionPath, entryHtml);
+      if (standaloneHtml) {
+        shellRoot = findRootCompositionInDocument(parseHTMLContent(standaloneHtml), parseHTMLContent);
+      }
+    }
+  }
+
+  const dimensionsMap = (CANVAS_DIMENSIONS ?? {}) as Record<string, { readonly width: number; readonly height: number }>;
+  const declaredResolution =
+    (shellRoot ? readHtmlAttribute(shellRoot, 'data-resolution')?.trim() : undefined) ||
+    readHtmlAttribute(sceneRoot, 'data-resolution')?.trim();
+  const resolutionFallback = declaredResolution ? dimensionsMap[declaredResolution] : undefined;
+
+  const width =
+    (typeof infoResult.width === 'number' ? infoResult.width : undefined) ??
+    parsePositiveNumberAttr(shellRoot ? readHtmlAttribute(shellRoot, 'data-width') : undefined) ??
+    parsePositiveNumberAttr(readHtmlAttribute(sceneRoot, 'data-width')) ??
+    resolutionFallback?.width ??
+    Number.NaN;
+  const height =
+    (typeof infoResult.height === 'number' ? infoResult.height : undefined) ??
+    parsePositiveNumberAttr(shellRoot ? readHtmlAttribute(shellRoot, 'data-height') : undefined) ??
+    parsePositiveNumberAttr(readHtmlAttribute(sceneRoot, 'data-height')) ??
+    resolutionFallback?.height ??
+    Number.NaN;
+  const duration =
+    (typeof infoResult.duration === 'number' ? infoResult.duration : undefined) ??
+    parseDurationSecondsAttr(
+      shellRoot
+        ? (readHtmlAttribute(shellRoot, 'data-duration') ?? readHtmlAttribute(shellRoot, 'data-composition-duration'))
+        : undefined,
+    ) ??
+    parseDurationSecondsAttr(
+      readHtmlAttribute(sceneRoot, 'data-duration') ?? readHtmlAttribute(sceneRoot, 'data-composition-duration'),
+    ) ??
+    Number.NaN;
+
+  const rawFps =
+    readHtmlAttribute(sceneRoot, 'data-fps')?.trim() ||
+    (shellRoot ? readHtmlAttribute(shellRoot, 'data-fps')?.trim() : undefined) ||
+    '30';
+  const fps = parseFps(rawFps);
+  if (!fps.ok) throw new Error(messages.invalidFpsPrefix + fps.reason);
+
+  return validateExportExpectation({
+    width,
+    height,
+    duration,
+    fps: fpsToNumber(fps.value),
+    audio: 'optional',
+  });
+}
+
 export async function snapshotExportExpectationIsolated(
   runtimeRoot: string,
   directory: string,
@@ -205,27 +334,9 @@ export async function snapshotExportExpectationIsolated(
       : null;
   if (info?.exitCode) throw new Error('Failed to inspect export snapshot: ' + JSON.stringify(info.result));
   const infoResult = (info?.result ?? {}) as Record<string, unknown>;
-  const coreRoot = path.join(runtimeRoot, 'node_modules/@hyperframes/core');
-  const core = JSON.parse(await readFile(path.join(coreRoot, 'package.json'), 'utf8'));
-  const [{ parseHTMLContent }, { parseFps, fpsToNumber }] = await Promise.all([
-    import(pathToFileURL(path.join(coreRoot, core.exports['./compiler'].import)).href),
-    import(pathToFileURL(path.join(coreRoot, core.exports['.'].import)).href),
-  ]);
-  const document = parseHTMLContent(await readFile(path.join(directory, compositionPath), 'utf8'));
-  const attribute = (element: Element, name: string) =>
-    Array.from(element.attributes).find((item) => item.name.toLowerCase() === name)?.value;
-  const compositions = Array.from(document.querySelectorAll('*')) as Element[];
-  const roots = compositions.filter((element) => attribute(element, 'data-composition-id') !== undefined);
-  const root = roots.find((element) => attribute(element, 'data-root') === 'true') || roots[0];
-  if (!root) throw new Error('Export snapshot is missing a root composition');
-  const fps = parseFps(attribute(root, 'data-fps')?.trim() || '30');
-  if (!fps.ok) throw new Error('Export snapshot has invalid fps: ' + fps.reason);
-  return validateExportExpectation({
-    width: Number(infoResult.width ?? attribute(root, 'data-width')),
-    height: Number(infoResult.height ?? attribute(root, 'data-height')),
-    duration: Number(infoResult.duration ?? attribute(root, 'data-duration')),
-    fps: fpsToNumber(fps.value),
-    audio: 'optional',
+  return resolveSnapshotExportExpectation(runtimeRoot, directory, compositionPath, infoResult, {
+    missingRoot: 'Export snapshot is missing a root composition',
+    invalidFpsPrefix: 'Export snapshot has invalid fps: ',
   });
 }
 
@@ -317,22 +428,11 @@ export async function inspectProject(runtimeRoot: string, directory: string, vie
 export async function snapshotExportExpectation(runtimeRoot: string, directory: string, compositionPath = 'index.html') {
   const info = compositionPath === 'index.html' ? await inspectProject(runtimeRoot, directory, 'info') : null;
   if (info?.exitCode) throw new Error('无法读取导出快照规格：' + JSON.stringify(info.result));
-  const coreRoot = path.join(runtimeRoot, 'node_modules/@hyperframes/core');
-  const core = JSON.parse(await readFile(path.join(coreRoot, 'package.json'), 'utf8'));
-  const [{ parseHTMLContent }, { parseFps, fpsToNumber }] = await Promise.all([
-    import(pathToFileURL(path.join(coreRoot, core.exports['./compiler'].import)).href),
-    import(pathToFileURL(path.join(coreRoot, core.exports['.'].import)).href),
-  ]);
-  const document = parseHTMLContent(await readFile(path.join(directory, compositionPath), 'utf8'));
-  const attribute = (element: Element, name: string) => Array.from(element.attributes).find(item => item.name.toLowerCase() === name)?.value;
-  const compositions = Array.from(document.querySelectorAll('*')) as Element[];
-  const roots = compositions.filter(element => attribute(element, 'data-composition-id') !== undefined);
-  const root = roots.find(element => attribute(element, 'data-root') === 'true') || roots[0];
-  if (!root) throw new Error('导出快照缺少根 composition');
-  const fps = parseFps(attribute(root, 'data-fps')?.trim() || '30');
-  if (!fps.ok) throw new Error('导出快照帧率无效：' + fps.reason);
-  return validateExportExpectation({ width: info?.result.width ?? Number(attribute(root, 'data-width')), height: info?.result.height ?? Number(attribute(root, 'data-height')),
-    duration: info?.result.duration ?? Number(attribute(root, 'data-duration')), fps: fpsToNumber(fps.value), audio: 'optional' });
+  const infoResult = (info?.result ?? {}) as Record<string, unknown>;
+  return resolveSnapshotExportExpectation(runtimeRoot, directory, compositionPath, infoResult, {
+    missingRoot: '导出快照缺少根 composition',
+    invalidFpsPrefix: '导出快照帧率无效：',
+  });
 }
 
 export type Studio = { url: string; projectDirectory: string; alive: () => boolean; close: () => Promise<void>; openProject?: (id: string) => Promise<void> };

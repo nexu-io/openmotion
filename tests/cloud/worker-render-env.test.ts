@@ -5,7 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
-import { executeIsolated } from '../../hyperframes.ts';
+import { bundleToSingleHtml } from '@hyperframes/core/compiler';
+import {
+  executeIsolated,
+  pluginRoot,
+  snapshotExportExpectation,
+  snapshotExportExpectationIsolated,
+} from '../../hyperframes.ts';
 import type { RenderWorkerHealth } from '../../src/contracts/events.ts';
 import type { StoragePort } from '../../src/contracts/storage.ts';
 import type { Database } from '../../src/db/client.ts';
@@ -27,6 +33,7 @@ import {
   injectStudioRenderParityScripts,
 } from '../../src/workers/render-env.ts';
 import {
+  applyRenderSettingsToExpectation,
   buildRenderExportArgs,
   buildThumbnailSnapshotArgs,
   hydrateSnapshotFilesToDir,
@@ -1177,6 +1184,281 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
           }),
         /工程文件路径无效/,
       );
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Sub-scene (<template>) Export Expectation, Parity Injection & Settings Overrides (OPEND-5768)', () => {
+  it('extracts export expectation from <template>-wrapped sub-scenes, inheriting index.html shell dimensions/duration when omitted', async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'om-test-template-exp-'));
+    try {
+      await mkdir(path.join(tmpDir, 'compositions'), { recursive: true });
+      const env = buildRenderSubprocessEnv({
+        ephemeralHomeDir: path.join(tmpDir, 'home'),
+        ephemeralTmpDir: path.join(tmpDir, 'tmp'),
+      });
+
+      await writeFile(
+        path.join(tmpDir, 'index.html'),
+        `<!doctype html><html><body>
+          <div data-composition-id="root" data-width="1920" data-height="1080" data-fps="24" data-duration="20">
+            <div data-composition-src="compositions/day.html" data-start="0" data-duration="6"></div>
+            <div data-composition-src="compositions/inherited.html" data-start="6" data-duration="4"></div>
+            <div data-composition-src="compositions/different-size.html" data-start="10" data-duration="2.5"></div>
+            <div data-composition-src="compositions/broken.html" data-start="12.5" data-duration="2"></div>
+          </div>
+        </body></html>`,
+      );
+
+      // 1. Standard <template>-wrapped scene (like OPEND-5768 compositions/day.html).
+      await writeFile(
+        path.join(tmpDir, 'compositions/day.html'),
+        `<template id="day-template">
+          <div data-composition-id="day" data-width="1920" data-height="1080" data-duration="5" data-fps="30">
+            <h1>Day Scene</h1>
+          </div>
+        </template>`,
+      );
+      const dayIso = await snapshotExportExpectationIsolated(pluginRoot, tmpDir, 'compositions/day.html', { env });
+      const dayLocal = await snapshotExportExpectation(pluginRoot, tmpDir, 'compositions/day.html');
+      assert.deepEqual(dayIso, { width: 1920, height: 1080, fps: 30, duration: 5, audio: 'optional' });
+      assert.deepEqual(dayLocal, dayIso);
+
+      // 2. <template> sub-scene omitting width/height/duration inherits canvas size & mount duration from index.html.
+      await writeFile(
+        path.join(tmpDir, 'compositions/inherited.html'),
+        `<template><div data-composition-id="inherited"><h1>Inherited</h1></div></template>`,
+      );
+      const inherited = await snapshotExportExpectationIsolated(pluginRoot, tmpDir, 'compositions/inherited.html', { env });
+      assert.deepEqual(inherited, { width: 1920, height: 1080, fps: 24, duration: 4, audio: 'optional' });
+
+      // 3. Mounted <template> sub-scene matches hyperframes producer canvas size (index.html root 1920x1080, not 1280x720).
+      await writeFile(
+        path.join(tmpDir, 'compositions/different-size.html'),
+        `<template><div data-composition-id="diff" data-width="1280" data-height="720" data-duration="2"></div></template>`,
+      );
+      const diffSize = await snapshotExportExpectationIsolated(pluginRoot, tmpDir, 'compositions/different-size.html', { env });
+      assert.deepEqual(diffSize, { width: 1920, height: 1080, fps: 24, duration: 2, audio: 'optional' });
+
+      // 4. Unmounted <template> sub-scene with nested compositions respects data-root="true".
+      await writeFile(
+        path.join(tmpDir, 'compositions/nested.html'),
+        `<template>
+          <div data-composition-id="child" data-width="640" data-height="360" data-duration="1"></div>
+          <div data-composition-id="main-nested" data-root="true" data-width="1080" data-height="1920" data-duration="3.5" data-fps="60"></div>
+        </template>`,
+      );
+      const nested = await snapshotExportExpectationIsolated(pluginRoot, tmpDir, 'compositions/nested.html', { env });
+      assert.deepEqual(nested, { width: 1080, height: 1920, fps: 60, duration: 3.5, audio: 'optional' });
+
+      // 5. Full document with an unrelated <template> before top-level composition still resolves top-level composition.
+      await writeFile(
+        path.join(tmpDir, 'compositions/standalone-with-tpl.html'),
+        `<!doctype html><html><body>
+          <template><div data-composition-id="ignored-tpl" data-width="100" data-height="100" data-duration="1"></div></template>
+          <div data-composition-id="real-root" data-width="1280" data-height="720" data-duration="7"></div>
+        </body></html>`,
+      );
+      const standalone = await snapshotExportExpectationIsolated(
+        pluginRoot,
+        tmpDir,
+        'compositions/standalone-with-tpl.html',
+        { env },
+      );
+      assert.deepEqual(standalone, { width: 1280, height: 720, fps: 30, duration: 7, audio: 'optional' });
+
+      // 6. <template> without any data-composition-id still rejects as missing root composition even if mounted in index.html.
+      await writeFile(
+        path.join(tmpDir, 'compositions/broken.html'),
+        `<template><div>No composition attribute</div></template>`,
+      );
+      await assert.rejects(
+        () => snapshotExportExpectationIsolated(pluginRoot, tmpDir, 'compositions/broken.html', { env }),
+        /Export snapshot is missing a root composition/,
+      );
+      await assert.rejects(
+        () => snapshotExportExpectation(pluginRoot, tmpDir, 'compositions/broken.html'),
+        /导出快照缺少根 composition/,
+      );
+
+      // 7. Real bundled template-library <template> sub-scenes resolve cleanly.
+      const promoScene = await snapshotExportExpectationIsolated(
+        pluginRoot,
+        path.join(pluginRoot, 'template-library/product-promo'),
+        'compositions/scene1-logo-intro.html',
+        { env },
+      );
+      assert.deepEqual(promoScene, { width: 1920, height: 1080, fps: 30, duration: 1.5, audio: 'optional' });
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('injects Studio parity scripts inside </template> for template sub-scenes so bundleToSingleHtml preserves them', async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'om-test-template-parity-'));
+    try {
+      await mkdir(path.join(tmpDir, 'compositions'), { recursive: true });
+      await writeFile(
+        path.join(tmpDir, 'index.html'),
+        `<!doctype html><html><body><div data-composition-id="root" data-width="1920" data-height="1080" data-duration="10"><div data-composition-src="compositions/day.html" data-start="0" data-duration="5"></div></div></body></html>`,
+      );
+      const dayHtml = `<template id="day-tpl"><div data-composition-id="day" data-width="1920" data-height="1080" data-duration="5"><h1 data-hf-id="day-h1">Day</h1></div></template>`;
+      const manualEditsJson = JSON.stringify({ version: 1, edits: [{ id: 'day-h1', dx: 12, dy: -8 }] });
+      const studioMotionJson = JSON.stringify({
+        version: 1,
+        motions: [
+          {
+            kind: 'gsap-motion',
+            target: { hfId: 'day-h1' },
+            start: 0,
+            duration: 1,
+            from: { opacity: 0 },
+            to: { opacity: 1 },
+          },
+        ],
+      });
+
+      const injected = injectStudioRenderParityScripts(dayHtml, {
+        manualEditsJson,
+        studioMotionJson,
+        activeCompositionPath: 'compositions/day.html',
+      });
+      assert.equal(injected.injectedManualEdits, true);
+      assert.equal(injected.injectedStudioMotion, true);
+      assert.ok(
+        injected.html.indexOf('studioManualEditsRenderRuntime') < injected.html.lastIndexOf('</template>'),
+        'parity scripts must be inserted before </template> so hyperframes does not discard them',
+      );
+
+      await writeFile(path.join(tmpDir, 'compositions/day.html'), injected.html);
+      const bundled = await bundleToSingleHtml(tmpDir, { entryFile: 'compositions/day.html' });
+      assert.match(bundled, /studioManualEditsRenderRuntime/);
+      assert.match(bundled, /studioMotionRenderRuntime/);
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('applies explicit fps/resolution render settings onto export expectation and ignores resolution=auto in CLI args', () => {
+    const autoArgs = buildRenderExportArgs({
+      compositionPath: 'compositions/day.html',
+      outputFilePath: '/tmp/out/day.mp4',
+      format: 'mp4',
+      settings: { fps: 30, quality: 'standard', resolution: 'auto' },
+    });
+    assert.equal(autoArgs.includes('--resolution'), false);
+
+    const base = { width: 1920, height: 1080, fps: 30, duration: 5, audio: 'optional' as const };
+    assert.deepEqual(
+      applyRenderSettingsToExpectation(base, { fps: 60, resolution: 'landscape-4k' }),
+      { width: 3840, height: 2160, fps: 60, duration: 5, audio: 'optional' },
+    );
+    assert.deepEqual(
+      applyRenderSettingsToExpectation(base, { fps: '24000/1001', resolution: 'auto' }),
+      { width: 1920, height: 1080, fps: 24000 / 1001, duration: 5, audio: 'optional' },
+    );
+    assert.deepEqual(
+      applyRenderSettingsToExpectation(
+        { width: 1080, height: 1920, fps: 60, duration: 4, audio: 'optional' },
+        { fps: 30, resolution: '4k' },
+      ),
+      { width: 2160, height: 3840, fps: 30, duration: 4, audio: 'optional' },
+    );
+  });
+
+  it('completes end-to-end processExportRenderJob for a <template> sub-scene without mocked extractExpectationFn', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-test-render-subscene-'));
+    try {
+      const storage = new MemoryStorage();
+      const eventBus = new MemoryEventBus();
+      const indexHtml = `<!doctype html><html><body>
+        <div data-composition-id="root" data-width="1920" data-height="1080" data-duration="20">
+          <div data-composition-src="compositions/day.html" data-start="0" data-duration="5"></div>
+        </div>
+      </body></html>`;
+      const dayHtml = `<template id="day-template">
+        <div data-composition-id="day" data-width="1920" data-height="1080" data-duration="5">
+          <h1 data-hf-id="day-title">Day</h1>
+        </div>
+      </template>`;
+      const manualEditsJson = JSON.stringify({ version: 1, edits: [{ id: 'day-title', dx: 16, dy: 0 }] });
+
+      const indexSha = sha256(indexHtml);
+      const daySha = sha256(dayHtml);
+      const editsSha = sha256(manualEditsJson);
+      await storage.putObject(workspaceBlobKey(WID_A, indexSha), indexHtml, 'text/html');
+      await storage.putObject(workspaceBlobKey(WID_A, daySha), dayHtml, 'text/html');
+      await storage.putObject(workspaceBlobKey(WID_A, editsSha), manualEditsJson, 'application/json');
+
+      const snapshotRows = [
+        { path: 'index.html', blobScope: 'workspace', sha256: indexSha, sizeBytes: indexHtml.length, mimeType: 'text/html' },
+        { path: 'compositions/day.html', blobScope: 'workspace', sha256: daySha, sizeBytes: dayHtml.length, mimeType: 'text/html' },
+        { path: STUDIO_MANUAL_EDITS_PATH, blobScope: 'workspace', sha256: editsSha, sizeBytes: manualEditsJson.length, mimeType: 'application/json' },
+      ];
+
+      const fakeMp4 = Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypisom'), Buffer.alloc(64, 9)]);
+      const db = createFakeRenderDb(snapshotRows, () => [{ id: JID_OK }]);
+      let verifiedExpected: unknown;
+      let hydratedDayHtml = '';
+
+      const res = await processExportRenderJob(
+        {
+          db,
+          storage,
+          eventBus,
+          logger: SILENT_LOGGER,
+          workerId: 'render-test-subscene',
+          tmpBaseDir: tmpBase,
+          runRenderCommand: async (_rt, projectDir, args) => {
+            assert.equal(args[args.indexOf('--composition') + 1], 'compositions/day.html');
+            assert.equal(args[args.indexOf('--fps') + 1], '30');
+            assert.equal(args.includes('--resolution'), false);
+            hydratedDayHtml = await readFile(path.join(projectDir, 'compositions/day.html'), 'utf8');
+            await writeFile(args[args.indexOf('--output') + 1], fakeMp4);
+            return { code: 0, stdout: 'Render complete\n', stderr: '' };
+          },
+          verifyExportFn: async (outFile, expected) => {
+            verifiedExpected = expected;
+            return {
+              scope: 'technical',
+              status: 'passed',
+              file: outFile,
+              sha256: sha256(fakeMp4),
+              expected,
+              checks: [{ name: 'probe', status: 'passed', details: 'ok' }],
+              remainingChecks: [],
+            };
+          },
+        },
+        {
+          jobId: JID_OK,
+          workspaceId: WID_A,
+          projectId: PID_A,
+          versionId: VID_A,
+          revision: REV_1,
+          compositionPath: 'compositions/day.html',
+          outputName: 'Custom Agents-day.mp4',
+          format: 'mp4',
+          phase1: true,
+          settings: { format: 'mp4', quality: 'standard', fps: 30, resolution: 'auto' },
+        },
+      );
+
+      assert.equal(res.state, 'completed');
+      assert.deepEqual(verifiedExpected, {
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        duration: 5,
+        audio: 'optional',
+      });
+      assert.ok(
+        hydratedDayHtml.indexOf('studioManualEditsRenderRuntime') > 0 &&
+          hydratedDayHtml.indexOf('studioManualEditsRenderRuntime') < hydratedDayHtml.lastIndexOf('</template>'),
+      );
+      await assert.rejects(() => access(path.join(tmpBase, `om-render-${JID_OK}`)));
     } finally {
       await rm(tmpBase, { recursive: true, force: true });
     }

@@ -7,7 +7,17 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { and, eq } from 'drizzle-orm';
 import sharp from 'sharp';
+import {
+  CANVAS_DIMENSIONS,
+  checkOutputResolutionCompatibility,
+  fpsToNumber,
+  isAspectAgnosticResolutionAlias,
+  normalizeResolutionFlag,
+  parseFps,
+  suggestMatchingPreset,
+} from '@hyperframes/core';
 import { extractStandaloneEntryFromIndex } from '@hyperframes/core/compiler';
+import { validateExportExpectation } from '../../shared/export-spec.ts';
 import {
   pluginRoot,
   runHyperframesIsolated,
@@ -795,7 +805,11 @@ export function buildRenderExportArgs(params: {
       args.push('--quality', settings.quality.trim());
     }
 
-    if (typeof settings.resolution === 'string' && SAFE_RESOLUTION_PRESET.test(settings.resolution.trim())) {
+    if (
+      typeof settings.resolution === 'string' &&
+      settings.resolution.trim().toLowerCase() !== 'auto' &&
+      SAFE_RESOLUTION_PRESET.test(settings.resolution.trim())
+    ) {
       args.push('--resolution', settings.resolution.trim());
     }
 
@@ -848,6 +862,68 @@ export function buildRenderExportArgs(params: {
   }
 
   return args;
+}
+
+/**
+ * Apply explicit CLI render overrides (`--fps`, `--resolution`) from `payload.settings` onto the
+ * HTML-derived `ExportExpectation` so post-render verification matches the actual rendered output.
+ */
+export function applyRenderSettingsToExpectation(
+  base: ExportExpectation,
+  settings?: Record<string, unknown>,
+): ExportExpectation {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return base;
+  }
+
+  let { width, height, fps } = base;
+
+  const rawFps =
+    typeof settings.fps === 'number' && Number.isFinite(settings.fps) && settings.fps >= 1 && settings.fps <= 240
+      ? String(settings.fps)
+      : typeof settings.fps === 'string' && SAFE_FPS_STRING.test(settings.fps.trim())
+        ? settings.fps.trim()
+        : undefined;
+  if (rawFps) {
+    const parsedFps = parseFps(rawFps);
+    if (parsedFps.ok) {
+      fps = fpsToNumber(parsedFps.value);
+    }
+  }
+
+  const rawResolution =
+    typeof settings.resolution === 'string' &&
+    settings.resolution.trim().toLowerCase() !== 'auto' &&
+    SAFE_RESOLUTION_PRESET.test(settings.resolution.trim())
+      ? settings.resolution.trim()
+      : undefined;
+  if (rawResolution) {
+    let preset = normalizeResolutionFlag(rawResolution);
+    if (preset && isAspectAgnosticResolutionAlias(rawResolution)) {
+      const adapted = suggestMatchingPreset(width, height, preset);
+      if (adapted) preset = adapted;
+    }
+    if (preset) {
+      const compat = checkOutputResolutionCompatibility({
+        compositionWidth: width,
+        compositionHeight: height,
+        outputResolution: preset,
+      });
+      if (compat.ok) {
+        const target = CANVAS_DIMENSIONS[preset];
+        const scale = Math.max(target.width / width, target.height / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+    }
+  }
+
+  return validateExportExpectation({
+    ...base,
+    width,
+    height,
+    fps,
+  });
 }
 
 /**
@@ -1221,15 +1297,18 @@ export async function processExportRenderJob(
       failureCode = 'EXPORT_VERIFICATION_FAILED';
       await checkpointStage('verifying', 88);
 
-      const expectation =
-        payload.expected ??
-        (deps.extractExpectationFn
-          ? await deps.extractExpectationFn(runtimeRoot, projectDir, compositionPath)
-          : await snapshotExportExpectationIsolated(runtimeRoot, projectDir, compositionPath, {
-              env: renderEnv,
-              timeoutMs: 60_000,
-              signal: abortController.signal,
-            }));
+      const expectation = payload.expected
+        ? payload.expected
+        : applyRenderSettingsToExpectation(
+            deps.extractExpectationFn
+              ? await deps.extractExpectationFn(runtimeRoot, projectDir, compositionPath)
+              : await snapshotExportExpectationIsolated(runtimeRoot, projectDir, compositionPath, {
+                  env: renderEnv,
+                  timeoutMs: 60_000,
+                  signal: abortController.signal,
+                }),
+            payload.settings,
+          );
 
       const verifyFn =
         deps.verifyExportFn ??

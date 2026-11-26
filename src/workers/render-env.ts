@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { isTemplateEntry } from '@hyperframes/core/compiler';
 import {
   STUDIO_MANUAL_EDITS_PATH,
   createStudioManualEditsRenderBodyScript,
@@ -245,6 +246,16 @@ export function injectStudioRenderParityScripts(
     const last = matches.at(-1);
     const insertAt = last?.index ?? bodyCloseMatch.index;
     patchedHtml = `${html.slice(0, insertAt)}${block}${html.slice(insertAt)}`;
+  } else if (isTemplateEntry(html)) {
+    // Sub-scenes wrapped in <template> are read via template.innerHTML during render;
+    // scripts appended after </template> would be discarded.
+    const matches = [...html.matchAll(/<\/template\s*>/gi)];
+    const last = matches.at(-1);
+    if (last?.index !== undefined) {
+      patchedHtml = `${html.slice(0, last.index)}${block}${html.slice(last.index)}`;
+    } else {
+      patchedHtml = `${html}${block}`;
+    }
   } else {
     patchedHtml = `${html}${block}`;
   }
