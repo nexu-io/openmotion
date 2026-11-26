@@ -19,6 +19,10 @@ export const ONETAP_CTX_TTL_SEC = 300;
 export const DESKTOP_OIDC_CTX_COOKIE_NAME = 'om_desktop_oidc_ctx';
 export const TRACKING_ATTESTATION_COOKIE_NAME = 'om_track_att';
 export const TRACKING_ATTESTATION_TTL_SEC = 1800;
+/** Explicit device-ID attribution consent; written by `/motion-api/tracking/consent`. */
+export const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
+export const METRICS_CONSENT_GRANTED = 'granted';
+export const METRICS_CONSENT_DENIED = 'denied';
 export const DEFAULT_SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
 const SESSION_CACHE_TTL_SEC = 60;
 const TRACKING_ATTESTATION_MAX_ENTRIES = 4;

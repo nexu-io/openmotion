@@ -61,6 +61,9 @@ import { CLOUD_P1_FEATURES } from '../../shared/cloud-features.ts';
 import {
   AmrIdentityClient,
   InMemoryAuthCache,
+  METRICS_CONSENT_COOKIE_NAME,
+  METRICS_CONSENT_DENIED,
+  METRICS_CONSENT_GRANTED,
   OidcService,
   SESSION_COOKIE_NAME,
   TRACKING_ATTESTATION_COOKIE_NAME,
@@ -2800,7 +2803,6 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
 
   // Google One Tap attribution: browser events may only carry an app_user_id the server has attested
   // (signed om_track_att cookie or the live session), and device-ID attribution needs explicit consent.
-  const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
   const ONE_TAP_TRACKING_EVENTS = new Set([
     'onetap_prompt_attempt',
     'onetap_prompt_observed',
@@ -2849,7 +2851,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.get('/motion-api/tracking', (c) => {
     const enabled = cloudTracking.isEnabled();
     // Server availability is never user consent for device-ID transmission.
-    const deviceIdConsented = parseCookies(c.req.header('cookie'))[METRICS_CONSENT_COOKIE_NAME] === 'granted';
+    const deviceIdConsented = parseCookies(c.req.header('cookie'))[METRICS_CONSENT_COOKIE_NAME] === METRICS_CONSENT_GRANTED;
     return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud', deviceIdConsented });
   });
   app.post('/motion-api/tracking/consent', async (c) => {
@@ -2867,7 +2869,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
     }
     const cookieParts = [
-      `${METRICS_CONSENT_COOKIE_NAME}=${consented ? 'granted' : 'denied'}`,
+      `${METRICS_CONSENT_COOKIE_NAME}=${consented ? METRICS_CONSENT_GRANTED : METRICS_CONSENT_DENIED}`,
       'Path=/',
       'SameSite=Lax',
       'Max-Age=31536000',

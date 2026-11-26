@@ -29,6 +29,8 @@ import { createPat, listPats, revokePat } from './pat.ts';
 import {
   DEFAULT_SESSION_TTL_SEC,
   DESKTOP_OIDC_CTX_COOKIE_NAME,
+  METRICS_CONSENT_COOKIE_NAME,
+  METRICS_CONSENT_GRANTED,
   OIDC_TX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_PREFIX,
@@ -85,7 +87,6 @@ function sanitizeOptionalShortString(raw: unknown, maxLength = 256): string | un
   return trimmed;
 }
 
-const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
 
 function sanitizeOneTapAttribution(
   raw: unknown,
@@ -979,7 +980,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       }
 
-      const metricsConsented = cookies[METRICS_CONSENT_COOKIE_NAME] === 'granted';
+      const metricsConsented = cookies[METRICS_CONSENT_COOKIE_NAME] === METRICS_CONSENT_GRANTED;
       const attribution = sanitizeOneTapAttribution(rawBody.attribution, { metricsConsented });
       const referralCode = sanitizeOptionalShortString(rawBody.referralCode, 128);
 

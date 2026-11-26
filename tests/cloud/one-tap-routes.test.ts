@@ -10,6 +10,9 @@ import {
   AmrIdentityClient,
   InMemoryAuthCache,
   InMemoryAuthStore,
+  METRICS_CONSENT_COOKIE_NAME,
+  METRICS_CONSENT_DENIED,
+  METRICS_CONSENT_GRANTED,
   OIDC_TX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_NAME,
   OidcService,
@@ -1046,7 +1049,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       headers: {
         Origin: PUBLIC_ORIGIN,
         'content-type': 'application/json',
-        Cookie: `${c2CookieName}=${c2Token}; om_metrics_consent=granted`,
+        Cookie: `${c2CookieName}=${c2Token}; ${METRICS_CONSENT_COOKIE_NAME}=${METRICS_CONSENT_GRANTED}`,
       },
       body: JSON.stringify({
         challengeId: c2Body.challengeId,
@@ -1481,10 +1484,10 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         body: JSON.stringify({ deviceIdConsented: true }),
       });
       assert.equal(grantConsentRes.status, 200);
-      const consentCookie = extractCookieValue(grantConsentRes.headers.getSetCookie(), 'om_metrics_consent');
-      assert.equal(consentCookie, 'granted');
+      const consentCookie = extractCookieValue(grantConsentRes.headers.getSetCookie(), METRICS_CONSENT_COOKIE_NAME);
+      assert.equal(consentCookie, METRICS_CONSENT_GRANTED);
       const consentedTrackCfg = await app.request('/motion-api/tracking', {
-        headers: { Cookie: `om_metrics_consent=${consentCookie}` },
+        headers: { Cookie: `${METRICS_CONSENT_COOKIE_NAME}=${consentCookie}` },
       });
       assert.equal(((await consentedTrackCfg.json()) as { deviceIdConsented?: boolean }).deviceIdConsented, true);
     } finally {
@@ -1700,7 +1703,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
           }
           if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
             const parsed = JSON.parse(String(init?.body ?? '{}')) as { attribution?: { odEntry?: Record<string, unknown> } };
-            // Without om_metrics_consent=granted cookie, odDeviceId must be stripped even if client claims consent
+            // Without a granted metrics-consent cookie, odDeviceId must be stripped even if client claims consent
             assert.equal(parsed.attribution?.odEntry?.odDeviceId, undefined);
             assert.equal(parsed.attribution?.odEntry?.odDeviceIdConsent, undefined);
             return Response.json({
@@ -1785,7 +1788,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         headers: {
           Origin: PUBLIC_ORIGIN,
           'content-type': 'application/json',
-          Cookie: `${c4Name}=${c4Tok}; om_metrics_consent=denied`,
+          Cookie: `${c4Name}=${c4Tok}; ${METRICS_CONSENT_COOKIE_NAME}=${METRICS_CONSENT_DENIED}`,
         },
         body: JSON.stringify({
           challengeId: c4Body.challengeId,
@@ -2334,7 +2337,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.equal(((await prefRes.json()) as { locked?: boolean }).locked, true);
 
       const cfgWithConsent = await app.request('/motion-api/tracking', {
-        headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}; om_metrics_consent=granted` },
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}; ${METRICS_CONSENT_COOKIE_NAME}=${METRICS_CONSENT_GRANTED}` },
       });
       assert.equal(cfgWithConsent.status, 200);
       assert.equal(((await cfgWithConsent.json()) as { deviceIdConsented?: boolean }).deviceIdConsented, true);
