@@ -225,6 +225,34 @@ function sessionPosts(calls: Call[]) {
   return calls.filter(call => call.method === 'POST' && call.path === '/motion-api/sessions');
 }
 
+it('closes the template detail and offers a usable Continue prompt once automatic retries are exhausted', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  history.replaceState(null, '', '/explore?template=custom-agents');
+  const intent = saveAuthPendingDraft({ action: 'use_template', templateId: 'custom-agents', returnTo: '/explore?template=custom-agents', autoResume: true });
+  const api = stubSignedInApi({ failures: 4 });
+  await mountApp();
+  expect(document.querySelector('dialog[aria-label="Template preview"][open]')).not.toBeNull();
+
+  await exhaustAutomaticRetries();
+  expect(sessionPosts(api.calls)).toHaveLength(4);
+  expect(readAuthPendingDraft()).toMatchObject({ idempotencyKey: intent.idempotencyKey, templateId: 'custom-agents' });
+  expect(readAuthPendingDraft()?.autoResume).toBeUndefined();
+  // The modal detail would make the prompt behind it inert, so it closes before the prompt appears.
+  expect(document.querySelector('dialog[aria-label="Template preview"][open]')).toBeNull();
+  expect(new URLSearchParams(location.search).has('template')).toBe(false);
+
+  const resume = [...host.querySelectorAll<HTMLButtonElement>('[data-kind="pending_draft"] button')]
+    .find(button => button.textContent?.includes('Continue'));
+  expect(resume).toBeDefined();
+  await act(async () => resume!.click());
+  await settle(() => api.createdProjects().length > 0 && location.pathname.startsWith('/editor/'), 2_000);
+
+  expect(sessionPosts(api.calls).map(call => call.body.id)).toEqual(Array(5).fill(intent.idempotencyKey));
+  expect(api.createdProjects()).toEqual([CREATED]);
+  expect(readAuthPendingDraft()).toBeNull();
+  expect(location.pathname).toBe(`/editor/${CREATED}`);
+});
+
 it('resumes again when a later sign-in in the same page re-saves the same intent after the retry chain ended', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   history.replaceState(null, '', '/explore?template=custom-agents');

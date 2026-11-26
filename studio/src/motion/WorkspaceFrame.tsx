@@ -525,6 +525,10 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
           homeDraftSnapshot: latest.homeDraftSnapshot,
           autoResume: false,
         });
+        // The template detail is a modal dialog that makes the Continue prompt behind it inert.
+        if (readWorkspacePage(location.search, location.hash, location.pathname).template) {
+          writeWorkspaceHistory(workspacePageHref(location.href, { template: null }), true);
+        }
       }
     });
   }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft, autoResumeRetry]);
