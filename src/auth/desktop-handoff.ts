@@ -14,16 +14,13 @@ import {
   DEFAULT_SESSION_TTL_SEC,
   DESKTOP_OIDC_CTX_COOKIE_NAME,
   SESSION_COOKIE_NAME,
-  TRACKING_ATTESTATION_COOKIE_NAME,
   clearCookie,
   createBrowserSession,
   isHttpsOrigin,
   oidcIdTokenCacheKey,
   parseCookies,
   resolveBrowserSession,
-  resolveTrackingAttestationSecret,
   serializeCookie,
-  serializeTrackingAttestationCookie,
   verifyCsrfOrigin,
 } from './session.ts';
 import {
@@ -435,7 +432,6 @@ export function mountDesktopHandoffRoutes(
   const oidcProvenanceStore =
     options.oidcProvenanceStore ?? new DesktopOidcProvenanceStore(deps.cache, { now: options.now });
   const secureCookie = isHttpsOrigin(deps.config.APP_PUBLIC_ORIGIN);
-  const trackingAttestationSecret = resolveTrackingAttestationSecret(deps.config);
 
   app.get(DESKTOP_HANDOFF_START_PATH, async (c) => {
     c.header('Cache-Control', 'no-store');
@@ -679,7 +675,6 @@ export function mountDesktopHandoffRoutes(
       }
     }
 
-    const reqCookies = parseCookies(c.req.header('cookie'));
     const headers = new Headers({
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
@@ -695,17 +690,6 @@ export function mountDesktopHandoffRoutes(
         maxAgeSec: DEFAULT_SESSION_TTL_SEC,
       }),
     );
-    if (resolvedAppUserId) {
-      const attCookie = serializeTrackingAttestationCookie(
-        reqCookies[TRACKING_ATTESTATION_COOKIE_NAME],
-        resolvedAppUserId,
-        trackingAttestationSecret,
-        { secure: secureCookie },
-      );
-      if (attCookie) {
-        headers.append('Set-Cookie', attCookie);
-      }
-    }
 
     const responseBody: DesktopHandoffExchangeResponse = {
       ok: true,

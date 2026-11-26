@@ -36,7 +36,6 @@ import {
   ONETAP_CTX_COOKIE_PREFIX,
   ONETAP_CTX_TTL_SEC,
   SESSION_COOKIE_NAME,
-  TRACKING_ATTESTATION_COOKIE_NAME,
   clearCookie,
   createBrowserSession,
   isHttpsOrigin,
@@ -50,7 +49,6 @@ import {
   resolveTrackingAttestationSecret,
   revokeBrowserSession,
   serializeCookie,
-  serializeTrackingAttestationCookie,
   verifyCsrfOrigin,
 } from './session.ts';
 import { assertSafeReturnTo, randomBase64Url, sha256Hex, timingSafeStringEqual } from './store.ts';
@@ -690,17 +688,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           maxAgeSec: DEFAULT_SESSION_TTL_SEC,
         }),
       );
-      if (membership.user.appUserId) {
-        const attCookie = serializeTrackingAttestationCookie(
-          cookies[TRACKING_ATTESTATION_COOKIE_NAME],
-          membership.user.appUserId,
-          trackingAttestationSecret,
-          { secure: secureCookie },
-        );
-        if (attCookie) {
-          headers.append('Set-Cookie', attCookie);
-        }
-      }
       const desktopTarget = parseDesktopStartReturnTo(returnTo);
       if (desktopTarget) {
         const oidcCtxToken = randomBase64Url(24);
@@ -788,18 +775,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   app.get('/auth/me', authMiddleware, async (c) => {
     const auth = getAuthContext(c);
     const workspaces = await deps.store.listUserWorkspaces(auth.userId);
-    if (auth.authMethod === 'session_cookie' && auth.appUserId) {
-      const cookies = parseCookies(c.req.header('cookie'));
-      const attCookie = serializeTrackingAttestationCookie(
-        cookies[TRACKING_ATTESTATION_COOKIE_NAME],
-        auth.appUserId,
-        trackingAttestationSecret,
-        { secure: secureCookie },
-      );
-      if (attCookie) {
-        c.header('Set-Cookie', attCookie);
-      }
-    }
     return c.json({
       authenticated: true,
       authMode: auth.authMode,
@@ -1140,15 +1115,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           }),
         );
         headers.append('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
-        const attCookie = serializeTrackingAttestationCookie(
-          cookies[TRACKING_ATTESTATION_COOKIE_NAME],
-          exchanged.appUserId,
-          trackingAttestationSecret,
-          { secure: secureCookie },
-        );
-        if (attCookie) {
-          headers.append('Set-Cookie', attCookie);
-        }
 
         deps.onOneTapTelemetry?.({
           event: 'onetap_login_success',
