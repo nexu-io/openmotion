@@ -1,7 +1,14 @@
+import { useEffect, useRef } from 'react';
 import { Button } from 'open-design-ui/button';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
-import { openEntitlementModal, type EntitlementHookId } from './entitlementModalBus';
+import { newCampaignEntryId } from './campaignAttribution';
+import {
+  entitlementAttributionFields,
+  openEntitlementModal,
+  type EntitlementAttributionContext,
+  type EntitlementHookId,
+} from './entitlementModalBus';
 import './EntitlementTouchpointCards.css';
 
 function trackGateClick(payload: {
@@ -9,9 +16,21 @@ function trackGateClick(payload: {
   area: 'entitlement_gate';
   element: 'sign_in' | 'view_plans' | 'select_model' | 'open_pricing';
   hook_id: EntitlementHookId;
-}) {
+  entry_id?: string;
+} & ReturnType<typeof entitlementAttributionFields>) {
   if (typeof window === 'undefined') return;
   void import('./tracking').then(({ trackMotion }) => trackMotion('ui_click', payload));
+}
+
+function trackGateImpression(payload: {
+  page_name: 'creative_studio' | 'assets';
+  area: 'entitlement_gate';
+  element: 'banner';
+  hook_id: EntitlementHookId;
+  entry_id: string;
+} & ReturnType<typeof entitlementAttributionFields>) {
+  if (typeof window === 'undefined') return;
+  void import('./tracking').then(({ trackMotion }) => trackMotion('surface_view', payload));
 }
 
 /**
@@ -21,11 +40,31 @@ function trackGateClick(payload: {
 export function FreePlanGenerationGate({
   onOpenProviders,
   hookId = 'studio_free_gate',
+  attribution,
 }: {
   onOpenProviders?: () => void;
   hookId?: EntitlementHookId;
+  attribution?: EntitlementAttributionContext;
 }) {
   const { t } = useI18n();
+  const entryIdRef = useRef<string>(newCampaignEntryId());
+  const resolvedAttr: EntitlementAttributionContext = {
+    gateReason: 'plan_locked',
+    ...attribution,
+  };
+  const attrFields = entitlementAttributionFields(resolvedAttr);
+
+  useEffect(() => {
+    trackGateImpression({
+      page_name: 'creative_studio',
+      area: 'entitlement_gate',
+      element: 'banner',
+      hook_id: hookId,
+      entry_id: entryIdRef.current,
+      ...attrFields,
+    });
+  }, [hookId, attrFields.model_id, attrFields.model_provider, attrFields.modality, attrFields.gate_reason, attrFields.user_plan]);
+
   return (
     <div className="om-entitlement-gate" role="status">
       <div className="om-entitlement-gate-copy">
@@ -38,8 +77,20 @@ export function FreePlanGenerationGate({
           className="om-button h-auto"
           data-primary
           onClick={() => {
-            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'view_plans', hook_id: hookId });
-            openEntitlementModal({ mode: 'upgrade', hookId });
+            trackGateClick({
+              page_name: 'creative_studio',
+              area: 'entitlement_gate',
+              element: 'view_plans',
+              hook_id: hookId,
+              entry_id: entryIdRef.current,
+              ...attrFields,
+            });
+            openEntitlementModal({
+              mode: 'upgrade',
+              hookId,
+              entryId: entryIdRef.current,
+              attribution: resolvedAttr,
+            });
           }}
         >
           <RemixIcon name="sparkling-line" size={15} />
@@ -58,8 +109,32 @@ export function FreePlanGenerationGate({
 /**
  * U6 · Inline top-up CTA inside a failed generation card when credits/balance are insufficient.
  */
-export function InsufficientBalanceFailureGate({ hookId = 'failure_card_topup' }: { hookId?: EntitlementHookId }) {
+export function InsufficientBalanceFailureGate({
+  hookId = 'failure_card_topup',
+  attribution,
+}: {
+  hookId?: EntitlementHookId;
+  attribution?: EntitlementAttributionContext;
+}) {
   const { t } = useI18n();
+  const entryIdRef = useRef<string>(newCampaignEntryId());
+  const resolvedAttr: EntitlementAttributionContext = {
+    gateReason: 'insufficient_credits',
+    ...attribution,
+  };
+  const attrFields = entitlementAttributionFields(resolvedAttr);
+
+  useEffect(() => {
+    trackGateImpression({
+      page_name: 'creative_studio',
+      area: 'entitlement_gate',
+      element: 'banner',
+      hook_id: hookId,
+      entry_id: entryIdRef.current,
+      ...attrFields,
+    });
+  }, [hookId, attrFields.model_id, attrFields.model_provider, attrFields.modality, attrFields.gate_reason, attrFields.user_plan]);
+
   return (
     <div className="om-entitlement-gate" data-tone="warning" role="alert">
       <div className="om-entitlement-gate-copy">
@@ -72,8 +147,20 @@ export function InsufficientBalanceFailureGate({ hookId = 'failure_card_topup' }
           className="om-button h-auto"
           data-primary
           onClick={() => {
-            trackGateClick({ page_name: 'creative_studio', area: 'entitlement_gate', element: 'open_pricing', hook_id: hookId });
-            openEntitlementModal({ mode: 'upgrade', hookId });
+            trackGateClick({
+              page_name: 'creative_studio',
+              area: 'entitlement_gate',
+              element: 'open_pricing',
+              hook_id: hookId,
+              entry_id: entryIdRef.current,
+              ...attrFields,
+            });
+            openEntitlementModal({
+              mode: 'upgrade',
+              hookId,
+              entryId: entryIdRef.current,
+              attribution: resolvedAttr,
+            });
           }}
         >
           <RemixIcon name="bank-card-line" size={15} />

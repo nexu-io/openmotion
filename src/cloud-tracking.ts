@@ -6,10 +6,91 @@ import { createPosthogSender } from '../tracking/node.ts';
 
 const MAX_BROWSER_BATCH_SIZE = 25;
 // Cloud pods aggregate browser telemetry from many concurrent users through one shared tracker;
-// size the buffer above the single-user desktop default (64) so bursts of card impressions do not
+// size the buffer above the single-user desktop default (64) so bursts of legitimate events do not
 // drop conversion events while keeping each PostHog /batch/ request within its 16-event / 64 KB cap.
 const STUDIO_TRACKER_MAX_QUEUE = 1024;
 const STUDIO_TRACKER_FLUSH_INTERVAL_MS = 500;
+
+/**
+ * Cloud production allowlist for browser-originated Studio events.
+ *
+ * Cuts high-volume editor micro-interactions (playback, shortcuts, audio_fx_*), internal SDK/GSAP
+ * shadow diagnostics, and card-level gallery impressions to control PostHog ingest cost while
+ * keeping 100% of:
+ *   1. Full monetization pre-funnel (touchpoint impression/click -> agent block -> login -> refresh)
+ *   2. Core discovery, template/skill/MCP adoption, generation, editor save, and export outcomes
+ *   3. Critical client reliability guardrails (crash, unhandled_error, save_failure)
+ *
+ * Set OPENMOTION_CLOUD_TRACKING_FULL=1 to temporarily bypass the allowlist during diagnostics.
+ */
+export const CLOUD_ALLOWED_STUDIO_EVENTS: ReadonlySet<string> = new Set([
+  // Active baseline, navigation & monetization pre-funnel
+  'page_view',
+  'studio_load_result',
+  'provider_setup_opened',
+  'ui_click',
+  'surface_view',
+  'entitlement_refresh_result',
+  // Template, Skill & MCP discovery/adoption
+  'template_search_result',
+  'template_search_handoff_result',
+  'template_filter_result',
+  'template_guide_interaction',
+  'template_instruction_copy_result',
+  'template_project_result',
+  'resource_download_result',
+  'skill_search_result',
+  'skill_instruction_copy_result',
+  'mcp_copy_result',
+  // Media generation, assets, settings, projects & brand kits
+  'asset_generation_submit_result',
+  'asset_update_result',
+  'provider_setting_result',
+  'agent_setting_result',
+  'project_manage_result',
+  'version_history_result',
+  'brand_kit_create_result',
+  'brand_kit_import_result',
+  'brand_kit_instruction_copy_result',
+  'brand_kit_action_result',
+  // Low-frequency editor & export outcomes + feedback
+  'studio_edit_result',
+  'studio_asset_import_result',
+  'studio_export_request_result',
+  'studio_export_result',
+  'studio_io_result',
+  'studio_feedback',
+  'diagnostic_export_result',
+  // Critical reliability guardrails
+  'crash',
+  'unhandled_error',
+  'unhandled_promise_rejection',
+  'save_failure',
+  'commit_transaction_failed',
+]);
+
+/** High-volume card-level `surface_view` areas dropped in cloud production to curb PostHog volume. */
+export const CLOUD_BLOCKED_SURFACE_AREAS: ReadonlySet<string> = new Set([
+  'template_card',
+  'template_series_card',
+]);
+
+export function isCloudBrowserEventAllowed(raw: unknown, env: NodeJS.ProcessEnv = process.env): boolean {
+  const fullFlag = (env.OPENMOTION_CLOUD_TRACKING_FULL ?? '').trim().toLowerCase();
+  if (fullFlag === '1' || fullFlag === 'true') return true;
+  if (!raw || typeof raw !== 'object') return false;
+  const record = raw as { event?: unknown; properties?: unknown };
+  if (typeof record.event !== 'string' || !CLOUD_ALLOWED_STUDIO_EVENTS.has(record.event)) {
+    return false;
+  }
+  if (record.event === 'surface_view' && record.properties && typeof record.properties === 'object') {
+    const area = (record.properties as { area?: unknown }).area;
+    if (typeof area === 'string' && CLOUD_BLOCKED_SURFACE_AREAS.has(area)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export interface CloudTrackingHandle {
   isEnabled(): boolean;
@@ -104,6 +185,7 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
       },
       appVersion,
       env: trackingEnv,
+      channel: 'cloud_web',
       testRunId: (env.OPENMOTION_TRACKING_TEST_RUN_ID ?? '').trim() || undefined,
     });
   } catch {
@@ -145,6 +227,7 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
         if (!raw || typeof raw !== 'object') continue;
         const record = raw as { entrypoint?: unknown };
         if (record.entrypoint !== 'studio') continue;
+        if (!isCloudBrowserEventAllowed(raw, env)) continue;
         const status = studioTracker.ingest(raw);
         if (status === 'queued') accepted++;
       }

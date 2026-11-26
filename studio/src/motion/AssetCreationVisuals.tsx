@@ -57,7 +57,16 @@ export function AssetGenerationCard({ job, onCancel, onView, onRetrySave, onResu
     {job.savePending && !working && <p className="om-muted">{t('Retry saving without generating again.')}</p>}
     {accountImage && job.download && !done && <p className="om-muted" role="status">{t('Downloaded')}: {(job.download.receivedBytes / 1024 / 1024).toFixed(1)} / {(job.download.totalBytes / 1024 / 1024).toFixed(1)} MB</p>}
     {accountImage && (resumable || working && job.remoteId) && <p className="om-muted">{t('Download the original task image. Draft changes apply only to your next generation.')}</p>}
-    {job.state === 'failed' && (job.model.provider === 'account' || job.model.provider === 'opendesign' || isCloudWebMode()) && isInsufficientBalanceError(job.error) && <InsufficientBalanceFailureGate />}
+    {job.state === 'failed' && (job.model.provider === 'account' || job.model.provider === 'opendesign' || isCloudWebMode()) && isInsufficientBalanceError(job.error) && (
+      <InsufficientBalanceFailureGate
+        attribution={{
+          modelId: job.model.id,
+          modelProvider: job.model.provider,
+          modality: job.modality,
+          gateReason: 'insufficient_credits',
+        }}
+      />
+    )}
     {error && <details className="om-creation-job-error"><summary>{t('Failure details')}</summary><p>{error}</p></details>}
   </section>;
 }

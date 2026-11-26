@@ -3,7 +3,13 @@ import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import { buildLoginUrl } from './AccountSettings';
 import { campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
-import { markExternalCheckoutPending, type EntitlementHookId, type EntitlementModalMode } from './entitlementModalBus';
+import {
+  entitlementAttributionFields,
+  markExternalCheckoutPending,
+  type EntitlementAttributionContext,
+  type EntitlementHookId,
+  type EntitlementModalMode,
+} from './entitlementModalBus';
 import { PromoClip, usePromoPlayback } from './EntitlementPromoMedia';
 import { trackMotion } from './tracking';
 import './EntitlementPromoModal.css';
@@ -47,6 +53,8 @@ export interface EntitlementPromoModalProps {
   open: boolean;
   mode: EntitlementModalMode;
   hookId: EntitlementHookId;
+  entryId?: string;
+  attribution?: EntitlementAttributionContext;
   returnTo?: string;
   onClose: () => void;
 }
@@ -55,21 +63,24 @@ export function EntitlementPromoModal({
   open,
   mode,
   hookId,
+  entryId: initialEntryId,
+  attribution,
   returnTo,
   onClose,
 }: EntitlementPromoModalProps) {
   const { t, locale } = useI18n();
   const blackFridayActive = useBlackFridayActive();
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [entryId, setEntryId] = useState(newCampaignEntryId);
+  const [entryId, setEntryId] = useState(() => initialEntryId ?? newCampaignEntryId());
   const [busy, setBusy] = useState(false);
   const playable = usePromoPlayback(dialogRef, open);
+  const attrFields = entitlementAttributionFields(attribution);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (open) {
-      const nextEntry = newCampaignEntryId();
+      const nextEntry = initialEntryId ?? newCampaignEntryId();
       setEntryId(nextEntry);
       if (!dialog.open) dialog.showModal();
       void trackMotion('surface_view', {
@@ -78,12 +89,13 @@ export function EntitlementPromoModal({
         element: 'modal',
         hook_id: hookId,
         entry_id: nextEntry,
+        ...attrFields,
       });
     } else {
       if (dialog.open) dialog.close();
       setBusy(false);
     }
-  }, [open, mode, hookId]);
+  }, [open, mode, hookId, initialEntryId]);
 
   if (!open) return null;
 
@@ -99,6 +111,7 @@ export function EntitlementPromoModal({
       element: 'close_detail',
       hook_id: hookId,
       entry_id: entryId,
+      ...attrFields,
     });
     onClose();
   };
@@ -112,12 +125,13 @@ export function EntitlementPromoModal({
       element: isGuest ? 'sign_in' : 'view_plans',
       hook_id: hookId,
       entry_id: entryId,
+      ...attrFields,
     });
     if (isGuest) {
       window.location.assign(buildLoginUrl(returnTo, { hookId, entryId }));
       return;
     }
-    markExternalCheckoutPending(hookId, entryId);
+    markExternalCheckoutPending(hookId, entryId, attribution);
     const pricingUrl = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
     const page = window.open(pricingUrl, '_blank');
     if (page) page.opener = null;
