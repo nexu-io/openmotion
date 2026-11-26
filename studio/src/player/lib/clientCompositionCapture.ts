@@ -1,11 +1,12 @@
-import { isNonPreviewFile } from "../../../../shared/preview-impact";
+import { isNonVisualPreviewFile } from "../../../../shared/preview-impact";
 import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
 import { usePlayerStore } from "../store/playerStore";
 import { thumbnailRevisionOf } from "../store/thumbnailSlice";
 import {
+  cancelPendingRemoteFilmstripUploads,
   clearRemoteCompositionFilmstripStateForTest,
   fetchRemoteCompositionFilmstrip,
-  uploadRemoteCompositionFilmstripIfEligible,
+  scheduleRemoteCompositionFilmstripUpload,
 } from "./remoteCompositionFilmstrip";
 import {
   acquireSharedPreviewGrant,
@@ -30,6 +31,8 @@ const CAPTURE_TARGET_WIDTH = 160;
 const CAPTURE_MAX_HEIGHT = 480;
 const CAPTURE_MAX_SCALE = 2;
 const CAPTURE_JPEG_QUALITY = 0.78;
+const CAPTURE_EXCLUDE_STYLE_PROPS = /^--/;
+const OPAQUE_JPEG_URL_RE = /\.jpe?g(?:[?#]|$)/i;
 const CAPTURE_BOOT_TIMEOUT_MS = 12_000;
 const CAPTURE_MEDIA_TIMEOUT_MS = 2_000;
 const CAPTURE_RAF_FALLBACK_MS = 250;
@@ -563,6 +566,9 @@ export function setCachedProjectRevision(
       }
       if (changed) {
         const hadPrev = prev !== undefined;
+        for (const changedComp of changedPaths) {
+          cancelPendingRemoteFilmstripUploads(projectId, changedComp);
+        }
         evictStaleProjectRevisions(projectId, (compPath) => {
           if (normalized.has(compPath)) return changedPaths.has(compPath);
           return projectRevChanged || (hadPrev && prev.has(compPath));
@@ -577,6 +583,7 @@ export function setCachedProjectRevision(
   }
   projectSharedTagByProjectId.delete(projectId);
   if (changed) {
+    cancelPendingRemoteFilmstripUploads(projectId);
     evictStaleProjectRevisions(projectId);
     notifyRevisionListeners(projectId);
   }
@@ -608,7 +615,7 @@ export function updateCachedCompositionRevisions(
   const isPreviewSharedNonHtml = (rawPath: string): boolean => {
     const key = normalizeCompositionPathForGate(rawPath);
     if (!key || key === "." || HTML_FILE_RE.test(key)) return false;
-    return !isNonPreviewFile(key);
+    return !isNonVisualPreviewFile(key);
   };
 
   const projectRev = projectRevisionByProjectId.get(projectId) ?? "";
@@ -724,6 +731,9 @@ export function updateCachedCompositionRevisions(
   }
 
   if (changed) {
+    for (const changedComp of changedPaths) {
+      cancelPendingRemoteFilmstripUploads(projectId, changedComp);
+    }
     evictStaleProjectRevisions(projectId, (compPath) => changedPaths.has(compPath));
     notifyRevisionListeners(projectId);
   }
@@ -1527,6 +1537,68 @@ function drawToJpegBlob(
   });
 }
 
+function encodeCaptureInlineDataUrl(canvas: HTMLCanvasElement, sourceUrl: string): string {
+  const webp = canvas.toDataURL("image/webp", 0.8);
+  if (webp && webp.startsWith("data:image/webp")) return webp;
+  if (OPAQUE_JPEG_URL_RE.test(sourceUrl)) {
+    const jpeg = canvas.toDataURL("image/jpeg", 0.82);
+    if (jpeg && jpeg.startsWith("data:image/jpeg")) return jpeg;
+  }
+  if (webp && webp.startsWith("data:image/")) return webp;
+  return canvas.toDataURL("image/png");
+}
+
+function inlineDecodedSameOriginImages(root: Element, maxDim: number): void {
+  const imgs = root.querySelectorAll("img");
+  if (!imgs.length) return;
+  const limit = Math.max(160, Math.min(480, maxDim || 320));
+  const cache = new Map<string, string | null>();
+  let scratch: HTMLCanvasElement | null = null;
+  for (const img of Array.from(imgs)) {
+    if (!img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) continue;
+    const rawSrc = img.getAttribute("src") ?? "";
+    if (rawSrc.startsWith("data:")) continue;
+    const key = img.currentSrc || img.src || rawSrc;
+    if (!key) continue;
+    let dataUrl = cache.get(key);
+    if (dataUrl === undefined) {
+      try {
+        const natW = img.naturalWidth;
+        const natH = img.naturalHeight;
+        const scale = Math.min(1, limit / Math.max(natW, natH));
+        const cw = Math.max(1, Math.round(natW * scale));
+        const ch = Math.max(1, Math.round(natH * scale));
+        if (!scratch) scratch = document.createElement("canvas");
+        scratch.width = cw;
+        scratch.height = ch;
+        const ctx = scratch.getContext("2d");
+        if (!ctx) {
+          cache.set(key, null);
+          continue;
+        }
+        ctx.clearRect(0, 0, cw, ch);
+        ctx.drawImage(img, 0, 0, cw, ch);
+        dataUrl = encodeCaptureInlineDataUrl(scratch, key);
+        cache.set(key, dataUrl);
+      } catch {
+        // Discard a tainted scratch canvas so subsequent local images still inline.
+        scratch = null;
+        cache.set(key, null);
+        continue;
+      }
+    }
+    if (!dataUrl) continue;
+    if (!img.hasAttribute("width") && !img.hasAttribute("height")) {
+      img.setAttribute("width", String(img.naturalWidth));
+      img.setAttribute("height", String(img.naturalHeight));
+    }
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
+    img.setAttribute("src", dataUrl);
+  }
+  if (scratch) releaseCanvasBacking(scratch);
+}
+
 async function waitForDocumentMedia(doc: Document, signal: AbortSignal): Promise<void> {
   const tasks: Promise<unknown>[] = [];
   if (doc.fonts?.ready) tasks.push(doc.fonts.ready.catch(() => undefined));
@@ -1709,6 +1781,7 @@ async function captureSameOrigin(
     }
 
     const { outW, outH, scale, aspect } = computeBoundedCaptureDimensions(targetW, targetH);
+    inlineDecodedSameOriginImages(target, Math.min(320, Math.max(240, outW * 2)));
     const actualDuration = win.__player?.getDuration?.() || 0;
     const effectiveFrameCount =
       !input.selector && actualDuration > 0 && actualDuration <= 0.5 ? 1 : input.frameCount;
@@ -1777,8 +1850,10 @@ async function captureSameOrigin(
               const snap = await snapdom(target, {
                 scale,
                 dpr: 1,
-                fast: true,
+                fast: "auto",
                 embedFonts: false,
+                placeholders: false,
+                excludeStyleProps: CAPTURE_EXCLUDE_STYLE_PROPS,
                 exclude: "video",
               });
               return snap.toCanvas();
@@ -3009,7 +3084,7 @@ async function runClientCompositionCapture(
 
     if (!input.selector) {
       const { rev: compRev, hasFileVersion } = resolveCompositionRevision(input.projectId, input.previewUrl);
-      void uploadRemoteCompositionFilmstripIfEligible({
+      scheduleRemoteCompositionFilmstripUpload({
         projectId: input.projectId,
         previewUrl: input.previewUrl,
         compRev,

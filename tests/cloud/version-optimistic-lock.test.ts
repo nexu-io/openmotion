@@ -1416,13 +1416,22 @@ describe('Cloud Optimistic Locking, Idempotency & CAS Refcounts', () => {
       (err: unknown) => isCloudError(err) && err.code === 'INVALID_ARGUMENT',
     );
 
+    // Seed project-scoped comp-thumbs filmstrips for both victim and keep projects to verify S3 cleanup.
+    const victimThumbKey = `workspaces/${h.authA.workspaceId}/comp-thumbs/${victim.projectId}/filmstrip-v1-${'a'.repeat(64)}.jpg`;
+    const keepThumbKey = `workspaces/${h.authA.workspaceId}/comp-thumbs/${keep.projectId}/filmstrip-v1-${'b'.repeat(64)}.jpg`;
+    await h.storage.putObject(victimThumbKey, Buffer.from('victim-thumb'), 'image/jpeg');
+    await h.storage.putObject(keepThumbKey, Buffer.from('keep-thumb'), 'image/jpeg');
+
     await h.workspace.trashProject(h.authA, victim.projectId);
+    assert.ok(await h.storage.headObject(victimThumbKey), 'soft-trash must keep comp-thumbs intact for restore');
     h.pgClient.blobLockOrder.length = 0;
 
     const deleted = await h.workspace.deleteProjectPermanently(h.authA, victim.projectId);
     assert.equal(deleted.deleted, true);
     assert.equal(deleted.decrementedBlobRefs, 1 + 2 + 3 + 2);
     assert.equal(deleted.activeProjectId, keep.projectId);
+    assert.equal(await h.storage.headObject(victimThumbKey), null, 'permanent delete must purge project comp-thumbs prefix');
+    assert.ok(await h.storage.headObject(keepThumbKey), 'permanent delete must not touch sibling project comp-thumbs');
 
     // Every blob exclusive to `victim` must now have ref_count === 0 and non-null zero_ref_since!
     for (const sha of [shaV1, shaV2, shaA, shaB]) {

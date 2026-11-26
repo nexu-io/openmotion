@@ -13,10 +13,12 @@ import {
   COMPOSITION_FILMSTRIP_VERSION,
   computeCompositionFilmstripDepsDigest,
   computeCompositionFilmstripRenderKey,
+  computeLegacyV1CompositionFilmstripDepsDigest,
   embedFilmstripComment,
   extractFilmstripMeta,
   extractIndexHeadMarkup,
   extractNestedCompositionRefs,
+  extractReferencedCodeAssetPaths,
   FILMSTRIP_HEADER_ASPECT,
   FILMSTRIP_HEADER_FRAMES,
   FILMSTRIP_HEADER_HEIGHT,
@@ -26,6 +28,7 @@ import {
   FILMSTRIP_HEADER_SOURCE,
   FILMSTRIP_HEADER_WIDTH,
   isHtmlCompositionPath,
+  isVisualMediaPath,
   MAX_FILMSTRIP_JPEG_BYTES,
   validateFilmstripMeta,
   type CompositionFilmstripMeta,
@@ -47,6 +50,8 @@ interface ResolvedCompositionIdentity {
   readonly file: VirtualFileRecord;
   readonly fileSha: string;
   readonly depsSha256: string;
+  readonly legacyCatalogDepsSha256: string | null;
+  readonly legacyWorkspaceRenderKey: string | null;
   readonly renderKey: string;
   readonly allDepsCatalog: boolean;
 }
@@ -137,10 +142,14 @@ export function createStudioCompositionFilmstripsRoutes(
     const fileSha = file.sha256.trim();
 
     let indexHead: string | null = null;
+    const htmlCache = new Map<string, string | null>();
     if (files.some((f) => f.path === 'index.html')) {
       try {
         const indexRes = await deps.files.readTextFile(auth, projectId, 'index.html');
-        if (indexRes) indexHead = extractIndexHeadMarkup(indexRes.content);
+        if (indexRes) {
+          indexHead = extractIndexHeadMarkup(indexRes.content);
+          htmlCache.set('index.html', indexRes.content);
+        }
       } catch {
         indexHead = null;
       }
@@ -148,9 +157,18 @@ export function createStudioCompositionFilmstripsRoutes(
 
     // Load HTML text only for `safePath` and its reachable transitive `data-composition-src`
     // subgraph so unrelated sibling scenes are never read on every filmstrip lookup.
-    const htmlCache = new Map<string, string | null>();
-    if (safePath !== 'index.html') {
-      const byPath = new Map(files.map((f) => [f.path, f]));
+    const byPath = new Map(files.map((f) => [f.path, f]));
+    if (safePath === 'index.html') {
+      for (const f of files) {
+        if (f.path === 'index.html' || !isHtmlCompositionFile(f)) continue;
+        try {
+          const read = await deps.files.readTextFile(auth, projectId, f.path);
+          htmlCache.set(f.path, read?.content ?? null);
+        } catch {
+          htmlCache.set(f.path, null);
+        }
+      }
+    } else {
       const htmlPathsToCheck = [safePath];
       const visited = new Set<string>(htmlPathsToCheck);
       while (htmlPathsToCheck.length > 0) {
@@ -173,20 +191,84 @@ export function createStudioCompositionFilmstripsRoutes(
       }
     }
 
+    // When the project contains visual media files, also inspect small non-vendor CSS/JS files
+    // referenced by indexHead or the loaded HTML subgraph so unreferenced uploaded images/videos
+    // do not invalidate untouched scenes.
+    if (files.some((f) => isVisualMediaPath(f.path))) {
+      const codePaths = extractReferencedCodeAssetPaths({
+        files,
+        indexHead,
+        htmlSources: htmlCache,
+      });
+      const loadedCode = new Set<string>();
+      const codeQueue = [...codePaths];
+      while (codeQueue.length > 0) {
+        const codePath = codeQueue.shift()!;
+        if (loadedCode.has(codePath) || htmlCache.has(codePath)) continue;
+        loadedCode.add(codePath);
+        try {
+          const read = await deps.files.readTextFile(auth, projectId, codePath);
+          const content = read?.content ?? null;
+          htmlCache.set(codePath, content);
+          if (content && /\.css$/i.test(codePath)) {
+            const nested = extractReferencedCodeAssetPaths({
+              files,
+              htmlSources: new Map([[codePath, `<style>${content}</style>`]]),
+            });
+            for (const nextPath of nested) {
+              if (!loadedCode.has(nextPath)) codeQueue.push(nextPath);
+            }
+          }
+        } catch {
+          htmlCache.set(codePath, null);
+        }
+      }
+    }
+
+    const readCachedText = (filePath: string) => htmlCache.get(filePath) ?? null;
     const { depsSha256, allDepsCatalog } = computeCompositionFilmstripDepsDigest({
       compPath: safePath,
       files,
       indexHead,
-      readText: (filePath) => htmlCache.get(filePath) ?? null,
+      readText: readCachedText,
     });
+    const legacyCatalogDepsSha256 =
+      file.blobScope === 'catalog' && allDepsCatalog
+        ? computeLegacyV1CompositionFilmstripDepsDigest({
+            compPath: safePath,
+            files: files.filter((f) => f.blobScope === 'catalog'),
+            indexHead,
+            readText: readCachedText,
+          }).depsSha256
+        : null;
     const renderKey = computeCompositionFilmstripRenderKey({
       compPath: safePath,
       fileSha256: fileSha,
       blobScope: file.blobScope,
       depsSha256,
     });
+    const legacyWorkspaceDeps = computeLegacyV1CompositionFilmstripDepsDigest({
+      compPath: safePath,
+      files,
+      indexHead,
+      readText: readCachedText,
+    }).depsSha256;
+    const legacyWorkspaceRenderKey = computeCompositionFilmstripRenderKey({
+      compPath: safePath,
+      fileSha256: fileSha,
+      blobScope: file.blobScope,
+      depsSha256: legacyWorkspaceDeps,
+    });
 
-    return { file, fileSha, depsSha256, renderKey, allDepsCatalog };
+    return {
+      file,
+      fileSha,
+      depsSha256,
+      legacyCatalogDepsSha256,
+      legacyWorkspaceRenderKey: legacyWorkspaceRenderKey !== renderKey ? legacyWorkspaceRenderKey : null,
+      renderKey,
+      allDepsCatalog,
+    };
   }
 
   async function resolveFilmstripHit(
@@ -209,6 +291,21 @@ export function createStudioCompositionFilmstripsRoutes(
         if (catalogHit) {
           return { ...catalogHit, source: 'catalog' };
         }
+        if (identity.legacyCatalogDepsSha256 && identity.legacyCatalogDepsSha256 !== identity.depsSha256) {
+          const legacyCatalogKey = assertTenantScopedKey(
+            workspaceId,
+            catalogCompFilmstripKey(
+              identity.fileSha,
+              identity.legacyCatalogDepsSha256,
+              COMPOSITION_FILMSTRIP_VERSION,
+            ),
+            { allowCatalog: true },
+          );
+          const legacyHit = await readValidatedS3Filmstrip(deps, legacyCatalogKey);
+          if (legacyHit) {
+            return { ...legacyHit, source: 'catalog' };
+          }
+        }
       }
     }
 
@@ -216,6 +313,13 @@ export function createStudioCompositionFilmstripsRoutes(
     const workspaceHit = await readValidatedS3Filmstrip(deps, projectKey);
     if (workspaceHit) {
       return { ...workspaceHit, source: 'workspace' };
+    }
+    if (identity.legacyWorkspaceRenderKey) {
+      const legacyProjectKey = projectFilmstripS3Key(workspaceId, projectId, identity.legacyWorkspaceRenderKey);
+      const legacyWorkspaceHit = await readValidatedS3Filmstrip(deps, legacyProjectKey);
+      if (legacyWorkspaceHit) {
+        return { ...legacyWorkspaceHit, source: 'workspace' };
+      }
     }
     return null;
   }

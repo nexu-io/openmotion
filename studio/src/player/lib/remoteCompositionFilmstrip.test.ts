@@ -6,15 +6,20 @@ import {
   clearClientCompositionCaptureCacheForTest,
   createClientCompositionCaptureRequest,
   peekCachedCompositionCapture,
+  seedClientCompositionCaptureForTest,
   setCachedProjectRevision,
   setClientCompositionCaptureCapabilityForTest,
+  updateCachedCompositionRevisions,
 } from "./clientCompositionCapture";
 import {
   buildCompositionFilmstripUrl,
   clearRemoteCompositionFilmstripStateForTest,
   computeRemoteSpriteFrameDimensions,
+  DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS,
   fetchRemoteCompositionFilmstrip,
+  scheduleRemoteCompositionFilmstripUpload,
   setRemoteFilmstripCodecForTest,
+  setRemoteFilmstripUploadDelayForTest,
   subsampleFilmstripFrames,
   uploadRemoteCompositionFilmstripIfEligible,
 } from "./remoteCompositionFilmstrip";
@@ -141,6 +146,7 @@ describe("remoteCompositionFilmstrip", () => {
   it("records a 204 miss sha256 and asynchronously PUTs a packed sprite after Tier 2 SnapDOM capture finishes", async () => {
     setCachedCloudDisklessMode(true);
     setClientCompositionCaptureCapabilityForTest(true);
+    setRemoteFilmstripUploadDelayForTest(0);
     setCachedProjectRevision("proj-wb", "rev-wb");
     usePlayerStore.setState({
       assetReadinessPhase: "ready",
@@ -425,6 +431,113 @@ describe("remoteCompositionFilmstrip", () => {
       expect(putHeaders[0]!["x-openmotion-filmstrip-render-key"]).toBe(RENDER_KEY_A);
     } finally {
       globalThis.createImageBitmap = origCreateImageBitmap;
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("debounces S3 write-backs across rapid edits (Plan X 5s stability gate) and cancels superseded drafts without busting on audio uploads", async () => {
+    vi.useFakeTimers();
+    const origFetch = globalThis.fetch;
+    const putRenderKeys: string[] = [];
+    const renderKeyV1 = "1".repeat(64);
+    const renderKeyV2 = "2".repeat(64);
+    let currentRenderKey = renderKeyV1;
+
+    setRemoteFilmstripCodecForTest({
+      packSprite: async (blobs, frameWidth, frameHeight) => ({
+        blob: new Blob(["packed"], { type: "image/jpeg" }),
+        frameCount: blobs.length,
+        frameWidth,
+        frameHeight,
+      }),
+    });
+
+    globalThis.fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "GET") {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "x-openmotion-filmstrip-sha256": SHA_A,
+            "x-openmotion-filmstrip-render-key": currentRenderKey,
+            "x-openmotion-filmstrip-scope": "workspace",
+          },
+        });
+      }
+      const hdrs = new Headers(init?.headers);
+      putRenderKeys.push(hdrs.get("x-openmotion-filmstrip-render-key") ?? "");
+      return Response.json({ stored: true, frameCount: 4 });
+    }) as unknown as typeof fetch;
+
+    try {
+      const previewUrl = "/api/projects/proj-x/preview/comp/compositions/scene.html";
+      setCachedProjectRevision("proj-x", "rev-x", {
+        "compositions/scene.html": '"patch:v1"|shared:head1:assets1',
+      });
+      const seeded = seedClientCompositionCaptureForTest(
+        { projectId: "proj-x", previewUrl, contentRevision: 0, frameCount: 4 },
+        Array.from({ length: 4 }, (_, i) => new Blob([`f-${i}`], { type: "image/jpeg" })),
+      );
+
+      // Uploading a pure audio file leaves the cached strip warm!
+      updateCachedCompositionRevisions("proj-x", { "assets/bgm.mp3": '"sha256:audio-1"' });
+      expect(
+        peekCachedCompositionCapture({ projectId: "proj-x", previewUrl, contentRevision: 0, frameCount: 4 }),
+      ).toBe(seeded);
+
+      // Draft 1 misses remote and schedules Plan X write-back (5s quiet gate).
+      await fetchRemoteCompositionFilmstrip({
+        projectId: "proj-x",
+        previewUrl,
+        compRev: '"patch:v1"|shared:head1:assets1',
+        contentRevision: 0,
+      });
+      scheduleRemoteCompositionFilmstripUpload({
+        projectId: "proj-x",
+        previewUrl,
+        compRev: '"patch:v1"|shared:head1:assets1',
+        contentRevision: 0,
+        blobs: Array.from({ length: 4 }, (_, i) => new Blob([`d1-${i}`], { type: "image/jpeg" })),
+        width: 160,
+        height: 90,
+        aspect: 16 / 9,
+        duration: 5,
+      });
+
+      // After 3s (< 5s), Draft 1 has NOT been pushed to S3 yet; a newer edit cancels it!
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(putRenderKeys).toEqual([]);
+      updateCachedCompositionRevisions("proj-x", { "compositions/scene.html": '"patch:v2"' });
+
+      // Even after advancing another 5s, cancelled Draft 1 never writes to S3.
+      await vi.advanceTimersByTimeAsync(DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS + 50);
+      expect(putRenderKeys).toEqual([]);
+
+      // Draft 2 misses remote, schedules Plan X upload, and writes ONCE after 5s of quiet.
+      currentRenderKey = renderKeyV2;
+      await fetchRemoteCompositionFilmstrip({
+        projectId: "proj-x",
+        previewUrl,
+        compRev: '"patch:v2"|shared:head1:assets1',
+        contentRevision: 0,
+      });
+      scheduleRemoteCompositionFilmstripUpload({
+        projectId: "proj-x",
+        previewUrl,
+        compRev: '"patch:v2"|shared:head1:assets1',
+        contentRevision: 0,
+        blobs: Array.from({ length: 4 }, (_, i) => new Blob([`d2-${i}`], { type: "image/jpeg" })),
+        width: 160,
+        height: 90,
+        aspect: 16 / 9,
+        duration: 5,
+      });
+      await vi.advanceTimersByTimeAsync(DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS - 100);
+      expect(putRenderKeys).toEqual([]);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(putRenderKeys).toEqual([renderKeyV2]);
+    } finally {
+      vi.useRealTimers();
       globalThis.fetch = origFetch;
     }
   });

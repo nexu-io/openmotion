@@ -11,6 +11,8 @@ const SPRITE_ENCODE_QUALITY = 0.78;
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const MAX_PENDING_WRITE_TARGETS = 256;
 const MAX_COMPLETED_UPLOADS = 512;
+/** Quiet-period stability gate before persisting a client-captured filmstrip sprite to S3. */
+export const DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS = 5_000;
 
 const HEADER_FRAMES = "x-openmotion-filmstrip-frames";
 const HEADER_WIDTH = "x-openmotion-filmstrip-width";
@@ -64,20 +66,42 @@ const inFlightFetches = new Map<string, Promise<RemoteFilmstripResult>>();
 const pendingWriteTargets = new Map<string, PendingWriteTarget>();
 const completedUploads = new Set<string>();
 const inFlightUploads = new Set<string>();
+const scheduledUploads = new Map<string, ReturnType<typeof setTimeout>>();
 let testCodecOverride: RemoteFilmstripCodec | null = null;
+let uploadStabilityDelayMsOverride: number | null = null;
 
 /** Inject deterministic sprite decode/pack stubs in unit tests (HappyDOM has no native JPEG canvas encoder). */
 export function setRemoteFilmstripCodecForTest(codec: RemoteFilmstripCodec | null): void {
   testCodecOverride = codec;
 }
 
+/** Override the quiet-period S3 write-back debounce delay in unit tests (`null` restores 5s default). */
+export function setRemoteFilmstripUploadDelayForTest(delayMs: number | null): void {
+  uploadStabilityDelayMsOverride = delayMs;
+}
+
+/** Cancel queued S3 filmstrip write-backs for a project (or a single composition path) before they fire. */
+export function cancelPendingRemoteFilmstripUploads(projectId?: string, compPath?: string): void {
+  const normalizedComp = compPath ? compPath.replace(/^(\.\/|\/)+/, "") : null;
+  for (const [key, timer] of [...scheduledUploads.entries()]) {
+    if (projectId) {
+      const prefix = normalizedComp ? `${projectId}|${normalizedComp}` : `${projectId}|`;
+      if (normalizedComp ? key !== prefix : !key.startsWith(prefix)) continue;
+    }
+    clearTimeout(timer);
+    scheduledUploads.delete(key);
+  }
+}
+
 /** Reset remote filmstrip dedupe and write-back state between unit tests. */
 export function clearRemoteCompositionFilmstripStateForTest(): void {
+  cancelPendingRemoteFilmstripUploads();
   inFlightFetches.clear();
   pendingWriteTargets.clear();
   completedUploads.clear();
   inFlightUploads.clear();
   testCodecOverride = null;
+  uploadStabilityDelayMsOverride = null;
 }
 
 function normalizeCompositionPath(previewUrl: string): string | null {
@@ -393,13 +417,7 @@ export function fetchRemoteCompositionFilmstrip(input: {
   return task;
 }
 
-/**
- * Best-effort async write-back after browser SnapDOM completes a cold capture.
- * Only executes when a prior Tier 1.5 `GET` observed a `204` miss (or lower-frame sprite)
- * with an authoritative file `sha256`, keeping isolated unit tests and unchanged scenes free
- * of extra network writes.
- */
-export async function uploadRemoteCompositionFilmstripIfEligible(input: {
+export interface RemoteCompositionFilmstripUploadInput {
   projectId: string;
   previewUrl: string;
   compRev: string;
@@ -409,7 +427,45 @@ export async function uploadRemoteCompositionFilmstripIfEligible(input: {
   height: number;
   aspect: number;
   duration?: number;
-}): Promise<boolean> {
+}
+
+/**
+ * Schedule an S3 filmstrip write-back after a quiet stability window (`DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS`)
+ * per `(projectId, compPath)`. Rapid edits supersede and cancel prior pending timers so throwaway
+ * intermediate drafts stay purely local in RAM/IDB and never churn S3.
+ */
+export function scheduleRemoteCompositionFilmstripUpload(
+  input: RemoteCompositionFilmstripUploadInput,
+): void {
+  const compPath = normalizeCompositionPath(input.previewUrl);
+  if (!input.projectId || !compPath) return;
+  const scheduleKey = `${input.projectId}|${compPath}`;
+  const prior = scheduledUploads.get(scheduleKey);
+  if (prior !== undefined) {
+    clearTimeout(prior);
+    scheduledUploads.delete(scheduleKey);
+  }
+  const delayMs = uploadStabilityDelayMsOverride ?? DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS;
+  if (delayMs <= 0) {
+    void uploadRemoteCompositionFilmstripIfEligible(input);
+    return;
+  }
+  const timer = setTimeout(() => {
+    scheduledUploads.delete(scheduleKey);
+    void uploadRemoteCompositionFilmstripIfEligible(input);
+  }, delayMs);
+  scheduledUploads.set(scheduleKey, timer);
+}
+
+/**
+ * Best-effort async write-back after browser SnapDOM completes a cold capture.
+ * Only executes when a prior Tier 1.5 `GET` observed a `204` miss (or lower-frame sprite)
+ * with an authoritative file `sha256`, keeping isolated unit tests and unchanged scenes free
+ * of extra network writes.
+ */
+export async function uploadRemoteCompositionFilmstripIfEligible(
+  input: RemoteCompositionFilmstripUploadInput,
+): Promise<boolean> {
   if (input.blobs.length === 0 || input.blobs.length > MAX_REMOTE_FILMSTRIP_FRAMES) {
     return false;
   }

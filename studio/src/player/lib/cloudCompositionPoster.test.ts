@@ -351,4 +351,38 @@ describe("cloud composition representatives", () => {
     expect(decodeImageThumbnail).not.toHaveBeenCalled();
     expect(result.value).toMatchObject({ representative: "text", label: "Launch Film" });
   });
+  it("extracts project-local CSS background-image URLs from inline styles and <style> blocks while skipping decorative icons and gradients", async () => {
+    vi.mocked(decodeImageThumbnail).mockResolvedValue(picture);
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      Response.json({
+        content: [
+          '<template><div data-composition-id="bg-inline" data-width="1920" data-height="1080">',
+          '<div class="avatar" style="background-image: url(\'assets/avatar-1.png\'); width: 48px; height: 48px"></div>',
+          '<div class="hero" style="background: linear-gradient(transparent,#000), url(\'assets/hero-bg.webp\') center/cover"></div>',
+          "</div></template>",
+        ].join(""),
+      }),
+    ));
+    expect(await loadCloudCompositionPoster(url(), "p", 0, signal())).toEqual(picture);
+    expect(decodeImageThumbnail).toHaveBeenLastCalledWith(
+      new URL("/api/projects/p/preview/assets/hero-bg.webp", location.origin).href,
+      expect.anything(),
+    );
+
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      Response.json({
+        content: [
+          '<template><style>',
+          '.logo-badge{width:40px;height:40px;background-image:url("assets/logo.svg")}',
+          '.backdrop{width:1920px;height:1080px;background-image:url("assets/sky-backdrop.jpg");mask-image:url("assets/mask.png")}',
+          '</style><div data-composition-id="bg-style" data-width="1920" data-height="1080"><div class="backdrop"></div></div></template>',
+        ].join(""),
+      }),
+    ));
+    expect(await loadCloudCompositionPoster(url(), "p", 0, signal())).toEqual(picture);
+    expect(decodeImageThumbnail).toHaveBeenLastCalledWith(
+      new URL("/api/projects/p/preview/assets/sky-backdrop.jpg", location.origin).href,
+      expect.anything(),
+    );
+  });
 });

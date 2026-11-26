@@ -5,6 +5,18 @@
  */
 export const PREVIEW_THUMBNAIL_CAPTURE = `
   var snapdomPromise=null;
+  var CAPTURE_EXCLUDE_STYLE_PROPS=/^--/;
+  var OPAQUE_JPEG_URL_RE=/\\.jpe?g(?:[?#]|$)/i;
+  function encodeCaptureInlineDataUrl(canvas,sourceUrl){
+    var url=canvas.toDataURL('image/webp',0.8);
+    if(url&&url.indexOf('data:image/webp')===0) return url;
+    if(OPAQUE_JPEG_URL_RE.test(sourceUrl||'')){
+      var jpg=canvas.toDataURL('image/jpeg',0.82);
+      if(jpg&&jpg.indexOf('data:image/jpeg')===0) return jpg;
+    }
+    if(url&&url.indexOf('data:image/')===0) return url;
+    return canvas.toDataURL('image/png');
+  }
   function loadSnapdom(){
     if(typeof window.snapdom==='function') return Promise.resolve(window.snapdom);
     if(snapdomPromise) return snapdomPromise;
@@ -128,7 +140,7 @@ export const PREVIEW_THUMBNAIL_CAPTURE = `
           if(!ctx){ cache[key]=null; continue; }
           if(typeof ctx.clearRect==='function') ctx.clearRect(0,0,cw,ch);
           ctx.drawImage(img,0,0,cw,ch);
-          dataUrl=scratch.toDataURL('image/png');
+          dataUrl=encodeCaptureInlineDataUrl(scratch,key);
           cache[key]=dataUrl;
         } catch(_){
           // A tainted cross-origin image permanently taints this canvas; discard it so later images still inline.
@@ -323,7 +335,7 @@ export const PREVIEW_THUMBNAIL_CAPTURE = `
               return fn||loadSnapdom();
             }).then(function(fn){
               return withPreviewRedirectSafeFetch(function(){
-                return fn(target,{scale:scale,dpr:1,fast:true,embedFonts:false,exclude:'video'})
+                return fn(target,{scale:scale,dpr:1,fast:'auto',embedFonts:false,placeholders:false,excludeStyleProps:CAPTURE_EXCLUDE_STYLE_PROPS,exclude:'video'})
                   .then(function(res){ return res.toCanvas(); });
               },fetchCache);
             }).then(function(cv){

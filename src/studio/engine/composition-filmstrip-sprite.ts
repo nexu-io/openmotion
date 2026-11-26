@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { decodeAuthoredAttribute, scanHtmlOpeningTags } from '@hyperframes/parsers';
 import { decodedUrlPath } from '@hyperframes/parsers/asset-paths';
-import { extractIndexHeadMarkup } from '../../../shared/preview-impact.ts';
+import { IMAGE_EXT, VIDEO_EXT } from '../../../shared/asset-names.ts';
+import { extractIndexHeadMarkup, isNonVisualPreviewFile } from '../../../shared/preview-impact.ts';
 import { resolveVirtualPath, virtualDirname } from '../virtual-project-store.ts';
 
 export { extractIndexHeadMarkup };
@@ -34,6 +35,242 @@ export interface FilmstripDependencyFile {
 
 export function isHtmlCompositionPath(filePath: string): boolean {
   return /\.html?$/i.test(filePath);
+}
+
+export function isVisualMediaPath(filePath: string): boolean {
+  return IMAGE_EXT.test(filePath) || VIDEO_EXT.test(filePath);
+}
+
+export function isStyleOrScriptCodePath(filePath: string): boolean {
+  return /\.(?:css|m?js)$/i.test(filePath);
+}
+
+export function isVendorOrMinifiedScriptPath(filePath: string): boolean {
+  return /(?:^|\/)(?:vendor\/|[^/]+\.min\.m?js$)/i.test(filePath);
+}
+
+export const MAX_DEPENDENCY_SCAN_CODE_BYTES = 256 * 1024;
+
+const CSS_URL_EXTRACT_RE = /url\(\s*(?:"([^"]+)"|'([^']+)'|([^)"'\s]+))\s*\)/gi;
+const CSS_IMPORT_EXTRACT_RE = /@import\s+(?:url\(\s*(?:"([^"]+)"|'([^']+)'|([^)"'\s]+))\s*\)|"([^"]+)"|'([^']+)')/gi;
+const JS_STRING_LITERAL_RE = /(?:'([^'\\\r\n]{1,512})'|"([^"\\\r\n]{1,512})"|`([^`$\\\r\n]{1,512})`)/g;
+const SCRIPT_TAG_RE = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+const DYNAMIC_MEDIA_LOAD_RE =
+  /\b(?:fetch|XMLHttpRequest)\s*\(|\bimport\s*\(|\+\s*['"`]\.(?:png|jpe?g|webp|gif|svg|avif|ico|mp4|mov|webm|mkv|m4v)\b/i;
+const DYNAMIC_TEMPLATE_MEDIA_RE =
+  /`[^`]*\$\{[^}]*\}[^`]*(?:\.(?:png|jpe?g|webp|gif|svg|avif|ico|mp4|mov|webm|mkv|m4v)\b|(?:assets|images|img|media|video|videos|photos)\/)|`[^`]*(?:assets|images|img|media|video|videos|photos)\/[^`]*\$\{/i;
+const HTML_MEDIA_ATTRS = new Set(['src', 'poster', 'href', 'xlink:href', 'data-src', 'data-poster']);
+
+function resolveProjectRef(
+  owner: string,
+  rawRef: string,
+  knownPaths: ReadonlySet<string>,
+): string | null {
+  const trimmed = rawRef.trim();
+  if (!trimmed || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(trimmed)) return null;
+  const pathOnly = decodedUrlPath(trimmed.split(/[?#]/)[0] ?? '');
+  if (!pathOnly) return null;
+  const strippedLeading = pathOnly.replace(/^\/+/, '');
+  if (!strippedLeading) return null;
+  if (owner) {
+    const local = resolveVirtualPath(virtualDirname(owner), pathOnly);
+    if (local && knownPaths.has(local)) return local;
+  }
+  const fromRoot = resolveVirtualPath('', strippedLeading);
+  if (fromRoot && knownPaths.has(fromRoot)) return fromRoot;
+  return null;
+}
+
+function collectCssRefs(
+  owner: string,
+  css: string,
+  knownPaths: ReadonlySet<string>,
+  outRefs: Set<string>,
+): void {
+  CSS_URL_EXTRACT_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CSS_URL_EXTRACT_RE.exec(css)) !== null) {
+    const raw = match[1] ?? match[2] ?? match[3] ?? '';
+    const resolved = resolveProjectRef(owner, raw, knownPaths);
+    if (resolved) outRefs.add(resolved);
+  }
+  CSS_IMPORT_EXTRACT_RE.lastIndex = 0;
+  while ((match = CSS_IMPORT_EXTRACT_RE.exec(css)) !== null) {
+    const raw = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? '';
+    const resolved = resolveProjectRef(owner, raw, knownPaths);
+    if (resolved) outRefs.add(resolved);
+  }
+}
+
+function scanScriptRefs(
+  owner: string,
+  script: string,
+  knownPaths: ReadonlySet<string>,
+  outRefs: Set<string>,
+): { dynamic: boolean } {
+  if (DYNAMIC_MEDIA_LOAD_RE.test(script) || DYNAMIC_TEMPLATE_MEDIA_RE.test(script)) {
+    return { dynamic: true };
+  }
+  JS_STRING_LITERAL_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = JS_STRING_LITERAL_RE.exec(script)) !== null) {
+    const raw = match[1] ?? match[2] ?? match[3] ?? '';
+    if (!raw || raw.includes(' ')) continue;
+    const resolved = resolveProjectRef(owner, raw, knownPaths);
+    if (resolved) outRefs.add(resolved);
+  }
+  return { dynamic: false };
+}
+
+function scanHtmlStaticRefs(
+  owner: string,
+  html: string,
+  knownPaths: ReadonlySet<string>,
+  outRefs: Set<string>,
+): { dynamic: boolean } {
+  for (const tag of scanHtmlOpeningTags(html)) {
+    for (const attr of tag.attributes) {
+      if (attr.kind !== 'value') continue;
+      const name = attr.name.toLowerCase();
+      if (HTML_MEDIA_ATTRS.has(name)) {
+        const resolved = resolveProjectRef(owner, decodeAuthoredAttribute(attr.value), knownPaths);
+        if (resolved) outRefs.add(resolved);
+      } else if (name === 'srcset') {
+        const decoded = decodeAuthoredAttribute(attr.value);
+        for (const candidate of decoded.split(',')) {
+          const urlToken = candidate.trim().split(/\s+/)[0] ?? '';
+          const resolved = resolveProjectRef(owner, urlToken, knownPaths);
+          if (resolved) outRefs.add(resolved);
+        }
+      } else if (name === 'style') {
+        collectCssRefs(owner, decodeAuthoredAttribute(attr.value), knownPaths, outRefs);
+      }
+    }
+  }
+  STYLE_TAG_RE.lastIndex = 0;
+  let styleMatch: RegExpExecArray | null;
+  while ((styleMatch = STYLE_TAG_RE.exec(html)) !== null) {
+    collectCssRefs(owner, styleMatch[1] ?? '', knownPaths, outRefs);
+  }
+  SCRIPT_TAG_RE.lastIndex = 0;
+  let scriptMatch: RegExpExecArray | null;
+  while ((scriptMatch = SCRIPT_TAG_RE.exec(html)) !== null) {
+    const body = scriptMatch[2] ?? '';
+    if (body && scanScriptRefs(owner, body, knownPaths, outRefs).dynamic) {
+      return { dynamic: true };
+    }
+  }
+  return { dynamic: false };
+}
+
+/**
+ * Extract project-local non-vendor CSS/JS paths referenced directly by `indexHead` and
+ * the given HTML documents so routes/workers can load only those small text files
+ * before computing precise visual media dependencies.
+ */
+export function extractReferencedCodeAssetPaths(input: {
+  readonly files: ReadonlyArray<{ readonly path: string; readonly sizeBytes?: number }>;
+  readonly indexHead?: string | null;
+  readonly htmlSources: ReadonlyMap<string, string | null>;
+}): string[] {
+  const knownPaths = new Set<string>();
+  const sizeByPath = new Map<string, number | undefined>();
+  for (const f of input.files) {
+    knownPaths.add(f.path);
+    sizeByPath.set(f.path, f.sizeBytes);
+  }
+  const refs = new Set<string>();
+  if (input.indexHead) {
+    scanHtmlStaticRefs('index.html', input.indexHead, knownPaths, refs);
+  }
+  for (const [owner, html] of input.htmlSources) {
+    if (!html) continue;
+    scanHtmlStaticRefs(owner, html, knownPaths, refs);
+  }
+  const codePaths: string[] = [];
+  for (const ref of refs) {
+    if (!isStyleOrScriptCodePath(ref) || isVendorOrMinifiedScriptPath(ref)) continue;
+    const size = sizeByPath.get(ref);
+    if (typeof size === 'number' && size > MAX_DEPENDENCY_SCAN_CODE_BYTES) continue;
+    codePaths.push(ref);
+  }
+  return codePaths.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Determine the exact set of visual media paths (`IMAGE_EXT` / `VIDEO_EXT`) reachable from
+ * `compPath`, its `includedComps`, `indexHead`, and transitively referenced non-vendor CSS/JS.
+ *
+ * Returns `null` (fail closed -> caller includes all visual media) whenever any required
+ * HTML or referenced non-vendor CSS/JS text cannot be read or contains dynamic asset loading.
+ */
+export function resolveReferencedVisualMediaPaths(input: {
+  readonly compPath: string;
+  readonly includedComps: ReadonlySet<string>;
+  readonly files: ReadonlyArray<{ readonly path: string }>;
+  readonly indexHead?: string | null;
+  readonly readText?: (filePath: string) => string | null;
+}): ReadonlySet<string> | null {
+  if (!input.readText) return null;
+  const knownPaths = new Set<string>();
+  let hasVisualMedia = false;
+  for (const f of input.files) {
+    knownPaths.add(f.path);
+    if (!hasVisualMedia && isVisualMediaPath(f.path)) {
+      hasVisualMedia = true;
+    }
+  }
+  if (!hasVisualMedia) return new Set();
+
+  const refs = new Set<string>();
+  if (input.indexHead !== undefined && input.indexHead !== null) {
+    if (scanHtmlStaticRefs('index.html', input.indexHead, knownPaths, refs).dynamic) {
+      return null;
+    }
+  } else if (input.compPath !== 'index.html' && knownPaths.has('index.html')) {
+    return null;
+  }
+
+  const htmlOwners = [input.compPath, ...input.includedComps];
+  for (const owner of htmlOwners) {
+    const html = input.readText(owner);
+    if (html === null) return null;
+    if (scanHtmlStaticRefs(owner, html, knownPaths, refs).dynamic) {
+      return null;
+    }
+  }
+
+  // Follow referenced non-vendor CSS/JS transitively (handles CSS @import + url() + JS asset strings).
+  const visitedCode = new Set<string>();
+  const codeQueue: string[] = [];
+  const enqueueCodeRefs = () => {
+    for (const ref of refs) {
+      if (!isStyleOrScriptCodePath(ref) || isVendorOrMinifiedScriptPath(ref) || visitedCode.has(ref)) {
+        continue;
+      }
+      visitedCode.add(ref);
+      codeQueue.push(ref);
+    }
+  };
+  enqueueCodeRefs();
+  while (codeQueue.length > 0) {
+    const codePath = codeQueue.shift()!;
+    const text = input.readText(codePath);
+    if (text === null) return null;
+    if (/\.css$/i.test(codePath)) {
+      collectCssRefs(codePath, text, knownPaths, refs);
+    } else if (scanScriptRefs(codePath, text, knownPaths, refs).dynamic) {
+      return null;
+    }
+    enqueueCodeRefs();
+  }
+
+  const media = new Set<string>();
+  for (const ref of refs) {
+    if (isVisualMediaPath(ref)) media.add(ref);
+  }
+  return media;
 }
 
 function resolveNestedCompRef(
@@ -71,27 +308,13 @@ export function extractNestedCompositionRefs(
   return targets;
 }
 
-/**
- * Compute a deterministic sha256 fingerprint of every project input beyond `compPath`'s
- * own HTML bytes that affects how `compPath` renders:
- * - `index.html` `<head>` markup (shared stylesheets/fonts/links; ignores `<body>` clip timing)
- * - all non-composition project files (CSS, images, SVGs, fonts, scripts, etc.)
- * - all nested compositions referenced via `data-composition-src` (or all sibling HTML scenes for `index.html`)
- */
-export function computeCompositionFilmstripDepsDigest(input: {
+function collectIncludedCompsForDigest(input: {
   readonly compPath: string;
   readonly files: readonly FilmstripDependencyFile[];
-  readonly indexHead?: string | null;
+  readonly byPath: ReadonlyMap<string, FilmstripDependencyFile>;
   readonly readText?: (filePath: string) => string | null;
-}): { readonly depsSha256: string; readonly allDepsCatalog: boolean } {
-  const byPath = new Map<string, FilmstripDependencyFile>();
-  for (const f of input.files) {
-    byPath.set(f.path, f);
-  }
-
+}): Set<string> {
   const includedComps = new Set<string>();
-  let allDepsCatalog = true;
-
   if (input.compPath === 'index.html') {
     for (const f of input.files) {
       if (f.path !== 'index.html' && f.isText && isHtmlCompositionPath(f.path)) {
@@ -104,7 +327,7 @@ export function computeCompositionFilmstripDepsDigest(input: {
     while (queue.length > 0) {
       const current = queue.shift()!;
       const html = input.readText(current);
-      for (const target of extractNestedCompositionRefs(current, html, byPath)) {
+      for (const target of extractNestedCompositionRefs(current, html, input.byPath)) {
         if (visited.has(target)) continue;
         visited.add(target);
         includedComps.add(target);
@@ -112,7 +335,31 @@ export function computeCompositionFilmstripDepsDigest(input: {
       }
     }
   }
+  return includedComps;
+}
 
+/**
+ * Legacy v1 dependency digest kept solely for read-only S3 fallback lookups of
+ * pre-existing catalog filmstrips baked prior to precise visual dependency filtering.
+ */
+export function computeLegacyV1CompositionFilmstripDepsDigest(input: {
+  readonly compPath: string;
+  readonly files: readonly FilmstripDependencyFile[];
+  readonly indexHead?: string | null;
+  readonly readText?: (filePath: string) => string | null;
+}): { readonly depsSha256: string; readonly allDepsCatalog: boolean } {
+  const byPath = new Map<string, FilmstripDependencyFile>();
+  for (const f of input.files) {
+    byPath.set(f.path, f);
+  }
+  const includedComps = collectIncludedCompsForDigest({
+    compPath: input.compPath,
+    files: input.files,
+    byPath,
+    readText: input.readText,
+  });
+
+  let allDepsCatalog = true;
   const hash = createHash('sha256');
   hash.update('omfs-deps-v1\n');
 
@@ -138,6 +385,83 @@ export function computeCompositionFilmstripDepsDigest(input: {
     if (file.path === input.compPath || file.path === 'index.html') continue;
     const isComp = file.isText && isHtmlCompositionPath(file.path);
     if (isComp && !includedComps.has(file.path)) continue;
+    hash.update(file.path);
+    hash.update(':');
+    hash.update(file.sha256);
+    hash.update('\n');
+    if (file.blobScope !== 'catalog') {
+      allDepsCatalog = false;
+    }
+  }
+
+  return { depsSha256: hash.digest('hex'), allDepsCatalog };
+}
+
+/**
+ * Compute a deterministic sha256 fingerprint of every project input beyond `compPath`'s
+ * own HTML bytes that visually affects how `compPath` renders:
+ * - `index.html` `<head>` markup (shared stylesheets/fonts/links; ignores `<body>` clip timing)
+ * - shared non-media visual files (CSS, fonts, scripts, manifests, shaders), ignoring pure audio
+ *   and non-preview metadata (`isNonVisualPreviewFile`)
+ * - visual media (`IMAGE_EXT`/`VIDEO_EXT`) referenced by `indexHead`, `compPath`, nested scenes,
+ *   or referenced CSS/JS (failing closed to all visual media if sources are unreadable or dynamic)
+ * - all nested compositions referenced via `data-composition-src` (or all sibling HTML scenes for `index.html`)
+ */
+export function computeCompositionFilmstripDepsDigest(input: {
+  readonly compPath: string;
+  readonly files: readonly FilmstripDependencyFile[];
+  readonly indexHead?: string | null;
+  readonly readText?: (filePath: string) => string | null;
+}): { readonly depsSha256: string; readonly allDepsCatalog: boolean } {
+  const byPath = new Map<string, FilmstripDependencyFile>();
+  for (const f of input.files) {
+    byPath.set(f.path, f);
+  }
+
+  const includedComps = collectIncludedCompsForDigest({
+    compPath: input.compPath,
+    files: input.files,
+    byPath,
+    readText: input.readText,
+  });
+  const referencedMedia = resolveReferencedVisualMediaPaths({
+    compPath: input.compPath,
+    includedComps,
+    files: input.files,
+    indexHead: input.indexHead,
+    readText: input.readText,
+  });
+
+  let allDepsCatalog = true;
+  const hash = createHash('sha256');
+  hash.update('omfs-deps-v2\n');
+
+  const indexFile = byPath.get('index.html');
+  if (input.indexHead !== undefined && input.indexHead !== null) {
+    hash.update('head:');
+    hash.update(input.indexHead);
+    hash.update('\n');
+    if (indexFile && indexFile.blobScope !== 'catalog') {
+      allDepsCatalog = false;
+    }
+  } else if (indexFile && input.compPath !== 'index.html') {
+    hash.update('index:');
+    hash.update(indexFile.sha256);
+    hash.update('\n');
+    if (indexFile.blobScope !== 'catalog') {
+      allDepsCatalog = false;
+    }
+  }
+
+  const sorted = [...input.files].sort((a, b) => a.path.localeCompare(b.path));
+  for (const file of sorted) {
+    if (file.path === input.compPath || file.path === 'index.html') continue;
+    if (isNonVisualPreviewFile(file.path)) continue;
+    const isComp = file.isText && isHtmlCompositionPath(file.path);
+    if (isComp && !includedComps.has(file.path)) continue;
+    if (!isComp && referencedMedia !== null && isVisualMediaPath(file.path) && !referencedMedia.has(file.path)) {
+      continue;
+    }
     hash.update(file.path);
     hash.update(':');
     hash.update(file.sha256);

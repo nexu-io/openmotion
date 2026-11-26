@@ -54,6 +54,15 @@ export function isNonPreviewFile(path: string): boolean {
   return AUDIO_EXT.test(audio) || VIDEO_EXT.test(audio);
 }
 
+/**
+ * Pure audio files and non-preview metadata never affect visual composition frames
+ * (thumbnails, filmstrips, or SnapDOM captures). Live playback impact still tracks
+ * audio separately via `computePreviewImpact`.
+ */
+export function isNonVisualPreviewFile(path: string): boolean {
+  return isNonPreviewFile(path) || AUDIO_EXT.test(path);
+}
+
 /** Extract the inner `<head>...</head>` markup from `index.html` (empty string when absent). */
 export function extractIndexHeadMarkup(indexHtml: string | null | undefined): string {
   if (!indexHtml) return '';

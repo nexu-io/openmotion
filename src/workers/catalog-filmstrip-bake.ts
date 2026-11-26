@@ -13,7 +13,9 @@ import {
   computeCompositionFilmstripDepsDigest,
   extractFilmstripMeta,
   extractIndexHeadMarkup,
+  extractReferencedCodeAssetPaths,
   isHtmlCompositionPath,
+  isVisualMediaPath,
   MAX_FILMSTRIP_JPEG_BYTES,
 } from '../studio/engine/composition-filmstrip-sprite.ts';
 import {
@@ -226,6 +228,29 @@ export async function processBakeCatalogFilmstripsJob(
   }
 
   const indexHead = extractIndexHeadMarkup(textContents.get('index.html'));
+  // When the template includes image/video assets, prefetch referenced small non-vendor CSS/JS
+  // before computing depsSha256 so the baked S3 keys match composition-filmstrips.ts identically.
+  if (normalizedFiles.some((f) => isVisualMediaPath(f.path))) {
+    const referencedCodePaths = extractReferencedCodeAssetPaths({
+      files: normalizedFiles,
+      indexHead,
+      htmlSources: textContents,
+    });
+    const codeFilesToPrefetch = referencedCodePaths
+      .map((p) => byPath.get(p))
+      .filter((f): f is BakePayloadFile => Boolean(f && !assetBytesCache.has(f.path)));
+    if (codeFilesToPrefetch.length > 0) {
+      try {
+        await mapBounded(codeFilesToPrefetch, MAX_HTML_PREFETCH_CONCURRENCY, async (file) => {
+          const bytes = await fetchVerifiedCatalogFileBytes(file, deps.storage, fetchImpl);
+          assetBytesCache.set(file.path, bytes);
+          textContents.set(file.path, bytes.toString('utf8'));
+        });
+      } catch {
+        // Degrade safely: missing code text falls back to conservative visual media hashing.
+      }
+    }
+  }
   const targetsToBake: Array<{
     readonly compPath: string;
     readonly fileSha256: string;

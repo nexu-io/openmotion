@@ -23,7 +23,7 @@ import {
   type ProjectType,
   type SessionMessageRole,
 } from '../db/schema/projects.ts';
-import { workspaceBlobKey } from '../infra/storage.ts';
+import { projectCompThumbsPrefix, workspaceBlobKey } from '../infra/storage.ts';
 import { validateInstruction, type SessionMessage } from '../../shared/conversation.ts';
 import {
   computeProjectRevision,
@@ -1292,7 +1292,13 @@ export class WorkspaceService {
 
       return mutation;
     });
-    if (!result.replayed) this.onCatalogChange?.(ctx.workspaceId);
+    if (!result.replayed) {
+      this.onCatalogChange?.(ctx.workspaceId);
+      // Best-effort cleanup of project-scoped composition thumbnails and filmstrips in S3.
+      await this.storage
+        .deletePrefix(projectCompThumbsPrefix(ctx.workspaceId, result.projectId))
+        .catch(() => {});
+    }
     return result;
   }
 

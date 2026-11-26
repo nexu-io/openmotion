@@ -191,6 +191,12 @@ export function projectCompFilmstripKey(
   return `workspaces/${workspaceId}/comp-thumbs/${projectId}/filmstrip-v1-${renderKey}.jpg`;
 }
 
+export function projectCompThumbsPrefix(workspaceId: string, projectId: string): string {
+  assertUuid(workspaceId, 'workspaceId');
+  assertUuid(projectId, 'projectId');
+  return `workspaces/${workspaceId}/comp-thumbs/${projectId}/`;
+}
+
 export function exportKey(workspaceId: string, jobId: string, name: string): string {
   assertUuid(workspaceId, 'workspaceId');
   assertUuid(jobId, 'jobId');
