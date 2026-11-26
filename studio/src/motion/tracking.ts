@@ -12,7 +12,6 @@ import {
 import {
   getBrowserTrackingDeviceId,
   resetBrowserTrackingDeviceIdForTests,
-  rotateBrowserTrackingDeviceId,
 } from './trackingDeviceId.ts';
 import {
   captureTracertEvent,
@@ -21,22 +20,50 @@ import {
   getTracertStatus,
   isTracertEnabled,
   resetTracertForTests,
-  resetTracertIdentity,
   setTracertEnabled,
   setTracertIdentityResetListener,
-  syncTracertIdentity,
   type TrackingUserIdentity,
 } from './tracertClient.ts';
+import {
+  registerTrackingIdentityHooks,
+  resetMotionTrackingIdentity,
+  resetMotionTrackingIdentityStateForTests,
+  syncMotionTrackingIdentity,
+} from './trackingIdentity.ts';
 
 export type { TrackingUserIdentity };
+export { resetMotionTrackingIdentity, syncMotionTrackingIdentity };
 
-const tracking = createBrowserTracking({
-  registry: studioEvents,
-  endpoint: '/motion-api/tracking',
-  enabled: false,
-  isEnabled: () => navigator.doNotTrack !== '1',
-  getDeviceId: () => getBrowserTrackingDeviceId(),
-});
+function isDoNotTrackEnabled(): boolean {
+  return typeof navigator !== 'undefined' && navigator.doNotTrack === '1';
+}
+
+function createNoopBrowserTracker(): ReturnType<typeof createBrowserTracking<typeof studioEvents>> {
+  let isEnabled = false;
+  return {
+    track: () => 'disabled',
+    ingest: () => 'disabled',
+    flush: async () => 'disabled',
+    close: async () => 'disabled',
+    pending: () => 0,
+    enabled: () => isEnabled,
+    setEnabled: (next: boolean) => {
+      isEnabled = Boolean(next);
+    },
+    reset: () => {},
+  };
+}
+
+const tracking =
+  typeof window !== 'undefined'
+    ? createBrowserTracking({
+        registry: studioEvents,
+        endpoint: '/motion-api/tracking',
+        enabled: false,
+        isEnabled: () => !isDoNotTrackEnabled(),
+        getDeviceId: () => getBrowserTrackingDeviceId(),
+      })
+    : createNoopBrowserTracker();
 
 // If Tracert clears a persisted authenticated identity discovered from storage
 // after reload, discard any pre-hydration queued PostHog events before device_id rotates.
@@ -50,7 +77,6 @@ let controller: AbortController | undefined;
 let retryAt = 0;
 let posthogEnabled = true;
 let allowlistEnabled = false;
-let lastSyncedIdentityKey: string | null = null;
 
 function applyRuntimeConfig(runtimeConfig: BrowserTrackingRuntimeConfig): void {
   posthogEnabled = runtimeConfig.posthogEnabled;
@@ -78,7 +104,7 @@ function retryDelay(ms: number, signal: AbortSignal) {
 }
 
 export function initializeTracking() {
-  if (configuration === 'disabled' || configuration === 'ready' || navigator.doNotTrack === '1') return Promise.resolve();
+  if (configuration === 'disabled' || configuration === 'ready' || isDoNotTrackEnabled()) return Promise.resolve();
   if (hydrateInjectedConfigIfPresent()) return Promise.resolve();
   if (initialization) return initialization;
   if (Date.now() < retryAt) return Promise.resolve();
@@ -108,8 +134,8 @@ export function initializeTracking() {
 
 export async function trackMotion<E extends StudioEvent>(event: E, properties: EventFields<typeof studioEvents[E]>) {
   await initializeTracking();
-  if (configuration === 'unavailable' && navigator.doNotTrack !== '1') return 'config_unavailable' as const;
-  if (navigator.doNotTrack === '1') return 'disabled' as const;
+  if (configuration === 'unavailable' && !isDoNotTrackEnabled()) return 'config_unavailable' as const;
+  if (isDoNotTrackEnabled()) return 'disabled' as const;
 
   const usePosthog = posthogEnabled && tracking.enabled();
   const useTracert = isTracertEnabled();
@@ -179,40 +205,16 @@ export function setMotionTrackingEnabled(enabled: boolean) {
   configuration = enabled ? 'ready' : 'disabled';
 }
 
-function identityKeyFor(identity: TrackingUserIdentity): string | null {
-  if (!identity.signedIn) return null;
-  const trimmed = typeof identity.userId === 'string' ? identity.userId.trim() : '';
-  return trimmed || '__signed_in__';
-}
-
-export function syncMotionTrackingIdentity(identity: TrackingUserIdentity) {
-  if (configuration === 'uninitialized' && navigator.doNotTrack !== '1') {
-    hydrateInjectedConfigIfPresent();
-  }
-  const nextIdentityKey = identityKeyFor(identity);
-  const signedOutAfterSignIn = nextIdentityKey === null && lastSyncedIdentityKey !== null;
-  const switchedAccount =
-    nextIdentityKey !== null &&
-    lastSyncedIdentityKey !== null &&
-    nextIdentityKey !== lastSyncedIdentityKey;
-  lastSyncedIdentityKey = nextIdentityKey;
-
-  if (signedOutAfterSignIn || switchedAccount) {
-    // Discard pending browser batches and abort in-flight retries before
-    // identity or device_id changes so queued events never cross accounts.
+registerTrackingIdentityHooks({
+  onBeforeSync: () => {
+    if (configuration === 'uninitialized' && !isDoNotTrackEnabled()) {
+      hydrateInjectedConfigIfPresent();
+    }
+  },
+  onReset: () => {
     tracking.reset();
-  }
-  syncTracertIdentity(identity);
-  if (signedOutAfterSignIn && !isTracertEnabled()) {
-    rotateBrowserTrackingDeviceId();
-  }
-}
-
-export function resetMotionTrackingIdentity() {
-  lastSyncedIdentityKey = null;
-  tracking.reset();
-  resetTracertIdentity();
-}
+  },
+});
 
 export function resetMotionTrackingForTests() {
   controller?.abort();
@@ -222,20 +224,24 @@ export function resetMotionTrackingForTests() {
   retryAt = 0;
   posthogEnabled = true;
   allowlistEnabled = false;
-  lastSyncedIdentityKey = null;
+  resetMotionTrackingIdentityStateForTests();
   tracking.reset();
   tracking.setEnabled(false);
   resetTracertForTests();
   resetBrowserTrackingDeviceIdForTests();
 }
 
-window.addEventListener('pagehide', () => {
-  void tracking.flush();
-  void flushTracert();
-});
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
     void tracking.flush();
     void flushTracert();
-  }
-});
+  });
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      void tracking.flush();
+      void flushTracert();
+    }
+  });
+}

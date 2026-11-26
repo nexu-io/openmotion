@@ -17,7 +17,7 @@ import { clearPrivateSwrCache } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
-import { resetMotionTrackingIdentity, syncMotionTrackingIdentity } from './tracking';
+import { resetMotionTrackingIdentity, syncMotionTrackingIdentity } from './trackingIdentity';
 import { GitHubLink } from './GitHubLink';
 import { repositorySupportLinks } from './githubRepository';
 import type { SettingsSection } from './workspacePageRouting';
