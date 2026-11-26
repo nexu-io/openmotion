@@ -328,7 +328,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "サイバーマンデーを告知するか、終了時刻を知らせましょう。",
     "Black Friday Skills": "ブラックフライデーのスキル",
     "View collection": "特集を見る",
-    "Browse Black Friday video references and Skills for your sale.": "セールに使えるブラックフライデーの参考動画とスキルを探しましょう。"
+    "Browse Black Friday video references and Skills for your sale.": "セールに使えるブラックフライデーの参考動画とスキルを探しましょう。",
+    "Open and edit in cloud": "クラウドで開いて編集",
+    "Copied — next step in your Agent": "コピーしました · 次のステップ（Agent）",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Codex・Claude Code・DeepSeek・Cursor に貼り付け、素材を添付して送信してください。",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Agent が OpenMotion MCP に接続済みか確認します。2. チャットに貼り付けてテーマを追加し送信します。",
+    "Not connected yet?": "まだ Agent を接続していませんか？",
+    "Connect Agent (30s)": "30 秒で Agent を接続",
+    "Already connected, don't show again": "接続済み・今後表示しない",
+    "Need images, clips, or voiceover?": "画像・動画素材やナレーションが必要ですか？",
+    "Generate with AI": "AI で生成",
+    "Make it ready to publish:": "公開に向けて仕上げる：",
+    "AI voiceover / BGM": "AI ナレーション / BGM",
+    "AI cover / clips": "AI カバー / クリップ"
   },
   "ko": {
     "Made to move.": "움직이는 아이디어",
@@ -447,7 +459,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "사이버 먼데이 광고를 만들거나 세일 종료 시간을 알려주세요.",
     "Black Friday Skills": "블랙 프라이데이 스킬",
     "View collection": "컬렉션 보기",
-    "Browse Black Friday video references and Skills for your sale.": "세일에 활용할 블랙 프라이데이 참고 영상과 스킬을 둘러보세요."
+    "Browse Black Friday video references and Skills for your sale.": "세일에 활용할 블랙 프라이데이 참고 영상과 스킬을 둘러보세요.",
+    "Open and edit in cloud": "클라우드에서 열어 편집",
+    "Copied — next step in your Agent": "복사됨 · Agent에서 다음 단계 진행",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Codex, Claude Code, DeepSeek 또는 Cursor에 붙여넣고 자료를 첨부해 전송하세요.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Agent가 OpenMotion MCP에 연결되어 있는지 확인하세요. 2. 대화창에 붙여넣고 주제를 추가해 전송하세요.",
+    "Not connected yet?": "아직 Agent를 연결하지 않으셨나요?",
+    "Connect Agent (30s)": "30초 만에 Agent 연결",
+    "Already connected, don't show again": "이미 연결됨, 다시 표시 안 함",
+    "Need images, clips, or voiceover?": "이미지, 클립 또는 내레이션이 필요하신가요?",
+    "Generate with AI": "AI로 생성",
+    "Make it ready to publish:": "게시할 수 있게 완성하기:",
+    "AI voiceover / BGM": "AI 내레이션 / BGM",
+    "AI cover / clips": "AI 커버 / 클립"
   },
   "de": {
     "Made to move.": "Für Bewegung gemacht",
@@ -566,7 +590,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "Erstelle einen Cyber-Monday-Spot oder erinnere an das Ende des Sales.",
     "Black Friday Skills": "Black-Friday-Skills",
     "View collection": "Kollektion ansehen",
-    "Browse Black Friday video references and Skills for your sale.": "Entdecke Videobeispiele und Skills für deine Black-Friday-Aktion."
+    "Browse Black Friday video references and Skills for your sale.": "Entdecke Videobeispiele und Skills für deine Black-Friday-Aktion.",
+    "Open and edit in cloud": "In der Cloud öffnen und bearbeiten",
+    "Copied — next step in your Agent": "Kopiert · Nächster Schritt in deinem Agent",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "In Codex, Claude Code, DeepSeek oder Cursor einfügen, Materialien anhängen und senden.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Prüfe, ob dein Agent mit OpenMotion MCP verbunden ist. 2. Im Agent-Chat einfügen, Thema ergänzen und senden.",
+    "Not connected yet?": "Noch nicht verbunden?",
+    "Connect Agent (30s)": "Agent verbinden (30 Sek.)",
+    "Already connected, don't show again": "Bereits verbunden, nicht mehr anzeigen",
+    "Need images, clips, or voiceover?": "Bilder, Clips oder Voiceover benötigt?",
+    "Generate with AI": "Mit KI generieren",
+    "Make it ready to publish:": "Bereit zur Veröffentlichung machen:",
+    "AI voiceover / BGM": "KI-Voiceover / BGM",
+    "AI cover / clips": "KI-Cover / Clips"
   },
   "fr": {
     "Made to move.": "Place au mouvement",
@@ -685,7 +721,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "Créez un spot pour le Cyber Monday ou rappelez la fin des promotions.",
     "Black Friday Skills": "Compétences Black Friday",
     "View collection": "Voir la collection",
-    "Browse Black Friday video references and Skills for your sale.": "Découvrez des vidéos de référence et des Skills pour votre promotion du Black Friday."
+    "Browse Black Friday video references and Skills for your sale.": "Découvrez des vidéos de référence et des Skills pour votre promotion du Black Friday.",
+    "Open and edit in cloud": "Ouvrir et modifier dans le cloud",
+    "Copied — next step in your Agent": "Copié · Étape suivante dans votre Agent",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Collez dans Codex, Claude Code, DeepSeek ou Cursor, joignez vos éléments et envoyez.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Vérifiez que votre Agent est connecté à OpenMotion MCP. 2. Collez dans le chat de votre Agent et ajoutez votre sujet.",
+    "Not connected yet?": "Pas encore connecté ?",
+    "Connect Agent (30s)": "Connecter un Agent (30 s)",
+    "Already connected, don't show again": "Déjà connecté, ne plus afficher",
+    "Need images, clips, or voiceover?": "Besoin d’images, de clips ou d’une voix off ?",
+    "Generate with AI": "Générer avec l’IA",
+    "Make it ready to publish:": "Finaliser pour la publication :",
+    "AI voiceover / BGM": "Voix off / BGM IA",
+    "AI cover / clips": "Couverture / clips IA"
   },
   "ru": {
     "Made to move.": "Создано для движения",
@@ -804,7 +852,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "Сделайте ролик к Киберпонедельнику или напомните об окончании распродажи.",
     "Black Friday Skills": "Навыки для Чёрной пятницы",
     "View collection": "Смотреть подборку",
-    "Browse Black Friday video references and Skills for your sale.": "Посмотрите примеры видео и навыки для распродажи в Чёрную пятницу."
+    "Browse Black Friday video references and Skills for your sale.": "Посмотрите примеры видео и навыки для распродажи в Чёрную пятницу.",
+    "Open and edit in cloud": "Открыть и редактировать в облаке",
+    "Copied — next step in your Agent": "Скопировано · Следующий шаг в Agent",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Вставьте в Codex, Claude Code, DeepSeek или Cursor, прикрепите материалы и отправьте.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Убедитесь, что Agent подключён к OpenMotion MCP. 2. Вставьте в чат Agent, добавьте тему и отправьте.",
+    "Not connected yet?": "Ещё не подключили Agent?",
+    "Connect Agent (30s)": "Подключить Agent (30 с)",
+    "Already connected, don't show again": "Уже подключено, больше не показывать",
+    "Need images, clips, or voiceover?": "Нужны изображения, клипы или озвучка?",
+    "Generate with AI": "Создать с ИИ",
+    "Make it ready to publish:": "Подготовьте видео к публикации:",
+    "AI voiceover / BGM": "ИИ-озвучка / BGM",
+    "AI cover / clips": "ИИ-обложка / клипы"
   },
   "es": {
     "Made to move.": "Ideas en movimiento",
@@ -923,7 +983,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "Crea un anuncio para el Cyber Monday o recuerda cuándo terminan las rebajas.",
     "Black Friday Skills": "Habilidades de Black Friday",
     "View collection": "Ver colección",
-    "Browse Black Friday video references and Skills for your sale.": "Explora vídeos de referencia y Skills para tu promoción de Black Friday."
+    "Browse Black Friday video references and Skills for your sale.": "Explora vídeos de referencia y Skills para tu promoción de Black Friday.",
+    "Open and edit in cloud": "Abrir y editar en la nube",
+    "Copied — next step in your Agent": "Copiado · Siguiente paso en tu Agent",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Pégalo en Codex, Claude Code, DeepSeek o Cursor, adjunta tus materiales y envíalo.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Asegúrate de que tu Agent esté conectado a OpenMotion MCP. 2. Pégalo en el chat de tu Agent y añade tu tema.",
+    "Not connected yet?": "¿Aún no está conectado?",
+    "Connect Agent (30s)": "Conectar Agent (30 s)",
+    "Already connected, don't show again": "Ya está conectado, no volver a mostrar",
+    "Need images, clips, or voiceover?": "¿Necesitas imágenes, clips o locución?",
+    "Generate with AI": "Generar con IA",
+    "Make it ready to publish:": "Déjalo listo para publicar:",
+    "AI voiceover / BGM": "Locución / BGM con IA",
+    "AI cover / clips": "Portada / clips con IA"
   },
   "pt-BR": {
     "Made to move.": "Feito para se mover",
@@ -1042,7 +1114,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "Crie um vídeo para a Cyber Monday ou lembre quando a promoção termina.",
     "Black Friday Skills": "Habilidades de Black Friday",
     "View collection": "Ver coleção",
-    "Browse Black Friday video references and Skills for your sale.": "Explore vídeos de referência e Skills para sua promoção da Black Friday."
+    "Browse Black Friday video references and Skills for your sale.": "Explore vídeos de referência e Skills para sua promoção da Black Friday.",
+    "Open and edit in cloud": "Abrir e editar na nuvem",
+    "Copied — next step in your Agent": "Copiado · Próximo passo no seu Agent",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Cole no Codex, Claude Code, DeepSeek ou Cursor, anexe seus materiais e envie.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Verifique se o Agent está conectado ao OpenMotion MCP. 2. Cole no chat do Agent e adicione o seu tema.",
+    "Not connected yet?": "Ainda não conectou?",
+    "Connect Agent (30s)": "Conectar Agent (30s)",
+    "Already connected, don't show again": "Já conectado, não mostrar novamente",
+    "Need images, clips, or voiceover?": "Precisa de imagens, clipes ou narração?",
+    "Generate with AI": "Gerar com IA",
+    "Make it ready to publish:": "Deixe pronto para publicar:",
+    "AI voiceover / BGM": "Narração / BGM com IA",
+    "AI cover / clips": "Capa / clipes com IA"
   },
   "it": {
     "Made to move.": "Idee in movimento",
@@ -1161,7 +1245,19 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "Crea uno spot per il Cyber Monday o ricorda quando terminano i saldi.",
     "Black Friday Skills": "Skill per il Black Friday",
     "View collection": "Vedi la raccolta",
-    "Browse Black Friday video references and Skills for your sale.": "Esplora video di riferimento e Skill per la tua promozione del Black Friday."
+    "Browse Black Friday video references and Skills for your sale.": "Esplora video di riferimento e Skill per la tua promozione del Black Friday.",
+    "Open and edit in cloud": "Apri e modifica nel cloud",
+    "Copied — next step in your Agent": "Copiato · Prossimo passo nel tuo Agent",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Incolla in Codex, Claude Code, DeepSeek o Cursor, allega i tuoi materiali e invia.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Verifica che il tuo Agent sia connesso a OpenMotion MCP. 2. Incolla nella chat dell'Agent e aggiungi il tuo argomento.",
+    "Not connected yet?": "Non ancora connesso?",
+    "Connect Agent (30s)": "Connetti Agent (30 s)",
+    "Already connected, don't show again": "Già connesso, non mostrare più",
+    "Need images, clips, or voiceover?": "Ti servono immagini, clip o voce fuori campo?",
+    "Generate with AI": "Genera con IA",
+    "Make it ready to publish:": "Rendilo pronto per la pubblicazione:",
+    "AI voiceover / BGM": "Voce / BGM IA",
+    "AI cover / clips": "Copertina / clip IA"
   },
   "tr": {
     "Made to move.": "Hareket için tasarlandı",
@@ -1280,6 +1376,18 @@
     "Make a Cyber Monday spot or remind shoppers when the sale ends.": "Cyber Monday videosu hazırlayın veya indirimin ne zaman biteceğini hatırlatın.",
     "Black Friday Skills": "Black Friday becerileri",
     "View collection": "Koleksiyonu gör",
-    "Browse Black Friday video references and Skills for your sale.": "Black Friday kampanyanız için örnek videolara ve becerilere göz atın."
+    "Browse Black Friday video references and Skills for your sale.": "Black Friday kampanyanız için örnek videolara ve becerilere göz atın.",
+    "Open and edit in cloud": "Bulutta aç ve düzenle",
+    "Copied — next step in your Agent": "Kopyalandı · Agent içindeki sonraki adım",
+    "Paste into Codex, Claude Code, DeepSeek, or Cursor, attach your materials, and send.": "Codex, Claude Code, DeepSeek veya Cursor’a yapıştırın, materyallerinizi ekleyin ve gönderin.",
+    "1. Make sure your Agent is connected to OpenMotion MCP. 2. Paste into your Agent chat and add your topic.": "1. Agent’ınızın OpenMotion MCP’ye bağlı olduğundan emin olun. 2. Agent sohbetine yapıştırıp konunuzu ekleyin ve gönderin.",
+    "Not connected yet?": "Henüz bağlanmadınız mı?",
+    "Connect Agent (30s)": "Agent bağla (30 sn)",
+    "Already connected, don't show again": "Zaten bağlı, bir daha gösterme",
+    "Need images, clips, or voiceover?": "Görsel, klip veya seslendirme mi gerekiyor?",
+    "Generate with AI": "Yapay zeka ile üret",
+    "Make it ready to publish:": "Yayınlamaya hazır hale getirin:",
+    "AI voiceover / BGM": "YZ seslendirme / BGM",
+    "AI cover / clips": "YZ kapak / klipler"
   }
 }
