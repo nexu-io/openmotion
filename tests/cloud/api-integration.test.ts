@@ -46,6 +46,7 @@ import { InMemoryMcpSessionStore } from '../../src/mcp/index.ts';
 import { MockModelGateway } from '../../src/services/mock-model-adapter.ts';
 import { ProjectArchiveService } from '../../src/services/project-archive-service.ts';
 import type { WelcomeBootstrapService } from '../../src/services/welcome-bootstrap.ts';
+import { processMediaGenerateJob } from '../../src/workers/media-generate.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SILENT_LOGGER = createLogger({ level: 'error' });
@@ -691,7 +692,7 @@ function createFakeQueues(): { queues: ApiQueuesPort; enqueued: Array<{ queue: s
       enqueued.push({ queue: 'media-ingest', payload });
       return { id: randomUUID() } as never;
     },
-    async enqueueMediaGenerate(payload: unknown) {
+    async enqueueMediaGenerate(_name: string, payload: unknown) {
       enqueued.push({ queue: 'media-generate', payload });
       return { id: randomUUID() } as never;
     },
@@ -779,6 +780,9 @@ function createApiFixture(overrides: {
   return {
     app,
     services,
+    db,
+    queues,
+    gateway,
     config,
     pgClient,
     storage,
@@ -796,6 +800,572 @@ function createApiFixture(overrides: {
 // ---------------------------------------------------------------------------
 // 1. Unauthenticated Health Probes
 // ---------------------------------------------------------------------------
+
+describe('Cloud media generation and library save', () => {
+  for (const failFirstSave of [false, true]) {
+    it(failFirstSave ? 'OPEND-5749 retries a failed CAS save without resubmitting or duplicating assets' : 'commits one asset for one successful model submission', async (t) => {
+      const { app, db, queues, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+      const enqueue = t.mock.method(queues, 'enqueueMediaGenerate');
+      const submitTask = t.mock.method(gateway, 'submitTask');
+      const pollTask = t.mock.method(gateway, 'pollTask');
+      if (failFirstSave) {
+        t.mock.method(storage, 'putBlobIfAbsent', async () => {
+          throw new Error('Injected CAS write failure');
+        }, { times: 1 });
+      }
+      const worker = {
+        db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+        generateThumbnailBuffer: async () => null,
+      };
+      const submitted = await app.request('/motion-api/models/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Yellow flower',
+          requestId: 'generate-image-1',
+        }),
+      });
+      assert.equal(submitted.status, 202);
+      const { job: { id: jobId } } = await submitted.json();
+      const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+      assert.deepEqual(enqueue.mock.calls[0].arguments.slice(0, 2), ['generate_media', payload]);
+      const initial = processMediaGenerateJob(worker, 'generate_media', payload);
+
+      if (failFirstSave) {
+        await assert.rejects(initial, /Injected CAS write failure/);
+        const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+        assert.equal(status.status, 200);
+        const { job } = await status.json();
+        assert.equal(job.state, 'failed');
+        assert.equal(job.savePending, true);
+        assert.equal(job.failureStage, 'saving');
+        assert.equal(job.remoteId, pollTask.mock.calls[0].arguments[1].remoteTaskId);
+        assert.equal(pgClient.rows('assets').length, 0);
+        assert.equal(pgClient.rows('asset_versions').length, 0);
+
+        const initialClaimToken = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+        const firstRetry = await app.request('/motion-api/phase1/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'openmotion_assets_use',
+            arguments: { action: 'retry_save', jobId, requestId: 'retry-image-save-1' },
+          }),
+        });
+        const firstRetryBody = await firstRetry.text();
+        assert.equal(firstRetry.status, 200, firstRetryBody);
+        const { job: queuedRetry } = JSON.parse(firstRetryBody);
+        assert.equal(queuedRetry.state, 'queued');
+        assert.equal(queuedRetry.phase, 'saving');
+        assert.equal(queuedRetry.savePending, true);
+
+        // Replaying the exact same requestId while queued is idempotent and uses the same BullMQ jobId
+        // (also recovers if an API process crashed between PG update and Redis enqueue).
+        const replaySameRequest = await app.request('/motion-api/phase1/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'openmotion_assets_use',
+            arguments: { action: 'retry_save', jobId, requestId: 'retry-image-save-1' },
+          }),
+        });
+        assert.equal(replaySameRequest.status, 200);
+        assert.deepEqual(enqueue.mock.calls[1].arguments, [
+          'retry_save_generation',
+          payload,
+          { jobId: `${jobId}__retry_save__${initialClaimToken}__retry-image-save-1` },
+        ]);
+        assert.deepEqual(enqueue.mock.calls[2].arguments, enqueue.mock.calls[1].arguments);
+
+        // Concurrent retry with a different requestId while already queued must reject with 409 and not enqueue.
+        const secondRetry = await app.request('/motion-api/phase1/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'openmotion_assets_use',
+            arguments: { action: 'retry_save', jobId, requestId: 'retry-image-save-2' },
+          }),
+        });
+        assert.equal(secondRetry.status, 409);
+        assert.equal(enqueue.mock.callCount(), 3);
+
+        // Even if two workers race on the same queued retry, atomic claim fencing commits exactly once.
+        const results = await Promise.all([
+          processMediaGenerateJob(worker, 'retry_save_generation', payload),
+          processMediaGenerateJob(worker, 'retry_save_generation', payload),
+        ]);
+        assert.equal(results.filter((result) => result.state === 'completed').length, 1);
+        assert.equal(results.filter((result) => result.skipped).length, 1);
+        assert.equal(pollTask.mock.calls[1].arguments[1].remoteTaskId, job.remoteId);
+      } else {
+        assert.equal((await initial).state, 'completed');
+      }
+
+      assert.equal(submitTask.mock.callCount(), 1);
+      assert.equal(pollTask.mock.callCount(), failFirstSave ? 2 : 1);
+      const completed = await app.request(`/motion-api/models/jobs/${jobId}`);
+      assert.equal(completed.status, 200);
+      const { job } = await completed.json();
+      assert.equal(job.state, 'completed');
+      assert.equal(job.savePending, false);
+      assert.equal(job.failureStage, undefined);
+      assert.equal(job.errorCode, undefined);
+      assert.equal(job.libraryAssets.length, 1);
+      assert.deepEqual(pgClient.rows('assets').map((asset) => asset.id), [job.libraryAssets[0].assetId]);
+      assert.deepEqual(pgClient.rows('asset_versions').map((version) => version.id), [job.libraryAssets[0].versionId]);
+      const [blob] = pgClient.rows('workspace_blobs');
+      assert.equal(blob.ref_count, 1);
+      assert.equal(storage.objects.has(String(blob.s3_key)), true);
+    });
+  }
+
+  it('cancelling a queued retry_save marks it cancelled and prevents worker pickup from saving an asset', async (t) => {
+    const { app, db, queues, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const enqueue = t.mock.method(queues, 'enqueueMediaGenerate');
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Injected CAS write failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Blue iris',
+        requestId: 'generate-cancel-queued-retry',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Injected CAS write failure/);
+
+    const retried = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-before-cancel' },
+      }),
+    });
+    assert.equal(retried.status, 200);
+    const claimToken = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__${claimToken}__retry-before-cancel`);
+
+    const cancelled = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'cancel', jobId },
+      }),
+    });
+    assert.equal(cancelled.status, 200);
+    const { job: cancelledJob } = await cancelled.json();
+    assert.equal(cancelledJob.state, 'cancelled');
+    assert.equal(cancelledJob.savePending, false);
+
+    const workerResult = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(workerResult.skipped, true);
+    assert.equal(pgClient.rows('assets').length, 0);
+    assert.equal(pgClient.rows('asset_versions').length, 0);
+  });
+
+  it('finalizes cancelling retry_save cleanly to cancelled if Redis cancel notification is missed and CAS fails', async (t) => {
+    const { app, db, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const publishedEvents: Array<Record<string, unknown>> = [];
+    const origPublish = eventBus.publish.bind(eventBus);
+    let dropCancelPub = false;
+    t.mock.method(eventBus, 'publish', async (channel: string, payload: unknown) => {
+      if (dropCancelPub && channel.startsWith('om:cancel:')) {
+        return 0;
+      }
+      if (channel.startsWith('om:job:') && payload && typeof payload === 'object') {
+        publishedEvents.push(payload as Record<string, unknown>);
+      }
+      return origPublish(channel, payload);
+    });
+
+    let casAttempts = 0;
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      casAttempts += 1;
+      if (casAttempts === 1) {
+        throw new Error('First CAS write failure');
+      }
+      // Simulate API transitioning the running retry to cancelling while Redis notification is dropped.
+      dropCancelPub = true;
+      const cancelRes = await app.request('/motion-api/phase1/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'openmotion_assets_use',
+          arguments: { action: 'cancel', jobId },
+        }),
+      });
+      assert.equal(cancelRes.status, 200);
+      const { job: cancellingJob } = await cancelRes.json();
+      assert.equal(cancellingJob.state, 'cancelling');
+      throw new Error('Second CAS write failure after cancel');
+    });
+
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Silver fern',
+        requestId: 'generate-cancel-missed-redis',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /First CAS write failure/);
+
+    const retried = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-cancelling-cas' },
+      }),
+    });
+    assert.equal(retried.status, 200);
+    publishedEvents.length = 0;
+
+    const retryResult = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(retryResult.state, 'cancelled');
+
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(status.status, 200);
+    const { job: finalJob } = await status.json();
+    assert.equal(finalJob.state, 'cancelled');
+    assert.equal(finalJob.savePending, false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'failed'), false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'cancelled'), true);
+    assert.equal(pgClient.rows('assets').length, 0);
+
+    const retryAfterCancel = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-after-cancel' },
+      }),
+    });
+    assert.equal(retryAfterCancel.status, 409);
+  });
+
+  it('uses distinct caller requestIds for sequential retry_save attempts without millisecond collisions', async (t) => {
+    const { app, db, queues, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const enqueue = t.mock.method(queues, 'enqueueMediaGenerate');
+    const submitTask = t.mock.method(gateway, 'submitTask');
+    let casFailures = 0;
+    const origPut = storage.putBlobIfAbsent.bind(storage);
+    t.mock.method(storage, 'putBlobIfAbsent', async (...args: Parameters<typeof origPut>) => {
+      if (casFailures < 2) {
+        casFailures += 1;
+        throw new Error(`CAS failure #${casFailures}`);
+      }
+      return origPut(...args);
+    });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Red maple',
+        requestId: 'generate-two-retries',
+      }),
+    });
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /CAS failure #1/);
+
+    const claim1 = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    const retry1 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: `save-${jobId}` },
+      }),
+    });
+    assert.equal(retry1.status, 200);
+    await assert.rejects(processMediaGenerateJob(worker, 'retry_save_generation', payload), /CAS failure #2/);
+
+    // Reusing the same Studio requestId (`save-${jobId}`) after a second failure gets a fresh BullMQ jobId
+    // via the new claimToken epoch, so it cannot be silently dropped while the previous BullMQ job finishes.
+    const claim2 = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    assert.notEqual(claim2, claim1);
+    const retry2 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: `save-${jobId}` },
+      }),
+    });
+    assert.equal(retry2.status, 200);
+    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__${claim1}__save-${jobId}`);
+    assert.equal(enqueue.mock.calls[2].arguments[2]?.jobId, `${jobId}__retry_save__${claim2}__save-${jobId}`);
+
+    const finalRes = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(finalRes.state, 'completed');
+    assert.equal(submitTask.mock.callCount(), 1);
+    assert.equal(pgClient.rows('assets').length, 1);
+  });
+
+  it('does not overwrite a pending cancellation when an upstream poll returns failed', async (t) => {
+    const { app, db, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const publishedEvents: Array<Record<string, unknown>> = [];
+    const origPublish = eventBus.publish.bind(eventBus);
+    let dropCancelPub = false;
+    t.mock.method(eventBus, 'publish', async (channel: string, payload: unknown) => {
+      if (dropCancelPub && channel.startsWith('om:cancel:')) {
+        return 0;
+      }
+      if (channel.startsWith('om:job:') && payload && typeof payload === 'object') {
+        publishedEvents.push(payload as Record<string, unknown>);
+      }
+      return origPublish(channel, payload);
+    });
+    const origPoll = gateway.pollTask.bind(gateway);
+    let pollCalls = 0;
+    t.mock.method(gateway, 'pollTask', async (...args: Parameters<typeof origPoll>) => {
+      pollCalls += 1;
+      if (pollCalls === 1) return origPoll(...args);
+      dropCancelPub = true;
+      const cancelRes = await app.request('/motion-api/phase1/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'openmotion_assets_use',
+          arguments: { action: 'cancel', jobId },
+        }),
+      });
+      assert.equal(cancelRes.status, 200);
+      return {
+        remoteTaskId: args[1].remoteTaskId,
+        status: 'failed' as const,
+        error: { code: 'UPSTREAM_ERR', message: 'Upstream failed after cancel' },
+      };
+    });
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('First CAS write failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Snow pine',
+        requestId: 'generate-poll-fail-cancel-race',
+      }),
+    });
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /First CAS write failure/);
+
+    const retried = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-poll-cancel' },
+      }),
+    });
+    assert.equal(retried.status, 200);
+    publishedEvents.length = 0;
+
+    const result = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(result.state, 'cancelled');
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    const { job: finalJob } = await status.json();
+    assert.equal(finalJob.state, 'cancelled');
+    assert.equal(finalJob.savePending, false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'failed'), false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'cancelled'), true);
+    assert.equal(pgClient.rows('assets').length, 0);
+  });
+
+  it('rolls back retry_save to failed with savePending=true when enqueueMediaGenerate rejects once', async (t) => {
+    const { app, db, gateway, config, storage, eventBus, queues } = createApiFixture();
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Transient CAS failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Cedar lantern',
+        requestId: 'generate-enqueue-rollback',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Transient CAS failure/);
+
+    const origEnqueue = queues.enqueueMediaGenerate.bind(queues);
+    t.mock.method(queues, 'enqueueMediaGenerate', async (...args: Parameters<typeof origEnqueue>) => {
+      throw new Error('Redis queue down');
+    }, { times: 1 });
+
+    const failedEnqueue = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-enqueue-fails' },
+      }),
+    });
+    assert.equal(failedEnqueue.status, 500);
+
+    const statusAfterRollback = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(statusAfterRollback.status, 200);
+    const { job: rolledBack } = (await statusAfterRollback.json()) as {
+      job: { state: string; savePending: boolean; failureStage?: string };
+    };
+    assert.equal(rolledBack.state, 'failed');
+    assert.equal(rolledBack.savePending, true);
+    assert.equal(rolledBack.failureStage, 'saving');
+
+    // A subsequent retry_save with a fresh requestId must succeed cleanly instead of hitting 409.
+    const nextRetry = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-enqueue-recovers' },
+      }),
+    });
+    assert.equal(nextRetry.status, 200);
+    const { job: recovered } = (await nextRetry.json()) as {
+      job: { state: string; stage: string; failureStage?: string };
+    };
+    assert.equal(recovered.state, 'queued');
+    assert.equal(recovered.stage, 'saving');
+    assert.equal(recovered.failureStage, undefined);
+  });
+
+  it('returns 400 INVALID_ARGUMENT with applied=false when openmotion_media_use retry_save omits requestId', async () => {
+    const { app } = createApiFixture();
+    const res = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_media_use',
+        arguments: { action: 'retry_save', jobId: randomUUID() },
+      }),
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as {
+      code?: string;
+      message?: string;
+      applied?: unknown;
+    };
+    assert.equal(body.code, 'INVALID_ARGUMENT');
+    assert.equal(body.applied, false);
+    assert.match(body.message ?? '', /requestId is required for retry_save/i);
+  });
+
+  it('emits a retry_save-specific timeout hint when retry_save_generation exhausts its poll window', async (t) => {
+    const { app, db, gateway, config, storage, eventBus, pgClient } = createApiFixture();
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Initial CAS save failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Silver lake',
+        requestId: 'generate-retry-save-timeout',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Initial CAS save failure/);
+
+    const retry1 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-save-poll-timeout-1' },
+      }),
+    });
+    assert.equal(retry1.status, 200);
+
+    t.mock.method(gateway, 'pollTask', async (_ctx: unknown, input: { remoteTaskId: string }) => ({
+      remoteTaskId: input.remoteTaskId,
+      status: 'running' as const,
+    }));
+
+    await assert.rejects(
+      processMediaGenerateJob({ ...worker, pollIntervalMs: 5, maxPollMs: 15 }, 'retry_save_generation', payload),
+      /use retry_save/i,
+    );
+
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(status.status, 200);
+    const { job: timedOut } = (await status.json()) as {
+      job: { state: string; savePending: boolean; failureStage?: string; error?: string };
+    };
+    const dbRow = pgClient.rows('jobs').find((row) => row.id === jobId)!;
+    assert.equal(timedOut.state, 'failed');
+    assert.equal(timedOut.savePending, true);
+    assert.equal(timedOut.failureStage, 'saving');
+    assert.match(String(timedOut.error ?? dbRow.error_message ?? ''), /retry_save/i);
+    assert.doesNotMatch(String(timedOut.error ?? dbRow.error_message ?? ''), /use resume/i);
+
+    const resumeAttempt = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'resume', jobId, requestId: 'resume-after-retry-save-timeout' },
+      }),
+    });
+    assert.equal(resumeAttempt.status, 409);
+
+    const retry2 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-save-poll-timeout-2' },
+      }),
+    });
+    assert.equal(retry2.status, 200);
+  });
+});
 
 it('logs registered project read/write routes without recording request paths or query strings', async () => {
   const lines: string[] = [];
@@ -4107,6 +4677,7 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
       remote_id: 'mit_unknown_timeout',
       remote_terminal: false,
       save_pending: false,
+      failure_stage: 'generate',
       error_code: 'request_state_unknown',
       error_message: 'OpenDesign could not confirm whether this request ran, so it was not resubmitted. Inspect the original task before retrying.',
       result_json: { error: { code: 'request_state_unknown', outcomeUnknown: true } },
@@ -4125,9 +4696,12 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
 
     const resumableRes = await app.request(`/motion-api/models/jobs/${resumableJobId}`);
     assert.equal(resumableRes.status, 200);
-    const resumableBody = (await resumableRes.json()) as { job: { remoteTerminal?: boolean; errorCode?: string } };
+    const resumableBody = (await resumableRes.json()) as {
+      job: { remoteTerminal?: boolean; errorCode?: string; failureStage?: string };
+    };
     assert.equal(resumableBody.job.remoteTerminal, false);
     assert.equal(resumableBody.job.errorCode, 'request_state_unknown');
+    assert.equal(resumableBody.job.failureStage, 'generate');
 
     const phase1ListRes = await app.request('/motion-api/phase1/call', {
       method: 'POST',
@@ -4158,7 +4732,14 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
       }),
     });
     assert.equal(resumeActiveRes.status, 200);
-    const resumed = (await resumeActiveRes.json()) as { job: { state: string } };
+    const resumed = (await resumeActiveRes.json()) as { job: { state: string; failureStage?: string } };
     assert.equal(resumed.job.state, 'queued');
+    assert.equal(resumed.job.failureStage, undefined);
+
+    const statusAfterResume = await app.request(`/motion-api/models/jobs/${resumableJobId}`);
+    assert.equal(statusAfterResume.status, 200);
+    const resumedStatus = (await statusAfterResume.json()) as { job: { state: string; failureStage?: string } };
+    assert.equal(resumedStatus.job.state, 'queued');
+    assert.equal(resumedStatus.job.failureStage, undefined);
   });
 });

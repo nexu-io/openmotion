@@ -2,6 +2,8 @@
 import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { imageFeaturePrompt } from '../../../shared/image-features';
+import { videoFeaturePrompt } from '../../../shared/video-features';
 import { AssetsPage } from './AssetsPage';
 import type { AssetDraft } from './AssetComposer';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
@@ -10,7 +12,7 @@ import type { LibraryAsset } from '../../../shared/asset-library';
 import type { GameCard } from '../../../shared/game-contract';
 import { gameApi } from './game/gameCatalog';
 
-vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15' }) }));
+vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15', formatNumber: (value: number) => value.toLocaleString() }) }));
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 let lastComposerOnCreated: ((job: import('../../../shared/gateway').GenerationJob) => void) | undefined;
 let lastShowCurrentJob: boolean | undefined;
@@ -784,6 +786,94 @@ it('transitions completed placeholders in place without duplicating assets and l
   expect(studio.remember.mock.lastCall?.[0].prompt).toBe('Neon alley rain scene');
   await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!.click(); }); await flush();
   expect(container.querySelectorAll('.om-placeholder-stage')).toHaveLength(0);
+});
+
+it.each([
+  ['remove-background', 'image', imageFeaturePrompt('remove-background', '保留发丝。'), '保留发丝。'],
+  ['video-camera-control', 'video', videoFeaturePrompt('camera-control', '向前走。', { movement: 'pan', pace: 'dynamic' }), '向前走。'],
+  ['video-multi-shot', 'video', videoFeaturePrompt('multi-shot', '穿过雨夜。', { shots: '2', style: 'match' }), '穿过雨夜。'],
+  ['relight', 'image', imageFeaturePrompt('relight', ''), ''],
+] as const)('refills the original %s prompt from card, lightbox and failed job', async (sceneId, modality, stored, original) => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('feature');
+  asset.modality = modality;
+  Object.assign(asset.versions[0], { source: 'generated', prompt: stored });
+  records = new Map([[asset.id, asset]]);
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === sceneId)!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+    initialDraft: { modality, prompt: 'Replace this draft', references: [] },
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />));
+  await flush();
+  await click('Generations');
+  await click('More actions');
+  const menuItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Reuse prompt')!;
+  await act(async () => menuItem.click());
+  await flush();
+  const applied = () => container.querySelector('input[aria-label="Creation draft"]')!;
+  expect(applied().getAttribute('data-prompt')).toBe(original);
+  expect(applied().getAttribute('data-prompt-applied-token')).toBe('1');
+
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-gen-open')!.click());
+  expect(container.querySelector('.om-gen-lightbox')?.textContent).toContain(stored);
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(original);
+  expect(applied().getAttribute('data-prompt-applied-token')).toBe('2');
+
+  const failedJob: import('../../../shared/gateway').GenerationJob = {
+    id: 'feature-failure', modality, prompt: stored, state: 'failed',
+    model: { id: 'opendesign:test', label: 'Test model', provider: 'opendesign' },
+    createdAt: 300, updatedAt: 300,
+  };
+  await act(async () => lastComposerOnCreated?.(failedJob));
+  await flush();
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(original);
+  expect(applied().getAttribute('data-prompt-applied-token')).toBe('3');
+});
+
+it.each([
+  ['text-to-video', 'video', videoFeaturePrompt('camera-control', '向前走。', { movement: 'pan', pace: 'dynamic' })],
+  ['text-to-image', 'image', imageFeaturePrompt('remove-background', '')],
+] as const)('preserves user-authored prompts verbatim when reusing from non-feature scene %s', async (sceneId, modality, stored) => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('plain');
+  asset.modality = modality;
+  Object.assign(asset.versions[0], { source: 'generated', prompt: stored });
+  records = new Map([[asset.id, asset]]);
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === sceneId)!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+    initialDraft: { modality, prompt: 'Replace this draft', references: [] },
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />));
+  await flush();
+  await click('Generations');
+  await click('More actions');
+  const menuItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Reuse prompt')!;
+  await act(async () => menuItem.click());
+  await flush();
+  const applied = () => container.querySelector('input[aria-label="Creation draft"]')!;
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
+
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-gen-open')!.click());
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
+
+  const failedJob: import('../../../shared/gateway').GenerationJob = {
+    id: 'plain-failure', modality, prompt: stored, state: 'failed',
+    model: { id: 'opendesign:test', label: 'Test model', provider: 'opendesign' },
+    createdAt: 300, updatedAt: 300,
+  };
+  await act(async () => lastComposerOnCreated?.(failedJob));
+  await flush();
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
 });
 
 it('renders justified equal-height Generations flows for both Image and Video with human model names and unclipped Cinema Lightbox', async () => {

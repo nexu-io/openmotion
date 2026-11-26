@@ -148,16 +148,19 @@ export function defaultVideoFeatureChoices(feature: VideoFeatureId): VideoFeatur
 
 export function videoFeaturePrompt(feature: VideoFeatureId, prompt: string, choices: VideoFeatureChoices = {}): string {
   const userText = prompt.trim();
-  if (!userText) return '';
+  return userText ? videoFeaturePromptPrefix(feature, choices) + userText : '';
+}
+
+export function videoFeaturePromptPrefix(feature: VideoFeatureId, choices: VideoFeatureChoices = {}): string {
   const spec = videoFeatures[feature];
   const parts = spec.controls.map(control => {
     const selected = control.choices.find(choice => choice.value === choices[control.key]) ?? defaultVideoFeatureChoice(control);
     return selected.prompt;
   });
   if (feature === 'camera-control') {
-    return `Camera direction: ${parts.join(', ')}. Scene: ${userText}`;
+    return `Camera direction: ${parts.join(', ')}. Scene: `;
   }
-  return `Multi-shot direction: ${parts.join(', ')}. Story: ${userText}`;
+  return `Multi-shot direction: ${parts.join(', ')}. Story: `;
 }
 
 /** Pure capability check (provider-agnostic): whether a model can run this video feature. */

@@ -259,7 +259,7 @@
     "Retry saving": "重试保存",
     "The retained files are missing, changed or unreadable. Saving cannot be retried. No new generation was requested.": "保留文件已缺失、发生变化或无法读取，不能再重试保存。本次没有重新生成。",
     "Retrying save…": "正在重试保存…",
-    "Generated files are kept locally. Retry saving without generating again.": "生成文件已保留在本机，可重试保存，无需重新生成。",
+    "Retry saving without generating again.": "可重试保存，无需重新生成。",
     "Failure details": "查看失败原因",
     "Asset preview": "资产预览",
     "Asset details": "资产详情",
@@ -348,9 +348,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "当前未配置云端语音转写服务（未设置 OPENDESIGN_ASR_URL）。仍可手动添加字幕或导入 SRT/VTT。",
     "Upstream media generation timed out; use resume to continue polling": "媒体生成等待超时，请点击「查询原任务」继续获取结果。",
     "Media generation failed": "媒体生成失败，请重试。",
-    "OpenDesign model gateway request failed": "OpenDesign 模型网关请求失败，请稍后重试。"
+    "OpenDesign model gateway request failed": "OpenDesign 模型网关请求失败，请稍后重试。",
+    "Remove 1 character to stay within the {limit}-character limit.": "请删减 1 个字符，以不超过当前上限（{limit} 字符）。",
+    "Remove {count} characters to stay within the {limit}-character limit.": "请删减 {count} 个字符，以不超过当前上限（{limit} 字符）。"
   },
   "ja": {
+    "Retry saving without generating again.": "再生成せずに保存をやり直せます。",
     "Follows first frame": "最初のフレームに合わせる",
     "Aspect ratio follows the first frame.": "縦横比は最初のフレームに合わせます。",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "最初のフレームがある場合、固定の縦横比は選べません。削除するとテキスト動画の縦横比設定に戻ります。",
@@ -383,9 +386,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "クラウド音声文字起こしは未設定です（OPENDESIGN_ASR_URL が未設定）。手動字幕や SRT/VTT インポートは引き続き利用できます。",
     "Upstream media generation timed out; use resume to continue polling": "メディア生成の待機がタイムアウトしました。「元のタスクを確認」から結果の取得を続けてください。",
     "Media generation failed": "メディアの生成に失敗しました。もう一度お試しください。",
-    "OpenDesign model gateway request failed": "OpenDesign モデルゲートウェイへのリクエストに失敗しました。しばらくしてからもう一度お試しください。"
+    "OpenDesign model gateway request failed": "OpenDesign モデルゲートウェイへのリクエストに失敗しました。しばらくしてからもう一度お試しください。",
+    "Remove 1 character to stay within the {limit}-character limit.": "上限（{limit} 文字）以内に収めるには 1 文字削除してください。",
+    "Remove {count} characters to stay within the {limit}-character limit.": "上限（{limit} 文字）以内に収めるには {count} 文字削除してください。"
   },
   "ko": {
+    "Retry saving without generating again.": "다시 생성하지 않고 저장을 재시도할 수 있습니다.",
     "Follows first frame": "첫 프레임에 맞춤",
     "Aspect ratio follows the first frame.": "화면 비율은 첫 프레임을 따릅니다.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "첫 프레임이 첨부되면 고정 비율을 선택할 수 없습니다. 제거하면 텍스트 동영상의 비율 선택이 복원됩니다.",
@@ -418,9 +424,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "클라우드 음성 전사가 설정되지 않았습니다(OPENDESIGN_ASR_URL 미설정). 수동 자막과 SRT/VTT 가져오기는 계속 사용할 수 있습니다.",
     "Upstream media generation timed out; use resume to continue polling": "미디어 생성 대기 시간이 초과되었습니다. 기존 작업 확인을 눌러 결과를 이어서 조회하세요.",
     "Media generation failed": "미디어 생성에 실패했습니다. 다시 시도해 주세요.",
-    "OpenDesign model gateway request failed": "OpenDesign 모델 게이트웨이 요청에 실패했습니다. 잠시 후 다시 시도해 주세요."
+    "OpenDesign model gateway request failed": "OpenDesign 모델 게이트웨이 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    "Remove 1 character to stay within the {limit}-character limit.": "{limit}자 제한에 맞추려면 1자를 줄여 주세요.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "{limit}자 제한에 맞추려면 {count}자를 줄여 주세요."
   },
   "de": {
+    "Retry saving without generating again.": "Erneut speichern, ohne neu zu generieren.",
     "Follows first frame": "Wie das erste Bild",
     "Aspect ratio follows the first frame.": "Das Seitenverhältnis richtet sich nach dem ersten Bild.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Mit einem ersten Bild sind feste Seitenverhältnisse nicht verfügbar. Entfernen Sie es, um die Auswahl für Text-zu-Video wiederherzustellen.",
@@ -453,9 +462,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "Cloud-ASR-Transkription ist nicht konfiguriert (OPENDESIGN_ASR_URL ist nicht gesetzt). Manuelle Untertitel und SRT/VTT-Import bleiben verfügbar.",
     "Upstream media generation timed out; use resume to continue polling": "Zeitüberschreitung beim Warten auf die Medienerstellung. Nutze „Ursprüngliche Aufgabe prüfen“, um weiter abzufragen.",
     "Media generation failed": "Medienerstellung fehlgeschlagen. Bitte versuche es erneut.",
-    "OpenDesign model gateway request failed": "Anfrage an das OpenDesign-Modell-Gateway fehlgeschlagen. Bitte versuche es später erneut."
+    "OpenDesign model gateway request failed": "Anfrage an das OpenDesign-Modell-Gateway fehlgeschlagen. Bitte versuche es später erneut.",
+    "Remove 1 character to stay within the {limit}-character limit.": "Entferne 1 Zeichen, um das Limit von {limit} Zeichen einzuhalten.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "Entferne {count} Zeichen, um das Limit von {limit} Zeichen einzuhalten."
   },
   "fr": {
+    "Retry saving without generating again.": "Réessayez d’enregistrer sans relancer la génération.",
     "Follows first frame": "Selon la première image",
     "Aspect ratio follows the first frame.": "Le format suit celui de la première image.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Les formats fixes sont indisponibles lorsqu’une première image est jointe. Retirez-la pour retrouver votre choix texte-vers-vidéo.",
@@ -488,9 +500,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "La transcription ASR cloud n’est pas configurée (OPENDESIGN_ASR_URL non défini). Les sous-titres manuels et l’import SRT/VTT restent disponibles.",
     "Upstream media generation timed out; use resume to continue polling": "Délai dépassé en attendant la génération média. Utilisez « Vérifier la tâche d’origine » pour reprendre le suivi.",
     "Media generation failed": "La génération média a échoué. Veuillez réessayer.",
-    "OpenDesign model gateway request failed": "La requête vers la passerelle de modèles OpenDesign a échoué. Veuillez réessayer plus tard."
+    "OpenDesign model gateway request failed": "La requête vers la passerelle de modèles OpenDesign a échoué. Veuillez réessayer plus tard.",
+    "Remove 1 character to stay within the {limit}-character limit.": "Supprimez 1 caractère pour respecter la limite de {limit} caractères.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "Supprimez {count} caractères pour respecter la limite de {limit} caractères."
   },
   "ru": {
+    "Retry saving without generating again.": "Повторите попытку сохранения без повторной генерации.",
     "Follows first frame": "По первому кадру",
     "Aspect ratio follows the first frame.": "Соотношение сторон определяется первым кадром.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "При добавленном первом кадре фиксированные пропорции недоступны. Удалите его, чтобы восстановить выбор пропорций для видео из текста.",
@@ -523,9 +538,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "Облачная транскрипция ASR не настроена (не задан OPENDESIGN_ASR_URL). Ручные субтитры и импорт SRT/VTT по-прежнему доступны.",
     "Upstream media generation timed out; use resume to continue polling": "Время ожидания генерации медиа истекло. Нажмите «Проверить исходную задачу», чтобы продолжить опрос.",
     "Media generation failed": "Не удалось сгенерировать медиа. Попробуйте снова.",
-    "OpenDesign model gateway request failed": "Ошибка запроса к шлюзу моделей OpenDesign. Попробуйте позже."
+    "OpenDesign model gateway request failed": "Ошибка запроса к шлюзу моделей OpenDesign. Попробуйте позже.",
+    "Remove 1 character to stay within the {limit}-character limit.": "Удалите 1 символ, чтобы уложиться в лимит {limit} символов.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "Удалите {count} симв., чтобы уложиться в лимит {limit} символов."
   },
   "es": {
+    "Retry saving without generating again.": "Vuelve a intentar guardar sin generar de nuevo.",
     "Follows first frame": "Según el primer fotograma",
     "Aspect ratio follows the first frame.": "La relación de aspecto sigue al primer fotograma.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Las proporciones fijas no están disponibles con un primer fotograma adjunto. Elimínelo para recuperar la proporción de texto a vídeo.",
@@ -558,9 +576,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "La transcripción ASR en la nube no está configurada (OPENDESIGN_ASR_URL no está definido). Los subtítulos manuales y la importación SRT/VTT siguen disponibles.",
     "Upstream media generation timed out; use resume to continue polling": "Se agotó el tiempo de espera de la generación multimedia. Usa «Comprobar tarea original» para seguir consultando.",
     "Media generation failed": "Error al generar el recurso multimedia. Inténtalo de nuevo.",
-    "OpenDesign model gateway request failed": "Error en la solicitud a la pasarela de modelos de OpenDesign. Inténtalo más tarde."
+    "OpenDesign model gateway request failed": "Error en la solicitud a la pasarela de modelos de OpenDesign. Inténtalo más tarde.",
+    "Remove 1 character to stay within the {limit}-character limit.": "Elimina 1 carácter para no superar el límite de {limit} caracteres.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "Elimina {count} caracteres para no superar el límite de {limit} caracteres."
   },
   "pt-BR": {
+    "Retry saving without generating again.": "Tente salvar novamente sem gerar de novo.",
     "Follows first frame": "Conforme o primeiro quadro",
     "Aspect ratio follows the first frame.": "A proporção segue o primeiro quadro.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "As proporções fixas ficam indisponíveis com um primeiro quadro anexado. Remova-o para restaurar a proporção de texto para vídeo.",
@@ -593,9 +614,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "A transcrição ASR na nuvem não está configurada (OPENDESIGN_ASR_URL não definido). Legendas manuais e importação SRT/VTT continuam disponíveis.",
     "Upstream media generation timed out; use resume to continue polling": "Tempo limite esgotado aguardando a geração de mídia. Use “Verificar tarefa original” para continuar consultando.",
     "Media generation failed": "Falha na geração de mídia. Tente novamente.",
-    "OpenDesign model gateway request failed": "Falha na solicitação ao gateway de modelos OpenDesign. Tente novamente mais tarde."
+    "OpenDesign model gateway request failed": "Falha na solicitação ao gateway de modelos OpenDesign. Tente novamente mais tarde.",
+    "Remove 1 character to stay within the {limit}-character limit.": "Remova 1 caractere para ficar dentro do limite de {limit} caracteres.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "Remova {count} caracteres para ficar dentro do limite de {limit} caracteres."
   },
   "it": {
+    "Retry saving without generating again.": "Riprova a salvare senza generare di nuovo.",
     "Follows first frame": "Come il primo fotogramma",
     "Aspect ratio follows the first frame.": "Le proporzioni seguono il primo fotogramma.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Le proporzioni fisse non sono disponibili con un primo fotogramma allegato. Rimuovilo per ripristinare la scelta per il video da testo.",
@@ -628,9 +652,12 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "La trascrizione ASR cloud non è configurata (OPENDESIGN_ASR_URL non impostato). I sottotitoli manuali e l’importazione SRT/VTT restano disponibili.",
     "Upstream media generation timed out; use resume to continue polling": "Timeout in attesa della generazione multimediale. Usa «Controlla attività originale» per continuare il polling.",
     "Media generation failed": "Generazione multimediale non riuscita. Riprova.",
-    "OpenDesign model gateway request failed": "Richiesta al gateway modelli OpenDesign non riuscita. Riprova più tardi."
+    "OpenDesign model gateway request failed": "Richiesta al gateway modelli OpenDesign non riuscita. Riprova più tardi.",
+    "Remove 1 character to stay within the {limit}-character limit.": "Rimuovi 1 carattere per restare entro il limite di {limit} caratteri.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "Rimuovi {count} caratteri per restare entro il limite di {limit} caratteri."
   },
   "tr": {
+    "Retry saving without generating again.": "Yeniden oluşturmadan kaydetmeyi tekrar deneyin.",
     "Follows first frame": "İlk kareye göre",
     "Aspect ratio follows the first frame.": "En boy oranı ilk kareyi izler.",
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "İlk kare eklendiğinde sabit oranlar kullanılamaz. Metinden video oranını geri yüklemek için ilk kareyi kaldırın.",
@@ -663,6 +690,8 @@
     "Cloud ASR transcription is not configured (OPENDESIGN_ASR_URL is unset). Manual captions and SRT/VTT import remain available.": "Bulut ASR transkripsiyonu yapılandırılmamış (OPENDESIGN_ASR_URL ayarlı değil). Manuel altyazılar ve SRT/VTT içe aktarma kullanılabilir.",
     "Upstream media generation timed out; use resume to continue polling": "Medya oluşturma beklenirken zaman aşımına uğradı. Sorgulamaya devam etmek için “Orijinal görevi kontrol et” seçeneğini kullanın.",
     "Media generation failed": "Medya oluşturma başarısız oldu. Lütfen tekrar deneyin.",
-    "OpenDesign model gateway request failed": "OpenDesign model ağ geçidi isteği başarısız oldu. Lütfen daha sonra tekrar deneyin."
+    "OpenDesign model gateway request failed": "OpenDesign model ağ geçidi isteği başarısız oldu. Lütfen daha sonra tekrar deneyin.",
+    "Remove 1 character to stay within the {limit}-character limit.": "{limit} karakter sınırında kalmak için 1 karakter silin.",
+    "Remove {count} characters to stay within the {limit}-character limit.": "{limit} karakter sınırında kalmak için {count} karakter silin."
   }
 }
