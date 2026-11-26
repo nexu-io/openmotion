@@ -220,6 +220,33 @@ test('concurrent cold callers share one download; stale reads use the previous s
   assert.equal(cms.requests.length, 4, 'unchanged publication must not re-download locale content');
 });
 
+test('callers that require the publication wait for the in-flight first load; a failed load still rejects', async () => {
+  const cms = fakeCms();
+  const release = cms.pause();
+  const browsing = cms.catalog.getTemplates();
+  const required = [cms.catalog.getTemplates({ requirePublication: true }), cms.catalog.getTemplates({ requirePublication: true })];
+  assert.deepEqual(await browsing, []);
+  release();
+  const loaded = await Promise.all(required);
+  assert(loaded.every(items => items.length === 2 && items === loaded[0]));
+  assert.equal(cms.requests.length, 3, 'waiting callers share the single first download');
+
+  const solo = fakeCms();
+  const releaseSolo = solo.pause();
+  const first = solo.catalog.getTemplates({ requirePublication: true });
+  releaseSolo();
+  assert.equal((await first).length, 2, 'the call that starts the first load also waits for it');
+
+  const unavailable = { code: 'SERVICE_UNAVAILABLE', status: 503 };
+  const down = fakeCms();
+  down.fail(true);
+  await assert.rejects(down.catalog.getTemplates({ requirePublication: true }), unavailable);
+  assert.equal(down.requests.length, 1);
+  assert.match(String(down.errors[0]), /503/);
+  await assert.rejects(down.catalog.getTemplates({ requirePublication: true }), unavailable);
+  assert.equal(down.requests.length, 1, 'a failed load backs off instead of retrying on every request');
+});
+
 test('publishes a changed edition only after every language has been verified; failed refreshes back off', async () => {
   const cms = fakeCms();
   await cms.catalog.getTemplates();

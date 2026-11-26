@@ -224,6 +224,8 @@ export class PrismMotionCatalog {
     if (!this.pending && this.now() >= this.checkAfter) {
       this.pending = this.refresh();
     }
+    // A fresh process has no snapshot yet; let callers that need one wait for the first load.
+    if (requirePublication && !this.cached && this.pending) await this.pending;
     if (requirePublication && !this.cached) {
       throw new CloudError('SERVICE_UNAVAILABLE', 'Motion template catalog is not ready yet. Retry shortly.', { status: 503 });
     }

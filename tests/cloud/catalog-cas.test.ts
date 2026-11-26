@@ -1189,7 +1189,7 @@ describe('Runtime template clones', () => {
     return { pg, storage, catalog: new CatalogService({ db: pg.db, storage, prismCatalog: { getTemplates } }) };
   }
 
-  it('answers exact lookups immediately during the first load and distinguishes absence after publication', async () => {
+  it('makes exact lookups wait for the first load, rejects them when it fails and distinguishes absence after publication', async () => {
     const resourceId = '1500c9af-186b-457f-b74d-a58113f657d8';
     const versionPath = '/resources/' + resourceId + '/channels/default/versions/v1';
     const published = JSON.stringify({ templates: [{
@@ -1218,17 +1218,19 @@ describe('Runtime template clones', () => {
     pg.seedWorkspace(WID_A, USER_A);
     const catalog = new CatalogService({ db: pg.db, storage: new MockStorage(), prismCatalog });
     const unavailable = { code: 'SERVICE_UNAVAILABLE', status: 503 };
-    await assert.rejects(catalog.getTemplate('published'), unavailable);
-    await assert.rejects(catalog.cloneTemplateToProject(ctx, { templateId: 'published' }), unavailable);
-    await assert.rejects(catalog.headTemplateAsset('published', 'index.html'), unavailable);
+    // Exact lookups wait for the in-flight first load; listing and built-in lookups do not.
+    const waiting = Promise.all([
+      catalog.getTemplate('published'),
+      catalog.cloneTemplateToProject(ctx, { templateId: 'published' }),
+      catalog.headTemplateAsset('published', 'index.html'),
+    ].map(lookup => assert.rejects(lookup, unavailable)));
     assert.equal((await catalog.listTemplates()).catalogTotal, BUILTIN_TEMPLATES.length);
     assert.equal((await catalog.getTemplate(WELCOME_TEMPLATE_ID)).id, WELCOME_TEMPLATE_ID);
     assert.equal(requests, 1);
     gate.resolve();
-    await setImmediate();
+    await waiting;
+    assert.equal(requests, 1, 'waiting lookups share the failed first load');
     offline = false;
-    await assert.rejects(catalog.getTemplate('published'), unavailable);
-    await setImmediate();
     assert.equal((await catalog.getTemplate('published')).id, 'published');
     await assert.rejects(catalog.getTemplate('absent'), { code: 'NOT_FOUND', status: 404 });
   });
