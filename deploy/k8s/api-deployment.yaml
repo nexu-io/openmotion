@@ -274,6 +274,22 @@ spec:
                 configMapKeyRef:
                   name: openmotion-config
                   key: OPENDESIGN_CONSOLE_URL
+            - name: OPENDESIGN_PRICING_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENDESIGN_PRICING_URL
+                  optional: true
+            - name: OPENDESIGN_ONE_TAP_INTERNAL_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENDESIGN_ONE_TAP_INTERNAL_URL
+            - name: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openmotion-secrets
+                  key: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN
             - name: OPENDESIGN_S2S_API_KEY
               valueFrom:
                 secretKeyRef:

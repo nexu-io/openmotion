@@ -43,10 +43,10 @@ export function StudioToast({ message, tone, presentation, leaving, onDismiss, s
         {icon}
         <span className="min-w-0 leading-5 [overflow-wrap:anywhere]">{systemMessage(toastErrorMessage(message), t)}</span>
         {actions || (onDismiss && <IconButton variant="plain" type="button" className="hf-toast-action" aria-label={t('Dismiss error')} onClick={onDismiss} icon={<RemixIcon name="close-line" size={14} />} />)}
-      </div> : <div className="hf-toast-surface max-w-[min(420px,calc(100vw-48px))] overflow-hidden">
+      </div> : <div className={`hf-toast-surface overflow-hidden ${isError ? "max-w-[min(560px,calc(100vw-48px))]" : "max-w-[min(420px,calc(100vw-48px))]"}`}>
         <div className="hf-toast-row">
           {icon}
-          <span className={singleLine ? "block min-w-0 truncate leading-5" : "line-clamp-3 leading-5 [overflow-wrap:anywhere]"} title={systemMessage(message, t)}>{systemMessage(message, t)}</span>
+          <span className={singleLine ? "block min-w-0 truncate leading-5" : isError ? "min-w-0 leading-5 [overflow-wrap:anywhere]" : "line-clamp-3 leading-5 [overflow-wrap:anywhere]"} title={systemMessage(message, t)}>{systemMessage(message, t)}</span>
           {status && <span className="shrink-0 leading-5 opacity-70">
             {status === 'Reconnecting…' ? <>
               <span className="sr-only">{t(status)}</span>

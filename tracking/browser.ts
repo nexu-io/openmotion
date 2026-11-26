@@ -1,6 +1,6 @@
 import { createTracker } from './core.ts';
 import type { Registry } from './core.ts';
-export function createBrowserTracking<const R extends Registry>(options: { endpoint: string; registry: R; enabled: boolean; flushIntervalMs?: number; isEnabled?: () => boolean }) {
+export function createBrowserTracking<const R extends Registry>(options: { endpoint: string; registry: R; enabled: boolean; flushIntervalMs?: number; isEnabled?: () => boolean; getAppUserId?: () => string | null }) {
   const endpoint = new URL(options.endpoint, window.location.href);
   if (endpoint.origin !== window.location.origin || endpoint.username || endpoint.password) throw new Error('SAME_ORIGIN_REQUIRED');
   const context = new URLSearchParams(window.location.search).get('tracking_context');

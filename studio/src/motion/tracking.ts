@@ -2,13 +2,21 @@ import { createBrowserTracking } from '../../../tracking/browser.ts';
 import { studioEvents } from '../../../tracking/events.ts';
 import type { StudioEvent } from '../../../tracking/events.ts';
 import type { EventFields } from '../../../tracking/core.ts';
+import {
+  getMotionTrackingUserId,
+  setMotionTrackingConsented,
+  setMotionTrackingUserId,
+} from './trackingIdentity';
+
+export { getMotionTrackingUserId, setMotionTrackingUserId };
 
 const tracking = createBrowserTracking({ registry: studioEvents, endpoint: '/motion-api/tracking', enabled: false,
-  isEnabled: () => navigator.doNotTrack !== '1' });
+  isEnabled: () => navigator.doNotTrack !== '1', getAppUserId: getMotionTrackingUserId });
 let initialization: Promise<void> | undefined;
 let configuration: 'uninitialized' | 'loading' | 'ready' | 'disabled' | 'unavailable' = 'uninitialized';
 let controller: AbortController | undefined;
 let retryAt = 0;
+let explicitDeviceIdConsented = false;
 
 function retryDelay(ms: number, signal: AbortSignal) {
   return new Promise<void>(resolve => {
@@ -34,6 +42,12 @@ export function initializeTracking() {
         if (!config || typeof config !== 'object' || !('enabled' in config) || typeof config.enabled !== 'boolean') throw new Error('INVALID_CONFIG');
         if (request.signal.aborted) return;
         tracking.setEnabled(config.enabled);
+        // Server availability (`config.enabled`) is NEVER user consent for device-ID transmission.
+        // Reflect the explicit `deviceIdConsented` boolean returned by /motion-api/tracking.
+        explicitDeviceIdConsented =
+          'deviceIdConsented' in config &&
+          (config as { deviceIdConsented?: unknown }).deviceIdConsented === true;
+        setMotionTrackingConsented(config.enabled && explicitDeviceIdConsented);
         configuration = config.enabled ? 'ready' : 'disabled'; retryAt = 0;
         return;
       } catch {
@@ -56,7 +70,14 @@ export function getMotionTrackingStatus() {
 export function flushMotionTracking() { return tracking.flush(); }
 export function setMotionTrackingEnabled(enabled: boolean) {
   controller?.abort(); retryAt = 0;
-  tracking.setEnabled(enabled); configuration = enabled ? 'ready' : 'disabled';
+  tracking.setEnabled(enabled);
+  // Usage-data sharing preference is independent of explicit device-ID consent (`om_metrics_consent`).
+  setMotionTrackingConsented(enabled && explicitDeviceIdConsented);
+  configuration = enabled ? 'ready' : 'disabled';
+}
+export function setMotionDeviceIdConsented(consented: boolean) {
+  explicitDeviceIdConsented = consented;
+  setMotionTrackingConsented(consented && tracking.enabled());
 }
 
 window.addEventListener('pagehide', () => { void tracking.flush(); });

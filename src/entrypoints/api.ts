@@ -1,7 +1,7 @@
 import { projectSourceReadUrl } from '../../shared/project-source-url.ts';
 import { formatFileVersion } from '../studio/etag.ts';
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
-import { createCloudTracking } from '../cloud-tracking.ts';
+import { createCloudTracking, type CloudTrackingHandle } from '../cloud-tracking.ts';
 import {
   CatalogFilmstripAutoBakeDispatcher,
   InMemoryCatalogFilmstripBakeState,
@@ -62,6 +62,8 @@ import {
   AmrIdentityClient,
   InMemoryAuthCache,
   OidcService,
+  SESSION_COOKIE_NAME,
+  TRACKING_ATTESTATION_COOKIE_NAME,
   amrIdentityClientFromAppConfig,
   buildOAuth21Config,
   createAuthMiddleware,
@@ -70,7 +72,14 @@ import {
   createPgAuthStore,
   createRedisAuthCache,
   getAuthContext,
+  isHttpsOrigin,
   oidcConfigFromAppConfig,
+  parseCookies,
+  resolveBrowserSession,
+  resolveTrackingAttestationSecret,
+  serializeTrackingAttestationCookie,
+  verifyCsrfOrigin,
+  verifyTrackingAttestationCookie,
   type AuthEnv,
   type AuthKeyValueCache,
   type AuthMiddlewareDeps,
@@ -167,6 +176,64 @@ export function resolveApiCorsAllowedOrigins(
     config.APP_PUBLIC_ORIGIN,
     config.PREVIEW_PUBLIC_ORIGIN ? [config.PREVIEW_PUBLIC_ORIGIN] : [],
   );
+}
+
+function normalizeCspOrigin(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed || /[\s;,"'\x00-\x1f\x7f]/.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Main-document security headers required by Google Identity Services (GIS) One Tap + FedCM.
+ * Enforces GIS script/style/frame/connect allowances, `identity-credentials-get` Permissions-Policy,
+ * and `Cross-Origin-Opener-Policy: same-origin-allow-popups` (never `same-origin`).
+ */
+export function buildStudioDocumentSecurityHeaders(
+  options: { previewOrigin?: string | null; storagePublicOrigin?: string | null } = {},
+): Record<string, string> {
+  const preview = normalizeCspOrigin(options.previewOrigin) ?? '';
+  const storageOrigin = normalizeCspOrigin(options.storagePublicOrigin) ?? '';
+  const uniqueSources = (sources: string[]) => [...new Set(sources.filter(Boolean))].join(' ');
+  const frameSrc = uniqueSources(["'self'", 'blob:', 'https://accounts.google.com/gsi/', preview]);
+  const connectSrc = uniqueSources([
+    "'self'",
+    'https://accounts.google.com/gsi/',
+    'http://127.0.0.1:*',
+    'http://localhost:*',
+    'https:',
+    'wss:',
+    preview,
+    storageOrigin,
+  ]);
+  const imgSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const mediaSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const fontSrc = uniqueSources(["'self'", 'data:', 'https:', storageOrigin]);
+  return {
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
+      `frame-src ${frameSrc}`,
+      `connect-src ${connectSrc}`,
+      `img-src ${imgSrc}`,
+      `media-src ${mediaSrc}`,
+      `font-src ${fontSrc}`,
+      "worker-src 'self' blob:",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; '),
+    'Permissions-Policy': 'identity-credentials-get=(self "https://accounts.google.com")',
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Content-Type-Options': 'nosniff',
+  };
 }
 
 function resolveIncomingRequestHost(request: Request, trustProxyHops: number): string {
@@ -280,6 +347,8 @@ export interface CreateApiAppDeps {
   readonly hotTextCache?: HotTextCachePort;
   readonly catalogFilmstripBakeState?: CatalogFilmstripBakeStatePort;
   readonly rateLimiter?: RateLimiter;
+  /** Browser telemetry pipeline; defaults to the env-configured PostHog tracker. */
+  readonly cloudTracking?: CloudTrackingHandle;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
   readonly oidc?: OidcService;
@@ -2506,7 +2575,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   // 2. Auth & OAuth 2.1 Routes (`/auth/*`, `/.well-known/*`, `/oauth/*`, `/motion-api/tokens*`)
   // -------------------------------------------------------------------------
 
-  const cloudTracking = createCloudTracking(VERSION);
+  const cloudTracking = deps.cloudTracking ?? createCloudTracking(VERSION);
 
   app.route('/', createAuthRoutes({ ...authDeps, cloudTracking }));
 
@@ -2708,9 +2777,103 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     return consumeLocalWindow(ipHash, TRACKING_RATE_LIMIT_PER_MIN) && consumeLocalWindow('__global__', TRACKING_GLOBAL_LIMIT_PER_MIN);
   };
 
+  const resolveTrackingClientIp = (c: Context): string => {
+    if (config.TRUST_PROXY_HOPS > 0) {
+      const forwarded = c.req.header('x-forwarded-for');
+      if (forwarded) {
+        const hops = forwarded
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (hops.length > 0) {
+          return hops[Math.max(0, hops.length - config.TRUST_PROXY_HOPS)] ?? 'local';
+        }
+      }
+      const realIp = c.req.header('x-real-ip')?.trim();
+      if (realIp) return realIp;
+    }
+    return 'local';
+  };
+
+  // Google One Tap attribution: browser events may only carry an app_user_id the server has attested
+  // (signed om_track_att cookie or the live session), and device-ID attribution needs explicit consent.
+  const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
+  const ONE_TAP_TRACKING_EVENTS = new Set([
+    'onetap_prompt_attempt',
+    'onetap_prompt_observed',
+    'onetap_credential_received',
+    'onetap_login_success',
+    'onetap_login_failed',
+  ]);
+  const trackingAttestationSecret = resolveTrackingAttestationSecret(config);
+  const trackingCookieSecure = isHttpsOrigin(config.APP_PUBLIC_ORIGIN);
+  const attributeBrowserTrackingBatch = (
+    payload: unknown,
+    attestedAppUserIds: ReadonlySet<string>,
+    sessionAppUserId: string | null,
+  ): unknown[] => {
+    const items = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' && Array.isArray((payload as { events?: unknown }).events)
+        ? (payload as { events: unknown[] }).events
+        : [];
+    const attributed: unknown[] = [];
+    for (const raw of items) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        attributed.push(raw);
+        continue;
+      }
+      const event = { ...(raw as Record<string, unknown>) };
+      const isOneTapEvent = typeof event.event === 'string' && ONE_TAP_TRACKING_EVENTS.has(event.event);
+      const claimed = typeof event.app_user_id === 'string' ? event.app_user_id.trim() : '';
+      delete event.app_user_id;
+      if (claimed) {
+        // Keep server-confirmed attribution across account switches and post-logout flushes, and never
+        // trust an unverified/spoofed app_user_id: only One Tap events survive, as anonymous guest events.
+        if (attestedAppUserIds.has(claimed)) {
+          event.app_user_id = claimed;
+          attributed.push(event);
+        } else if (isOneTapEvent) {
+          attributed.push(event);
+        }
+        continue;
+      }
+      // Events queued without an app_user_id (e.g. guest pre-login One Tap prompts) stay guest events.
+      if (!isOneTapEvent && sessionAppUserId) event.app_user_id = sessionAppUserId;
+      attributed.push(event);
+    }
+    return attributed;
+  };
+
   app.get('/motion-api/tracking', (c) => {
     const enabled = cloudTracking.isEnabled();
-    return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
+    // Server availability is never user consent for device-ID transmission.
+    const deviceIdConsented = parseCookies(c.req.header('cookie'))[METRICS_CONSENT_COOKIE_NAME] === 'granted';
+    return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud', deviceIdConsented });
+  });
+  app.post('/motion-api/tracking/consent', async (c) => {
+    if (!verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
+      return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
+    }
+    if (!(await checkTrackingRateLimit(resolveTrackingClientIp(c)))) {
+      return c.json({ error: 'Too many tracking requests' }, 429);
+    }
+    let consented = false;
+    try {
+      const parsed = (await c.req.json()) as { deviceIdConsented?: unknown };
+      consented = parsed?.deviceIdConsented === true;
+    } catch {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
+    }
+    const cookieParts = [
+      `${METRICS_CONSENT_COOKIE_NAME}=${consented ? 'granted' : 'denied'}`,
+      'Path=/',
+      'SameSite=Lax',
+      'Max-Age=31536000',
+    ];
+    if (trackingCookieSecure) cookieParts.push('Secure');
+    c.header('Set-Cookie', cookieParts.join('; '));
+    return c.json({ ok: true, deviceIdConsented: consented });
   });
   app.post('/motion-api/tracking', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     const contentType = (c.req.header('content-type') ?? '').toLowerCase();
@@ -2729,31 +2892,49 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         return c.json({ error: 'Cross-origin tracking rejected' }, 403);
       }
     }
-    const resolveClientIp = (): string => {
-      if (config.TRUST_PROXY_HOPS > 0) {
-        const forwarded = c.req.header('x-forwarded-for');
-        if (forwarded) {
-          const hops = forwarded
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean);
-          if (hops.length > 0) {
-            return hops[Math.max(0, hops.length - config.TRUST_PROXY_HOPS)] ?? 'local';
-          }
-        }
-        const realIp = c.req.header('x-real-ip')?.trim();
-        if (realIp) return realIp;
-      }
-      return 'local';
-    };
-    if (!(await checkTrackingRateLimit(resolveClientIp()))) {
+    if (!(await checkTrackingRateLimit(resolveTrackingClientIp(c)))) {
       return c.json({ error: 'Too many tracking requests' }, 429);
     }
     if (!cloudTracking.isEnabled()) {
       return c.json({ ok: true, accepted: false }, 202);
     }
     const body = await c.req.json().catch(() => null);
-    const acceptedCount = cloudTracking.acceptBrowserBatch(body);
+    const cookies = parseCookies(c.req.header('cookie'));
+    const rawSession = cookies[SESSION_COOKIE_NAME];
+    const rawTrackAtt = cookies[TRACKING_ATTESTATION_COOKIE_NAME];
+    const previouslyAttested = verifyTrackingAttestationCookie(rawTrackAtt, trackingAttestationSecret);
+    const attestedAppUserIds = new Set(previouslyAttested);
+    let sessionAppUserId: string | null = null;
+    if (rawSession) {
+      try {
+        const resolved = await resolveBrowserSession(authDeps.store, rawSession, {
+          authMode: config.AUTH_MODE,
+          cache: authDeps.cache,
+        });
+        if (resolved) {
+          const auth =
+            config.AUTH_MODE === 'oidc' && authDeps.amrIdentity
+              ? await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth)
+              : resolved.auth;
+          sessionAppUserId = auth.appUserId ?? null;
+          if (sessionAppUserId) attestedAppUserIds.add(sessionAppUserId);
+        }
+      } catch {
+        // Treat an invalid or expired session cookie as a guest for telemetry attribution.
+      }
+    }
+    const acceptedCount = cloudTracking.acceptBrowserBatch(
+      attributeBrowserTrackingBatch(body, attestedAppUserIds, sessionAppUserId),
+    );
+    if (sessionAppUserId && !previouslyAttested.has(sessionAppUserId)) {
+      const attCookie = serializeTrackingAttestationCookie(
+        rawTrackAtt,
+        sessionAppUserId,
+        trackingAttestationSecret,
+        { secure: trackingCookieSecure },
+      );
+      if (attCookie) c.header('Set-Cookie', attCookie);
+    }
     return c.json({ ok: true, accepted: acceptedCount > 0, acceptedCount }, 202);
   });
   const trackingPreferencesPayload = () => {
@@ -2937,7 +3118,18 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     '/motion-api/models',
     createModelRoutes({ gateway, authStore, mediaJobs, consoleUrl: config.OPENDESIGN_CONSOLE_URL }),
   );
-  app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway, cache: authCache }));
+  app.route(
+    '/motion-api/account',
+    createAccountRoutes({
+      config,
+      authStore,
+      gateway,
+      cache: authCache,
+      upgradeHandoffEnabled: Boolean(
+        config.AUTH_MODE === 'oidc' && authDeps.amrIdentity?.isOneTapConfigured(),
+      ),
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // 8. Explicit P2 Deferred Routes (`501 FEATURE_DEFERRED_P2`)
@@ -3239,10 +3431,15 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled
         ? { 'Origin-Agent-Cluster': '?1' }
         : {};
+      const documentSecurityHeaders = buildStudioDocumentSecurityHeaders({
+        previewOrigin: previewHostIsolationEnabled && previewOriginUrl ? previewOriginUrl.origin : null,
+        storagePublicOrigin: normalizeCspOrigin(config.S3_PUBLIC_ENDPOINT ?? config.S3_ENDPOINT),
+      });
       if (!notFoundRoute && c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {
           status: 304,
           headers: {
+            ...documentSecurityHeaders,
             ETag: etag,
             'Cache-Control': 'no-cache',
             'X-Content-Type-Options': 'nosniff',
@@ -3253,6 +3450,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       return new Response(headOnly ? null : bytes, {
         status: notFoundRoute ? 404 : 200,
         headers: {
+          ...documentSecurityHeaders,
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Length': String(bytes.byteLength),
           ...(notFoundRoute ? { 'Cache-Control': 'no-store' } : { ETag: etag, 'Cache-Control': 'no-cache' }),

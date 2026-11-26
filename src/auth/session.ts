@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import type { AuthContext, AuthMode } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
 import { isUuid } from '../../shared/project-validation.ts';
@@ -5,14 +6,39 @@ import {
   randomBase64Url,
   roleAllowedScopes,
   sha256Hex,
+  timingSafeStringEqual,
   type AuthKeyValueCache,
   type AuthStore,
 } from './store.ts';
 
 export const SESSION_COOKIE_NAME = 'om_session';
 export const OIDC_TX_COOKIE_NAME = 'om_oidc_tx';
+export const ONETAP_CTX_COOKIE_NAME = 'om_onetap_ctx';
+export const ONETAP_CTX_COOKIE_PREFIX = 'om_onetap_ctx_';
+export const ONETAP_CTX_TTL_SEC = 300;
+export const DESKTOP_OIDC_CTX_COOKIE_NAME = 'om_desktop_oidc_ctx';
+export const TRACKING_ATTESTATION_COOKIE_NAME = 'om_track_att';
+export const TRACKING_ATTESTATION_TTL_SEC = 1800;
 export const DEFAULT_SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
 const SESSION_CACHE_TTL_SEC = 60;
+const TRACKING_ATTESTATION_MAX_ENTRIES = 4;
+const TRACKING_APP_USER_ID_RE = /^[A-Za-z0-9_.-]{1,128}$/;
+
+export function oneTapChallengeCookieName(challengeId: string): string {
+  return `${ONETAP_CTX_COOKIE_PREFIX}${sha256Hex(challengeId).slice(0, 16)}`;
+}
+
+export function oneTapRevokedBindingCacheKey(bindingHash: string): string {
+  return `om:onetap:revoked-binding:${bindingHash}`;
+}
+
+export function oneTapUserLogoutEpochCacheKey(userId: string): string {
+  return `om:onetap:logout-user:${userId}`;
+}
+
+export function oneTapSessionBindingCacheKey(tokenHash: string): string {
+  return `om:onetap:session-binding:${tokenHash}`;
+}
 
 export function oidcIdTokenCacheKey(rawSessionToken: string): string {
   return `oidc:id_token:${sha256Hex(rawSessionToken)}`;
@@ -161,6 +187,36 @@ export async function resolveBrowserSession(
   const tokenHash = sha256Hex(rawToken);
   const cacheKey = sessionCacheKey(tokenHash);
 
+  // Enforce One Tap logout revocation even if /auth/logout completed after
+  // POST /auth/one-tap finished its final pre-response barrier check.
+  if (options.cache) {
+    const rawBinding = await options.cache.get(oneTapSessionBindingCacheKey(tokenHash));
+    if (rawBinding) {
+      let bindingHash: string | undefined;
+      try {
+        const parsedBinding = JSON.parse(rawBinding) as { bindingHash?: string };
+        bindingHash = parsedBinding.bindingHash;
+      } catch {
+        // Malformed binding record cannot be trusted; treat as unparseable.
+      }
+      if (bindingHash) {
+        // Read revocation marker OUTSIDE try/catch so Redis read failures fail closed.
+        const revokedMarker = await options.cache.get(
+          oneTapRevokedBindingCacheKey(bindingHash),
+        );
+        if (revokedMarker) {
+          // Revoke DB session and evict session cache without swallowing errors.
+          // Retain oneTapSessionBindingCacheKey until its full 7-day session TTL
+          // expires so a cached or retried session can NEVER resurrect after logout.
+          await store.revokeSessionByTokenHash(tokenHash);
+          await options.cache.del(cacheKey);
+          await options.cache.del(`om:amr:session-proof:${tokenHash}`).catch(() => {});
+          return null;
+        }
+      }
+    }
+  }
+
   let sessionMeta: CachedSessionPayload | null = null;
   if (options.cache) {
     const cached = await options.cache.get(cacheKey);
@@ -255,7 +311,10 @@ export async function revokeBrowserSession(
   let revoked = false;
   if (tokenHash) {
     revoked = await store.revokeSessionByTokenHash(tokenHash);
-    if (cache) await cache.del(sessionCacheKey(tokenHash));
+    if (cache) {
+      await cache.del(sessionCacheKey(tokenHash));
+      await cache.del(oneTapSessionBindingCacheKey(tokenHash)).catch(() => {});
+    }
   } else if (input.sessionId) {
     revoked = await store.revokeSessionById(input.sessionId);
   }
@@ -307,4 +366,84 @@ export function verifyCsrfOrigin(request: Request, publicOrigin: string): boolea
   }
 
   return false;
+}
+
+type TrackingAttestationEntry = { u: string; exp: number };
+
+export function resolveTrackingAttestationSecret(config: {
+  SESSION_SECRET?: string;
+  APP_PUBLIC_ORIGIN: string;
+}): string {
+  const base = config.SESSION_SECRET?.trim() || `om-dev-track-att:${config.APP_PUBLIC_ORIGIN}`;
+  return createHmac('sha256', base).update('openmotion:tracking-attestation:v1', 'utf8').digest('hex');
+}
+
+function parseVerifiedAttestationEntries(
+  rawCookie: string | undefined,
+  secret: string,
+  nowSec = Math.floor(Date.now() / 1000),
+): TrackingAttestationEntry[] {
+  if (!rawCookie) return [];
+  const sep = rawCookie.lastIndexOf('.');
+  if (sep <= 0 || sep >= rawCookie.length - 1) return [];
+  const payloadB64 = rawCookie.slice(0, sep);
+  const sigB64 = rawCookie.slice(sep + 1);
+  const expectedSig = createHmac('sha256', secret).update(payloadB64, 'utf8').digest('base64url');
+  if (!timingSafeStringEqual(sigB64, expectedSig)) return [];
+  try {
+    const parsed = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const entries: TrackingAttestationEntry[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      const u = (item as { u?: unknown }).u;
+      const exp = (item as { exp?: unknown }).exp;
+      if (
+        typeof u === 'string' &&
+        TRACKING_APP_USER_ID_RE.test(u) &&
+        typeof exp === 'number' &&
+        Number.isFinite(exp) &&
+        exp > nowSec
+      ) {
+        entries.push({ u, exp });
+      }
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+export function verifyTrackingAttestationCookie(
+  rawCookie: string | undefined,
+  secret: string,
+  nowSec = Math.floor(Date.now() / 1000),
+): Set<string> {
+  return new Set(parseVerifiedAttestationEntries(rawCookie, secret, nowSec).map((entry) => entry.u));
+}
+
+export function serializeTrackingAttestationCookie(
+  existingCookie: string | undefined,
+  appUserId: string,
+  secret: string,
+  options: { secure: boolean; nowSec?: number; ttlSec?: number },
+): string | null {
+  const trimmed = appUserId.trim();
+  if (!TRACKING_APP_USER_ID_RE.test(trimmed)) return null;
+  const nowSec = options.nowSec ?? Math.floor(Date.now() / 1000);
+  const ttlSec = options.ttlSec ?? TRACKING_ATTESTATION_TTL_SEC;
+  const entries = parseVerifiedAttestationEntries(existingCookie, secret, nowSec).filter(
+    (entry) => entry.u !== trimmed,
+  );
+  entries.push({ u: trimmed, exp: nowSec + ttlSec });
+  const bounded = entries.slice(-TRACKING_ATTESTATION_MAX_ENTRIES);
+  const payloadB64 = Buffer.from(JSON.stringify(bounded), 'utf8').toString('base64url');
+  const sigB64 = createHmac('sha256', secret).update(payloadB64, 'utf8').digest('base64url');
+  return serializeCookie(TRACKING_ATTESTATION_COOKIE_NAME, `${payloadB64}.${sigB64}`, {
+    httpOnly: true,
+    secure: options.secure,
+    sameSite: 'Lax',
+    path: '/',
+    maxAgeSec: ttlSec,
+  });
 }

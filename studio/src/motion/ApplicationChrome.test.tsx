@@ -7,17 +7,24 @@ import { readStudioUiPreferences } from '../utils/studioUiPreferences';
 import { ApplicationAccountMenu } from './ApplicationChrome';
 import { SettingsCenter } from './SettingsCenter';
 
+const accountState = vi.hoisted(() => ({
+  account: null as Record<string, unknown> | null,
+}));
+
 vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => ({ openHome: vi.fn(), openLibrary: vi.fn(), switchingDisabled: false, navigationCollapsed: false }) }));
-vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: null }), AccountSettings: () => null }));
+vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: accountState.account }), AccountSettings: () => null, buildLoginUrl: () => '/auth/login' }));
 vi.mock('./ModelSwitcher', () => ({ ModelSwitcher: () => null }));
 vi.mock('./GitHubLink', () => ({ GitHubLink: () => null }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: vi.fn(async () => ({ version: 'test' })) }));
 
-beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/'); });
+beforeEach(() => { accountState.account = null; localStorage.clear(); sessionStorage.clear(); delete window.google; history.replaceState(null, '', '/'); });
 afterEach(() => {
   cleanupMounted();
   delete document.documentElement.dataset.theme;
   delete document.documentElement.dataset.themePreference;
+  delete window.google;
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
 const click = async (element: Element | null) => { expect(element).not.toBeNull(); act(() => (element as HTMLElement).click()); await settle(); };
@@ -80,4 +87,55 @@ it('switches the theme from the appearance submenu without navigating to setting
   expect(appearance().textContent).toBe('AppearanceLight');
   await click(appearance());
   expect(light().getAttribute('aria-checked')).toBe('true');
+});
+
+it('checks response.ok before suppressing One Tap and broadcasting sign-out from the header menu', async () => {
+  accountState.account = {
+    state: 'signed-in',
+    authMode: 'oidc',
+    userId: 'om_u1',
+    appUserId: 'usr_app_1',
+    user: { name: 'Ada', email: 'ada@example.test' },
+    consoleUrl: 'https://open-design.ai/cloud',
+  };
+  const disableAutoSelect = vi.fn();
+  window.google = {
+    accounts: {
+      id: {
+        initialize: vi.fn(),
+        prompt: vi.fn(),
+        disableAutoSelect,
+        cancel: vi.fn(),
+      },
+    },
+  };
+  const openSettings = vi.fn();
+  const accountChanged = vi.fn();
+  window.addEventListener('motion:account-changed', accountChanged);
+
+  try {
+    // 1. Failed logout (HTTP 500) must NOT suppress One Tap or dispatch motion:account-changed
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'failed' }), { status: 500 })));
+    mountHost(<I18nProvider initialLocale="en"><ApplicationAccountMenu settings={null} openSettings={openSettings} /></I18nProvider>);
+    await click(document.querySelector('[aria-label="Account menu"]'));
+    const signOutFailed = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Sign out'))!;
+    await click(signOutFailed);
+    expect(sessionStorage.getItem('od_onetap_suppressed_once')).toBeNull();
+    expect(disableAutoSelect).not.toHaveBeenCalled();
+    expect(accountChanged).not.toHaveBeenCalled();
+    expect(openSettings).toHaveBeenCalledWith('account');
+
+    // 2. Confirmed logout (HTTP 200) writes od_onetap_suppressed_once, disables auto-select, and dispatches motion:account-changed
+    openSettings.mockClear();
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true }, { status: 200 })));
+    await click(document.querySelector('[aria-label="Account menu"]'));
+    const signOutOk = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Sign out'))!;
+    await click(signOutOk);
+    expect(sessionStorage.getItem('od_onetap_suppressed_once')).toBe('1');
+    expect(disableAutoSelect).toHaveBeenCalledTimes(1);
+    expect(accountChanged).toHaveBeenCalledTimes(1);
+    expect(openSettings).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener('motion:account-changed', accountChanged);
+  }
 });

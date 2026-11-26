@@ -16,6 +16,16 @@ test('privacy rules reject internal URLs, employee paths and private files witho
   assert.deepEqual(privacyFindings('README.md', url).map(x => x.rule), ['internal-link']);
   assert.deepEqual(privacyFindings('README.md', text).map(x => x.rule), ['personal-path']);
   assert(!JSON.stringify(privacyFindings('README.md', url)).includes('private'));
+  // Narrowly scoped public TEST desktop pricing host allowlist (source scan only)
+  const testPricingUrl = 'https://' + 'open-design.' + 'powerformer.net/pricing';
+  const testMotionOrigin = 'https://' + 'motion.open-design.' + 'powerformer.net';
+  const otherInternalUrl = 'https://' + 'admin.' + 'powerformer.net/internal';
+  assert.deepEqual(privacyFindings('desktop/src/auth-handoff.ts', `const u = '${testPricingUrl}';`, 'source'), []);
+  assert(privacyFindings('desktop/src/auth-handoff.ts', `const u = '${testPricingUrl}/extra';`, 'source').some(x => x.rule === 'internal-link'));
+  assert(privacyFindings('desktop/src/auth-handoff.ts', `const u = '${otherInternalUrl}';`, 'source').some(x => x.rule === 'internal-link'));
+  assert(privacyFindings('desktop/src/auth-handoff.ts', `const u = '${testPricingUrl}';`, 'package').some(x => x.rule === 'internal-link'));
+  assert.deepEqual(privacyFindings('desktop/tests/one-tap-handoff.test.mjs', `'${testMotionOrigin}' '${testPricingUrl}'`, 'source'), []);
+  assert(privacyFindings('desktop/tests/one-tap-handoff.test.mjs', `'${otherInternalUrl}'`, 'source').some(x => x.rule === 'internal-link'));
   for (const name of ['../escape', '/absolute', 'C:/drive', 'safe/../../outside', 'bad\\file', 'bad\tname']) assert.throws(() => archivePaths(name));
 });
 

@@ -41,6 +41,7 @@ import { GITHUB_REPOSITORY } from './githubRepository';
 import { setObservabilityContext } from '@openmotion/observability/browser';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
+import { MotionGoogleOneTap, type RegisteredLoginErrorCode } from './googleOneTap';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
 import { DesktopUpdatePrompt } from './DesktopUpdatePrompt';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useExploreCampaign, useMinuteCondition } from './campaignAttribution';
@@ -56,7 +57,7 @@ import {
   saveAuthPendingDraft,
   type AuthPendingDraft,
 } from './authRecoveryStore';
-import { buildLoginUrl } from './AccountSettings';
+import { buildLoginUrl, useAccountSummary } from './AccountSettings';
 import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type SettingsSection, type WorkspacePage } from './workspacePageRouting';
 import type { SoundTabId } from './soundTabs';
 import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, navigateWorkspaceHistory, readLocationWorkspaceSource, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
@@ -741,6 +742,12 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     openTemplate: openTemplateFromOverlay,
   };
   return <WorkspaceChromeContext.Provider value={value}>
+    <WorkspaceGoogleOneTap
+      bfBannerVisible={bfBannerVisible}
+      hostChrome={hostChrome}
+      showToast={navigationToast.showToast}
+      dismissToast={navigationToast.dismissToast}
+    />
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
     <DesktopUpdatePrompt />
@@ -837,6 +844,77 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     <OverlayLayer {...overlaySharedProps} placement="portal" />
     <EntitlementModalHost />
   </WorkspaceChromeContext.Provider>;
+}
+
+export function WorkspaceGoogleOneTap({
+  bfBannerVisible,
+  hostChrome,
+  showToast,
+  dismissToast,
+  navigateToLogin,
+}: {
+  bfBannerVisible: boolean;
+  hostChrome: boolean;
+  showToast: ReturnType<typeof useToast>['showToast'];
+  dismissToast: ReturnType<typeof useToast>['dismissToast'];
+  navigateToLogin?: (url: string) => void;
+}) {
+  const { t } = useI18n();
+  const { account, error, refresh } = useAccountSummary();
+  const oneTapErrorToastIdRef = useRef<number | null>(null);
+  const handleOneTapError = useCallback(
+    (_errorMessage: string, errorCode?: RegisteredLoginErrorCode) => {
+      if (oneTapErrorToastIdRef.current !== null) {
+        dismissToast(oneTapErrorToastIdRef.current);
+        oneTapErrorToastIdRef.current = null;
+      }
+      const displayMessage =
+        errorCode === 'ACCOUNT_BANNED'
+          ? t('Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.')
+          : errorCode === 'ACCOUNT_FROZEN'
+            ? t('This account is frozen or scheduled for deletion.')
+            : errorCode === 'LINK_CONFIRM_REQUIRED'
+              ? t('An account with this email already exists. Sign in with your existing method to verify and link your account.')
+              : errorCode === 'EMAIL_DOMAIN_BLOCKED'
+                ? t('This email domain is not eligible for quick sign-in. Please sign in with another method.')
+                : t('Sign-in failed. Please try again or choose another sign-in method.');
+      oneTapErrorToastIdRef.current = showToast(
+        displayMessage,
+        'error',
+        'feedback',
+        {
+          key: 'onetap-go-login',
+          label: t('Go to sign in'),
+          onClick: () => {
+            const loginUrl = buildLoginUrl();
+            if (navigateToLogin) {
+              navigateToLogin(loginUrl);
+            } else {
+              window.location.assign(loginUrl);
+            }
+          },
+        },
+      );
+    },
+    [dismissToast, showToast, t, navigateToLogin],
+  );
+  const handleOneTapSuccess = useCallback(() => {
+    if (oneTapErrorToastIdRef.current !== null) {
+      dismissToast(oneTapErrorToastIdRef.current);
+      oneTapErrorToastIdRef.current = null;
+    }
+  }, [dismissToast]);
+  return (
+    <MotionGoogleOneTap
+      account={account}
+      accountError={error}
+      bfBannerVisible={bfBannerVisible}
+      hostChrome={hostChrome}
+      refreshAccount={() => refresh(false)}
+      onError={handleOneTapError}
+      onSuccess={handleOneTapSuccess}
+    />
+  );
 }
 
 function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery, onNavigate, openSettings, openTemplates }: {

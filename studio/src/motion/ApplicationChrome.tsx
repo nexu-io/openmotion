@@ -13,8 +13,11 @@ import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { buildLoginUrl, useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
+import { suppressOneTapAfterConfirmedLogout } from './googleOneTap';
 import { clearPrivateSwrCache } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
+import { flushMotionTracking } from './tracking';
+import { setMotionTrackingUserId } from './trackingIdentity';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
@@ -123,6 +126,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   const { account } = useAccountSummary();
   useEffect(() => {
     if (!account) return;
+    setMotionTrackingUserId(account.state === 'signed-in' ? (account.appUserId ?? null) : null);
     setObservabilityContext({
       userId: account.state === 'signed-in' ? (account.userId ?? null) : null,
       workspaceId: account.activeWorkspace?.id ?? null,
@@ -151,8 +155,11 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   const avatarInitial = avatarSegmenter.segment(userName)[Symbol.iterator]().next().value?.segment;
   async function signOut() {
     try {
+      void flushMotionTracking();
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error('Could not sign out');
+      suppressOneTapAfterConfirmedLogout();
+      setMotionTrackingUserId(null);
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
       window.dispatchEvent(new Event('motion:account-changed'));
