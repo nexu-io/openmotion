@@ -159,3 +159,13 @@ it('exposes safe queue and delivery statuses while rejecting private or non-Stud
   expect(await tracking.flushMotionTracking()).toBe('disabled');
   expect(tracking.getMotionTrackingStatus().pending).toBe(0);
 });
+
+it.each([401, 403])('does not retry %i authorization rejections during tracking initialization', async status => {
+  const fetcher = vi.fn(async () => new Response('', { status }));
+  vi.stubGlobal('fetch', fetcher);
+  const tracking = await import('./tracking');
+  expect(await tracking.trackMotion('ui_click', click)).toBe('config_unavailable');
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(tracking.getMotionTrackingStatus()).toEqual({ configuration: 'unavailable', enabled: false, pending: 0, retryAfterMs: 20_000 });
+});

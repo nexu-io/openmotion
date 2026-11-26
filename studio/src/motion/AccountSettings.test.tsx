@@ -3,8 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { I18nProvider, type Locale } from '../i18n/I18n';
-import { AccountSettings, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
-import { getPrivateSwrIdentity } from './swrCache';
+import { AccountSettings, publishSignedOutAccountSummary, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
+import { clearPrivateSwrCache, getPrivateSwrIdentity } from './swrCache';
 import { notifyProvidersChanged } from './useProviderDirectory';
 
 const hooks = vi.hoisted(() => ({
@@ -153,6 +153,132 @@ it('switches once through the workspace dropdown and updates the active workspac
   expect(trigger.textContent).toBe('Studio B');
   expect(section.textContent).toContain('studio-b · member');
   expect(document.querySelector('.hf-toast-viewport [role="status"]')?.textContent).toBe('Workspace switched');
+});
+
+it('invalidates workspace and gateway consumers immediately on switch success while billing refresh is still pending', async () => {
+  const page = await open(cookieAccount);
+  const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  const [target] = await workspaceOptions(trigger);
+
+  const switchResponse = Promise.withResolvers<Record<string, unknown>>();
+  const billingResponse = Promise.withResolvers<Record<string, unknown>>();
+  const originalImpl = hooks.request.getMockImplementation()!;
+  hooks.request.mockImplementation((path: string, method = 'GET', body?: Record<string, unknown>) => {
+    if (path === 'account/workspaces/switch') return switchResponse.promise;
+    if (path === 'account/summary?refresh=true') return billingResponse.promise;
+    return originalImpl(path, method, body);
+  });
+
+  let accountEvents = 0;
+  const onAccountChanged = () => { accountEvents++; };
+  window.addEventListener('motion:account-changed', onAccountChanged);
+  try {
+    await act(async () => { target.click(); });
+    expect(accountEvents).toBe(0);
+    expect(getPrivateSwrIdentity()).toBe('u1:ws-1');
+
+    // Switch succeeds while billing refresh stays pending: SWR identity and motion:account-changed
+    // must fire immediately BEFORE billing resolves so workspace-A reads are aborted at once.
+    await act(async () => {
+      switchResponse.resolve({ ok: true });
+      await Promise.resolve();
+    });
+    expect(accountEvents).toBe(1);
+    expect(getPrivateSwrIdentity()).toBe('u1:ws-2');
+
+    // Completing the billing refresh must update Studio B without firing a redundant reload.
+    await act(async () => {
+      billingResponse.resolve({ consoleUrl: 'https://open-design.ai/cloud', ...cookieAccount, activeWorkspace: studioB });
+      await Promise.resolve();
+    });
+    expect(accountEvents).toBe(1);
+    expect(trigger.textContent).toBe('Studio B');
+  } finally {
+    window.removeEventListener('motion:account-changed', onAccountChanged);
+  }
+});
+
+it('publishes switched activeWorkspace immediately and clears prior workspace billing even if post-switch summary returns 503', async () => {
+  const page = await open({
+    ...cookieAccount,
+    billing: { plan: 'pro', balanceUsd: 42.5, hasBalance: true },
+  });
+  const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  const [target] = await workspaceOptions(trigger);
+
+  const originalImpl = hooks.request.getMockImplementation()!;
+  let summaryAttempts = 0;
+  hooks.request.mockImplementation((path: string, method = 'GET', body?: Record<string, unknown>) => {
+    if (path === 'account/workspaces/switch') {
+      const id = String(body?.workspaceId ?? '');
+      const ws = id === studioB.id ? studioB : studioA;
+      return Promise.resolve({ ok: true, activeWorkspace: ws });
+    }
+    if (path === 'account/summary?refresh=true') {
+      summaryAttempts++;
+      if (summaryAttempts === 1) {
+        const err = new Error('Service unavailable') as Error & { status?: number };
+        err.status = 503;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ consoleUrl: 'https://open-design.ai/cloud', ...cookieAccount, activeWorkspace: studioA });
+    }
+    return originalImpl(path, method, body);
+  });
+
+  await act(async () => { target.click(); });
+  // UI reflects Studio B immediately and clears Studio A's balance/plan despite summary 503.
+  expect(trigger.textContent).toBe('Studio B');
+  expect(page.textContent).not.toContain('42.5');
+  expect(getPrivateSwrIdentity()).toBe('u1:ws-2');
+
+  // Selecting Studio A again is not blocked because Studio B is now current.
+  const optionsAfterSwitch = await workspaceOptions(trigger);
+  const studioAOption = optionsAfterSwitch.find(item => item.textContent?.includes('Studio A'))!;
+  await act(async () => { studioAOption.click(); });
+  expect(hooks.request.mock.calls.filter(([path]) => path === 'account/workspaces/switch')).toEqual([
+    ['account/workspaces/switch', 'POST', { workspaceId: studioB.id }],
+    ['account/workspaces/switch', 'POST', { workspaceId: studioA.id }],
+  ]);
+  expect(trigger.textContent).toBe('Studio A');
+});
+
+it('discards a delayed workspace switch response if sign-out completed while the switch was in flight', async () => {
+  const page = await open(cookieAccount);
+  const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  const [target] = await workspaceOptions(trigger);
+
+  const switchResponse = Promise.withResolvers<Record<string, unknown>>();
+  const originalImpl = hooks.request.getMockImplementation()!;
+  hooks.request.mockImplementation((path: string, method = 'GET', body?: Record<string, unknown>) => {
+    if (path === 'account/workspaces/switch') return switchResponse.promise;
+    if (path === 'account/summary') {
+      const err = new Error('Service unavailable') as Error & { status?: number };
+      err.status = 503;
+      return Promise.reject(err);
+    }
+    return originalImpl(path, method, body);
+  });
+
+  await act(async () => { target.click(); });
+
+  // User signs out via header while POST account/workspaces/switch is still pending.
+  await act(async () => {
+    clearPrivateSwrCache();
+    publishSignedOutAccountSummary();
+    window.dispatchEvent(new Event('motion:account-changed'));
+    await Promise.resolve();
+  });
+  expect(getPrivateSwrIdentity()).toBeNull();
+
+  // Delayed switch response arrives AFTER logout: must NOT restore signed-in state or private SWR identity.
+  await act(async () => {
+    switchResponse.resolve({ ok: true, activeWorkspace: studioB });
+    await Promise.resolve();
+  });
+  expect(getPrivateSwrIdentity()).toBeNull();
+  expect(hooks.request).not.toHaveBeenCalledWith('account/summary?refresh=true');
+  expect(document.querySelector('.hf-toast-viewport [role="status"]')).toBeNull();
 });
 
 it('keeps the current workspace and enables another choice after a rejected switch', async () => {

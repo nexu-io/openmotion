@@ -15,6 +15,7 @@ import {
   SESSION_COOKIE_NAME,
   createBrowserSession,
   createPat,
+  revokeBrowserSession,
 } from '../../src/auth/index.ts';
 import {
   resolvePreviewTokenSecret,
@@ -1502,6 +1503,41 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     assert.equal('plan' in publicStatus.providers[0]!, false);
     assert.equal('hasBalance' in publicStatus.providers[0]!, false);
 
+    // Expired/revoked browser `om_session` cookies on public catalog/status reads degrade cleanly
+    // to anonymous public reads (200) instead of returning 401, while explicit invalid Bearer headers
+    // and non-public `/motion-api/models` routes stay strictly 401.
+    const staleCookieCatalogRes = await app.request('/motion-api/models/catalog', {
+      headers: { cookie: 'om_session=expired-or-revoked-session-token' },
+    });
+    assert.equal(staleCookieCatalogRes.status, 200);
+    const staleCookieCatalog = (await staleCookieCatalogRes.json()) as {
+      defaults?: Record<string, unknown>;
+      models?: Array<{ modality?: string }>;
+    };
+    assert.deepEqual(staleCookieCatalog.defaults, {});
+    assert.ok(Array.isArray(staleCookieCatalog.models) && staleCookieCatalog.models.length > 0);
+
+    const staleCookieStatusRes = await app.request('/motion-api/models/status', {
+      headers: { cookie: 'om_session=expired-or-revoked-session-token' },
+    });
+    assert.equal(staleCookieStatusRes.status, 200);
+    const staleCookieStatus = (await staleCookieStatusRes.json()) as {
+      providers?: Array<Record<string, unknown>>;
+    };
+    assert.ok(Array.isArray(staleCookieStatus.providers) && staleCookieStatus.providers.length >= 1);
+    assert.equal('plan' in staleCookieStatus.providers[0]!, false);
+    assert.equal('hasBalance' in staleCookieStatus.providers[0]!, false);
+
+    const invalidBearerCatalogRes = await app.request('/motion-api/models/catalog', {
+      headers: { authorization: 'Bearer invalid-token' },
+    });
+    assert.equal(invalidBearerCatalogRes.status, 401);
+
+    const staleCookieModelsListRes = await app.request('/motion-api/models', {
+      headers: { cookie: 'om_session=expired-or-revoked-session-token' },
+    });
+    assert.equal(staleCookieModelsListRes.status, 401);
+
     // Public read-only cloud MCP discovery, install guide & connect routes work without authentication (no workspaceId leaked)
     const publicIntegrationRes = await app.request('/connect/integration');
     assert.equal(publicIntegrationRes.status, 200);
@@ -1595,6 +1631,47 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
       headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` },
     });
     assert.equal(projectsRes.status, 200);
+
+    // Real expired and revoked session rows degrade cleanly to anonymous public reads (200) on
+    // /models/catalog and /models/status, while /models stays 401 and invalid Bearer headers
+    // paired with a valid browser cookie still strictly return 401 on both public endpoints.
+    const expiredSession = await createBrowserSession(authStore, { userId, workspaceId, ttlSec: -60 });
+    const revokedSession = await createBrowserSession(authStore, { userId, workspaceId });
+    assert.equal(await revokeBrowserSession(authStore, { sessionId: revokedSession.sessionId }), true);
+
+    for (const staleToken of [expiredSession.token, revokedSession.token]) {
+      const catRes = await app.request('/motion-api/models/catalog', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${staleToken}` },
+      });
+      assert.equal(catRes.status, 200);
+      const catBody = (await catRes.json()) as { defaults?: Record<string, unknown>; models?: unknown[] };
+      assert.deepEqual(catBody.defaults, {});
+      assert.ok(Array.isArray(catBody.models) && catBody.models.length > 0);
+
+      const stRes = await app.request('/motion-api/models/status', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${staleToken}` },
+      });
+      assert.equal(stRes.status, 200);
+      const stBody = (await stRes.json()) as { providers?: Array<Record<string, unknown>> };
+      assert.ok(Array.isArray(stBody.providers) && stBody.providers.length >= 1);
+      assert.equal('plan' in stBody.providers[0]!, false);
+      assert.equal('hasBalance' in stBody.providers[0]!, false);
+
+      const listRes = await app.request('/motion-api/models', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${staleToken}` },
+      });
+      assert.equal(listRes.status, 401);
+    }
+
+    for (const publicEndpoint of ['/motion-api/models/catalog', '/motion-api/models/status']) {
+      const invalidBearerWithValidCookie = await app.request(publicEndpoint, {
+        headers: {
+          Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}`,
+          Authorization: 'Bearer invalid-token',
+        },
+      });
+      assert.equal(invalidBearerWithValidCookie.status, 401, `expected 401 for invalid Bearer + valid cookie on ${publicEndpoint}`);
+    }
 
     // First-access welcome bootstrap ran exactly once for workspaceId and cached for subsequent requests
     assert.deepEqual(fixture.welcomeCalls, [workspaceId]);
@@ -2233,6 +2310,9 @@ describe('Cloud API Entrypoint — Static Assets, Read-Only GSAP & API 404 vs SP
     if (studioBuilt) {
       const spaHtml = await spaRes.text();
       assert.match(spaHtml, /<link rel="preconnect" href="https:\/\/r\.open-design\.ai" crossorigin>/);
+      assert.match(spaHtml, /<link rel="preconnect" href="https:\/\/releases\.open-design\.ai" crossorigin>/);
+      assert.match(spaHtml, /<link rel="modulepreload" crossorigin href="\/editor-assets\/main-[^"]+\.js">/);
+      assert.match(spaHtml, /<link rel="preload" as="style" crossorigin href="\/editor-assets\/main-[^"]+\.css">/);
       const spaEtag = spaRes.headers.get('etag') ?? '';
       assert.match(spaEtag, /^"sha256:[a-f0-9]{64}"$/);
       const spaNotModified = await app.request('/editor/client-route', {
@@ -2270,6 +2350,10 @@ describe('Cloud API Entrypoint — Static Assets, Read-Only GSAP & API 404 vs SP
       assert.match(
         isolatedHtml,
         /<link rel="preconnect" href="https:\/\/r\.open-design\.ai" crossorigin>/,
+      );
+      assert.match(
+        isolatedHtml,
+        /<link rel="preconnect" href="https:\/\/releases\.open-design\.ai" crossorigin>/,
       );
     }
   });

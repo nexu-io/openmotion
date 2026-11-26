@@ -141,6 +141,8 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
   const viewportRectRef = useRef<{ left: number; width: number } | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const connection = (navigator as Navigator & { connection?: EventTarget & { saveData?: boolean } }).connection;
+  const [saveData, setSaveData] = useState(Boolean(connection?.saveData));
   const [visible, setVisible] = useState(false);
   const [hoveredSlide, setHoveredSlide] = useState<string | null>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -158,6 +160,12 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
   animEnabledRef.current = active && visible && !paused;
 
   useEffect(() => {
+    const change = () => setSaveData(Boolean(connection?.saveData));
+    connection?.addEventListener?.('change', change);
+    return () => connection?.removeEventListener?.('change', change);
+  }, [connection]);
+
+  useEffect(() => {
     const preference = matchMedia('(prefers-reduced-motion: reduce)');
     const change = () => setPaused(preference.matches);
     preference.addEventListener('change', change);
@@ -167,15 +175,22 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    let inView = false;
-    const update = () => setVisible(inView && !document.hidden);
+    let disposed = false;
+    let inView = typeof IntersectionObserver === 'undefined';
+    const update = () => { if (!disposed) setVisible(inView && !document.hidden); };
+    if (typeof IntersectionObserver === 'undefined') {
+      update();
+      document.addEventListener('visibilitychange', update);
+      return () => { disposed = true; document.removeEventListener('visibilitychange', update); };
+    }
     const observer = new IntersectionObserver(entries => {
+      if (disposed) return;
       inView = entries[entries.length - 1].isIntersecting;
       update();
     });
     observer.observe(element);
     document.addEventListener('visibilitychange', update);
-    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', update); };
+    return () => { disposed = true; observer.disconnect(); document.removeEventListener('visibilitychange', update); };
   }, []);
 
   const syncEdges = useCallback((offset: number, maxOffset: number) => {
@@ -444,7 +459,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
         {slides.map((slide, i) => {
           const scene = slide.scene;
           const blackFriday = slide.id === 'black-friday';
-          const clipPlaying = active && visible && hoveredSlide === slide.id && !paused;
+          const clipPlaying = active && visible && hoveredSlide === slide.id && !paused && !saveData;
           const title = t(slide.title);
           const badge = slide.badge ? t(slide.badge) : null;
           const tagline = t(slide.tagline);
@@ -482,7 +497,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
             >
               <div className="om-feature-art" aria-hidden="true"><div className="om-feature-camera">
                 <img src={slide.poster} alt="" draggable={false} loading={i < 3 ? 'eager' : 'lazy'} decoding="async" />
-                {active && visible && slide.clip && hoveredSlide === slide.id && <FeaturedClip src={slide.clip} poster={slide.poster} playing={clipPlaying} />}
+                {active && visible && !saveData && slide.clip && hoveredSlide === slide.id && <FeaturedClip src={slide.clip} poster={slide.poster} playing={clipPlaying} />}
               </div></div>
               <div className="om-spotlight-overlay">
                 {badge && (

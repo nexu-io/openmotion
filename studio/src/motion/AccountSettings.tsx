@@ -14,6 +14,7 @@ import { gatewayRequest, type CloudApiError } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
+import { setDiagnosticsAuthState } from './diagnostics';
 import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
@@ -241,6 +242,11 @@ export function isInsufficientBalanceError(error: string | null | undefined): bo
 }
 
 let cachedAccountSummary: CloudAccountSummary | null = null;
+let accountSummaryVersion = 0;
+let authBoundaryVersion = 0;
+let inflightAccountSummary: { promise: Promise<{ error: boolean }>; billing: boolean; version: number } | null = null;
+let selfDispatchedAccountChangeEvent: Event | null = null;
+let lastAccountChangeEvent: Event | null = null;
 const accountSummaryListeners = new Set<(value: CloudAccountSummary | null) => void>();
 
 function publishAccountSummary(value: CloudAccountSummary | null): void {
@@ -250,15 +256,99 @@ function publishAccountSummary(value: CloudAccountSummary | null): void {
   }
 }
 
+/** Invalidate any in-flight account summary fetch at an identity boundary (logout, workspace switch). */
+export function invalidateAccountSummaryCache(): void {
+  accountSummaryVersion++;
+  inflightAccountSummary = null;
+}
+
+/** Publish signed-out state immediately at logout so a failing post-logout refresh cannot leave prior account data visible. */
+export function publishSignedOutAccountSummary(): void {
+  authBoundaryVersion++;
+  invalidateAccountSummaryCache();
+  publishAccountSummary({
+    state: 'signed-out',
+    consoleUrl: cachedAccountSummary?.consoleUrl || DEFAULT_CONSOLE_URL,
+    authMode: cachedAccountSummary?.authMode ?? 'oidc',
+  });
+}
+
+function dispatchSelfAccountChanged(): void {
+  const event = new Event('motion:account-changed');
+  selfDispatchedAccountChangeEvent = event;
+  try {
+    window.dispatchEvent(event);
+  } finally {
+    if (selfDispatchedAccountChangeEvent === event) selfDispatchedAccountChangeEvent = null;
+  }
+}
+
 /** Test hook: clear cached account summary between isolated component tests. */
 export function resetAccountSummaryCacheForTest(): void {
+  authBoundaryVersion++;
+  invalidateAccountSummaryCache();
+  selfDispatchedAccountChangeEvent = null;
+  lastAccountChangeEvent = null;
   publishAccountSummary(null);
+}
+
+function loadSharedAccountSummary(billing: boolean, options?: { force?: boolean }): Promise<{ error: boolean }> {
+  if (!options?.force && inflightAccountSummary && (!billing || inflightAccountSummary.billing)) {
+    return inflightAccountSummary.promise;
+  }
+  const version = ++accountSummaryVersion;
+  const entry = {
+    billing,
+    version,
+    promise: (async (): Promise<{ error: boolean }> => {
+      try {
+        const raw = await gatewayRequest<CloudSummaryApiResponse>('account/summary' + (billing ? '?refresh=true' : ''));
+        if (version !== accountSummaryVersion) return { error: false };
+        const normalized = normalizeAccountSummary(raw);
+        if (normalized.state === 'signed-in') {
+          markAuthenticatedSession(true);
+          setDiagnosticsAuthState(true);
+        } else if (normalized.state === 'signed-out') {
+          setDiagnosticsAuthState(false);
+        }
+        const scopeChanged = setPrivateSwrIdentity(
+          normalized.state === 'signed-in'
+            ? {
+                userId: normalized.userId ?? normalized.user?.email ?? 'signed-in',
+                workspaceId: normalized.activeWorkspace?.id ?? 'default',
+              }
+            : null,
+        );
+        publishAccountSummary(normalized);
+        if (scopeChanged) {
+          dispatchSelfAccountChanged();
+        }
+        return { error: false };
+      } catch (err) {
+        if (version !== accountSummaryVersion) return { error: false };
+        const apiErr = err as CloudApiError;
+        if (apiErr.status === 401) {
+          setDiagnosticsAuthState(false);
+          setPrivateSwrIdentity(null);
+          publishAccountSummary({ state: 'signed-out', consoleUrl: DEFAULT_CONSOLE_URL, authMode: 'oidc' });
+          return { error: false };
+        }
+        return { error: true };
+      } finally {
+        if (inflightAccountSummary?.version === version) inflightAccountSummary = null;
+      }
+    })(),
+  };
+  inflightAccountSummary = entry;
+  return entry.promise;
 }
 
 export function useAccountSummary(options?: { eager?: boolean }) {
   const eager = options?.eager ?? true;
   const [account, updateAccountState] = useState<CloudAccountSummary | null>(() => cachedAccountSummary);
   const updateAccount = useCallback((value: CloudAccountSummary) => {
+    if (value.state === 'signed-out') authBoundaryVersion++;
+    invalidateAccountSummaryCache();
     publishAccountSummary(value);
   }, []);
   useEffect(() => {
@@ -280,44 +370,24 @@ export function useAccountSummary(options?: { eager?: boolean }) {
     updateAccount(value);
     setError(false);
   }, [updateAccount]);
-  const refresh = useCallback(async (billing = false) => {
+  const refresh = useCallback(async (billing = false, refreshOptions?: { force?: boolean }) => {
     const current = ++request.current;
-    try {
-      const raw = await gatewayRequest<CloudSummaryApiResponse>('account/summary' + (billing ? '?refresh=true' : ''));
-      if (current === request.current) {
-        const normalized = normalizeAccountSummary(raw);
-        if (normalized.state === 'signed-in') {
-          markAuthenticatedSession(true);
-        }
-        const scopeChanged = setPrivateSwrIdentity(
-          normalized.state === 'signed-in'
-            ? {
-                userId: normalized.userId ?? normalized.user?.email ?? 'signed-in',
-                workspaceId: normalized.activeWorkspace?.id ?? 'default',
-              }
-            : null,
-        );
-        updateAccount(normalized);
-        if (scopeChanged) {
-          window.dispatchEvent(new Event('motion:account-changed'));
-        }
-        setError(false);
-      }
-    } catch (err) {
-      if (current !== request.current) return;
-      const apiErr = err as CloudApiError;
-      if (apiErr.status === 401) {
-        setPrivateSwrIdentity(null);
-        updateAccount({ state: 'signed-out', consoleUrl: DEFAULT_CONSOLE_URL, authMode: 'oidc' });
-        setError(false);
-        return;
-      }
-      setError(true);
+    const result = await loadSharedAccountSummary(billing, refreshOptions);
+    if (current === request.current) {
+      setError(result.error);
     }
-  }, [updateAccount]);
+  }, []);
   useEffect(() => {
     if (eager) void refresh();
-    const update = () => void refresh();
+    const update = (event: Event) => {
+      if (event === selfDispatchedAccountChangeEvent) return;
+      if (lastAccountChangeEvent !== event) {
+        lastAccountChangeEvent = event;
+        authBoundaryVersion++;
+        invalidateAccountSummaryCache();
+      }
+      void refresh();
+    };
     window.addEventListener('motion:account-changed', update);
     return () => {
       request.current++;
@@ -414,6 +484,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error(t('Could not sign out'));
       markAuthenticatedSession(false);
+      setDiagnosticsAuthState(false);
       clearPrivateSwrCache();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       notifyProvidersChanged();
@@ -442,12 +513,52 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       || !workspaces.some(ws => ws.id === workspaceId)) return;
     switchInFlight.current = true;
     setSwitchingWorkspace(true);
+    const boundaryAtStart = authBoundaryVersion;
     try {
-      await gatewayRequest('account/workspaces/switch', 'POST', { workspaceId });
-      clearPrivateSwrCache();
-      await state.refresh(true);
+      const switched = await gatewayRequest<{ ok?: boolean; activeWorkspace?: CloudWorkspaceSummary }>(
+        'account/workspaces/switch',
+        'POST',
+        { workspaceId },
+      );
+      // If sign-out or another account boundary happened while the switch was in flight,
+      // discard the delayed switch response so it cannot restore signed-in state or private SWR.
+      if (boundaryAtStart !== authBoundaryVersion || cachedAccountSummary?.state !== 'signed-in') {
+        return;
+      }
+      const nextWorkspace = switched?.activeWorkspace ?? workspaces.find(ws => ws.id === workspaceId) ?? null;
+      // Server cookie is already switched: bind SWR to the target workspace, publish the
+      // switched activeWorkspace with prior workspace billing/model fields cleared, and
+      // immediately invalidate old workspace/gateway reads before awaiting billing refresh.
+      setPrivateSwrIdentity({
+        userId: account?.userId ?? account?.user?.email ?? 'signed-in',
+        workspaceId,
+      });
+      setDiagnosticsAuthState(false);
+      const switchedSummary: CloudAccountSummary | null = account && nextWorkspace
+        ? {
+            ...account,
+            activeWorkspace: nextWorkspace,
+            plan: undefined,
+            balance: undefined,
+            billingUnavailable: undefined,
+            billingError: undefined,
+            modelGateway: undefined,
+          }
+        : null;
+      if (switchedSummary) {
+        state.setAccount(switchedSummary);
+      } else {
+        invalidateAccountSummaryCache();
+      }
+      dispatchSelfAccountChanged();
+      const refreshResult = await loadSharedAccountSummary(true, { force: true });
+      if (boundaryAtStart !== authBoundaryVersion || cachedAccountSummary?.state !== 'signed-in') {
+        return;
+      }
+      if (refreshResult.error && switchedSummary && cachedAccountSummary === switchedSummary) {
+        state.setAccount({ ...switchedSummary, billingUnavailable: true });
+      }
       notifyProvidersChanged();
-      window.dispatchEvent(new Event('motion:account-changed'));
       toast.showToast(t('Workspace switched'), 'info');
     } catch (error) {
       toast.showToast(error instanceof Error ? error.message : t('Could not switch workspace'), 'error');

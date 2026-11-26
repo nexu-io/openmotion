@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { Button } from 'open-design-ui/button';
 import { HorizontalRail } from './HorizontalRail';
 import { findTechniqueStudio, type CreativeStudio } from '../../../shared/studio-catalog';
@@ -29,10 +30,13 @@ type StoryActions = {
   onOpenBlackFriday: (button: HTMLButtonElement) => void;
 };
 
-export function ExploreHighlights({ onChooseStudio, onOpenBlackFriday }: Pick<StoryActions, 'onChooseStudio' | 'onOpenBlackFriday'>) {
+export function ExploreHighlights({ onChooseStudio, onOpenBlackFriday, onPrefetchModels }: Pick<StoryActions, 'onChooseStudio' | 'onOpenBlackFriday'> & {
+  onPrefetchModels?: () => void;
+}) {
   const { t } = useI18n();
   const designStudioEnabled = useCloudFeatureEnabled('designStudio');
   const jump = (id: string) => {
+    if (id === 'seedance' || id === 'gpt-image') onPrefetchModels?.();
     const heading = document.getElementById('explore-' + id);
     heading?.focus({ preventScroll: true });
     heading?.scrollIntoView({ block: 'start' });
@@ -40,17 +44,18 @@ export function ExploreHighlights({ onChooseStudio, onOpenBlackFriday }: Pick<St
   return <section aria-labelledby="explore-highlights">
     <header className="om-discovery-heading"><h2 id="explore-highlights">{t('Explore highlights')}</h2></header>
     <HorizontalRail label="Explore highlights" className="om-highlights" viewportClassName="om-stories-rail">
-      <StoryCard title={seedanceStory.title} poster={paintedFilm} label={t('Cinema Studio') + ' · ' + t('Video')} description={seedanceStory.description} onClick={() => jump('seedance')} />
+      <StoryCard title={seedanceStory.title} poster={paintedFilm} label={t('Cinema Studio') + ' · ' + t('Video')} description={seedanceStory.description} onPrefetch={onPrefetchModels} onClick={() => jump('seedance')} />
       <StoryCard title="Black Friday collection" poster={sale} label={t('Template library')} description="Browse Black Friday video references and Skills for your sale." onClick={event => onOpenBlackFriday(event.currentTarget)} />
       <StoryCard title="Claude Fable 5.2" poster={blueprint} label="Claude Code · OpenMotion MCP" description="From a keyframe to an anime opening" onClick={() => jump('claude')} />
-      <StoryCard title={gptImageStory.title} poster={printCover} label={designStudioEnabled ? t('Design Studio') + ' · ' + t('Image') : t('Image')} description={gptImageStory.description} onClick={() => jump('gpt-image')} />
+      <StoryCard title={gptImageStory.title} poster={printCover} label={designStudioEnabled ? t('Design Studio') + ' · ' + t('Image') : t('Image')} description={gptImageStory.description} onPrefetch={onPrefetchModels} onClick={() => jump('gpt-image')} />
       <StoryCard title="Shorts Studio" poster={shorts} label={t('Short-form video')} description="Cut a recording into vertical shorts or assemble several clips into one reel." onClick={() => onChooseStudio(findTechniqueStudio('shorts')!)} />
     </HorizontalRail>
   </section>;
 }
 
-export function ModelCollection({ story, gateway, onNavigate, onModel }: {
+export function ModelCollection({ story, gateway, onNavigate, onModel, sectionRef, onInteract }: {
   story: ModelStory; gateway: ReturnType<typeof useMediaCatalog>;
+  sectionRef?: RefObject<HTMLElement | null>; onInteract?: () => void;
 } & Pick<StoryActions, 'onNavigate' | 'onModel'>) {
   const { t } = useI18n(), { openModelSettings } = useWorkspaceChrome();
   const models = storyModels(story, gateway.catalog);
@@ -58,7 +63,7 @@ export function ModelCollection({ story, gateway, onNavigate, onModel }: {
   const featured = models.find(model => supportsScene(model, story.cases[0].destination.scene))
     ?? models.find(model => story.cases.some(c => supportsScene(model, c.destination.scene)));
   const heading = 'explore-' + story.id;
-  return <section aria-labelledby={heading}>
+  return <section ref={sectionRef} aria-labelledby={heading} onPointerEnter={onInteract} onFocusCapture={onInteract}>
     <header className="om-discovery-heading"><div>
       <h2 id={heading} tabIndex={-1}>{story.title}</h2>
       <p className="om-muted">{t(story.description)}</p>

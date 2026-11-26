@@ -7,7 +7,7 @@ const errors: Ring = { entries: [], bytes: 0 }, activity: Ring = { entries: [], 
 const encoder = new TextEncoder();
 const losses = { rateLimited: 0, repeated: 0, evicted: 0, delivery: 0 };
 const recent = new Map<string, number>();
-let loaded = false, active = false, timer: ReturnType<typeof setTimeout> | undefined, sending: Promise<void> | undefined;
+let loaded = false, active = false, remoteBlockedByAuth = true, authGeneration = 0, timer: ReturnType<typeof setTimeout> | undefined, sending: Promise<void> | undefined;
 let windowStart = 0, errorCount = 0, activityCount = 0;
 let sequence = 0;
 const session = crypto.randomUUID();
@@ -44,22 +44,47 @@ export function browserDiagnostics(): DiagnosticEvent[] {
   });
 }
 function schedule() {
-  if (!timer && !sending && pending.entries.length) timer = setTimeout(() => { void flushBrowserDiagnostics(); }, 5000);
+  if (!remoteBlockedByAuth && !timer && !sending && pending.entries.length) timer = setTimeout(() => { void flushBrowserDiagnostics(); }, 5000);
+}
+export function setDiagnosticsAuthState(authenticated: boolean) {
+  const nextBlocked = !authenticated;
+  if (nextBlocked === remoteBlockedByAuth) return;
+  authGeneration++;
+  remoteBlockedByAuth = nextBlocked;
+  if (remoteBlockedByAuth) {
+    clearTimeout(timer);
+    timer = undefined;
+  } else {
+    schedule();
+  }
 }
 export function flushBrowserDiagnostics(): Promise<void> {
   clearTimeout(timer); timer = undefined;
   if (sending) return sending;
   if (!pending.entries.length) return Promise.resolve();
   try { localStorage.setItem(storageKey, JSON.stringify(browserDiagnostics().filter(event => event.kind !== 'activity_summary'))); } catch { /* Best effort. */ }
+  if (remoteBlockedByAuth) {
+    pending.entries.length = 0;
+    pending.bytes = 0;
+    return Promise.resolve();
+  }
   const batch = pending.entries.splice(0, 20);
   pending.bytes -= batch.reduce((sum, item) => sum + item.bytes, 0);
+  const requestAuthGeneration = authGeneration;
   // Logging has its own deadline and never shares the caller's signal or response body.
   const controller = new AbortController(), deadline = setTimeout(() => controller.abort(), 3000);
   sending = (async () => {
     try {
       const response = await fetch('/motion-api/diagnostics/events', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ errors: batch.map(item => item.event) }), signal: controller.signal, keepalive: true });
-      if (!response.ok) losses.delivery += batch.length;
+      if (response.status === 401 || response.status === 403) {
+        if (requestAuthGeneration === authGeneration) {
+          remoteBlockedByAuth = true;
+        }
+        losses.delivery += batch.length;
+      } else if (!response.ok) {
+        losses.delivery += batch.length;
+      }
     } catch { losses.delivery += batch.length; }
     finally { clearTimeout(deadline); }
   })().finally(() => { sending = undefined; schedule(); });

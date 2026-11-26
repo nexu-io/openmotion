@@ -12,7 +12,6 @@ import { AssetsPage } from './AssetsPage';
 import type { CinemaTemplate } from './cinemaTemplates';
 import type { AssetDraft } from './AssetComposer';
 import { useMediaCatalog } from './useMediaCatalog';
-import { guestMediaCatalog } from './guestMediaCatalog';
 import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import { mediaEditorDestination, mediaLabels, sceneFeature, scenesForStudio, studioIconTone, studioDestination, studioDraftKey, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
@@ -49,8 +48,7 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   const landingTabsRef = useRef<HTMLElement>(null);
   const comingSoon = studioComingSoon(destination?.studio);
   const guestPreview = Boolean(useOptionalWorkspaceChrome()?.guestMode);
-  const liveCatalog = useMediaCatalog(active && Boolean(destination) && !comingSoon && !guestPreview);
-  const catalog = guestPreview ? { ...liveCatalog, failed: false, catalog: guestMediaCatalog } : liveCatalog;
+  const catalog = useMediaCatalog(active && Boolean(destination) && !comingSoon);
   const landingSceneId = destination?.landing ? destination.scene.id : null;
   useEffect(() => {
     if (!landingSceneId) return;

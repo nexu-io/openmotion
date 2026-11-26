@@ -39,7 +39,7 @@ export function ProviderAvatar({ name, provider }: { name: string; provider?: Pi
   const icon = provider && !provider.custom ? (providerIcons as Record<string, { file?: string; padded?: boolean; symbol?: string }>)[provider.id] : undefined;
   const src = icon?.file ? modelArtwork[`../../../packages/design-system/${icon.file}`] ?? designSystemAsset(icon.file) : undefined;
   return <span className="om-avatar om-provider-avatar" data-provider={provider?.custom ? undefined : provider?.id} data-brand={Boolean(src && failed !== src)} aria-hidden="true">
-    {src && failed !== src ? <img src={src} alt="" draggable={false} data-padded={icon?.padded || undefined} onError={() => setFailed(src)} />
+    {src && failed !== src ? <img src={src} alt="" draggable={false} loading="lazy" decoding="async" data-padded={icon?.padded || undefined} onError={() => setFailed(src)} />
       : icon?.symbol ? <RemixIcon name={icon.symbol} size={22} /> : name.slice(0, 2).toUpperCase()}
   </span>;
 }

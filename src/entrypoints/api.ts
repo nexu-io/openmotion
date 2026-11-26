@@ -2903,10 +2903,24 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         c.req.path === '/motion-api/models/status');
     if (isPublicCatalogRead && config.AUTH_MODE === 'oidc') {
       const hasAuthHeader = c.req.header('authorization') !== undefined;
-      const cookieHeader = c.req.header('cookie') ?? '';
-      const hasSessionCookie = /(?:^|;\s*)om_session=/.test(cookieHeader);
-      if (!hasAuthHeader && !hasSessionCookie) {
-        return next();
+      if (!hasAuthHeader) {
+        const cookieHeader = c.req.header('cookie') ?? '';
+        const hasSessionCookie = /(?:^|;\s*)om_session=/.test(cookieHeader);
+        if (!hasSessionCookie) {
+          return next();
+        }
+        // Signed-in browsers get personalized catalog/billing, while stale/expired `om_session`
+        // cookies degrade cleanly to the anonymous public read instead of returning 401.
+        let ranNext = false;
+        const authResult = await authWithWelcome(c, async () => {
+          ranNext = true;
+          await next();
+        });
+        if (ranNext) return authResult;
+        if (authResult && authResult.status === 401) {
+          return next();
+        }
+        return authResult;
       }
     }
     return authWithWelcome(c, next);
@@ -3215,6 +3229,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const renderedHtml = injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig);
       const preconnectHints = [
         '<link rel="preconnect" href="https://r.open-design.ai" crossorigin>',
+        '<link rel="preconnect" href="https://releases.open-design.ai" crossorigin>',
         ...(previewHostIsolationEnabled && previewOriginUrl
           ? [`<link rel="preconnect" href="${previewOriginUrl.origin}" crossorigin>`]
           : []),

@@ -103,7 +103,9 @@ export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motio
   const [index, setIndex] = useState(0);
   const activeIndex = index % visibleSlides.length;
   const [paused, setPaused] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const [visible, setVisible] = useState(false);
+  const [inView, setInView] = useState(false);
+  const [tabVisible, setTabVisible] = useState(() => !document.hidden);
+  const visible = inView && tabVisible;
   const [readingSlide, setReadingSlide] = useState(false);
   const player = useRef<HTMLVideoElement>(null);
   const connection = (navigator as Navigator & { connection?: EventTarget & { saveData?: boolean } }).connection;
@@ -128,15 +130,22 @@ export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motio
   useEffect(() => {
     const element = root.current;
     if (!element) return;
-    let inView = false;
-    const update = () => setVisible(inView && !document.hidden);
+    let disposed = false;
+    const updateTab = () => { if (!disposed) setTabVisible(!document.hidden); };
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      updateTab();
+      document.addEventListener('visibilitychange', updateTab);
+      return () => { disposed = true; document.removeEventListener('visibilitychange', updateTab); };
+    }
     const observer = new IntersectionObserver(entries => {
-      inView = entries[entries.length - 1].isIntersecting;
-      update();
+      if (disposed) return;
+      setInView(entries[entries.length - 1].isIntersecting);
+      updateTab();
     });
     observer.observe(element);
-    document.addEventListener('visibilitychange', update);
-    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', update); };
+    document.addEventListener('visibilitychange', updateTab);
+    return () => { disposed = true; observer.disconnect(); document.removeEventListener('visibilitychange', updateTab); };
   }, []);
 
   useEffect(() => {
@@ -168,7 +177,7 @@ export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motio
         onClick={slide.hub ? event => { if ((event.target as Element).closest('button')) return; track('slide_action', { slide: slide.id, position: i }); onModelHub(slide.hub!); } : undefined}>
         <div className="om-feature-art" aria-hidden="true"><div className="om-feature-camera">
           <ExploreCoverImage src={slide.poster} eager={current} />
-          {current && active && visible && slide.clip && <FeaturedClip key={saveData ? 'manual' : 'auto'} src={slide.clip} player={player}
+          {current && active && tabVisible && (!saveData || visible) && slide.clip && <FeaturedClip key={saveData ? 'manual' : 'auto'} src={slide.clip} player={player}
             playing={!saveData && playing} onManualPlayback={saveData ? setManualPlayback : undefined} />}
         </div></div>
         {slide.credit && <small className="om-scene-credit">{slide.credit}</small>}

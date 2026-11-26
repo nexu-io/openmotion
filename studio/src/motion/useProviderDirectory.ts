@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DirectoryModel, ModelKind, ProviderConnection, ProviderDirectory } from '../../../shared/provider-directory';
 import type { GatewayStatus, Model } from '../../../shared/gateway';
 import { gatewayRequest, type CloudApiError } from './gatewayClient';
@@ -96,9 +96,12 @@ export function useProviderDirectory() {
   const [error, setError] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [revision, setRevision] = useState(0);
+  const generationRef = useRef(0);
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
     let active = true;
+    const generation = generationRef.current;
+    const isCurrent = () => active && generation === generationRef.current;
     setError(false);
     setAuthRequired(false);
     void (async () => {
@@ -111,10 +114,10 @@ export function useProviderDirectory() {
           gatewayRequest<GatewayStatus>('models/status').catch(() => null),
         ]);
         const normalized = normalizeDirectory(catalog, status);
-        if (active) setData(normalized);
+        if (isCurrent()) setData(normalized);
       } catch (err: unknown) {
         const apiErr = err as CloudApiError | null;
-        if (active) {
+        if (isCurrent()) {
           if (apiErr?.status === 401) {
             setAuthRequired(true);
             setError(false);
@@ -127,11 +130,18 @@ export function useProviderDirectory() {
     return () => { active = false; };
   }, [revision]);
   useEffect(() => {
+    const handleAccountChanged = () => {
+      generationRef.current++;
+      setData(null);
+      setError(false);
+      setAuthRequired(false);
+      setRevision(value => value + 1);
+    };
     window.addEventListener('motion:gateway-changed', refresh);
-    window.addEventListener('motion:account-changed', refresh);
+    window.addEventListener('motion:account-changed', handleAccountChanged);
     return () => {
       window.removeEventListener('motion:gateway-changed', refresh);
-      window.removeEventListener('motion:account-changed', refresh);
+      window.removeEventListener('motion:account-changed', handleAccountChanged);
     };
   }, [refresh]);
   return { data, error, authRequired, refresh };

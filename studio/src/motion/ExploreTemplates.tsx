@@ -126,12 +126,12 @@ export function TemplatePromptAction({ item, onTry }: { item: GalleryTemplate; o
   </Button>;
 }
 
-export function ExploreTemplateCard({ item, active, onPriority, onTry, onOpen }: {
-  item: GalleryTemplate; active: boolean; onPriority: (id: string | null) => void; onTry: (prompt: string) => void; onOpen?: () => void;
+export function ExploreTemplateCard({ item, active, retained, onPriority, onTry, onOpen }: {
+  item: GalleryTemplate; active: boolean; retained?: boolean; onPriority: (id: string | null) => void; onTry: (prompt: string) => void; onOpen?: () => void;
 }) {
   const { t } = useI18n();
   const { openLibrary } = useWorkspaceChrome();
-  return <TemplateGalleryCard brandedFallback showCoverDuration={false} template={item} playbackId={'community/' + item.id} active={active} onPriority={onPriority}
+  return <TemplateGalleryCard brandedFallback showCoverDuration={false} template={item} playbackId={'community/' + item.id} active={active} retained={retained} onPriority={onPriority}
     onSelect={(template, trigger) => { onOpen?.(); openLibrary(trigger, template); }}
     footer={<div className="om-feed-template-copy">
       <strong>{item.title}</strong>

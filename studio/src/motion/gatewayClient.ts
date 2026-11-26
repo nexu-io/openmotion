@@ -10,9 +10,17 @@ export type CloudApiError = Error & {
 };
 
 const GATEWAY_CACHE_TTL_MS = 5_000;
-const cacheEnabled = typeof process === 'undefined' || (!process.env?.VITEST && process.env?.NODE_ENV !== 'test');
+const defaultCacheEnabled = typeof process === 'undefined' || (!process.env?.VITEST && process.env?.NODE_ENV !== 'test');
+let cacheEnabledOverride: boolean | null = null;
+const isGatewayCacheEnabled = () => cacheEnabledOverride ?? defaultCacheEnabled;
+
+/** Test hook: override gateway TTL cache enablement inside isolated unit tests. */
+export function setGatewayCacheEnabledForTest(enabled: boolean | null): void {
+  cacheEnabledOverride = enabled;
+}
 
 let cacheGeneration = 0;
+let accountGeneration = 0;
 let cachedGateway: { value: { status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }; expiresAt: number } | null = null;
 let inflightModels: Promise<Model[]> | null = null;
 let inflightGateway: Promise<{ status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }> | null = null;
@@ -29,6 +37,10 @@ function ensureGatewayInvalidationListener(): void {
   if (gatewayListenerRegistered || typeof window === 'undefined') return;
   gatewayListenerRegistered = true;
   window.addEventListener('motion:gateway-changed', invalidateGatewayCache);
+  window.addEventListener('motion:account-changed', () => {
+    accountGeneration++;
+    invalidateGatewayCache();
+  });
 }
 
 export async function gatewayRequest<T>(
@@ -37,6 +49,8 @@ export async function gatewayRequest<T>(
   body?: unknown,
   options?: { suppressAuthRecovery?: boolean },
 ): Promise<T> {
+  ensureGatewayInvalidationListener();
+  const requestAccountGeneration = accountGeneration;
   if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') invalidateGatewayCache();
   const response = await fetch('/motion-api/' + path, {
     method,
@@ -68,6 +82,7 @@ export async function gatewayRequest<T>(
     const authRecovery = classifyAuthHttpError(response.status, data, message);
     const isMutating = method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD';
     if (
+      requestAccountGeneration === accountGeneration &&
       authRecovery &&
       (authRecovery.kind === 'auth_unavailable' || (isMutating && !options?.suppressAuthRecovery))
     ) {
@@ -109,9 +124,13 @@ function normalizeStatus(raw: Partial<GatewayStatus> | null | undefined): Gatewa
   };
 }
 
+function isLegacyRouteNotFound(err: unknown): boolean {
+  return (err as CloudApiError | null)?.status === 404;
+}
+
 export async function loadGateway(): Promise<{ status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }> {
   ensureGatewayInvalidationListener();
-  if (cacheEnabled && cachedGateway && cachedGateway.expiresAt > Date.now()) {
+  if (isGatewayCacheEnabled() && cachedGateway && cachedGateway.expiresAt > Date.now()) {
     return cachedGateway.value;
   }
   if (inflightGateway) return inflightGateway;
@@ -119,17 +138,23 @@ export async function loadGateway(): Promise<{ status: GatewayStatus; models: Mo
   const run = Promise.all([
     gatewayRequest<Partial<GatewayStatus>>('models/status')
       .then(res => (Array.isArray(res?.providers) ? res : gatewayRequest<Partial<GatewayStatus>>('models/capabilities').catch(() => res)))
-      .catch(() => gatewayRequest<Partial<GatewayStatus>>('models/capabilities')),
+      .catch((err: unknown) => {
+        if (isLegacyRouteNotFound(err)) return gatewayRequest<Partial<GatewayStatus>>('models/capabilities');
+        throw err;
+      }),
     gatewayRequest<{ models?: Model[]; mode?: 'opendesign' | 'mock' }>('models/catalog')
       .then(async res => (Array.isArray(res?.models) ? res : { models: await loadModels(), mode: res?.mode }))
-      .catch(async () => ({ models: await loadModels(), mode: undefined })),
+      .catch(async (err: unknown) => {
+        if (isLegacyRouteNotFound(err)) return { models: await loadModels(), mode: undefined };
+        throw err;
+      }),
   ]).then(([rawStatus, catalog]) => {
     const result = {
       status: normalizeStatus(rawStatus),
       models: Array.isArray(catalog.models) ? catalog.models : [],
       mode: catalog.mode,
     };
-    if (cacheEnabled && generation === cacheGeneration) {
+    if (isGatewayCacheEnabled() && generation === cacheGeneration) {
       cachedGateway = { value: result, expiresAt: Date.now() + GATEWAY_CACHE_TTL_MS };
     }
     return result;

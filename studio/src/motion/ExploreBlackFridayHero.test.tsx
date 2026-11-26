@@ -20,6 +20,7 @@ vi.mock('./ExploreTemplates', () => ({
 vi.mock('./useTemplatePlayback', () => ({
   EXPLORE_TEMPLATE_PLAYERS: 4,
   useTemplatePlayback: () => new Set<string>(),
+  useTemplatePlaybackPool: () => ({ playing: new Set<string>(), retained: new Set<string>() }),
   useTemplatePlaybackActive: () => false,
   useTemplatePlaybackStore: () => ({
     subscribe: () => () => {},
@@ -157,6 +158,47 @@ it('keeps the Black Friday 3D corridor artwork deck bounded to OpenMotion-owned 
   expect(corridorImgs.some(img => img.getAttribute('loading') === 'lazy')).toBe(true);
   expect(corridorImgs.every(img => img.getAttribute('fetchpriority') === 'low')).toBe(true);
   expect(new Set(corridorImgs.map(img => img.getAttribute('src'))).size).toBeLessThanOrEqual(24);
+
+  const logoImgs = [...container.querySelectorAll<HTMLImageElement>('[data-bf-hero] [data-corridor-tile="logo"] img')];
+  expect(logoImgs.length).toBeGreaterThan(0);
+  expect(logoImgs.some(img => img.getAttribute('loading') === 'eager')).toBe(true);
+  expect(logoImgs.some(img => img.getAttribute('loading') === 'lazy')).toBe(true);
+  expect(logoImgs.every(img => img.getAttribute('fetchpriority') === 'low')).toBe(true);
+});
+
+it('does not mount hover video in ExploreBlackFridaySpotlight when saveData is enabled', () => {
+  const originalConnection = Object.getOwnPropertyDescriptor(navigator, 'connection');
+  Object.defineProperty(navigator, 'connection', {
+    configurable: true,
+    value: { saveData: true, addEventListener: vi.fn(), removeEventListener: vi.fn() },
+  });
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) { this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }]); }
+    unobserve() {}
+    disconnect() {}
+  });
+  try {
+    act(() => root.render(
+      <I18nProvider initialLocale="en">
+        <ExploreBlackFridaySpotlight
+          active
+          onNavigate={vi.fn()}
+          onOpenMotionEditor={vi.fn()}
+          motionEditorDisabled={false}
+          onOpenBlackFriday={vi.fn()}
+          onModelHub={vi.fn()}
+        />
+      </I18nProvider>,
+    ));
+    const motionCard = container.querySelector<HTMLButtonElement>('[data-scene="motion"]')!;
+    act(() => { motionCard.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(container.querySelector('[data-scene="motion"] video')).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+    if (originalConnection) Object.defineProperty(navigator, 'connection', originalConnection);
+    else delete (navigator as Navigator & { connection?: unknown }).connection;
+  }
 });
 
 it('does not schedule idle requestAnimationFrame loops in ExploreBlackFridaySpotlight until user interaction', () => {

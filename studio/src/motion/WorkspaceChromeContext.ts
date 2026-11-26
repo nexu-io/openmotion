@@ -16,6 +16,8 @@ export type WorkspaceChrome = {
   workspace: ReturnType<typeof useWorkspace>;
   switchingDisabled: boolean;
   guestMode?: boolean;
+  /** True while initial workspace auth state has not settled yet (neither signed-in nor guest). */
+  authResolving?: boolean;
   startGuestSignIn?: (intent: GuestSignInIntent) => void;
   saveState: string;
   openLibrary: (trigger?: HTMLElement, template?: GalleryTemplate, collection?: TemplateCollection) => void;

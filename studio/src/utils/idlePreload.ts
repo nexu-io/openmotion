@@ -2,12 +2,22 @@ import { warmModule } from "./chunkLoadRecovery";
 
 export type ModuleLoader = () => Promise<unknown>;
 
+export type IdlePreloadOptions = {
+  /** Wait until page load completes plus this delay before scheduling speculative downloads. */
+  delayMs?: number;
+};
+
 /** After the caller's readiness gate, start one optional download at a time at idle.
  * Disposing drops the remaining queue. Already-started imports are shared with clicks. */
-export function scheduleIdlePreloads(loaders: readonly ModuleLoader[]): () => void {
+export function scheduleIdlePreloads(
+  loaders: readonly ModuleLoader[],
+  options?: IdlePreloadOptions,
+): () => void {
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  const delayMs = Math.max(0, options?.delayMs ?? 0);
   let disposed = false;
   let cancelIdle = () => {};
+  let cancelDelay = () => {};
   let index = 0;
   function next() {
     if (disposed || connection?.saveData || index >= loaders.length) return;
@@ -29,9 +39,31 @@ export function scheduleIdlePreloads(loaders: readonly ModuleLoader[]): () => vo
       cancelIdle = () => window.clearTimeout(id);
     }
   }
-  next();
+  const startAfterDelay = () => {
+    if (disposed || connection?.saveData || index >= loaders.length) return;
+    const timer = window.setTimeout(() => {
+      cancelDelay = () => {};
+      next();
+    }, delayMs);
+    cancelDelay = () => window.clearTimeout(timer);
+  };
+  if (delayMs > 0) {
+    if (document.readyState === "complete") {
+      startAfterDelay();
+    } else {
+      const onLoad = () => {
+        cancelDelay = () => {};
+        startAfterDelay();
+      };
+      window.addEventListener("load", onLoad, { once: true });
+      cancelDelay = () => window.removeEventListener("load", onLoad);
+    }
+  } else {
+    next();
+  }
   return () => {
     disposed = true;
+    cancelDelay();
     cancelIdle();
     document.removeEventListener("visibilitychange", next);
   };

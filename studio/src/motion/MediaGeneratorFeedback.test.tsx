@@ -23,8 +23,8 @@ async function mount(options: { action?: () => Promise<void>; job?: GenerationJo
   const state = { jobs: [options.job ?? initialJob], projectId: 'project', failStatus: false };
   const action = vi.fn(options.action ?? (async () => {}));
   const fetcher = vi.fn(async (url: string) => {
-    if (url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], routes: {} });
-    if (url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
+    if (url.includes('models/status') || url.includes('models/capabilities')) return Response.json({ providers: [{ id: 'codex', available: true }], routes: {} });
+    if (url.includes('models/catalog') || url.includes('/models?')) return Response.json({ models: [model], nextOffset: null });
     if (url.includes('project/status')) { if (state.failStatus) throw new TypeError('Failed to fetch'); return Response.json({ projectId: state.projectId }); }
     if (url.endsWith('/cancel')) return options.cancel ? options.cancel() : Response.json({ job: { ...state.jobs[0], state: 'cancelled', updatedAt: 20 } });
     if (url.includes('/generations?')) return Response.json({ jobs: state.jobs });

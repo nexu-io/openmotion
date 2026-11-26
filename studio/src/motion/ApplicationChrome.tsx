@@ -11,7 +11,8 @@ import { setStudioTheme, useStudioThemePreference } from '../utils/studioTheme';
 import { getDesktopHostBridge, isDesktopApp, startDesktopBrowserLogin, useDesktopChrome, useDesktopUpdateState } from '../utils/platformHost';
 import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
 import { useWorkspaceChrome } from './WorkspaceFrame';
-import { buildLoginUrl, useAccountSummary } from './AccountSettings';
+import { buildLoginUrl, publishSignedOutAccountSummary, useAccountSummary } from './AccountSettings';
+import { setDiagnosticsAuthState } from './diagnostics';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { clearPrivateSwrCache } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
@@ -154,7 +155,9 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error('Could not sign out');
       markAuthenticatedSession(false);
+      setDiagnosticsAuthState(false);
       clearPrivateSwrCache();
+      publishSignedOutAccountSummary();
       window.dispatchEvent(new Event('motion:account-changed'));
     } catch {
       openSettings('account');
