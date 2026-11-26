@@ -25,6 +25,7 @@ import {
   exportKey,
   workspaceBlobKey,
 } from '../../src/infra/storage.ts';
+import { sanitizeExportFilename } from '../../src/services/export-service.ts';
 import {
   STUDIO_MANUAL_EDITS_PATH,
   STUDIO_MOTION_PATH,
@@ -1366,6 +1367,11 @@ describe('Sub-scene (<template>) Export Expectation, Parity Injection & Settings
       ),
       { width: 2160, height: 3840, fps: 30, duration: 4, audio: 'optional' },
     );
+
+    // Project titles with trailing or consecutive dots (e.g. "Custom Agents.") must never produce ".." in S3 export keys.
+    assert.equal(sanitizeExportFilename(undefined, 'Custom Agents.', 'mp4'), 'Custom-Agents.mp4');
+    assert.equal(sanitizeExportFilename('foo..bar.mp4', 'Ignored', 'mp4'), 'foo-bar.mp4');
+    assert.equal(sanitizeExportFilename('...', '...', 'mp4'), 'export.mp4');
   });
 
   it('completes end-to-end processExportRenderJob for a <template> sub-scene without mocked extractExpectationFn', async () => {

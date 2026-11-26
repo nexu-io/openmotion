@@ -1011,7 +1011,12 @@ export async function processExportRenderJob(
   const ephemeralHomeDir = path.join(renderRootDir, 'home');
   const ephemeralTmpDir = path.join(renderRootDir, 'tmp');
   const outputDir = path.join(renderRootDir, 'out');
-  const safeOutputName = path.basename(payload.outputName).replace(/[^a-zA-Z0-9._-]/g, '_') || `export.${format}`;
+  const safeOutputName =
+    path
+      .basename(payload.outputName)
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/\.{2,}/g, '.')
+      .replace(/^\.+|\.+$/g, '') || `export.${format}`;
   const outputFilePath = path.join(outputDir, safeOutputName);
 
   const claimToken = randomUUID();
