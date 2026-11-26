@@ -77,18 +77,20 @@ export function FreePlanGenerationGate({
           className="om-button h-auto"
           data-primary
           onClick={() => {
+            const clickedEntryId = entryIdRef.current;
+            entryIdRef.current = newCampaignEntryId();
             trackGateClick({
               page_name: 'creative_studio',
               area: 'entitlement_gate',
               element: 'view_plans',
               hook_id: hookId,
-              entry_id: entryIdRef.current,
+              entry_id: clickedEntryId,
               ...attrFields,
             });
             openEntitlementModal({
               mode: 'upgrade',
               hookId,
-              entryId: entryIdRef.current,
+              entryId: clickedEntryId,
               attribution: resolvedAttr,
             });
           }}
@@ -147,18 +149,20 @@ export function InsufficientBalanceFailureGate({
           className="om-button h-auto"
           data-primary
           onClick={() => {
+            const clickedEntryId = entryIdRef.current;
+            entryIdRef.current = newCampaignEntryId();
             trackGateClick({
               page_name: 'creative_studio',
               area: 'entitlement_gate',
               element: 'open_pricing',
               hook_id: hookId,
-              entry_id: entryIdRef.current,
+              entry_id: clickedEntryId,
               ...attrFields,
             });
             openEntitlementModal({
               mode: 'upgrade',
               hookId,
-              entryId: entryIdRef.current,
+              entryId: clickedEntryId,
               attribution: resolvedAttr,
             });
           }}
