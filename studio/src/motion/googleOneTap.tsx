@@ -3,7 +3,7 @@ import { isDesktopApp } from '../utils/platformHost';
 import type { CloudAccountSummary } from './AccountSettings';
 import { clearPrivateSwrCache } from './swrCache';
 import { trackMotion } from './tracking';
-import { isMotionDeviceIdConsented, syncMotionTrackingIdentity } from './trackingIdentity';
+import { syncMotionTrackingIdentity } from './trackingIdentity';
 
 export const GOOGLE_GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client' as const;
 export const GOOGLE_GIS_LOAD_TIMEOUT_MS = 5000;
@@ -107,7 +107,6 @@ type StoredAttribution = {
   odCampaignId?: string;
   odPlacementId?: string;
   odConversionSource?: string;
-  odDeviceId?: string;
 };
 
 let oneTapGeneration = 0;
@@ -394,7 +393,6 @@ function parseStoredAttribution(raw: string | null): StoredAttribution {
       odConversionSource: readCleanString(
         parsed.odConversionSource ?? parsed.od_conversion_source ?? parsed.conversionSource,
       ),
-      odDeviceId: readCleanString(parsed.odDeviceId ?? parsed.od_device_id),
     };
   } catch {
     return {};
@@ -455,9 +453,6 @@ function parseOdAttrCookie(raw: string | null): StoredAttribution {
             ),
           }
         : {}),
-      ...(readCleanString(parsed.odDeviceId ?? parsed.od_device_id)
-        ? { odDeviceId: readCleanString(parsed.odDeviceId ?? parsed.od_device_id) }
-        : {}),
     };
   } catch {
     return {};
@@ -497,7 +492,6 @@ function readUrlAttribution(): StoredAttribution {
   const odCampaignId = readCleanString(params.get('od_campaign_id'));
   const odPlacementId = readCleanString(params.get('od_placement_id'));
   const odConversionSource = readCleanString(params.get('od_conversion_source'));
-  const odDeviceId = readCleanString(params.get('od_device_id'));
   const hasAny = Boolean(
     utmSource ||
       utmMedium ||
@@ -511,8 +505,7 @@ function readUrlAttribution(): StoredAttribution {
       odEntryAt ||
       odCampaignId ||
       odPlacementId ||
-      odConversionSource ||
-      odDeviceId,
+      odConversionSource,
   );
   return {
     ...(utmSource ? { utmSource } : {}),
@@ -528,7 +521,6 @@ function readUrlAttribution(): StoredAttribution {
     ...(odCampaignId ? { odCampaignId } : {}),
     ...(odPlacementId ? { odPlacementId } : {}),
     ...(odConversionSource ? { odConversionSource } : {}),
-    ...(odDeviceId ? { odDeviceId } : {}),
     ...(hasAny ? { landingPath: window.location.pathname || '/' } : {}),
   };
 }
@@ -536,22 +528,15 @@ function readUrlAttribution(): StoredAttribution {
 /**
  * Captures UTM / `ref` / `od_*` params from the current URL into localStorage so
  * subsequent in-app navigation before One Tap fires does not lose landing attribution.
+ * The OpenDesign device ID (`od_device_id`) is never read or stored.
  */
 export function persistOneTapLandingAttribution(): void {
   if (typeof window === 'undefined') return;
   const fromUrl = readUrlAttribution();
-  // Never persist odDeviceId to localStorage before explicit metrics consent is granted.
-  const safeFromUrl: StoredAttribution = isMotionDeviceIdConsented()
-    ? fromUrl
-    : { ...fromUrl, odDeviceId: undefined };
-  if (Object.values(safeFromUrl).every(v => v === undefined)) return;
+  if (Object.values(fromUrl).every(v => v === undefined)) return;
   try {
     const existing = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY));
-    const merged: StoredAttribution = {
-      ...existing,
-      ...safeFromUrl,
-      ...(isMotionDeviceIdConsented() ? {} : { odDeviceId: undefined }),
-    };
+    const merged: StoredAttribution = { ...existing, ...fromUrl };
     window.localStorage.setItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY, JSON.stringify(merged));
   } catch {
     // Ignore storage unavailability.
@@ -563,7 +548,7 @@ export function persistOneTapLandingAttribution(): void {
  * 1. Current URL query parameters
  * 2. Persisted localStorage (`om_onetap_attribution_v1` / `od_attr`)
  * 3. `od_attr` cookie
- * `odDeviceId` is included ONLY when analytics consent is active.
+ * No device ID is ever included.
  */
 export function collectOneTapAttribution() {
   const fromUrl = readUrlAttribution();
@@ -600,8 +585,6 @@ export function collectOneTapAttribution() {
   const campaignId = pick('odCampaignId');
   const placementId = pick('odPlacementId');
   const conversionSource = pick('odConversionSource');
-  const consented = isMotionDeviceIdConsented();
-  const odDeviceId = consented ? pick('odDeviceId') : undefined;
 
   const odEntry =
     sourceProduct ||
@@ -610,8 +593,7 @@ export function collectOneTapAttribution() {
     entryOccurredAt ||
     campaignId ||
     placementId ||
-    conversionSource ||
-    odDeviceId
+    conversionSource
       ? {
           ...(sourceProduct ? { sourceProduct } : {}),
           ...(entryId ? { entryId } : {}),
@@ -620,7 +602,6 @@ export function collectOneTapAttribution() {
           ...(campaignId ? { campaignId } : {}),
           ...(placementId ? { placementId } : {}),
           ...(conversionSource ? { conversionSource } : {}),
-          ...(odDeviceId ? { odDeviceId, odDeviceIdConsent: true } : {}),
         }
       : undefined;
 

@@ -28,7 +28,6 @@ import {
   registerTrackingIdentityHooks,
   resetMotionTrackingIdentity,
   resetMotionTrackingIdentityStateForTests,
-  setMotionUsageTrackingActive,
   syncMotionTrackingIdentity,
 } from './trackingIdentity.ts';
 
@@ -84,7 +83,6 @@ function applyRuntimeConfig(runtimeConfig: BrowserTrackingRuntimeConfig): void {
   allowlistEnabled = runtimeConfig.allowlistEnabled;
   tracking.setEnabled(runtimeConfig.enabled && runtimeConfig.posthogEnabled);
   configureTracert(runtimeConfig.tracert, runtimeConfig.enabled);
-  setMotionUsageTrackingActive(runtimeConfig.enabled);
   configuration = runtimeConfig.enabled ? 'ready' : 'disabled';
   retryAt = 0;
 }
@@ -204,7 +202,6 @@ export function setMotionTrackingEnabled(enabled: boolean) {
   controller?.abort(); retryAt = 0;
   tracking.setEnabled(enabled && posthogEnabled);
   setTracertEnabled(enabled);
-  setMotionUsageTrackingActive(enabled);
   configuration = enabled ? 'ready' : 'disabled';
 }
 
@@ -228,7 +225,6 @@ export function resetMotionTrackingForTests() {
   posthogEnabled = true;
   allowlistEnabled = false;
   resetMotionTrackingIdentityStateForTests();
-  setMotionUsageTrackingActive(false);
   tracking.reset();
   tracking.setEnabled(false);
   resetTracertForTests();

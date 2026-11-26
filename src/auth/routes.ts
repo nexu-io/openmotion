@@ -30,8 +30,6 @@ import { createPat, listPats, revokePat } from './pat.ts';
 import {
   DEFAULT_SESSION_TTL_SEC,
   DESKTOP_OIDC_CTX_COOKIE_NAME,
-  METRICS_CONSENT_COOKIE_NAME,
-  METRICS_CONSENT_GRANTED,
   OIDC_TX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_PREFIX,
@@ -88,10 +86,11 @@ function sanitizeOptionalShortString(raw: unknown, maxLength = 256): string | un
 }
 
 
-function sanitizeOneTapAttribution(
-  raw: unknown,
-  options: { metricsConsented?: boolean } = {},
-): AmrOneTapAttribution | undefined {
+/**
+ * Allowlists the landing attribution a browser may forward with a One Tap exchange. Device identifiers
+ * (`odDeviceId`, `odDeviceIdConsent`) are never forwarded to AMR, whatever the client claims.
+ */
+function sanitizeOneTapAttribution(raw: unknown): AmrOneTapAttribution | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const obj = raw as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -101,7 +100,7 @@ function sanitizeOneTapAttribution(
   }
   if (obj.odEntry && typeof obj.odEntry === 'object' && !Array.isArray(obj.odEntry)) {
     const rawEntry = obj.odEntry as Record<string, unknown>;
-    const sanitizedEntry: Record<string, string | boolean> = {};
+    const sanitizedEntry: Record<string, string> = {};
     const sourceProduct = sanitizeOptionalShortString(rawEntry.sourceProduct, 64);
     const entryId = sanitizeOptionalShortString(rawEntry.entryId, 128);
     const sourceDetail = sanitizeOptionalShortString(rawEntry.sourceDetail, 128);
@@ -113,10 +112,6 @@ function sanitizeOneTapAttribution(
     const campaignId = sanitizeOptionalShortString(rawEntry.campaignId, 128);
     const placementId = sanitizeOptionalShortString(rawEntry.placementId, 128);
     const conversionSource = sanitizeOptionalShortString(rawEntry.conversionSource, 128);
-    const odDeviceId =
-      options.metricsConsented === true && rawEntry.odDeviceIdConsent === true
-        ? sanitizeOptionalShortString(rawEntry.odDeviceId, 128)
-        : undefined;
     if (sourceProduct) sanitizedEntry.sourceProduct = sourceProduct;
     if (entryId) sanitizedEntry.entryId = entryId;
     if (sourceDetail) sanitizedEntry.sourceDetail = sourceDetail;
@@ -124,10 +119,6 @@ function sanitizeOneTapAttribution(
     if (campaignId) sanitizedEntry.campaignId = campaignId;
     if (placementId) sanitizedEntry.placementId = placementId;
     if (conversionSource) sanitizedEntry.conversionSource = conversionSource;
-    if (odDeviceId) {
-      sanitizedEntry.odDeviceId = odDeviceId;
-      sanitizedEntry.odDeviceIdConsent = true;
-    }
     if (Object.keys(sanitizedEntry).length > 0) {
       out.odEntry = sanitizedEntry;
     }
@@ -944,8 +935,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       }
 
-      const metricsConsented = cookies[METRICS_CONSENT_COOKIE_NAME] === METRICS_CONSENT_GRANTED;
-      const attribution = sanitizeOneTapAttribution(rawBody.attribution, { metricsConsented });
+      const attribution = sanitizeOneTapAttribution(rawBody.attribution);
       const referralCode = sanitizeOptionalShortString(rawBody.referralCode, 128);
 
       try {

@@ -66,9 +66,6 @@ import { CLOUD_P1_FEATURES } from '../../shared/cloud-features.ts';
 import {
   AmrIdentityClient,
   InMemoryAuthCache,
-  METRICS_CONSENT_COOKIE_NAME,
-  METRICS_CONSENT_DENIED,
-  METRICS_CONSENT_GRANTED,
   OidcService,
   amrIdentityClientFromAppConfig,
   buildOAuth21Config,
@@ -78,9 +75,7 @@ import {
   createPgAuthStore,
   createRedisAuthCache,
   getAuthContext,
-  isHttpsOrigin,
   oidcConfigFromAppConfig,
-  verifyCsrfOrigin,
   type AuthEnv,
   type AuthKeyValueCache,
   type AuthMiddlewareDeps,
@@ -2805,53 +2800,8 @@ export function createApiApp(deps: CreateApiAppDeps): {
     return consumeLocalWindow(ipHash, TRACKING_RATE_LIMIT_PER_MIN) && consumeLocalWindow('__global__', TRACKING_GLOBAL_LIMIT_PER_MIN);
   };
 
-  const resolveTrackingClientIp = (c: Context): string => {
-    if (config.TRUST_PROXY_HOPS > 0) {
-      const forwarded = c.req.header('x-forwarded-for');
-      if (forwarded) {
-        const hops = forwarded
-          .split(',')
-          .map((part) => part.trim())
-          .filter(Boolean);
-        if (hops.length > 0) {
-          return hops[Math.max(0, hops.length - config.TRUST_PROXY_HOPS)] ?? 'local';
-        }
-      }
-      const realIp = c.req.header('x-real-ip')?.trim();
-      if (realIp) return realIp;
-    }
-    return 'local';
-  };
-
-  // Google One Tap: explicit device-ID attribution consent, read by the One Tap exchange.
-  const trackingCookieSecure = isHttpsOrigin(config.APP_PUBLIC_ORIGIN);
-
   app.get('/motion-api/tracking', (c) => {
     return c.json(cloudTracking.browserConfig());
-  });
-  app.post('/motion-api/tracking/consent', async (c) => {
-    if (!verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
-      return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
-    }
-    if (!(await checkTrackingRateLimit(resolveTrackingClientIp(c)))) {
-      return c.json({ error: 'Too many tracking requests' }, 429);
-    }
-    let consented = false;
-    try {
-      const parsed = (await c.req.json()) as { deviceIdConsented?: unknown };
-      consented = parsed?.deviceIdConsented === true;
-    } catch {
-      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
-    }
-    const cookieParts = [
-      `${METRICS_CONSENT_COOKIE_NAME}=${consented ? METRICS_CONSENT_GRANTED : METRICS_CONSENT_DENIED}`,
-      'Path=/',
-      'SameSite=Lax',
-      'Max-Age=31536000',
-    ];
-    if (trackingCookieSecure) cookieParts.push('Secure');
-    c.header('Set-Cookie', cookieParts.join('; '));
-    return c.json({ ok: true, deviceIdConsented: consented });
   });
   app.post('/motion-api/tracking', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     const contentType = (c.req.header('content-type') ?? '').toLowerCase();
@@ -2870,7 +2820,24 @@ export function createApiApp(deps: CreateApiAppDeps): {
         return c.json({ error: 'Cross-origin tracking rejected' }, 403);
       }
     }
-    if (!(await checkTrackingRateLimit(resolveTrackingClientIp(c)))) {
+    const resolveClientIp = (): string => {
+      if (config.TRUST_PROXY_HOPS > 0) {
+        const forwarded = c.req.header('x-forwarded-for');
+        if (forwarded) {
+          const hops = forwarded
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean);
+          if (hops.length > 0) {
+            return hops[Math.max(0, hops.length - config.TRUST_PROXY_HOPS)] ?? 'local';
+          }
+        }
+        const realIp = c.req.header('x-real-ip')?.trim();
+        if (realIp) return realIp;
+      }
+      return 'local';
+    };
+    if (!(await checkTrackingRateLimit(resolveClientIp()))) {
       return c.json({ error: 'Too many tracking requests' }, 429);
     }
     if (!cloudTracking.isPosthogEnabled()) {

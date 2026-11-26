@@ -24,7 +24,6 @@ import {
   type GoogleAccountsIdInitializeConfig,
   type GooglePromptMomentNotification,
 } from './googleOneTap';
-import { setMotionUsageTrackingActive } from './trackingIdentity';
 import { WorkspaceGoogleOneTap } from './WorkspaceFrame';
 
 const tracked: Array<{ event: string; properties: Record<string, unknown> }> = [];
@@ -38,7 +37,6 @@ vi.mock('./trackingIdentity', async importOriginal => {
     }),
   };
 });
-const clearMetricsConsentCookie = () => { document.cookie = 'om_metrics_consent=; max-age=0; path=/'; };
 vi.mock('./tracking', async importOriginal => {
   const actual = await importOriginal<typeof import('./tracking')>();
   return {
@@ -63,8 +61,6 @@ beforeEach(() => {
   tracked.length = 0;
   resetOneTapStateForTests();
   syncedIdentities.length = 0;
-  setMotionUsageTrackingActive(false);
-  clearMetricsConsentCookie();
   sessionStorage.clear();
   localStorage.clear();
   document.cookie = 'od_attr=; max-age=0; path=/';
@@ -474,7 +470,7 @@ it('reports onetap_login_failed and invokes onError without clearing drafts when
   expect(validProperties(studioEvents, 'onetap_login_failed', failed!.properties)).toBe(true);
 });
 
-it('resolves full od_* product entry attribution by URL -> localStorage -> od_attr priority and enforces consent gate on odDeviceId', () => {
+it('resolves full od_* product entry attribution by URL -> localStorage -> od_attr priority and never reads, stores or forwards od_device_id', () => {
   localStorage.setItem(
     'od_attr',
     JSON.stringify({
@@ -482,8 +478,10 @@ it('resolves full od_* product entry attribution by URL -> localStorage -> od_at
       utm_medium: 'od_attr_med',
       od_entry_id: 'entry_attr',
       od_conversion_source: 'pricing_banner',
+      od_device_id: 'dev_from_od_attr',
     }),
   );
+  document.cookie = `od_attr=${encodeURIComponent(JSON.stringify({ od_device_id: 'dev_from_cookie' }))}; path=/`;
   history.replaceState(
     null,
     '',
@@ -493,10 +491,8 @@ it('resolves full od_* product entry attribution by URL -> localStorage -> od_at
 
   // Navigate to clean page with no query params -> persisted localStorage + od_attr fallback still resolves all fields
   history.replaceState(null, '', '/templates');
-  // Usage tracking alone is not device-ID consent.
-  setMotionUsageTrackingActive(true);
-  const unconsented = collectOneTapAttribution();
-  expect(unconsented.attribution).toMatchObject({
+  const collected = collectOneTapAttribution();
+  expect(collected.attribution).toMatchObject({
     utmSource: 'url_src',
     utmMedium: 'od_attr_med',
     landingPath: '/explore',
@@ -510,32 +506,20 @@ it('resolves full od_* product entry attribution by URL -> localStorage -> od_at
       conversionSource: 'pricing_banner',
     },
   });
-  expect(unconsented.attribution.odEntry).not.toHaveProperty('odDeviceId');
-  const unconsentedStored = localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY);
-  expect(unconsentedStored).toBeTruthy();
-  expect(unconsentedStored).not.toContain('dev_123');
+  // No device id from the URL, persisted storage, od_attr storage or the od_attr cookie is ever forwarded.
+  expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceId');
+  expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceIdConsent');
+  expect(JSON.stringify(collected)).not.toMatch(/dev_123|dev_from_od_attr|dev_from_cookie/);
+  const stored = localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY);
+  expect(stored).toBeTruthy();
+  expect(stored).not.toContain('dev_123');
 
-  // With the explicit device-ID consent cookie on landing -> odDeviceId is persisted and transmitted with consent flag
-  document.cookie = 'om_metrics_consent=granted; path=/';
-  history.replaceState(
-    null,
-    '',
-    '/explore?utm_source=url_src&od_origin=open_design&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T01:30:00.000Z&od_campaign_id=black_friday_2026&od_placement_id=hero_slot&od_device_id=dev_123',
-  );
+  // A URL carrying only od_device_id records no landing attribution at all.
+  localStorage.removeItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY);
+  history.replaceState(null, '', '/explore?od_device_id=dev_only');
   persistOneTapLandingAttribution();
-  history.replaceState(null, '', '/templates');
-  const consented = collectOneTapAttribution();
-  expect(consented.attribution.odEntry).toMatchObject({
-    sourceProduct: 'open_design',
-    entryId: 'entry_attr',
-    sourceDetail: 'openmotion_manage_subscription',
-    entryOccurredAt: '2026-11-24T01:30:00.000Z',
-    campaignId: 'black_friday_2026',
-    placementId: 'hero_slot',
-    conversionSource: 'pricing_banner',
-    odDeviceId: 'dev_123',
-    odDeviceIdConsent: true,
-  });
+  expect(localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY)).toBeNull();
+  document.cookie = 'od_attr=; max-age=0; path=/';
 });
 
 it('consumes cross-origin od_onetap_suppress=1 on first landing, cleans the URL, and resumes prompting after refresh', async () => {

@@ -16,8 +16,6 @@ export const ONETAP_CTX_COOKIE_NAME = 'om_onetap_ctx';
 export const ONETAP_CTX_COOKIE_PREFIX = 'om_onetap_ctx_';
 export const ONETAP_CTX_TTL_SEC = 300;
 export const DESKTOP_OIDC_CTX_COOKIE_NAME = 'om_desktop_oidc_ctx';
-// Explicit device-ID attribution consent, shared with the Studio One Tap attribution collector.
-export { METRICS_CONSENT_COOKIE_NAME, METRICS_CONSENT_DENIED, METRICS_CONSENT_GRANTED } from '../../shared/metrics-consent.ts';
 export const DEFAULT_SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
 const SESSION_CACHE_TTL_SEC = 60;
 

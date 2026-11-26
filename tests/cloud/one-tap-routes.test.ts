@@ -10,9 +10,6 @@ import {
   AmrIdentityClient,
   InMemoryAuthCache,
   InMemoryAuthStore,
-  METRICS_CONSENT_COOKIE_NAME,
-  METRICS_CONSENT_DENIED,
-  METRICS_CONSENT_GRANTED,
   OIDC_TX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_NAME,
   OidcService,
@@ -344,7 +341,8 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
             campaignId: 'black_friday_2026',
             placementId: 'header_banner',
             conversionSource: 'pricing_cta',
-            odDeviceId: 'should-be-stripped-without-consent',
+            odDeviceId: 'dev_client_claimed',
+            odDeviceIdConsent: true,
             evilKey: 'should-be-stripped',
           },
         },
@@ -1201,7 +1199,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
               releaseExchange = resolve;
             });
           }
-          // Verify consented odDeviceId + odDeviceIdConsent passthrough on second login too
+          // The second login forwards the landing odEntry but never a device id, whatever the client claims.
           if (body.challengeId === 'otc_inflight_2') {
             assert.deepEqual((body.attribution as { odEntry?: unknown })?.odEntry, {
               sourceProduct: 'open_design',
@@ -1211,8 +1209,6 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
               campaignId: 'camp_1',
               placementId: 'place_1',
               conversionSource: 'banner',
-              odDeviceId: 'dev_consented_99',
-              odDeviceIdConsent: true,
             });
           }
           return Response.json({
@@ -1319,7 +1315,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       'Revoked in-flight exchange must NEVER issue om_session',
     );
 
-    // A brand-new One Tap challenge started AFTER logout succeeds normally (and preserves consented odDeviceId)
+    // A brand-new One Tap challenge started AFTER logout succeeds normally (and still strips the client-claimed device id)
     const c2Res = await app.request('/auth/one-tap/challenge', {
       method: 'POST',
       headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
@@ -1334,7 +1330,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       headers: {
         Origin: PUBLIC_ORIGIN,
         'content-type': 'application/json',
-        Cookie: `${c2CookieName}=${c2Token}; ${METRICS_CONSENT_COOKIE_NAME}=${METRICS_CONSENT_GRANTED}`,
+        Cookie: `${c2CookieName}=${c2Token}`,
       },
       body: JSON.stringify({
         challengeId: c2Body.challengeId,
@@ -1348,7 +1344,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
             campaignId: 'camp_1',
             placementId: 'place_1',
             conversionSource: 'banner',
-            odDeviceId: 'dev_consented_99',
+            odDeviceId: 'dev_client_claimed_99',
             odDeviceIdConsent: true,
           },
         },
@@ -1672,16 +1668,6 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.match(configMapYaml, /OPENDESIGN_ONE_TAP_INTERNAL_URL:\s*"http:\/\/amr-api\.nexu\.svc\.cluster\.local:18080"/);
       const netPolYaml = await readFile(path.resolve('deploy/k8s/networkpolicy.yaml'), 'utf8');
       assert.match(netPolYaml, /kubernetes\.io\/metadata\.name:\s*nexu[\s\S]*?port:\s*18080/);
-
-      // Explicit device-ID consent is its own cookie, written only by /motion-api/tracking/consent.
-      const grantConsentRes = await app.request('/motion-api/tracking/consent', {
-        method: 'POST',
-        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceIdConsented: true }),
-      });
-      assert.equal(grantConsentRes.status, 200);
-      const consentCookie = extractCookieValue(grantConsentRes.headers.getSetCookie(), METRICS_CONSENT_COOKIE_NAME);
-      assert.equal(consentCookie, METRICS_CONSENT_GRANTED);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }
@@ -1895,7 +1881,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
           }
           if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
             const parsed = JSON.parse(String(init?.body ?? '{}')) as { attribution?: { odEntry?: Record<string, unknown> } };
-            // Without a granted metrics-consent cookie, odDeviceId must be stripped even if client claims consent
+            // A client-claimed device id is never forwarded to AMR, even with a consent flag
             assert.equal(parsed.attribution?.odEntry?.odDeviceId, undefined);
             assert.equal(parsed.attribution?.odEntry?.odDeviceIdConsent, undefined);
             return Response.json({
@@ -1980,7 +1966,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         headers: {
           Origin: PUBLIC_ORIGIN,
           'content-type': 'application/json',
-          Cookie: `${c4Name}=${c4Tok}; ${METRICS_CONSENT_COOKIE_NAME}=${METRICS_CONSENT_DENIED}`,
+          Cookie: `${c4Name}=${c4Tok}`,
         },
         body: JSON.stringify({
           challengeId: c4Body.challengeId,
@@ -1991,7 +1977,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
               entryId: 'ent_denied',
               sourceDetail: 'openmotion_manage_subscription',
               entryOccurredAt: '2026-11-24T02:00:00.000Z',
-              odDeviceId: 'dev_spoofed_without_cookie',
+              odDeviceId: 'dev_client_claimed',
               odDeviceIdConsent: true,
             },
           },
@@ -2487,7 +2473,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     }
   });
 
-  it('allows configured HTTP object store and blob iframes in Studio CSP, keeps cloud preferences deployment-locked, and gates device-ID consent and guest One Tap attribution', async () => {
+  it('allows configured HTTP object store and blob iframes in Studio CSP, keeps cloud preferences deployment-locked, and keeps guest One Tap attribution anonymous', async () => {
     const { buildStudioDocumentSecurityHeaders, createApiApp } = await import('../../src/entrypoints/api.ts');
 
     // 1. Studio CSP allows configured HTTP object store (default Compose http://127.0.0.1:9000) and blob: iframes
@@ -2560,19 +2546,12 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.match(servedCsp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
       assert.match(servedCsp, /media-src[^;]*http:\/\/127\.0\.0\.1:9000/);
 
-      // 2. Cloud tracking preferences stay deployment-locked; device-ID consent is a separate cookie.
+      // 2. Cloud tracking preferences stay deployment-locked.
       const prefRes = await app.request('/motion-api/tracking/preferences', {
         headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
       });
       assert.equal(prefRes.status, 200);
       assert.equal(((await prefRes.json()) as { locked?: boolean }).locked, true);
-
-      const crossSiteConsent = await app.request('/motion-api/tracking/consent', {
-        method: 'POST',
-        headers: { Origin: 'https://evil.example', 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceIdConsented: true }),
-      });
-      assert.equal(crossSiteConsent.status, 403);
 
       // 3. Guest One Tap events are anonymous; a packet claiming a user id is rejected, never forwarded.
       const postGuest = (events: unknown[]) =>
