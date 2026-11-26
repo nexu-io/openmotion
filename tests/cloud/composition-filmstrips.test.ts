@@ -38,6 +38,7 @@ import {
   embedFilmstripComment,
   extractFilmstripMeta,
   extractIndexHeadMarkup,
+  preloadTransitiveReferencedCodeAssets,
   FILMSTRIP_HEADER_ASPECT,
   FILMSTRIP_HEADER_FRAMES,
   FILMSTRIP_HEADER_HEIGHT,
@@ -1224,5 +1225,108 @@ describe('Studio composition filmstrip HTTP routes', () => {
       `workspaces/${WID_A}/comp-thumbs/${PID_A}/`,
     );
     assert.throws(() => projectCompThumbsPrefix('not-a-uuid', PID_A), { code: 'INVALID_PATH' });
+  });
+
+  it('tracks transitive JS/CSS refs, filenames with spaces, and image-set() consistently', async () => {
+    const files: VirtualFileRecord[] = [
+      {
+        path: 'index.html',
+        blobScope: 'workspace',
+        sha256: '1'.repeat(64),
+        sizeBytes: 64,
+        mimeType: 'text/html',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'compositions/scene.html',
+        blobScope: 'workspace',
+        sha256: '2'.repeat(64),
+        sizeBytes: 120,
+        mimeType: 'text/html',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/app.js',
+        blobScope: 'workspace',
+        sha256: '3'.repeat(64),
+        sizeBytes: 80,
+        mimeType: 'application/javascript',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/theme.css',
+        blobScope: 'workspace',
+        sha256: '4'.repeat(64),
+        sizeBytes: 90,
+        mimeType: 'text/css',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/hero banner.png',
+        blobScope: 'workspace',
+        sha256: '5'.repeat(64),
+        sizeBytes: 1024,
+        mimeType: 'image/png',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/bg-2x.webp',
+        blobScope: 'workspace',
+        sha256: '6'.repeat(64),
+        sizeBytes: 1024,
+        mimeType: 'image/webp',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+    ];
+    const texts = new Map<string, string>([
+      ['index.html', '<html><head></head><body></body></html>'],
+      ['compositions/scene.html', '<div data-composition-id="s"><script src="../assets/app.js"></script></div>'],
+      ['assets/app.js', 'const css = "./theme.css"; const img = "./hero banner.png";'],
+      ['assets/theme.css', '.hero { background: image-set("./bg-2x.webp" 2x); }'],
+    ]);
+    const loaded = await preloadTransitiveReferencedCodeAssets({
+      files,
+      indexHead: '',
+      htmlSources: new Map([['compositions/scene.html', texts.get('compositions/scene.html')!]]),
+      loadCodeText: async (p) => texts.get(p) ?? null,
+    });
+    assert.equal(loaded.has('assets/app.js'), true);
+    assert.equal(loaded.has('assets/theme.css'), true);
+
+    const readText = (p: string) => texts.get(p) ?? null;
+    const digest1 = computeCompositionFilmstripDepsDigest({
+      compPath: 'compositions/scene.html',
+      files,
+      indexHead: '',
+      readText,
+    }).depsSha256;
+    // Editing the space-containing image OR image-set() webp MUST change depsSha256.
+    const editedSpaceImg = files.map((f) =>
+      f.path === 'assets/hero banner.png' ? { ...f, sha256: '7'.repeat(64) } : f,
+    );
+    const digest2 = computeCompositionFilmstripDepsDigest({
+      compPath: 'compositions/scene.html',
+      files: editedSpaceImg,
+      indexHead: '',
+      readText,
+    }).depsSha256;
+    assert.notEqual(digest2, digest1);
+
+    const editedWebp = files.map((f) =>
+      f.path === 'assets/bg-2x.webp' ? { ...f, sha256: '8'.repeat(64) } : f,
+    );
+    const digest3 = computeCompositionFilmstripDepsDigest({
+      compPath: 'compositions/scene.html',
+      files: editedWebp,
+      indexHead: '',
+      readText,
+    }).depsSha256;
+    assert.notEqual(digest3, digest1);
   });
 });

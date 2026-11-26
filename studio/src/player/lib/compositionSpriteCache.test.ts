@@ -14,6 +14,7 @@ import {
   seedClientCompositionSpriteForTest,
   setMemoryStripCacheMaxBytesForTest,
 } from "./compositionSpriteCache";
+import { sliceVideoFallbackUrls } from "./videoThumbnailRequest";
 
 afterEach(() => {
   resetCompositionSpriteCacheForTest();
@@ -102,5 +103,68 @@ describe("compositionRevisionKey & compositionSpriteCache modular boundaries", (
     updateCachedCompositionRevisions("proj-mod", { "compositions/a.html": '"patch:a2"' });
     expect(getCompositionCacheKeyRevision("proj-mod", "compositions/a.html", 0)).not.toBe(beforeA);
     expect(getCompositionCacheKeyRevision("proj-mod", "compositions/b.html", 0)).toBe(beforeB);
+  });
+
+  it("keeps scenes without |media: warm on unused image upload and preserves |media: across live HTML edits", () => {
+    setCachedProjectRevision("proj-media", "rev-1", {
+      "compositions/pure.html": '"sha256:p1"|shared:head1:assets1',
+      "compositions/with-img.html": '"sha256:m1"|media:abc123def456|shared:head1:assets1',
+    });
+    const pureBefore = getCompositionCacheKeyRevision("proj-media", "compositions/pure.html", 0);
+    const imgBefore = getCompositionCacheKeyRevision("proj-media", "compositions/with-img.html", 0);
+
+    // Live HTML edit on a leaf scene with |media: preserves the |media: hash suffix for reload parity.
+    updateCachedCompositionRevisions("proj-media", { "compositions/with-img.html": '"patch:m2"' });
+    expect(getCompositionCacheKeyRevision("proj-media", "compositions/with-img.html", 0)).toBe(
+      'file:"patch:m2"|media:abc123def456|shared:head1:assets1',
+    );
+    expect(getCompositionCacheKeyRevision("proj-media", "compositions/pure.html", 0)).toBe(pureBefore);
+
+    // Uploading/editing a visual image leaves scenes without |media: untouched while refreshing |media: scenes.
+    updateCachedCompositionRevisions("proj-media", { "assets/unused.png": '"sha256:png1"' });
+    expect(getCompositionCacheKeyRevision("proj-media", "compositions/pure.html", 0)).toBe(pureBefore);
+    expect(getCompositionCacheKeyRevision("proj-media", "compositions/with-img.html", 0)).not.toBe(imgBefore);
+  });
+
+  it("keeps peekCachedCompositionCapture read-only without evicting or revoking unretained URLs", () => {
+    let seq = 0;
+    const revoked: string[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:ro-${++seq}`);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation((url) => {
+      revoked.push(String(url));
+    });
+
+    setMemoryStripCacheMaxBytesForTest(500_000);
+    setCachedProjectRevision("proj-ro", "rev-1", {
+      "compositions/s1.html": '"sha256:s1"|shared:h1:a1',
+      "compositions/s2.html": '"sha256:s2"|shared:h1:a1',
+    });
+    const url1 = "/api/projects/proj-ro/preview/comp/compositions/s1.html";
+    const url2 = "/api/projects/proj-ro/preview/comp/compositions/s2.html";
+    seedClientCompositionSpriteForTest(
+      { projectId: "proj-ro", previewUrl: url1, contentRevision: 0, frameCount: 8 },
+      new Blob(["s1"], { type: "image/jpeg" }),
+    );
+    // Seeding s2 evicts s1 from memoryStripCache, leaving s1 only in sharedCoverCache.
+    const v2 = seedClientCompositionSpriteForTest(
+      { projectId: "proj-ro", previewUrl: url2, contentRevision: 0, frameCount: 8 },
+      new Blob(["s2"], { type: "image/jpeg" }),
+    );
+    const revokedBeforePeek = revoked.length;
+
+    // Peeking s1 (frameCount: 1) during render must NOT hydrate from sharedCoverCache or evict/revoke v2.
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-ro", previewUrl: url1, contentRevision: 0, frameCount: 1 }),
+    ).toBeNull();
+    expect(revoked.length).toBe(revokedBeforePeek);
+    expect(
+      peekCachedCompositionCapture({ projectId: "proj-ro", previewUrl: url2, contentRevision: 0, frameCount: 8 }),
+    ).toBe(v2);
+  });
+
+  it("returns empty fallback URLs when video fallback and child clip source windows do not overlap", () => {
+    const urls = ["f0", "f1", "f2", "f3"];
+    expect(sliceVideoFallbackUrls(urls, 0, 5, 20, 5)).toEqual([]);
+    expect(sliceVideoFallbackUrls(urls, 0, 10, 5, 5)).toEqual(["f2", "f3"]);
   });
 });

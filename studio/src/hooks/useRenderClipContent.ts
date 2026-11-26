@@ -122,10 +122,16 @@ function withSoundStrip(
 }
 
 function resolveAuthoredMediaSrc(rawSrc: string, sourceFile: string | undefined): string {
-  if (sourceFile && /^\.\.\//.test(rawSrc)) {
+  const trimmed = rawSrc.trim();
+  const isRelative =
+    Boolean(trimmed) &&
+    !trimmed.startsWith("/") &&
+    !/^[a-z][a-z0-9+.-]*:/i.test(trimmed) &&
+    !trimmed.startsWith("//");
+  if (sourceFile && isRelative && (trimmed.startsWith(".") || !/^assets\//i.test(trimmed))) {
     try {
       const normalizedSource = sourceFile.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
-      const resolved = new URL(rawSrc, `https://project.invalid/${normalizedSource}`);
+      const resolved = new URL(trimmed, `https://project.invalid/${normalizedSource}`);
       const relPath = resolved.pathname.replace(/^\/+/, "");
       if (relPath) {
         return authoredSrcPath(`${relPath}${resolved.search}${resolved.hash}`);
@@ -238,7 +244,14 @@ export function useRenderClipContent({
         ) {
           const mediaUrl = new URL(mediaSrc, window.location.origin);
           // A visibility edit changes the composition, but the original media frames stay valid.
-          const assetPath = authoredSrcPath(mediaUrl.pathname.slice(previewPrefix.length));
+          const rawAssetSegment = mediaUrl.pathname.slice(previewPrefix.length);
+          let decodedAssetSegment = rawAssetSegment;
+          try {
+            decodedAssetSegment = decodeURIComponent(rawAssetSegment);
+          } catch {
+            // Preserve raw segment if percent-encoding is malformed.
+          }
+          const assetPath = authoredSrcPath(decodedAssetSegment);
           const revision = mediaThumbnailRevisionOf(thumbnailRevisions, assetPath);
           if (revision) {
             mediaUrl.searchParams.set("revision", String(revision));

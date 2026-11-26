@@ -137,6 +137,25 @@ test('splitting a script-driven canvas element or canvas wrapper directly is rej
     '<div data-composition-id="main" data-duration="10"><div id="welcome-gallery" data-hf-id="hf-gal" data-composition-id="welcome-gallery" data-composition-src="compositions/gallery.html" data-start="0" data-duration="10"></div></div>';
   const splitSubComp = root(apply(subCompHost, { kind: 'splitClips', hfIds: ['hf-gal'], at: 5 }));
   assert.ok(splitSubComp.querySelector('#welcome-gallery-split'));
+
+  // Ignored color-grading canvases and inert <template> canvases do not block splitting a normal wrapper.
+  const wrapperWithIgnoredCanvas =
+    '<div data-composition-id="main" data-duration="10"><div id="card" data-hf-id="hf-card" data-start="0" data-duration="10"><canvas data-hf-color-grading-canvas="true"></canvas><template><canvas></canvas></template></div></div>';
+  const splitCard = root(apply(wrapperWithIgnoredCanvas, { kind: 'splitClips', hfIds: ['hf-card'], at: 4 }));
+  assert.ok(splitCard.querySelector('#card-split'));
+});
+
+test('untimed video/audio clips do not fabricate composition duration on move or unmeasured split', () => {
+  const html =
+    '<div data-composition-id="s" data-duration="30"><video id="v" data-hf-id="v" data-start="1" src="short-3s.mp4"></video></div>';
+  assert.throws(
+    () => apply(html, { kind: 'moveClips', changes: [{ hfId: 'v', start: 5 }] }),
+    /Invalid clip duration/,
+  );
+  assert.throws(
+    () => apply(html, { kind: 'splitClips', hfIds: ['v'], at: 10 }),
+    /Invalid clip duration/,
+  );
 });
 
 test('a headless lane move updates paint order and time atomically, refusing a locked paint target', () => {

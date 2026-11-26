@@ -81,9 +81,14 @@ export function openingFrameCacheKey(
   return `${mediaKey}|${minFrame}|${maxFrame}`;
 }
 
+const IMAGE_LOAD_TIMEOUT_MS = 4_000;
+
 export function peekFirstVisibleCoverFrame(key: string): number | null {
   const cached = openingFrameCache.get(key);
-  return cached === undefined ? null : cached;
+  if (cached === undefined) return null;
+  openingFrameCache.delete(key);
+  openingFrameCache.set(key, cached);
+  return cached;
 }
 
 function loadHtmlImage(url: string): Promise<HTMLImageElement | null> {
@@ -91,8 +96,18 @@ function loadHtmlImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.decoding = "async";
-    img.onload = () => resolve(img.naturalWidth > 0 && img.naturalHeight > 0 ? img : null);
-    img.onerror = () => resolve(null);
+    let settled = false;
+    const finish = (result: HTMLImageElement | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      img.onload = null;
+      img.onerror = null;
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish(null), IMAGE_LOAD_TIMEOUT_MS);
+    img.onload = () => finish(img.naturalWidth > 0 && img.naturalHeight > 0 ? img : null);
+    img.onerror = () => finish(null);
     img.src = url;
   });
 }
@@ -140,17 +155,17 @@ export function detectFirstVisibleSpriteFrame(input: {
   const maxFrame = Math.max(minFrame, Math.min(safeCount - 1, Math.floor(input.maxFrame || 0)));
   const key = openingFrameCacheKey(input.url, minFrame, maxFrame);
 
-  const cached = openingFrameCache.get(key);
-  if (cached !== undefined) return Promise.resolve(cached);
+  const cached = peekFirstVisibleCoverFrame(key);
+  if (cached !== null) return Promise.resolve(cached);
   if (minFrame === maxFrame) return Promise.resolve(rememberOpeningFrame(key, minFrame));
 
   const existing = inFlightDetections.get(key);
   if (existing) return existing;
 
   const task = (async (): Promise<number> => {
-    if (typeof document === "undefined") return rememberOpeningFrame(key, minFrame);
+    if (typeof document === "undefined") return minFrame;
     const img = await loadHtmlImage(input.url);
-    if (!img) return rememberOpeningFrame(key, minFrame);
+    if (!img) return minFrame;
 
     const safeCols = Math.max(1, Math.floor(input.cols || safeCount));
     const safeRows = Math.max(1, Math.floor(input.rows || Math.ceil(safeCount / safeCols)));
@@ -159,7 +174,7 @@ export function detectFirstVisibleSpriteFrame(input: {
     canvas.height = safeRows * SAMPLE_H;
     try {
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      if (!ctx) return rememberOpeningFrame(key, minFrame);
+      if (!ctx) return minFrame;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       for (let idx = minFrame; idx <= maxFrame; idx++) {
         const col = idx % safeCols;
@@ -171,7 +186,7 @@ export function detectFirstVisibleSpriteFrame(input: {
       }
       return rememberOpeningFrame(key, minFrame);
     } catch {
-      return rememberOpeningFrame(key, minFrame);
+      return minFrame;
     } finally {
       canvas.width = 0;
       canvas.height = 0;
@@ -197,25 +212,27 @@ export function detectFirstVisibleFilmstripFrame(input: {
   const mediaKey = input.urls.slice(minFrame, maxFrame + 1).join("|");
   const key = openingFrameCacheKey(mediaKey, minFrame, maxFrame);
 
-  const cached = openingFrameCache.get(key);
-  if (cached !== undefined) return Promise.resolve(cached);
+  const cached = peekFirstVisibleCoverFrame(key);
+  if (cached !== null) return Promise.resolve(cached);
   if (minFrame === maxFrame) return Promise.resolve(rememberOpeningFrame(key, minFrame));
 
   const existing = inFlightDetections.get(key);
   if (existing) return existing;
 
   const task = (async (): Promise<number> => {
-    if (typeof document === "undefined") return rememberOpeningFrame(key, minFrame);
+    if (typeof document === "undefined") return minFrame;
+    let inspectedAny = false;
     for (let idx = minFrame; idx <= maxFrame; idx++) {
       const url = input.urls[idx];
       if (!url) continue;
       const img = await loadHtmlImage(url);
       if (!img) continue;
       const nonBlank = inspectCanvasImageNonBlank(img, 0, 0, img.naturalWidth, img.naturalHeight);
-      if (nonBlank === null) return rememberOpeningFrame(key, minFrame);
+      if (nonBlank === null) return minFrame;
+      inspectedAny = true;
       if (nonBlank) return rememberOpeningFrame(key, idx);
     }
-    return rememberOpeningFrame(key, minFrame);
+    return inspectedAny ? rememberOpeningFrame(key, minFrame) : minFrame;
   })().finally(() => {
     inFlightDetections.delete(key);
   });

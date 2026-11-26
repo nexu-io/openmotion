@@ -29,6 +29,7 @@ import { setCompositionSourceMap } from "../editor/domEditingDom";
 import { ensureMotionPathPluginLoaded } from "../../utils/gsapSoftReload";
 import { useAssetPreviewStore } from "../../utils/assetPreviewStore";
 import { createStableContext } from "../../utils/hmrStableContext";
+import { cancelPendingRemoteFilmstripUploads } from "../../player/lib/remoteCompositionFilmstrip";
 import { thumbnailScheduler } from "../../player/lib/thumbnailScheduler";
 import { previewReloadBegun } from "../../player/previewReloading";
 
@@ -132,7 +133,10 @@ export function NLEProvider({
   useLayoutEffect(() => {
     usePlayerStore.getState().beginTimelineSession(projectId);
     useAssetPreviewStore.getState().clearPreviewAsset();
-    return () => thumbnailScheduler.endBackgroundCaptures(projectId);
+    return () => {
+      thumbnailScheduler.endBackgroundCaptures(projectId);
+      cancelPendingRemoteFilmstripUploads(projectId);
+    };
   }, [projectId]);
 
   // Authored composition size measured from the loaded preview — drives drop

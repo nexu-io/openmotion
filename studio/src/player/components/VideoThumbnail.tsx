@@ -131,6 +131,7 @@ function useVideoThumbnailSnapshot(
       range.sourceStart,
       range.sourceRangeDuration,
     );
+    if (slicedUrls.length === 0) return { status: "idle" };
     if (slicedUrls === fallbackSnapshot.value.urls) return fallbackSnapshot;
     return {
       status: "ready",

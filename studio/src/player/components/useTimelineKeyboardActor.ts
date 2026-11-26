@@ -89,7 +89,7 @@ export function timelineKeyboardEventTarget(
   // Header actions stay native Tab stops because they have no row-level shortcut.
   // The nearest interactive ancestor wins so their events never masquerade as row events.
   const nearest = target.closest<HTMLElement>(
-    "button, input, select, textarea, a[href], [contenteditable], [role='slider'], [data-timeline-focus-id]",
+    "button, input, select, textarea, a[href], [contenteditable], [role='slider'], [role='button'], [data-item-error-reload], [data-timeline-focus-id]",
   );
   return nearest?.dataset.timelineFocusId && container.contains(nearest) ? nearest : null;
 }

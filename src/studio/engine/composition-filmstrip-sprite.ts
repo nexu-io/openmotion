@@ -31,6 +31,7 @@ export interface FilmstripDependencyFile {
   readonly blobScope: string;
   readonly sha256: string;
   readonly isText: boolean;
+  readonly sizeBytes?: number;
 }
 
 export function isHtmlCompositionPath(filePath: string): boolean {
@@ -46,21 +47,24 @@ export function isStyleOrScriptCodePath(filePath: string): boolean {
 }
 
 export function isVendorOrMinifiedScriptPath(filePath: string): boolean {
-  return /(?:^|\/)(?:vendor\/|[^/]+\.min\.m?js$)/i.test(filePath);
+  return /(?:^|\/)(?:vendor\/.*\.m?js$|[^/]+\.min\.m?js$)/i.test(filePath);
 }
 
 export const MAX_DEPENDENCY_SCAN_CODE_BYTES = 256 * 1024;
 
 const CSS_URL_EXTRACT_RE = /url\(\s*(?:"([^"]+)"|'([^']+)'|([^)"'\s]+))\s*\)/gi;
 const CSS_IMPORT_EXTRACT_RE = /@import\s+(?:url\(\s*(?:"([^"]+)"|'([^']+)'|([^)"'\s]+))\s*\)|"([^"]+)"|'([^']+)')/gi;
+const CSS_IMAGE_SET_EXTRACT_RE = /(?:-webkit-)?image-set\(\s*([\s\S]*?)\)/gi;
+const CSS_QUOTED_STRING_RE = /"([^"\\\r\n]+)"|'([^'\\\r\n]+)'/g;
 const JS_STRING_LITERAL_RE = /(?:'([^'\\\r\n]{1,512})'|"([^"\\\r\n]{1,512})"|`([^`$\\\r\n]{1,512})`)/g;
 const SCRIPT_TAG_RE = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+const DYNAMIC_EMBED_TAG_RE = /<(?:iframe|object|embed)\b/i;
 const DYNAMIC_MEDIA_LOAD_RE =
-  /\b(?:fetch|XMLHttpRequest)\s*\(|\bimport\s*\(|\+\s*['"`]\.(?:png|jpe?g|webp|gif|svg|avif|ico|mp4|mov|webm|mkv|m4v)\b/i;
+  /\b(?:fetch\s*\(|XMLHttpRequest\b|import\s*\()|\+\s*['"`]\.(?:png|jpe?g|webp|gif|svg|avif|ico|mp4|mov|webm|mkv|m4v)\b/i;
 const DYNAMIC_TEMPLATE_MEDIA_RE =
   /`[^`]*\$\{[^}]*\}[^`]*(?:\.(?:png|jpe?g|webp|gif|svg|avif|ico|mp4|mov|webm|mkv|m4v)\b|(?:assets|images|img|media|video|videos|photos)\/)|`[^`]*(?:assets|images|img|media|video|videos|photos)\/[^`]*\$\{/i;
-const HTML_MEDIA_ATTRS = new Set(['src', 'poster', 'href', 'xlink:href', 'data-src', 'data-poster']);
+const HTML_MEDIA_ATTRS = new Set(['src', 'poster', 'href', 'xlink:href', 'data', 'data-src', 'data-poster']);
 
 function resolveProjectRef(
   owner: string,
@@ -101,6 +105,17 @@ function collectCssRefs(
     const resolved = resolveProjectRef(owner, raw, knownPaths);
     if (resolved) outRefs.add(resolved);
   }
+  CSS_IMAGE_SET_EXTRACT_RE.lastIndex = 0;
+  while ((match = CSS_IMAGE_SET_EXTRACT_RE.exec(css)) !== null) {
+    const body = match[1] ?? '';
+    CSS_QUOTED_STRING_RE.lastIndex = 0;
+    let strMatch: RegExpExecArray | null;
+    while ((strMatch = CSS_QUOTED_STRING_RE.exec(body)) !== null) {
+      const raw = strMatch[1] ?? strMatch[2] ?? '';
+      const resolved = resolveProjectRef(owner, raw, knownPaths);
+      if (resolved) outRefs.add(resolved);
+    }
+  }
 }
 
 function scanScriptRefs(
@@ -116,7 +131,7 @@ function scanScriptRefs(
   let match: RegExpExecArray | null;
   while ((match = JS_STRING_LITERAL_RE.exec(script)) !== null) {
     const raw = match[1] ?? match[2] ?? match[3] ?? '';
-    if (!raw || raw.includes(' ')) continue;
+    if (!raw) continue;
     const resolved = resolveProjectRef(owner, raw, knownPaths);
     if (resolved) outRefs.add(resolved);
   }
@@ -129,6 +144,9 @@ function scanHtmlStaticRefs(
   knownPaths: ReadonlySet<string>,
   outRefs: Set<string>,
 ): { dynamic: boolean } {
+  if (DYNAMIC_EMBED_TAG_RE.test(html)) {
+    return { dynamic: true };
+  }
   for (const tag of scanHtmlOpeningTags(html)) {
     for (const attr of tag.attributes) {
       if (attr.kind !== 'value') continue;
@@ -199,6 +217,71 @@ export function extractReferencedCodeAssetPaths(input: {
 }
 
 /**
+ * Transitively prefetch small non-vendor CSS/JS code assets referenced from `indexHead`
+ * and `htmlSources` (expanding both CSS `@import` and JS/MJS string refs directly, with
+ * zero `<style>` wrapper hacks) so `projects.ts`, `composition-filmstrips.ts`, and
+ * `catalog-filmstrip-bake.ts` all compute byte-identical `depsSha256` / revisions.
+ */
+export async function preloadTransitiveReferencedCodeAssets(input: {
+  readonly files: ReadonlyArray<{ readonly path: string; readonly sizeBytes?: number }>;
+  readonly indexHead?: string | null;
+  readonly htmlSources: ReadonlyMap<string, string | null>;
+  readonly hasLoaded?: (filePath: string) => boolean;
+  readonly loadCodeText: (filePath: string) => Promise<string | null>;
+}): Promise<Map<string, string | null>> {
+  const loaded = new Map<string, string | null>();
+  if (!input.files.some((f) => isVisualMediaPath(f.path))) {
+    return loaded;
+  }
+  const knownPaths = new Set<string>();
+  const sizeByPath = new Map<string, number | undefined>();
+  for (const f of input.files) {
+    knownPaths.add(f.path);
+    sizeByPath.set(f.path, f.sizeBytes);
+  }
+  const visited = new Set<string>();
+  const queue = extractReferencedCodeAssetPaths({
+    files: input.files,
+    indexHead: input.indexHead,
+    htmlSources: input.htmlSources,
+  });
+
+  while (queue.length > 0) {
+    const codePath = queue.shift()!;
+    if (visited.has(codePath)) continue;
+    visited.add(codePath);
+    if (input.hasLoaded?.(codePath)) continue;
+    const size = sizeByPath.get(codePath);
+    if (typeof size === 'number' && size > MAX_DEPENDENCY_SCAN_CODE_BYTES) continue;
+
+    const text = await input.loadCodeText(codePath);
+    loaded.set(codePath, text);
+    if (!text || Buffer.byteLength(text, 'utf8') > MAX_DEPENDENCY_SCAN_CODE_BYTES) continue;
+
+    const childRefs = new Set<string>();
+    if (/\.css$/i.test(codePath)) {
+      collectCssRefs(codePath, text, knownPaths, childRefs);
+    } else if (scanScriptRefs(codePath, text, knownPaths, childRefs).dynamic) {
+      continue;
+    }
+    for (const ref of childRefs) {
+      if (
+        visited.has(ref) ||
+        !isStyleOrScriptCodePath(ref) ||
+        isVendorOrMinifiedScriptPath(ref)
+      ) {
+        continue;
+      }
+      const refSize = sizeByPath.get(ref);
+      if (typeof refSize === 'number' && refSize > MAX_DEPENDENCY_SCAN_CODE_BYTES) continue;
+      queue.push(ref);
+    }
+  }
+
+  return loaded;
+}
+
+/**
  * Determine the exact set of visual media paths (`IMAGE_EXT` / `VIDEO_EXT`) reachable from
  * `compPath`, its `includedComps`, `indexHead`, and transitively referenced non-vendor CSS/JS.
  *
@@ -262,6 +345,9 @@ export function resolveReferencedVisualMediaPaths(input: {
     if (typeof size === 'number' && size > MAX_DEPENDENCY_SCAN_CODE_BYTES) return null;
     const text = input.readText(codePath);
     if (text === null) return null;
+    if (size === undefined && Buffer.byteLength(text, 'utf8') > MAX_DEPENDENCY_SCAN_CODE_BYTES) {
+      return null;
+    }
     if (/\.css$/i.test(codePath)) {
       collectCssRefs(codePath, text, knownPaths, refs);
     } else if (scanScriptRefs(codePath, text, knownPaths, refs).dynamic) {

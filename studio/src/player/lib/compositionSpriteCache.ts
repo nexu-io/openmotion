@@ -545,6 +545,21 @@ export async function writeCachedStrip(record: CachedStripRecord): Promise<void>
   });
 }
 
+function enforceMemoryStripCacheBudget(protectedKey?: string): void {
+  while (
+    memoryStripCache.size > MEMORY_STRIP_CACHE_MAX ||
+    (memoryStripCache.size > 1 && memoryStripCacheBytes > memoryStripMaxBytes)
+  ) {
+    const oldestKey = memoryStripCache.keys().next().value;
+    if (!oldestKey || oldestKey === protectedKey) break;
+    const evicted = removeFromMemoryStripCache(oldestKey);
+    if (evicted) {
+      evicted.inCache = false;
+      maybeRevokeEntry(evicted);
+    }
+  }
+}
+
 function commitMemoryStripEntry(
   idbKey: string,
   meta: StripCacheMeta,
@@ -585,18 +600,7 @@ function commitMemoryStripEntry(
     return isCurrentRev && req.compositionRevision !== undefined && req.compositionRevision !== meta.compRev;
   });
   insertIntoMemoryStripCache(idbKey, entry);
-  while (
-    memoryStripCache.size > MEMORY_STRIP_CACHE_MAX ||
-    (memoryStripCache.size > 1 && memoryStripCacheBytes > memoryStripMaxBytes)
-  ) {
-    const oldestKey = memoryStripCache.keys().next().value;
-    if (!oldestKey || oldestKey === idbKey) break;
-    const evicted = removeFromMemoryStripCache(oldestKey);
-    if (evicted) {
-      evicted.inCache = false;
-      maybeRevokeEntry(evicted);
-    }
-  }
+  enforceMemoryStripCacheBudget(idbKey);
   return entry;
 }
 
@@ -670,7 +674,7 @@ export function putMemoryStripCache(
   precreatedUrls?: ReadonlyArray<string | undefined>,
 ): MemoryStripEntry {
   const existing = memoryStripCache.get(idbKey);
-  if (existing) {
+  if (existing && !existing.revoked && existing.value.kind !== "sprite") {
     if (precreatedUrls) {
       for (const url of precreatedUrls) {
         if (!url) continue;
@@ -684,6 +688,11 @@ export function putMemoryStripCache(
     existing.fallbackOnly = false;
     touchMemoryStripCache(idbKey, existing);
     return existing;
+  }
+  if (existing) {
+    removeFromMemoryStripCache(idbKey);
+    existing.inCache = false;
+    maybeRevokeEntry(existing);
   }
   const urls = blobs.map((blob, idx) => precreatedUrls?.[idx] ?? URL.createObjectURL(blob));
   const weight = Math.max(1, urls.length) * width * height * 4;
@@ -767,12 +776,12 @@ export function memoryEntryToThumbnailResult(entry: MemoryStripEntry): Thumbnail
 export function peekMemoryEntry(
   input: StripCacheInput,
 ): { entry: MemoryStripEntry; value: ThumbnailValue } | null {
-  const { idbKey, baseCoverKey, compPathKey, meta } = stripMemoryCacheKey(input);
+  const { idbKey, baseCoverKey } = stripMemoryCacheKey(input);
   if (input.frameCount === 1 && input.preferMultiFrame) {
     let bestKey: string | null = null;
     let bestEntry: MemoryStripEntry | null = null;
     for (const [key, entry] of memoryStripCache) {
-      if (entry.fallbackOnly || entry.baseCoverKey !== baseCoverKey) continue;
+      if (entry.revoked || entry.fallbackOnly || entry.baseCoverKey !== baseCoverKey) continue;
       if (!bestEntry || entry.frameCount > bestEntry.frameCount) {
         bestKey = key;
         bestEntry = entry;
@@ -784,7 +793,7 @@ export function peekMemoryEntry(
     }
   }
   const exact = memoryStripCache.get(idbKey);
-  if (exact && !exact.fallbackOnly) {
+  if (exact && !exact.revoked && !exact.fallbackOnly) {
     touchMemoryStripCache(idbKey, exact);
     return { entry: exact, value: exact.value };
   }
@@ -793,6 +802,7 @@ export function peekMemoryEntry(
     const canonical = memoryStripCache.get(canonicalKey);
     if (
       canonical &&
+      !canonical.revoked &&
       !canonical.fallbackOnly &&
       isMultiFrameVisualValue(canonical.value) &&
       canonical.frameCount >= input.frameCount
@@ -802,40 +812,13 @@ export function peekMemoryEntry(
     }
   }
   if (input.frameCount === 1) {
-    // Reuse an already-resident multi-frame strip or sprite without creating duplicate
-    // object URLs or triggering LRU eviction during React render.
+    // Strictly read-only: reuse an already-resident multi-frame strip or sprite without
+    // allocating ObjectURLs, running LRU eviction, or mutating scheduler state during React render.
+    // Cold `sharedCoverCache` hydration runs asynchronously in `acquireCachedCompositionCaptureFromIdb`.
     for (const [key, entry] of memoryStripCache) {
-      if (!entry.fallbackOnly && entry.baseCoverKey === baseCoverKey) {
+      if (!entry.revoked && !entry.fallbackOnly && entry.baseCoverKey === baseCoverKey) {
         touchMemoryStripCache(key, entry);
         return { entry, value: input.preferMultiFrame ? entry.value : entry.coverValue };
-      }
-    }
-    const shared = sharedCoverCache.get(baseCoverKey);
-    if (shared) {
-      if (shared.sprite) {
-        const spriteKey = `${baseCoverKey}&frames=${shared.sprite.frameCount}`;
-        const entry = putMemorySpriteCache(
-          spriteKey,
-          baseCoverKey,
-          compPathKey,
-          meta,
-          shared.sprite,
-          shared.aspect,
-        );
-        return { entry, value: entry.value };
-      }
-      if (shared.blob) {
-        const entry = putMemoryStripCache(
-          idbKey,
-          baseCoverKey,
-          compPathKey,
-          meta,
-          [shared.blob],
-          shared.aspect,
-          shared.width,
-          shared.height,
-        );
-        return { entry, value: entry.value };
       }
     }
     return null;
@@ -845,7 +828,7 @@ export function peekMemoryEntry(
   let bestKey: string | null = null;
   let bestEntry: MemoryStripEntry | null = null;
   for (const [key, entry] of memoryStripCache) {
-    if (entry.fallbackOnly || entry.baseCoverKey !== baseCoverKey || entry.frameCount < input.frameCount) continue;
+    if (entry.revoked || entry.fallbackOnly || entry.baseCoverKey !== baseCoverKey || entry.frameCount < input.frameCount) continue;
     if (!bestEntry || entry.frameCount > bestEntry.frameCount) {
       bestKey = key;
       bestEntry = entry;
@@ -985,6 +968,7 @@ export function seedSplitCompositionCaptureFallback(params: {
     };
     entryByValue.set(value, entry);
     insertIntoMemoryStripCache(fallbackKey, entry);
+    enforceMemoryStripCacheBudget(fallbackKey);
     return true;
   }
 
@@ -1034,6 +1018,7 @@ export function seedSplitCompositionCaptureFallback(params: {
   entryByValue.set(value, entry);
   if (coverValue !== value) entryByValue.set(coverValue, entry);
   insertIntoMemoryStripCache(fallbackKey, entry);
+  enforceMemoryStripCacheBudget(fallbackKey);
   return true;
 }
 
@@ -1191,6 +1176,42 @@ export function acquireCachedCompositionCaptureFromIdb(
   const { rev: compRev, hasFileVersion } = resolveCompositionRevision(input.projectId, input.previewUrl);
   const remoteContentRevision = hasFileVersion ? 0 : input.contentRevision;
   const { idbKey, baseCoverKey, compPathKey, meta } = stripMemoryCacheKey(input);
+  if (input.frameCount === 1) {
+    const shared = sharedCoverCache.get(baseCoverKey);
+    if (shared) {
+      if (shared.sprite) {
+        const spriteKey = `${baseCoverKey}&frames=${shared.sprite.frameCount}`;
+        const entry = putMemorySpriteCache(
+          spriteKey,
+          baseCoverKey,
+          compPathKey,
+          meta,
+          shared.sprite,
+          shared.aspect,
+        );
+        return Promise.resolve({
+          value: input.preferMultiFrame ? entry.value : entry.coverValue,
+          release: retainMemoryEntry(entry),
+        });
+      }
+      if (shared.blob) {
+        const entry = putMemoryStripCache(
+          idbKey,
+          baseCoverKey,
+          compPathKey,
+          meta,
+          [shared.blob],
+          shared.aspect,
+          shared.width,
+          shared.height,
+        );
+        return Promise.resolve({
+          value: entry.value,
+          release: retainMemoryEntry(entry),
+        });
+      }
+    }
+  }
   const readKey = input.preferMultiFrame ? `${idbKey}|multi` : idbKey;
 
   let entryPromise = inFlightIdbReads.get(readKey);

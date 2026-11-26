@@ -1368,17 +1368,24 @@ async function runClientCompositionCapture(
     if (signal.aborted) throw abortError();
     if (result.blobs.length === 0) throw new Error("Client composition capture returned no frames");
 
-    const coverBlob = result.blobs[Math.min(result.blobs.length - 1, Math.floor(result.blobs.length / 2))]!;
-    putSharedCoverCache(baseCoverKey, {
-      blob: coverBlob,
-      aspect: result.aspect,
-      width: result.width,
-      height: result.height,
-      projectId: meta.projectId,
-      compPath: meta.compPath,
-      compRev: meta.compRev,
-      contentRevision: meta.contentRevision,
-    });
+    // Guard against mid-capture edits: never overwrite shared cover or schedule an S3 upload
+    // using a newer revision when the composition edited while this capture was in flight.
+    const isRevisionStillCurrent =
+      resolveCompositionRevision(input.projectId, input.previewUrl).rev === meta.compRev;
+
+    if (isRevisionStillCurrent) {
+      const coverBlob = result.blobs[Math.min(result.blobs.length - 1, Math.floor(result.blobs.length / 2))]!;
+      putSharedCoverCache(baseCoverKey, {
+        blob: coverBlob,
+        aspect: result.aspect,
+        width: result.width,
+        height: result.height,
+        projectId: meta.projectId,
+        compPath: meta.compPath,
+        compRev: meta.compRev,
+        contentRevision: meta.contentRevision,
+      });
+    }
 
     void writeCachedStrip({
       key: idbKey,
@@ -1389,13 +1396,12 @@ async function runClientCompositionCapture(
       updatedAt: Date.now(),
     });
 
-    if (!input.selector) {
-      const { rev: compRev, hasFileVersion } = resolveCompositionRevision(input.projectId, input.previewUrl);
+    if (!input.selector && isRevisionStillCurrent) {
       scheduleRemoteCompositionFilmstripUpload({
         projectId: input.projectId,
         previewUrl: input.previewUrl,
-        compRev,
-        contentRevision: hasFileVersion ? 0 : input.contentRevision,
+        compRev: meta.compRev,
+        contentRevision: meta.contentRevision,
         blobs: result.blobs,
         width: result.width,
         height: result.height,

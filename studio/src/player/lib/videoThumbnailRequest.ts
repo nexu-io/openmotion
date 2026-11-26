@@ -71,7 +71,7 @@ export function sliceVideoFallbackUrls(
   const safeChildStart = Number.isFinite(childStart) ? Math.max(0, childStart) : parentStart;
   const safeChildDur = Number.isFinite(childDuration) && childDuration > 0 ? childDuration : parentDuration;
   const parentEnd = parentStart + parentDuration;
-  if (safeChildStart >= parentEnd || safeChildStart + safeChildDur <= parentStart) return urls;
+  if (safeChildStart >= parentEnd || safeChildStart + safeChildDur <= parentStart) return [];
   const startFrac = Math.max(0, Math.min(1, (safeChildStart - parentStart) / parentDuration));
   const endFrac = Math.max(
     startFrac,

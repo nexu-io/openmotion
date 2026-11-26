@@ -1294,11 +1294,18 @@ export class WorkspaceService {
     });
     if (!result.replayed) {
       this.onCatalogChange?.(ctx.workspaceId);
-      // Best-effort cleanup of project-scoped composition thumbnails and filmstrips in S3.
-      await this.storage
-        .deletePrefix(projectCompThumbsPrefix(ctx.workspaceId, result.projectId))
-        .catch(() => {});
     }
+    // Best-effort idempotent cleanup of project-scoped composition thumbnails and filmstrips in S3.
+    // Run on replays as well so a transient S3 error after DB commit is cleaned up on retry.
+    await this.storage
+      .deletePrefix(projectCompThumbsPrefix(ctx.workspaceId, result.projectId))
+      .catch((err) => {
+        console.warn('[workspace-service] Failed to clean project composition filmstrips in S3', {
+          workspaceId: ctx.workspaceId,
+          projectId: result.projectId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     return result;
   }
 

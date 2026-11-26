@@ -57,7 +57,15 @@ function number(value: unknown, name: string, minimum = 0) {
 }
 const round = (value: number) => Math.round(value * 10000) / 10000;
 function isUntimedRootClip(el: Element, root: Element | null): boolean {
-  if (!root || el === root || el.hasAttribute('data-duration') || el.hasAttribute('data-end')) {
+  if (
+    !root ||
+    el === root ||
+    el.localName === 'video' ||
+    el.localName === 'audio' ||
+    el.hasAttribute('data-start') ||
+    el.hasAttribute('data-duration') ||
+    el.hasAttribute('data-end')
+  ) {
     return false;
   }
   if (el.parentElement?.closest('[data-composition-id]') !== root) return false;
@@ -69,7 +77,7 @@ function isUntimedRootClip(el: Element, root: Element | null): boolean {
 function timing(el: Element) {
   const cache = new Map();
   const start = resolveReferencedStart(el.ownerDocument, el, cache, new Set());
-  const root = el.closest('[data-composition-id]');
+  const root = el.parentElement?.closest('[data-composition-id]') ?? null;
   const authoredDuration = resolveReferencedDuration(el.ownerDocument, el, cache, new Set());
   const implicit =
     authoredDuration == null && (isUntimedRootText(el, root) || isUntimedRootClip(el, root));

@@ -1,3 +1,4 @@
+import { IMAGE_EXT, VIDEO_EXT } from "../../../../shared/asset-names";
 import { isNonVisualPreviewFile } from "../../../../shared/preview-impact";
 import { cancelPendingRemoteFilmstripUploads } from "./remoteCompositionFilmstrip";
 import { createThumbnailKey, type ThumbnailPriority } from "./thumbnailScheduler";
@@ -53,7 +54,24 @@ let liveSharedDepSeq = 0;
 
 const SHARED_REV_MARKER = "|shared:";
 const DEPS_REV_MARKER = "|deps:";
+const MEDIA_REV_MARKER = "|media:";
 const HTML_FILE_RE = /\.html?$/i;
+
+function isVisualMediaPath(filePath: string): boolean {
+  return IMAGE_EXT.test(filePath) || VIDEO_EXT.test(filePath);
+}
+
+function extractBaseSuffixes(rev: string | undefined): string {
+  if (!rev) return "";
+  const base = splitSharedRev(rev).base;
+  const depsIdx = base.indexOf(DEPS_REV_MARKER);
+  const mediaIdx = base.indexOf(MEDIA_REV_MARKER);
+  let cutIdx = -1;
+  if (depsIdx >= 0 && mediaIdx >= 0) cutIdx = Math.min(depsIdx, mediaIdx);
+  else if (depsIdx >= 0) cutIdx = depsIdx;
+  else if (mediaIdx >= 0) cutIdx = mediaIdx;
+  return cutIdx >= 0 ? base.slice(cutIdx) : "";
+}
 
 function splitSharedRev(rev: string): { base: string; shared: string } {
   const idx = rev.indexOf(SHARED_REV_MARKER);
@@ -264,10 +282,15 @@ export function updateCachedCompositionRevisions(
   const changedPaths = new Set<string>();
   let changed = false;
 
-  const isPreviewSharedNonHtml = (rawPath: string): boolean => {
+  const isPreviewSharedNonMedia = (rawPath: string): boolean => {
     const key = normalizeCompositionPathForGate(rawPath);
     if (!key || key === "." || HTML_FILE_RE.test(key)) return false;
-    return !isNonVisualPreviewFile(key);
+    return !isNonVisualPreviewFile(key) && !isVisualMediaPath(key);
+  };
+  const isVisualMediaChange = (rawPath: string): boolean => {
+    const key = normalizeCompositionPathForGate(rawPath);
+    if (!key || key === "." || HTML_FILE_RE.test(key)) return false;
+    return isVisualMediaPath(key);
   };
 
   const projectRev = projectRevisionByProjectId.get(projectId) ?? "";
@@ -275,19 +298,22 @@ export function updateCachedCompositionRevisions(
     Boolean(rev && projectRev && rev === projectRev);
 
   let nonHtmlSharedChanged = false;
+  let visualMediaChanged = false;
   if (fileVersions) {
     for (const rawPath of Object.keys(fileVersions)) {
-      if (isPreviewSharedNonHtml(rawPath)) {
+      if (isPreviewSharedNonMedia(rawPath)) {
         nonHtmlSharedChanged = true;
-        break;
+      } else if (isVisualMediaChange(rawPath)) {
+        visualMediaChanged = true;
       }
     }
   }
-  if (!nonHtmlSharedChanged && options?.changedPaths) {
+  if (options?.changedPaths) {
     for (const rawPath of options.changedPaths) {
-      if (isPreviewSharedNonHtml(rawPath)) {
+      if (isPreviewSharedNonMedia(rawPath)) {
         nonHtmlSharedChanged = true;
-        break;
+      } else if (isVisualMediaChange(rawPath)) {
+        visualMediaChanged = true;
       }
     }
   }
@@ -328,6 +354,25 @@ export function updateCachedCompositionRevisions(
     }
   }
 
+  // Visual media uploads/edits never touch scenes without `|media:` (proven zero visual media refs).
+  // Only bump `|media:` on scenes that actually declare media dependencies so overwriting an in-use
+  // image/video refreshes affected scenes while uploading an unused asset leaves all scenes warm.
+  if (visualMediaChanged && perComp) {
+    const mediaLiveTag = `m${++liveSharedDepSeq}`;
+    for (const [compKey, existingRev] of perComp) {
+      if (isFailClosedRev(existingRev)) continue;
+      const { base, shared } = splitSharedRev(existingRev);
+      const mediaIdx = base.indexOf(MEDIA_REV_MARKER);
+      if (mediaIdx < 0) continue;
+      const rewritten = joinSharedRev(`${base.slice(0, mediaIdx)}${MEDIA_REV_MARKER}${mediaLiveTag}`, shared);
+      if (rewritten !== existingRev) {
+        perComp.set(compKey, rewritten);
+        changedPaths.add(compKey);
+        changed = true;
+      }
+    }
+  }
+
   if (fileVersions) {
     const editedSubComps = new Set<string>();
     for (const [rawPath, rawVersion] of Object.entries(fileVersions)) {
@@ -346,12 +391,10 @@ export function updateCachedCompositionRevisions(
           if (key !== "index.html") editedSubComps.add(key);
           continue;
         }
-        const existingDepsIdx = existingRev ? splitSharedRev(existingRev).base.indexOf(DEPS_REV_MARKER) : -1;
-        const existingDepsSuffix =
-          existingRev && existingDepsIdx >= 0 ? splitSharedRev(existingRev).base.slice(existingDepsIdx) : "";
+        const existingSuffixes = extractBaseSuffixes(existingRev);
         const nextRev = trimmed.includes(SHARED_REV_MARKER)
           ? trimmed
-          : joinSharedRev(`${trimmed}${existingDepsSuffix}`, activeSharedTag);
+          : joinSharedRev(`${trimmed}${existingSuffixes}`, activeSharedTag);
         if (existingRev !== nextRev) {
           perComp.set(key, nextRev);
           changedPaths.add(key);
@@ -372,7 +415,12 @@ export function updateCachedCompositionRevisions(
         const { base, shared } = splitSharedRev(existingRev);
         const depsIdx = base.indexOf(DEPS_REV_MARKER);
         if (depsIdx < 0) continue;
-        const rewritten = joinSharedRev(`${base.slice(0, depsIdx)}${DEPS_REV_MARKER}${nestedTag}`, shared);
+        const mediaIdx = base.indexOf(MEDIA_REV_MARKER, depsIdx);
+        const mediaTail = mediaIdx >= 0 ? base.slice(mediaIdx) : "";
+        const rewritten = joinSharedRev(
+          `${base.slice(0, depsIdx)}${DEPS_REV_MARKER}${nestedTag}${mediaTail}`,
+          shared,
+        );
         if (rewritten !== existingRev) {
           perComp.set(compKey, rewritten);
           changedPaths.add(compKey);

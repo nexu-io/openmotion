@@ -1,4 +1,5 @@
 import { findTargetElement, nextUniqueId, parseSourceDocument, relinkSplitHalvesInHtml, splitElementInHtml, type SourceMutationTarget } from '@hyperframes/studio-server/source-mutation';
+import { isTimelineIgnoredElement } from './content-duration.ts';
 import { applyGsapMutationsInMemory } from './gsap-mutations.ts';
 
 export const CANVAS_SPLIT_UNSUPPORTED_MESSAGE =
@@ -13,7 +14,23 @@ export function isUnsplittableCanvasElement(el: Element): boolean {
   if (el.hasAttribute('data-composition-src') || el.hasAttribute('data-composition-file')) {
     return false;
   }
-  return el.localName === 'canvas' || Boolean(el.querySelector('canvas'));
+  if (el.localName === 'canvas') return !isTimelineIgnoredElement(el);
+  for (const canvas of Array.from(el.querySelectorAll('canvas'))) {
+    if (isTimelineIgnoredElement(canvas)) continue;
+    let isolated = false;
+    for (let p = canvas.parentElement; p && p !== el; p = p.parentElement) {
+      if (
+        p.localName === 'template' ||
+        p.hasAttribute('data-composition-src') ||
+        p.hasAttribute('data-composition-file')
+      ) {
+        isolated = true;
+        break;
+      }
+    }
+    if (!isolated) return true;
+  }
+  return false;
 }
 
 export function assertSplittableElementInHtml(html: string, target: SourceMutationTarget): void {

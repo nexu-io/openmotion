@@ -62,11 +62,17 @@ interface PendingWriteTarget {
   readonly existingFrames: number;
 }
 
+interface ScheduledUploadEntry {
+  readonly timer: ReturnType<typeof setTimeout>;
+  readonly frameCount: number;
+  readonly compRev: string;
+}
+
 const inFlightFetches = new Map<string, Promise<RemoteFilmstripResult>>();
 const pendingWriteTargets = new Map<string, PendingWriteTarget>();
 const completedUploads = new Set<string>();
 const inFlightUploads = new Set<string>();
-const scheduledUploads = new Map<string, ReturnType<typeof setTimeout>>();
+const scheduledUploads = new Map<string, ScheduledUploadEntry>();
 let testCodecOverride: RemoteFilmstripCodec | null = null;
 let uploadStabilityDelayMsOverride: number | null = null;
 
@@ -83,12 +89,12 @@ export function setRemoteFilmstripUploadDelayForTest(delayMs: number | null): vo
 /** Cancel queued S3 filmstrip write-backs for a project (or a single composition path) before they fire. */
 export function cancelPendingRemoteFilmstripUploads(projectId?: string, compPath?: string): void {
   const normalizedComp = compPath ? compPath.replace(/^(\.\/|\/)+/, "") : null;
-  for (const [key, timer] of [...scheduledUploads.entries()]) {
+  for (const [key, entry] of [...scheduledUploads.entries()]) {
     if (projectId) {
       const prefix = normalizedComp ? `${projectId}|${normalizedComp}` : `${projectId}|`;
       if (normalizedComp ? key !== prefix : !key.startsWith(prefix)) continue;
     }
-    clearTimeout(timer);
+    clearTimeout(entry.timer);
     scheduledUploads.delete(key);
   }
 }
@@ -439,10 +445,21 @@ export function scheduleRemoteCompositionFilmstripUpload(
 ): void {
   const compPath = normalizeCompositionPath(input.previewUrl);
   if (!input.projectId || !compPath) return;
+  if (input.blobs.length === 0 || input.blobs.length > MAX_REMOTE_FILMSTRIP_FRAMES) return;
+  if (
+    input.blobs.length === 1 &&
+    !(typeof input.duration === "number" && input.duration > 0 && input.duration <= 0.5)
+  ) {
+    return;
+  }
   const scheduleKey = `${input.projectId}|${compPath}`;
   const prior = scheduledUploads.get(scheduleKey);
   if (prior !== undefined) {
-    clearTimeout(prior);
+    // Never let a lower-frame capture (e.g. 4-frame cover) overwrite a pending 8-frame upload for the same revision.
+    if (prior.compRev === input.compRev && prior.frameCount > input.blobs.length) {
+      return;
+    }
+    clearTimeout(prior.timer);
     scheduledUploads.delete(scheduleKey);
   }
   const delayMs = uploadStabilityDelayMsOverride ?? DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS;
@@ -454,7 +471,11 @@ export function scheduleRemoteCompositionFilmstripUpload(
     scheduledUploads.delete(scheduleKey);
     void uploadRemoteCompositionFilmstripIfEligible(input);
   }, delayMs);
-  scheduledUploads.set(scheduleKey, timer);
+  scheduledUploads.set(scheduleKey, {
+    timer,
+    frameCount: input.blobs.length,
+    compRev: input.compRev,
+  });
 }
 
 /**

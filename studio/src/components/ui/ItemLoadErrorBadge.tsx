@@ -92,6 +92,7 @@ export function ItemLoadErrorBadge({
       className={classes}
       onPointerDown={stopBubble}
       onPointerUp={stopBubble}
+      onContextMenu={stopBubble}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}

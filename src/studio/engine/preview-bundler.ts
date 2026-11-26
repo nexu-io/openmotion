@@ -179,6 +179,7 @@ const CAPTURE_VIDEO_PRESERVED_ATTRS = new Set([
   'role',
   'aria-label',
   'aria-hidden',
+  'crossorigin',
 ]);
 
 /**
@@ -213,13 +214,13 @@ function prepareCaptureMediaElements(root: ParentNode): boolean {
       const img = ownerDoc.createElement('img');
       img.setAttribute('src', poster);
       img.setAttribute('decoding', 'sync');
-      img.setAttribute('data-om-capture-video-poster', '1');
       for (const attr of Array.from(video.attributes)) {
         const lower = attr.name.toLowerCase();
         if (CAPTURE_VIDEO_PRESERVED_ATTRS.has(lower) || lower.startsWith('data-')) {
           img.setAttribute(attr.name, attr.value);
         }
       }
+      img.setAttribute('data-om-capture-video-poster', '1');
       video.replaceWith(img);
       changed = true;
       continue;

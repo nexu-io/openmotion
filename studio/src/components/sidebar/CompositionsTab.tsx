@@ -23,6 +23,7 @@ import {
   acquireCachedCompositionCaptureFromIdb,
   canCaptureCompositionInBrowser,
   createClientCompositionCaptureRequest,
+  evictStaleCompositionCaptures,
   getCompositionCacheKeyRevision,
   getProgressiveCompositionCapture,
   peekCachedCompositionCapture,
@@ -862,14 +863,16 @@ function CompCard({
   ]);
 
   const handleReloadCover = useCallback(() => {
+    const hadImgError = Boolean(failedFrameUrl);
     setFailedFrameUrl(null);
     let retried = false;
     if (captureRequest && thumbnailScheduler.retryEntry(captureRequest)) retried = true;
     if (thumbnailRequest && thumbnailScheduler.retryEntry(thumbnailRequest)) retried = true;
-    if (!retried) {
+    if (hadImgError || !retried) {
+      evictStaleCompositionCaptures(projectId, [coverComp]);
       thumbnailScheduler.retryFailed(projectId, coverComp);
     }
-  }, [captureRequest, coverComp, projectId, thumbnailRequest]);
+  }, [captureRequest, coverComp, failedFrameUrl, projectId, thumbnailRequest]);
   const previewScale = resolveCompositionPreviewScale({
     cardWidth: CARD_W,
     cardHeight: CARD_H,

@@ -18,7 +18,6 @@ import {
   extractFilmstripMeta,
   extractIndexHeadMarkup,
   extractNestedCompositionRefs,
-  extractReferencedCodeAssetPaths,
   FILMSTRIP_HEADER_ASPECT,
   FILMSTRIP_HEADER_FRAMES,
   FILMSTRIP_HEADER_HEIGHT,
@@ -28,8 +27,8 @@ import {
   FILMSTRIP_HEADER_SOURCE,
   FILMSTRIP_HEADER_WIDTH,
   isHtmlCompositionPath,
-  isVisualMediaPath,
   MAX_FILMSTRIP_JPEG_BYTES,
+  preloadTransitiveReferencedCodeAssets,
   validateFilmstripMeta,
   type CompositionFilmstripMeta,
 } from '../engine/composition-filmstrip-sprite.ts';
@@ -192,37 +191,24 @@ export function createStudioCompositionFilmstripsRoutes(
     }
 
     // When the project contains visual media files, also inspect small non-vendor CSS/JS files
-    // referenced by indexHead or the loaded HTML subgraph so unreferenced uploaded images/videos
-    // do not invalidate untouched scenes.
-    if (files.some((f) => isVisualMediaPath(f.path))) {
-      const codePaths = extractReferencedCodeAssetPaths({
-        files,
-        indexHead,
-        htmlSources: htmlCache,
-      });
-      const loadedCode = new Set<string>();
-      const codeQueue = [...codePaths];
-      while (codeQueue.length > 0) {
-        const codePath = codeQueue.shift()!;
-        if (loadedCode.has(codePath) || htmlCache.has(codePath)) continue;
-        loadedCode.add(codePath);
+    // transitively referenced by indexHead or the loaded HTML subgraph so unreferenced uploaded
+    // images/videos do not invalidate untouched scenes.
+    const preloadedCode = await preloadTransitiveReferencedCodeAssets({
+      files,
+      indexHead,
+      htmlSources: htmlCache,
+      hasLoaded: (codePath) => htmlCache.has(codePath),
+      loadCodeText: async (codePath) => {
         try {
           const read = await deps.files.readTextFile(auth, projectId, codePath);
-          const content = read?.content ?? null;
-          htmlCache.set(codePath, content);
-          if (content && /\.css$/i.test(codePath)) {
-            const nested = extractReferencedCodeAssetPaths({
-              files,
-              htmlSources: new Map([[codePath, `<style>${content}</style>`]]),
-            });
-            for (const nextPath of nested) {
-              if (!loadedCode.has(nextPath)) codeQueue.push(nextPath);
-            }
-          }
+          return read?.content ?? null;
         } catch {
-          htmlCache.set(codePath, null);
+          return null;
         }
-      }
+      },
+    });
+    for (const [codePath, content] of preloadedCode) {
+      htmlCache.set(codePath, content);
     }
 
     const readCachedText = (filePath: string) => htmlCache.get(filePath) ?? null;

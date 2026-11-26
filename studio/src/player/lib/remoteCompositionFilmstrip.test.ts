@@ -532,6 +532,19 @@ describe("remoteCompositionFilmstrip", () => {
         aspect: 16 / 9,
         duration: 5,
       });
+      // A subsequent 1-frame sidebar cover (or lower-frame capture) for the same revision
+      // must NEVER cancel or downgrade the pending 4-frame S3 upload.
+      scheduleRemoteCompositionFilmstripUpload({
+        projectId: "proj-x",
+        previewUrl,
+        compRev: '"patch:v2"|shared:head1:assets1',
+        contentRevision: 0,
+        blobs: [new Blob(["cover-only"], { type: "image/jpeg" })],
+        width: 160,
+        height: 90,
+        aspect: 16 / 9,
+        duration: 5,
+      });
       await vi.advanceTimersByTimeAsync(DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS - 100);
       expect(putRenderKeys).toEqual([]);
       await vi.advanceTimersByTimeAsync(150);
