@@ -376,10 +376,15 @@ export function extractCommentableElements(
     }
     const segments: string[] = [];
     let cur: ParsedNode | null = node;
-    while (cur && segments.length < 6) {
+    while (cur && segments.length < 256) {
       const curId = cur.attrs.id?.trim();
       if (cur !== node && curId && (idCounts.get(curId) ?? 0) === 1 && /^[a-zA-Z_][\w:-]*$/.test(curId)) {
         segments.push(`#${escapeCssIdentifier(curId)}`);
+        break;
+      }
+      const curTestId = cur.attrs['data-testid']?.trim();
+      if (cur !== node && curTestId && (testIdCounts.get(curTestId) ?? 0) === 1) {
+        segments.push(`[data-testid="${escapeCssAttrValue(curTestId)}"]`);
         break;
       }
       if (cur.tag === 'html') break;

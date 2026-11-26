@@ -72,6 +72,127 @@ test('extractCommentableElements produces deterministic unique selectors and res
   assert.match(queried.elements[0]!.text, /Pro Tier/);
 });
 
+test('extractCommentableElements walks to body for unique deep-DOM selectors and comment targets the exact leaf', async () => {
+  const wrap8 = (leafText: string) =>
+    '<div><div><div><div><div><div><div><div>' +
+    `<p>${leafText}</p>` +
+    '</div></div></div></div></div></div></div></div>';
+  const deepHtml = `<!doctype html>
+  <html>
+    <body>
+      <main>
+        <section class="branch">${wrap8('First Deep Leaf')}</section>
+        <section class="branch">${wrap8('Second Deep Leaf')}</section>
+      </main>
+    </body>
+  </html>`;
+
+  const parsed = extractCommentableElements(deepHtml, { limit: 200 });
+  const firstLeaf = parsed.elements.find((el) => el.text === 'First Deep Leaf');
+  const secondLeaf = parsed.elements.find((el) => el.text === 'Second Deep Leaf');
+  assert.ok(firstLeaf);
+  assert.ok(secondLeaf);
+  assert.notEqual(firstLeaf.selector, secondLeaf.selector);
+  assert.match(firstLeaf.selector, /^body > main:nth-of-type\(1\) > section:nth-of-type\(1\) >/);
+  assert.match(secondLeaf.selector, /^body > main:nth-of-type\(1\) > section:nth-of-type\(2\) >/);
+
+  const leafSelectors = parsed.elements.map((el) => el.selector);
+  assert.equal(new Set(leafSelectors).size, leafSelectors.length);
+
+  const root = mkdtempSync(path.join(os.tmpdir(), 'om-cloud-deep-dom-'));
+  const posted: Array<Record<string, unknown>> = [];
+  const server = http.createServer(async (req, res) => {
+    const reqUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const jsonBody = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+
+    if (req.method === 'GET' && reqUrl.pathname === '/api/v1/public/snapshots/deep-slug') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          slug: 'deep-slug',
+          snapshotSlug: 'deep-snap',
+          entryPath: 'index.html',
+          version: 1,
+        }),
+      );
+      return;
+    }
+    if (req.method === 'GET' && reqUrl.pathname === '/api/v1/public/snapshots/deep-snap/files/index.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(deepHtml);
+      return;
+    }
+    if (req.method === 'POST' && reqUrl.pathname === '/api/v1/collab/client-share/deep-slug/comments') {
+      posted.push(jsonBody);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          comment: {
+            id: 'c-deep-2',
+            seq: 1,
+            author: { kind: 'user', authorKey: 'alice-hash', displayName: 'Alice' },
+            isMine: true,
+            note: jsonBody.note,
+            filePath: 'index.html',
+            elementId: jsonBody.elementId,
+            selector: jsonBody.selector,
+            htmlHint: jsonBody.htmlHint,
+            status: 'open',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          share: { projectId: 'proj-deep', slug: 'deep-slug', filePath: 'index.html', version: 1 },
+        }),
+      );
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const apiUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    const store = new WorkspaceStore(path.join(root, 'ws'));
+    const credDir = path.join(store.directory, 'account', 'credentials');
+    mkdirSync(credDir, { recursive: true });
+    writeFileSync(
+      path.join(credDir, 'config.json'),
+      JSON.stringify({
+        profiles: {
+          prod: {
+            apiUrl,
+            controlKey: 'alice-key',
+            controlKeyId: 'ck-alice',
+            runtimeKey: 'rk-alice',
+            user: { id: 'u-alice', name: 'Alice', email: 'alice@example.com' },
+          },
+        },
+      }),
+    );
+    const account = new OpenDesignAccount(store.directory);
+    const res = (await cloudCommentsOperation(
+      store,
+      {
+        action: 'comment',
+        shareUrl: 'https://open-design.app/artifact/proj-deep/deep-slug',
+        selector: secondLeaf.selector,
+        note: 'Anchor specifically to second deep subtree',
+      },
+      'http://127.0.0.1:4179',
+      { account },
+    )) as { comment: CloudComment };
+    assert.equal(res.comment.elementId, secondLeaf.elementId);
+    assert.equal(res.comment.selector, secondLeaf.selector);
+    assert.equal(posted[0]?.elementId, secondLeaf.elementId);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('cloud deploy + cloud comments MCP supports author and external 1-level replies via mock Cloud HTTP server', async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'om-cloud-mcp-'));
   const htmlFile = path.join(root, 'deck.html');
