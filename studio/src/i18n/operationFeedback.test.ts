@@ -106,3 +106,17 @@ it('keeps audio, ripple and remaining audited feedback readable in Chinese and E
     expect(help).toContain('关闭此功能可保留空隙');
   }
 });
+
+it('explains audio tasks that cannot be checked again instead of asking for another attempt', () => {
+  const refused = 'This task can no longer be checked. Check its latest status, or generate again to create a new request.';
+  const settled = 'OpenDesign could not confirm whether this audio was generated. The original task has ended and cannot be checked again. Generate again to create a new request.';
+  expect(toastErrorMessage(refused)).toBe(refused);
+  for (const source of [refused, settled]) {
+    for (const { locale } of languages) {
+      const message = translate(locale, source);
+      if (locale === 'en') expect(message).toBe(source);
+      else expect(message).not.toBe(source);
+    }
+  }
+  expect(translate('zh-CN', settled)).toContain('无法再次查询');
+});

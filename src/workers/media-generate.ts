@@ -79,6 +79,8 @@ export interface GatewayTaskPollResult {
     readonly message: string;
     readonly retryable?: boolean;
     readonly outcomeUnknown?: boolean;
+    /** Querying the settled remote task again returns this same error. */
+    readonly remoteTerminal?: boolean;
   };
 }
 
@@ -518,6 +520,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
       }
       if (pollResult.status === 'cancelled') {
         const outcomeUnknown = Boolean(pollResult.error?.outcomeUnknown);
+        const remoteTerminal = !outcomeUnknown || pollResult.error?.remoteTerminal === true;
         const errorCode = pollResult.error?.code ?? 'REMOTE_TASK_CANCELLED';
         const errorMessage =
           pollResult.error?.message ?? `Upstream generation task cancelled (${errorCode})`;
@@ -528,7 +531,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
             asUpdate(jobs, {
               state: 'cancelled',
               stage: 'cancelled',
-              remoteTerminal: !outcomeUnknown,
+              remoteTerminal,
               savePending: false,
               failureStage: 'generating',
               errorCode,
@@ -543,7 +546,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
         await publishProgress('cancelled', 'cancelled', 0, {
           errorCode,
           errorMessage,
-          remoteTerminal: !outcomeUnknown,
+          remoteTerminal,
         });
         emitMediaResult('cancelled', 0);
         terminalHandled = true;
@@ -552,6 +555,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
 
       if (pollResult.status === 'failed') {
         const outcomeUnknown = Boolean(pollResult.error?.outcomeUnknown);
+        const remoteTerminal = !outcomeUnknown || pollResult.error?.remoteTerminal === true;
         const errorCode = pollResult.error?.code ?? 'REMOTE_TASK_FAILED';
         const errorMessage =
           pollResult.error?.message ?? `Upstream generation task failed (${errorCode})`;
@@ -562,7 +566,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
             asUpdate(jobs, {
               state: 'failed',
               stage: 'failed',
-              remoteTerminal: !outcomeUnknown,
+              remoteTerminal,
               savePending: outcomeUnknown && savePending,
               failureStage: outcomeUnknown && savePending ? 'saving' : 'generating',
               errorCode,
@@ -613,7 +617,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           await publishProgress('failed', 'failed', 0, {
             errorCode,
             errorMessage,
-            remoteTerminal: !outcomeUnknown,
+            remoteTerminal,
           });
           emitMediaResult('failed', 0);
         }

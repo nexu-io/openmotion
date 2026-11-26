@@ -1148,6 +1148,74 @@ describe('worker-media: media-generate (remote_id persisted BEFORE polling + res
       assert.equal(failedPublished.length, 1, 'Must emit exactly one failed event (no duplicate catch event)');
       assert.equal(failedPublished[0].errorCode, 'insufficient_balance');
       assert.equal(failedPublished[0].remoteTerminal, true);
+
+      // 3. A settled remote task with an unknown outcome cannot be checked again: persist it as remote-terminal.
+      const settledEvents: Array<Record<string, unknown>> = [];
+      const settledUpdates: Array<Record<string, unknown>> = [];
+      const settledDb = createFakeDb({
+        onUpdate(table, values) {
+          const v = values as Record<string, unknown>;
+          if (table === jobs && typeof v.claimToken === 'string') {
+            return [
+              {
+                id: JID_B,
+                workspaceId: WID_A,
+                projectId: null,
+                state: 'running',
+                claimToken: v.claimToken,
+                remoteId: 'remote_audio_unknown_1',
+                inputPayload: {
+                  modality: 'audio',
+                  mode: 'text-to-audio',
+                  modelId: 'elevenlabs-music-v2',
+                  prompt: 'Settled unknown outcome',
+                  parameters: {},
+                  assetName: 'Settled',
+                },
+              },
+            ];
+          }
+          settledUpdates.push(v);
+          return [{ id: JID_B }];
+        },
+      });
+      const settledGateway: PlatformModelGateway = {
+        ...cancelGateway,
+        async pollTask() {
+          return {
+            remoteTaskId: 'remote_audio_unknown_1',
+            status: 'failed',
+            error: { code: 'audio_outcome_unknown', message: 'Unknown', outcomeUnknown: true, remoteTerminal: true },
+          };
+        },
+      };
+      await assert.rejects(() =>
+        processMediaGenerateJob(
+          {
+            db: settledDb,
+            storage,
+            eventBus: {
+              publish: async (_ch, payload) => {
+                settledEvents.push(payload as Record<string, unknown>);
+                return 1;
+              },
+              subscribe: async () => async () => {},
+            },
+            logger: SILENT_LOGGER,
+            workerId: 'media-gen-2',
+            gateway: settledGateway,
+            pollIntervalMs: 1,
+            tmpBaseDir: tmpRoot,
+          },
+          'resume_generation',
+          { jobId: JID_B, workspaceId: WID_A, remoteId: 'remote_audio_unknown_1' },
+        ),
+      );
+      assert.ok(settledUpdates.some((u) => u.state === 'failed' && u.remoteTerminal === true));
+      const settledFailed = settledEvents.filter((e) => e.state === 'failed');
+      assert.equal(settledFailed.length, 1);
+      assert.equal(settledFailed[0].errorCode, 'audio_outcome_unknown');
+      assert.equal(settledFailed[0].remoteTerminal, true);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

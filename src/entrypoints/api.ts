@@ -997,7 +997,7 @@ function createCloudMediaJobsPort(deps: {
     if (!existing.remoteId || existing.remoteTerminal || existing.savePending || existing.state !== 'failed') {
       throw new CloudError(
         'INVALID_ARGUMENT',
-        'Only failed media jobs with an active upstream remoteId can be resumed without re-submitting.',
+        'This task can no longer be checked. Check its latest status, or generate again to create a new request.',
         { status: 409, applied: false },
       );
     }

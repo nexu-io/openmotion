@@ -108,7 +108,7 @@ The supplied contract does **not** define a complete authoritative Cloud HTTP er
 | HTTP 400 / 422 | Check current contract fields: paired image `aspect_ratio`/`resolution` are sent inside `output`, other image/video fields are flat, speech text is nested and voice must match the model. Inspect actual validation detail if available. |
 | Quota/balance rejection | Check workspace model allowance and recharge balance. The contract does not assign one guaranteed HTTP status to this case. |
 | HTTP 429 / 5xx / network timeout | Possible limits/transient failure or uncertain outcome. Check the original task/history before another paid submit; do not assume a timeout means no task was created. |
-| `audio_outcome_unknown` | Explicit unknown audio outcome. Query the original task and workspace usage before considering another generation. Do not treat it as a definite failure or a refund. |
+| `audio_outcome_unknown` | Explicit unknown audio outcome. The Cloud task has settled: querying it again returns the same result, so it cannot resume. Check workspace usage before considering another generation. Do not treat it as a definite failure or a refund. |
 | `status: failed` / `cancelled` | Terminal task state. Preserve task ID and available detail; transport success is not media success. Local cancellation alone does not prove the provider stopped. |
 | Asset download failure after success | Check the original task/output link and expiry first. Regeneration can double-charge and does not fix a stale link. |
 
