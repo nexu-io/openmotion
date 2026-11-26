@@ -22,6 +22,7 @@ import {
   createBrowserSession,
   createPat,
   oneTapChallengeCookieName,
+  oneTapSessionProofCacheKey,
   type AuthEnv,
 } from '../../src/auth/index.ts';
 import {
@@ -483,7 +484,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       userId: projected.user.id,
       workspaceId: projected.workspace.id,
     });
-    await cache.set(`om:amr:session-proof:${session.tokenHash}`, 'otsp_upgrade_proof_1', 3600);
+    await cache.set(oneTapSessionProofCacheKey(session.tokenHash), 'otsp_upgrade_proof_1', 3600);
 
     let ticketMode: 'ok' | 'untrusted' | 'unavailable' = 'ok';
     const capturedTicketBodies: Array<Record<string, unknown>> = [];
@@ -643,7 +644,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       const config = makeConfig();
       const store = new InMemoryAuthStore();
       const cache = new InMemoryAuthCache();
-      const proofKey = (sessionToken: string) => `om:amr:session-proof:${sha256Hex(sessionToken)}`;
+      const proofKey = (sessionToken: string) => oneTapSessionProofCacheKey(sha256Hex(sessionToken));
 
       let challengeSeq = 0;
       let nextProof = '';
@@ -1866,7 +1867,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       let proofRaceTriggered = false;
       cache.set = async (key, value, ttlSec) => {
         await originalCacheSet(key, value, ttlSec);
-        if (!proofRaceTriggered && key.startsWith('om:amr:session-proof:')) {
+        if (!proofRaceTriggered && key.startsWith(oneTapSessionProofCacheKey(''))) {
           proofRaceTriggered = true;
           const lRes = await app.request('/auth/logout', {
             method: 'POST',
@@ -1965,7 +1966,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       // Wire logout during saveSessionProof to use c4Name/c4Tok
       cache.set = async (key, value, ttlSec) => {
         await originalCacheSet(key, value, ttlSec);
-        if (key.startsWith('om:amr:session-proof:')) {
+        if (key.startsWith(oneTapSessionProofCacheKey(''))) {
           const lRes = await appProofRace.request('/auth/logout', {
             method: 'POST',
             headers: { Origin: PUBLIC_ORIGIN, Cookie: `${c4Name}=${c4Tok}` },
@@ -2228,7 +2229,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       role: 'owner',
     });
 
-    // Session created without any stored om:amr:session-proof:<hash> entry (legacy session / OIDC login omitting proof).
+    // Session created without a stored session proof (legacy session / OIDC login omitting the proof claim).
     const legacySession = await createBrowserSession(store, {
       userId: projected.user.id,
       workspaceId: projected.workspace.id,

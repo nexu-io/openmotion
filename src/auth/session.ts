@@ -37,6 +37,11 @@ export function oneTapSessionBindingCacheKey(tokenHash: string): string {
   return `om:onetap:session-binding:${tokenHash}`;
 }
 
+/** AMR Motion session proof stored for a browser session; required to mint a billing handoff ticket. */
+export function oneTapSessionProofCacheKey(tokenHash: string): string {
+  return `om:amr:session-proof:${tokenHash}`;
+}
+
 export function oidcIdTokenCacheKey(rawSessionToken: string): string {
   return `oidc:id_token:${sha256Hex(rawSessionToken)}`;
 }
@@ -207,7 +212,7 @@ export async function resolveBrowserSession(
           // expires so a cached or retried session can NEVER resurrect after logout.
           await store.revokeSessionByTokenHash(tokenHash);
           await options.cache.del(cacheKey);
-          await options.cache.del(`om:amr:session-proof:${tokenHash}`).catch(() => {});
+          await options.cache.del(oneTapSessionProofCacheKey(tokenHash)).catch(() => {});
           return null;
         }
       }

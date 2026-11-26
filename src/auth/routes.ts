@@ -44,6 +44,7 @@ import {
   oneTapChallengeCookieName,
   oneTapRevokedBindingCacheKey,
   oneTapSessionBindingCacheKey,
+  oneTapSessionProofCacheKey,
   oneTapUserLogoutEpochCacheKey,
   parseCookies,
   resolveBrowserSession,
@@ -393,19 +394,18 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     return Math.max(0, Math.min(SESSION_PROOF_TTL_SEC, Math.floor((expiresAtMs - Date.now()) / 1000)));
   };
   const localSessionProofs = new Map<string, { proof: string; expiresAt: number }>();
-  const sessionProofCacheKey = (tokenHash: string) => `om:amr:session-proof:${tokenHash}`;
   const saveSessionProof = async (tokenHash: string, proof: string, ttlSec = SESSION_PROOF_TTL_SEC): Promise<void> => {
     const trimmed = proof.trim();
     if (!trimmed) return;
     if (deps.cache) {
-      await deps.cache.set(sessionProofCacheKey(tokenHash), trimmed, ttlSec);
+      await deps.cache.set(oneTapSessionProofCacheKey(tokenHash), trimmed, ttlSec);
       return;
     }
     localSessionProofs.set(tokenHash, { proof: trimmed, expiresAt: Date.now() + ttlSec * 1000 });
   };
   const readSessionProof = async (tokenHash: string): Promise<string | null> => {
     if (deps.cache) {
-      return (await deps.cache.get(sessionProofCacheKey(tokenHash))) ?? null;
+      return (await deps.cache.get(oneTapSessionProofCacheKey(tokenHash))) ?? null;
     }
     const entry = localSessionProofs.get(tokenHash);
     if (!entry || entry.expiresAt <= Date.now()) {
@@ -417,7 +417,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   const deleteSessionProof = async (tokenHash: string): Promise<void> => {
     localSessionProofs.delete(tokenHash);
     if (deps.cache) {
-      await deps.cache.del(sessionProofCacheKey(tokenHash));
+      await deps.cache.del(oneTapSessionProofCacheKey(tokenHash));
     }
   };
 
