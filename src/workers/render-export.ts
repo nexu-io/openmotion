@@ -33,6 +33,7 @@ import {
   type VerificationReport,
 } from '../../scripts/verify-export.ts';
 import { projectPath } from '../../shared/project-validation.ts';
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { JobProgressEvent, ProjectEvent, RenderWorkerHealth } from '../contracts/events.ts';
 import type { RenderExportJobName, RenderExportPayloadMap } from '../contracts/jobs.ts';
@@ -41,6 +42,7 @@ import type { Database } from '../db/client.ts';
 import { asUpdate } from '../db/helpers.ts';
 import { jobs } from '../db/schema/jobs.ts';
 import { projectFiles, projectVersionFiles } from '../db/schema/project-files.ts';
+import { workRounds } from '../db/schema/projects.ts';
 import type { Logger } from '../infra/logger.ts';
 import { cancelChannel, jobChannel, projectChannel, type RedisEventBus } from '../infra/redis.ts';
 import {
@@ -201,6 +203,7 @@ export interface RenderExportDeps {
   readonly eventBus: Pick<RedisEventBus, 'publish' | 'subscribe' | 'publishRenderWorkerHealth'>;
   readonly logger: Logger;
   readonly workerId: string;
+  readonly cloudTracking?: CloudTrackingHandle;
   readonly runtimeRoot?: string;
   readonly tmpBaseDir?: string;
   readonly concurrency?: number;
@@ -1027,6 +1030,80 @@ export async function processExportRenderJob(
   let failureStage = 'hydrating';
   let failureCode = 'EXPORT_HYDRATION_FAILED';
   let uploadedOutputKey: string | null = null;
+  let actorUserId: string | undefined = payload.userId;
+  let effectiveWorkId: string | undefined = payload.workId;
+  let exportRoute: 'mcp' | 'studio' = payload.exportRoute ?? 'studio';
+  let telemetryEmitted = false;
+
+  const emitExportTerminalTelemetry = async (params: {
+    jobState: 'completed' | 'failed' | 'cancelled';
+    terminalAt: Date;
+    durationMs: number;
+    technicalCheck: 'passed' | 'failed' | 'unknown';
+    failureStage?: string;
+    errorCode?: string;
+  }): Promise<void> => {
+    if (telemetryEmitted || !deps.cloudTracking?.isEnabled()) return;
+    telemetryEmitted = true;
+    deps.cloudTracking.trackExportResult({
+      jobId,
+      jobState: params.jobState,
+      durationMs: params.durationMs,
+      technicalCheck: params.technicalCheck,
+      ...(params.jobState === 'failed'
+        ? { failureStage: params.failureStage, errorCode: params.errorCode }
+        : {}),
+      userId: actorUserId,
+    });
+    deps.cloudTracking.trackTaskTerminal({
+      taskId: jobId,
+      taskType: 'export',
+      projectId,
+      outcome:
+        params.jobState === 'completed'
+          ? 'success'
+          : params.jobState === 'cancelled'
+            ? 'cancelled'
+            : 'failure',
+      applied: params.jobState === 'completed' ? 'true' : 'false',
+      terminalAt: params.terminalAt,
+      ...(params.jobState === 'failed' && params.errorCode ? { errorCode: params.errorCode } : {}),
+      userId: actorUserId,
+      entrypoint: 'worker',
+    });
+    if (params.jobState === 'completed' && effectiveWorkId) {
+      let taskType: 'create' | 'modify' = 'create';
+      try {
+        const roundRows = await deps.db
+          .select({ mode: workRounds.mode })
+          .from(workRounds)
+          .where(
+            and(
+              eq(workRounds.id, effectiveWorkId),
+              eq(workRounds.workspaceId, workspaceId),
+              eq(workRounds.projectId, projectId),
+            ),
+          )
+          .limit(1);
+        if (roundRows[0]?.mode === 'modify') {
+          taskType = 'modify';
+        }
+      } catch {
+        // Best-effort lookup; export completion must never fail on telemetry metadata.
+      }
+      deps.cloudTracking.trackWorkGenerationStage({
+        workId: effectiveWorkId,
+        projectId,
+        stage: 'exported',
+        taskType,
+        versionId,
+        revision: payload.revision,
+        exportRoute,
+        userId: actorUserId,
+        entrypoint: 'worker',
+      });
+    }
+  };
 
   const publishProgress = async (
     state: JobProgressEvent['state'],
@@ -1105,6 +1182,17 @@ export async function processExportRenderJob(
       return { skipped: true, jobId };
     }
     claimed = true;
+    const claimedRow = claimedRows[0];
+    const claimedInput = (claimedRow.inputPayload ?? {}) as Record<string, unknown>;
+    if (!actorUserId && typeof claimedInput.userId === 'string') {
+      actorUserId = claimedInput.userId;
+    }
+    if (!effectiveWorkId && claimedRow.workId) {
+      effectiveWorkId = claimedRow.workId;
+    }
+    if (!payload.exportRoute && claimedInput.exportRoute === 'mcp') {
+      exportRoute = 'mcp';
+    }
 
     // 2. Listen for Redis cancellation signals immediately after claiming.
     unsubscribeCancel = await deps.eventBus.subscribe(cancelChannel(jobId), () => {
@@ -1421,10 +1509,22 @@ export async function processExportRenderJob(
           ),
         );
       await publishProgress('cancelled', 'cancelled', 0);
+      await emitExportTerminalTelemetry({
+        jobState: 'cancelled',
+        terminalAt: finishNow,
+        durationMs: Math.max(0, Date.now() - startedMs),
+        technicalCheck: 'unknown',
+      });
       return { jobId, state: 'cancelled' };
     }
 
     await publishProgress('completed', 'completed', 100, { resultJson });
+    await emitExportTerminalTelemetry({
+      jobState: 'completed',
+      terminalAt: finishNow,
+      durationMs,
+      technicalCheck: format === 'mp4' && verificationReport?.status === 'passed' ? 'passed' : 'unknown',
+    });
     return { jobId, state: 'completed', ...resultJson };
   } catch (error) {
     if (claimed) {
@@ -1459,6 +1559,12 @@ export async function processExportRenderJob(
           // Best-effort terminal persistence during error handling.
         }
         await publishProgress('cancelled', 'cancelled', 0);
+        await emitExportTerminalTelemetry({
+          jobState: 'cancelled',
+          terminalAt: failNow,
+          durationMs: Math.max(0, Date.now() - startedMs),
+          technicalCheck: 'unknown',
+        });
       } else {
         const errorMessage = error instanceof Error ? error.message : 'Export render failed';
         try {
@@ -1482,6 +1588,14 @@ export async function processExportRenderJob(
         await publishProgress('failed', 'failed', 0, {
           errorCode: failureCode,
           errorMessage,
+        });
+        await emitExportTerminalTelemetry({
+          jobState: 'failed',
+          terminalAt: failNow,
+          durationMs: Math.max(0, Date.now() - startedMs),
+          technicalCheck: failureStage === 'verification' ? 'failed' : 'unknown',
+          failureStage,
+          errorCode: failureCode,
         });
       }
     }

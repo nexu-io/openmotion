@@ -135,7 +135,7 @@ was found to install the connector), `install_failed` (npm could not install it)
 or `start_failed` (the installed connector did not run). npm output stays local.
 These fields describe the local OM result; AMR handoff attribution is separate.
 
-`entitlement_refresh_result` reports Studio's automatic `account/summary?refresh=true` sync when the user returns to the window after opening an external Pricing/Upgrade/Black Friday flow (`outcome`: `success` | `failure`, optional `hook_id`, `entry_id`, and `plan_after`). Unavailable billing responses and placeholder plans (`cloud`/`unknown`) report `outcome=failure` without `plan_after`.
+`entitlement_refresh_result` reports Studio's automatic `account/summary?refresh=true` sync when the user returns to the window after opening an external Pricing/Upgrade/Black Friday flow (`outcome`: `success` | `failure`, optional `hook_id`, `entry_id`, `plan_before`, `plan_after`, plus optional monetization attribution fields `model_id`, `model_provider`, `modality`, `studio_id`, `scene_id`, `gate_reason`, `user_plan`). Unavailable billing responses and placeholder plans (`cloud`/`unknown`) report `outcome=failure` without `plan_after`. Inline monetization gates (`FreePlanGenerationGate`, `InsufficientBalanceFailureGate`) also report `surface_view` (`area=entitlement_gate`, `element=banner`) with a fresh `entry_id` and the same attribution fields, joining the impression, click, modal (`area=entitlement_modal`), Pricing handoff, and checkout-return refresh; subsequent clicks rotate `entry_id` so each Pricing visit keeps a unique `od_entry_id`.
 
 The account and subscription settings' **Manage subscription** action, and the Free / Go
 plan card's **Upgrade to Plus** action, carry `od_origin=openmotion`,

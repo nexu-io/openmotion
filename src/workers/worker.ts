@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { DelayedError, Worker, type Job } from 'bullmq';
+import { VERSION } from '../../shared/version.ts';
+import { createCloudTracking, type CloudTrackingHandle } from '../cloud-tracking.ts';
 import {
   QUEUE_NAMES,
   type BlobGcJobName,
@@ -54,6 +56,7 @@ export interface StartWorkerRuntimeOptions {
   readonly logger?: Logger;
   readonly workerId?: string;
   readonly modelGateway?: PlatformModelGateway;
+  readonly cloudTracking?: CloudTrackingHandle;
   readonly shutdownCoordinator?: ShutdownCoordinator;
   readonly installSignals?: boolean;
   readonly onShutdownComplete?: (clean: boolean) => void;
@@ -142,6 +145,7 @@ export interface MediaWorkerDeps {
   readonly logger: Logger;
   readonly workerId: string;
   readonly modelGateway: PlatformModelGateway;
+  readonly cloudTracking?: CloudTrackingHandle;
   readonly shutdown: ShutdownCoordinator;
 }
 
@@ -152,7 +156,7 @@ export interface MediaWorkerDeps {
  * - `blob-gc` (`concurrency = 1`, repeatable schedulers)
  */
 export async function startMediaWorker(deps: MediaWorkerDeps): Promise<Worker[]> {
-  const { config, db, storage, eventBus, queues, logger, workerId, modelGateway, shutdown } = deps;
+  const { config, db, storage, eventBus, queues, logger, workerId, modelGateway, cloudTracking, shutdown } = deps;
   const concurrency = config.MEDIA_CONCURRENCY;
 
   const ingestConn = createRedisClient(config.REDIS_URL, 'bullmq');
@@ -198,6 +202,7 @@ export async function startMediaWorker(deps: MediaWorkerDeps): Promise<Worker[]>
           logger: logger.child({ queue: QUEUE_NAMES.mediaGenerate, bullJobId: job.id, jobName: name }),
           workerId,
           gateway: modelGateway,
+          cloudTracking,
         },
         name,
         validated,
@@ -275,6 +280,7 @@ export interface RenderWorkerDeps {
   readonly queues?: Pick<QueueService, 'renderExport'>;
   readonly logger: Logger;
   readonly workerId: string;
+  readonly cloudTracking?: CloudTrackingHandle;
   readonly shutdown: ShutdownCoordinator;
 }
 
@@ -323,7 +329,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   workers: Worker[];
   heartbeat: RenderHealthHeartbeatHandle;
 }> {
-  const { config, db, storage, eventBus, queues, logger, workerId, shutdown } = deps;
+  const { config, db, storage, eventBus, queues, logger, workerId, cloudTracking, shutdown } = deps;
   const concurrency = config.RENDER_CONCURRENCY;
 
   const swept = await sweepStaleRenderTempDirs(os.tmpdir(), logger);
@@ -362,6 +368,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
             eventBus,
             logger: logger.child({ queue: QUEUE_NAMES.renderExport, bullJobId: job.id, jobName: name }),
             workerId,
+            cloudTracking,
             concurrency,
             captureWorkers: config.RENDER_CAPTURE_WORKERS,
             bakeState,
@@ -475,8 +482,18 @@ export async function startWorkerRuntime(options: StartWorkerRuntimeOptions): Pr
   });
   const eventBus = new RedisEventBus(config.REDIS_URL);
   const queues = new QueueService(config.REDIS_URL);
+  const effectiveTrackingEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...(config.OPENMOTION_TRACERT_SPM_A ? { OPENMOTION_TRACERT_SPM_A: config.OPENMOTION_TRACERT_SPM_A } : {}),
+    ...(config.OPENMOTION_TRACERT_ENDPOINT ? { OPENMOTION_TRACERT_ENDPOINT: config.OPENMOTION_TRACERT_ENDPOINT } : {}),
+  };
+  const cloudTracking =
+    options.cloudTracking ??
+    createCloudTracking(VERSION, effectiveTrackingEnv, {
+      serviceEntrypoint: role === 'media' ? 'worker-media' : 'worker-render',
+    });
 
-  // Register base infrastructure close hooks first (so LIFO shuts workers down BEFORE closing DB/S3/Redis!).
+  // Register base infrastructure close hooks first (so LIFO shuts workers down -> flushes tracking -> closes DB/S3/Redis!).
   shutdown.register('db-pool', async () => {
     await dbHandle.close();
   });
@@ -489,6 +506,7 @@ export async function startWorkerRuntime(options: StartWorkerRuntimeOptions): Pr
   shutdown.register('bullmq-queues', async () => {
     await queues.close();
   });
+  shutdown.register('cloud-tracking', () => cloudTracking.shutdown({ timeoutMs: 3000 }));
 
   if (options.installSignals !== false) {
     shutdown.installSignalHandlers(options.onShutdownComplete);
@@ -507,6 +525,7 @@ export async function startWorkerRuntime(options: StartWorkerRuntimeOptions): Pr
         logger,
         workerId,
         modelGateway: gateway,
+        cloudTracking,
         shutdown,
       });
     } else {
@@ -518,6 +537,7 @@ export async function startWorkerRuntime(options: StartWorkerRuntimeOptions): Pr
         queues,
         logger,
         workerId,
+        cloudTracking,
         shutdown,
       });
       workers = started.workers;

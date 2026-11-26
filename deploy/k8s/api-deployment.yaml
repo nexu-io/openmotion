@@ -325,6 +325,36 @@ spec:
                   name: openmotion-config
                   key: SENTRY_TRACES_SAMPLE_RATE
                   optional: true
+            - name: OPENMOTION_TRACKING_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACKING_ENABLED
+                  optional: true
+            - name: OPENMOTION_CLOUD_TRACKING_FULL
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_CLOUD_TRACKING_FULL
+                  optional: true
+            - name: OPENMOTION_POSTHOG_TOKEN
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_POSTHOG_TOKEN
+                  optional: true
+            - name: OPENMOTION_POSTHOG_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_POSTHOG_HOST
+                  optional: true
+            - name: OPENMOTION_TRACKING_INSTALLATION_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACKING_INSTALLATION_ID
+                  optional: true
             - name: OPENMOTION_TRACERT_SPM_A
               valueFrom:
                 configMapKeyRef:

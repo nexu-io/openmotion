@@ -432,13 +432,35 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const resolutionCapExceeded = (planResCap === '1K' || planResCap === '2K') && exceedsResolutionCap(activeResolution, planResCap);
   const openResolutionUpgrade = () => {
     if (cloudWeb && hasEntitlementModalListeners()) {
-      openEntitlementModal({ mode: 'upgrade', hookId: 'studio_res_gate' });
+      openEntitlementModal({
+        mode: 'upgrade',
+        hookId: 'studio_res_gate',
+        attribution: {
+          modelId: selected?.modelId,
+          modelProvider: selected?.provider,
+          modality: draft.modality,
+          gateReason: 'resolution_locked',
+          userPlan: account?.plan ?? undefined,
+        },
+      });
     } else {
       (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
     }
   };
   const entitlementGate = hostedPlanUpgrade
-    ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
+    ? (
+      <FreePlanGenerationGate
+        onOpenProviders={cloudWeb ? undefined : openModelSettings}
+        hookId="studio_free_gate"
+        attribution={{
+          modelId: selected?.modelId,
+          modelProvider: selected?.provider,
+          modality: draft.modality,
+          gateReason: 'plan_locked',
+          userPlan: account?.plan ?? undefined,
+        }}
+      />
+    )
     : null;
   const setup = (cloudGuestSubmit || Boolean(hostedPlanUpgrade)) ? null : <>
       {unconfiguredPreferred && (imageWorkspace

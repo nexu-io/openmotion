@@ -217,6 +217,9 @@ export const exportRenderPayloadSchema = z.object({
   outputName: z.string().min(1).max(255),
   format: z.enum(['mp4', 'mov', 'webm', 'gif']).default('mp4'),
   phase1: z.boolean().default(true),
+  userId: z.string().min(1).max(256).optional(),
+  workId: uuidSchema.optional(),
+  exportRoute: z.enum(['mcp', 'studio']).optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
   expected: z
     .object({

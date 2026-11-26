@@ -1,6 +1,92 @@
 export const TRACKING_RUNTIME_CONFIG_ELEMENT_ID = 'openmotion-tracking-config' as const;
 export const TRACKING_RUNTIME_CONFIG_PLACEHOLDER = '<!-- openmotion:tracking-config -->' as const;
 
+/**
+ * Cloud production allowlist for browser-originated Studio events.
+ *
+ * Shared strictly across PostHog and Tracert so dual-reporting maintains 1:1 event parity while
+ * cutting high-volume editor micro-interactions (playback, shortcuts, audio_fx_*), internal SDK/GSAP
+ * shadow diagnostics, and card-level gallery impressions.
+ *
+ * Set `OPENMOTION_CLOUD_TRACKING_FULL=1` on the API server to bypass the allowlist on both sinks
+ * during diagnostics.
+ */
+export const CLOUD_ALLOWED_STUDIO_EVENTS: ReadonlySet<string> = new Set([
+  // Active baseline, navigation & monetization pre-funnel
+  'page_view',
+  'studio_load_result',
+  'provider_setup_opened',
+  'ui_click',
+  'surface_view',
+  'entitlement_refresh_result',
+  // Template, Skill & MCP discovery/adoption
+  'template_search_result',
+  'template_search_handoff_result',
+  'template_filter_result',
+  'template_guide_interaction',
+  'template_instruction_copy_result',
+  'template_project_result',
+  'resource_download_result',
+  'skill_search_result',
+  'skill_instruction_copy_result',
+  'mcp_copy_result',
+  // Media generation, assets, settings, projects & brand kits
+  'asset_generation_submit_result',
+  'asset_update_result',
+  'provider_setting_result',
+  'agent_setting_result',
+  'project_manage_result',
+  'version_history_result',
+  'brand_kit_create_result',
+  'brand_kit_import_result',
+  'brand_kit_instruction_copy_result',
+  'brand_kit_action_result',
+  // Low-frequency editor & export outcomes + feedback
+  'studio_edit_result',
+  'studio_asset_import_result',
+  'studio_export_request_result',
+  'studio_export_result',
+  'studio_io_result',
+  'studio_feedback',
+  'diagnostic_export_result',
+  // Critical reliability guardrails
+  'crash',
+  'unhandled_error',
+  'unhandled_promise_rejection',
+  'save_failure',
+  'commit_transaction_failed',
+]);
+
+/** High-volume card-level `surface_view` areas dropped in cloud production. */
+export const CLOUD_BLOCKED_SURFACE_AREAS: ReadonlySet<string> = new Set([
+  'template_card',
+  'template_series_card',
+]);
+
+export function isCloudFullTrackingEnabled(env?: Readonly<Record<string, string | undefined>>): boolean {
+  const fullFlag = (env?.OPENMOTION_CLOUD_TRACKING_FULL ?? '').trim().toLowerCase();
+  return fullFlag === '1' || fullFlag === 'true';
+}
+
+export function isCloudBrowserEventAllowed(
+  raw: unknown,
+  env?: Readonly<Record<string, string | undefined>>,
+): boolean {
+  if (isCloudFullTrackingEnabled(env)) return true;
+  if (!raw || typeof raw !== 'object') return false;
+  const record = raw as { event?: unknown; properties?: unknown };
+  if (typeof record.event !== 'string' || !CLOUD_ALLOWED_STUDIO_EVENTS.has(record.event)) {
+    return false;
+  }
+  if (record.event === 'surface_view' && record.properties && typeof record.properties === 'object') {
+    const area = (record.properties as { area?: unknown }).area;
+    if (typeof area === 'string' && CLOUD_BLOCKED_SURFACE_AREAS.has(area)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export type TracertEnvironment = 'prod' | 'test';
 export type TrackingLockReason = 'environment' | 'cloud' | null;
 
@@ -14,6 +100,7 @@ export interface BrowserTracertConfig {
 export interface BrowserTrackingRuntimeConfig {
   readonly enabled: boolean;
   readonly posthogEnabled: boolean;
+  readonly allowlistEnabled: boolean;
   readonly locked: boolean;
   readonly reason: TrackingLockReason;
   readonly tracert: BrowserTracertConfig | null;
@@ -28,6 +115,7 @@ export interface BrowserTracertInput {
 
 export interface BrowserTrackingRuntimeInput {
   readonly posthogEnabled: boolean;
+  readonly allowlistEnabled?: boolean;
   readonly locked?: boolean;
   readonly reason?: TrackingLockReason;
   readonly tracert?: BrowserTracertInput | BrowserTracertConfig | null;
@@ -143,6 +231,7 @@ export function buildBrowserTrackingRuntimeConfig(
   const posthogEnabled = Boolean(input.posthogEnabled);
   const tracert = buildBrowserTracertConfig(input.tracert);
   const enabled = posthogEnabled || tracert !== null;
+  const allowlistEnabled = enabled && Boolean(input.allowlistEnabled);
   const locked = input.locked ?? true;
   const reason: TrackingLockReason =
     input.reason === 'environment' || input.reason === 'cloud' ? input.reason : null;
@@ -150,6 +239,7 @@ export function buildBrowserTrackingRuntimeConfig(
   return Object.freeze({
     enabled,
     posthogEnabled,
+    allowlistEnabled,
     locked,
     reason,
     tracert,
@@ -208,11 +298,14 @@ export function parseTrackingRuntimeConfigResponse(
 
   const posthogEnabled =
     typeof record.posthogEnabled === 'boolean' ? record.posthogEnabled : true;
+  const allowlistEnabled =
+    typeof record.allowlistEnabled === 'boolean' ? record.allowlistEnabled : false;
 
   if (!record.enabled) {
     return Object.freeze({
       enabled: false,
       posthogEnabled,
+      allowlistEnabled: false,
       locked,
       reason,
       tracert: null,
@@ -224,10 +317,12 @@ export function parseTrackingRuntimeConfigResponse(
       ? (record.tracert as BrowserTracertInput)
       : null;
   const tracert = buildBrowserTracertConfig(tracertRaw);
+  const enabled = posthogEnabled || tracert !== null;
 
   return Object.freeze({
-    enabled: posthogEnabled || tracert !== null,
+    enabled,
     posthogEnabled,
+    allowlistEnabled: enabled && allowlistEnabled,
     locked,
     reason,
     tracert,

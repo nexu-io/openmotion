@@ -1,5 +1,10 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { consumeExternalCheckoutPending, subscribeEntitlementModal, type EntitlementModalRequest } from './entitlementModalBus';
+import {
+  consumeExternalCheckoutPending,
+  entitlementAttributionFields,
+  subscribeEntitlementModal,
+  type EntitlementModalRequest,
+} from './entitlementModalBus';
 import { gatewayRequest } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
 
@@ -28,11 +33,14 @@ export function EntitlementModalHost() {
       void (async () => {
         const reportRefresh = (outcome: 'success' | 'failure', planAfter?: string) => {
           if (typeof window === 'undefined') return;
+          const attr = entitlementAttributionFields(pending.attribution);
           void import('./tracking').then(({ trackMotion }) => trackMotion('entitlement_refresh_result', {
             outcome,
             ...(pending.hookId ? { hook_id: pending.hookId } : {}),
             ...(pending.entryId ? { entry_id: pending.entryId } : {}),
+            ...(attr.user_plan ? { plan_before: attr.user_plan } : {}),
             ...(planAfter ? { plan_after: planAfter } : {}),
+            ...attr,
           }));
         };
         try {
@@ -75,6 +83,8 @@ export function EntitlementModalHost() {
         open
         mode={request.mode}
         hookId={request.hookId}
+        entryId={request.entryId}
+        attribution={request.attribution}
         returnTo={request.returnTo}
         onClose={() => setRequest(null)}
       />

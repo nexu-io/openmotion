@@ -277,3 +277,73 @@ it('supports Tracert-only mode without posting batches to /motion-api/tracking',
   expect(tracertCaptures[0].event).toBe('ui_click');
   tracking.resetMotionTrackingForTests();
 });
+
+it('strictly enforces the shared cloud allowlist across BOTH PostHog and Tracert and attaches/rotates browser device_id', async () => {
+  const posthogPayloads: Array<{ events: Array<{ event: string; event_id: string }>; device_id?: string }> = [];
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST' && init.body) {
+      posthogPayloads.push(JSON.parse(String(init.body)));
+      return Response.json({ ok: true, accepted: true });
+    }
+    return Response.json({
+      enabled: true,
+      posthogEnabled: true,
+      allowlistEnabled: true,
+      locked: true,
+      reason: 'cloud',
+      tracert: { spmA: 3, environment: 'test' },
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+
+  const tracertCaptures: Array<{ event: string; uuid?: string }> = [];
+  const tracertClient = await import('./tracertClient');
+  tracertClient.setTracertSdkLoaderForTests(async () => ({
+    Tracert: class {
+      init() { return this; }
+      capture(event: string, _props?: Record<string, unknown>, options?: { uuid?: string }) {
+        tracertCaptures.push({ event, uuid: options?.uuid });
+      }
+      identify() {}
+      reset() {}
+      setContext() {}
+      clearContext() {}
+      setConsent() {}
+      async flush() { return { status: 'confirmed' as const, accepted: 0, duplicate: 0, rejected: 0, dropped: 0, pending: 0 }; }
+      destroy() {}
+    },
+  }));
+
+  const tracking = await import('./tracking');
+  // Non-allowlisted event & blocked card area must be dropped on BOTH PostHog and Tracert.
+  expect(await tracking.trackMotion('playback', { action: 'play' })).toBe('disabled');
+  expect(
+    await tracking.trackMotion('surface_view', {
+      page_name: 'explore',
+      area: 'template_card',
+      element: 'card',
+    }),
+  ).toBe('disabled');
+
+  // Allowlisted event must pass BOTH sinks with matching event_id and a stable browser device_id.
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  await tracking.flushMotionTracking();
+
+  expect(posthogPayloads).toHaveLength(1);
+  expect(posthogPayloads[0].events.map((ev) => ev.event)).toEqual(['ui_click']);
+  expect(tracertCaptures.map((ev) => ev.event)).toEqual(['ui_click']);
+  expect(tracertCaptures[0].uuid).toBe(posthogPayloads[0].events[0].event_id);
+  const firstDeviceId = posthogPayloads[0].device_id;
+  expect(typeof firstDeviceId).toBe('string');
+  expect(firstDeviceId!.length).toBeGreaterThanOrEqual(8);
+
+  // Explicit sign-out rotates browser device_id so a subsequent user does not reuse the prior anonymous id.
+  tracking.resetMotionTrackingIdentity();
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  await tracking.flushMotionTracking();
+  expect(posthogPayloads).toHaveLength(2);
+  expect(posthogPayloads[1].device_id).toBeTruthy();
+  expect(posthogPayloads[1].device_id).not.toBe(firstDeviceId);
+
+  tracking.resetMotionTrackingForTests();
+});

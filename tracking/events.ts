@@ -59,6 +59,16 @@ const modelHub = { hub_id: 'slug', hub_video_id: 'slug', signed_in: 'boolean' } 
 // A site campaign shown in the application chrome. entry_id is the od_entry_id placed on the Pricing link of that click,
 // so the click joins the Pricing visit and payment the website attributes to it.
 const entitlementHookIds = ENTITLEMENT_HOOK_IDS;
+const entitlementGateReasons = ['guest_signin', 'plan_locked', 'insufficient_credits', 'quota_exhausted', 'resolution_locked', 'session_expired', 'other'] as const;
+const entitlementAttribution = {
+  gate_reason: entitlementGateReasons,
+  user_plan: 'code',
+  modality: ['image', 'video', 'audio'],
+  studio_id: 'slug',
+  scene_id: 'slug',
+  model_provider: 'slug',
+  model_id: 'code',
+} as const;
 const campaign = { campaign_id: ['black_friday_2026'], entry_id: 'uuid', hook_id: entitlementHookIds } as const;
 // Workspace assets: which shelf the library shows and what kind of media an action is about.
 const assetKind = ['all', 'image', 'video', 'audio', 'trash'] as const;
@@ -126,7 +136,7 @@ export const omEvents = {
     last_stage: accountStages, last_result: ['started', 'success', 'failed'], error_kind: accountErrorKinds, browser_opened: 'boolean',
     receipt: ['accepted', 'rejected'], exit_code: 'integer', duration_ms: 'integer', prepare_ms: 'integer', link_ms: 'integer', approved_ms: 'integer' },
     required: ['attempt_id', 'outcome', 'connector_version', 'resumed', 'duration_ms'] },
-  entitlement_refresh_result: { producers: ['studio'], fields: { outcome: ['success', 'failure'], hook_id: entitlementHookIds, entry_id: 'uuid', plan_after: 'code' },
+  entitlement_refresh_result: { producers: ['studio'], fields: { outcome: ['success', 'failure'], hook_id: entitlementHookIds, entry_id: 'uuid', plan_before: 'code', plan_after: 'code', ...entitlementAttribution },
     required: ['outcome'] },
   work_generation_stage: { producers: ['mcp', 'worker'], fields: {
     work_id: 'uuid', project_id: 'code', stage: ['started', 'generated', 'edited', 'exported'],
@@ -207,7 +217,7 @@ export const omEvents = {
     filter_group: ['brand', 'uses', 'styles', 'industries', 'creationModels', 'colors', 'ratio', 'duration', 'editable'], filter_value: 'slug',
     selected: 'boolean', expanded: 'boolean', previous_sort: sortOrder, changed: 'boolean', ...templateDetail, ...templateList,
     ...skill, ...brand, brand_collection: brandCollection, ...mcp, entry_from: entryFrom, ...referenceEntry, ...referenceSource,
-    doc_id: ['mcp_tools', 'skills', 'agent_adapters', 'docs_home', 'repository'], section_id: 'slug', faq_index: 'integer', ...workspacePages, ...creative, ...modelHub, ...campaign },
+    doc_id: ['mcp_tools', 'skills', 'agent_adapters', 'docs_home', 'repository'], section_id: 'slug', faq_index: 'integer', ...workspacePages, ...creative, ...modelHub, ...campaign, ...entitlementAttribution },
     required: ['page_name', 'area', 'element'] },
   // Studio UI exports run in the editor's own render pipeline, not the worker that owns export_result.
   studio_export_request_result: { producers: ['studio'], fields: { export_id: 'uuid', outcome: ['accepted', 'rejected', 'unknown'], ...exportSettings,
@@ -236,7 +246,7 @@ export const omEvents = {
   // A surface that became visible: the library, a template card, one template's detail, or the instruction to copy.
   // A card counts once it is at least half visible for a second, once per result set.
   surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner', 'hub_videos', 'entitlement_modal', 'entitlement_gate'],
-    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'modal'], ...campaign, ...modelHub, filter_value: 'slug', placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
+    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'modal'], ...campaign, ...entitlementAttribution, ...modelHub, filter_value: 'slug', placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
     ...skill, ...brand, ...referenceEntry, brand_state: brandState, recovery_reason: ['no_results', 'unsuitable', 'catalog_empty'] },
     required: ['page_name', 'area', 'element'] },
   // One per settled query, never per keystroke. `search_keyword` is the only free-text field in this registry.

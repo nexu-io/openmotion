@@ -115,6 +115,48 @@ spec:
                   name: openmotion-config
                   key: RENDER_CAPTURE_WORKERS
                   optional: true
+            - name: APP_PUBLIC_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: APP_PUBLIC_ORIGIN
+                  optional: true
+            - name: OPENMOTION_TRACKING_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACKING_ENABLED
+                  optional: true
+            - name: OPENMOTION_POSTHOG_TOKEN
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_POSTHOG_TOKEN
+                  optional: true
+            - name: OPENMOTION_POSTHOG_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_POSTHOG_HOST
+                  optional: true
+            - name: OPENMOTION_TRACKING_INSTALLATION_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACKING_INSTALLATION_ID
+                  optional: true
+            - name: OPENMOTION_TRACERT_SPM_A
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACERT_SPM_A
+                  optional: true
+            - name: OPENMOTION_TRACERT_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACERT_ENDPOINT
+                  optional: true
           resources:
             requests:
               cpu: "2000m"

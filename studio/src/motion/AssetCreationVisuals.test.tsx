@@ -190,3 +190,53 @@ it('hides Check original task on terminal balance/entitlement failures and shows
   expect(container.textContent).not.toContain('Check original task');
   expect(container.textContent).toContain('Manage subscription');
 });
+
+it('passes the native modelId (not composite catalogue id) to the insufficient-balance failure gate', async () => {
+  const { subscribeEntitlementModal } = await import('./entitlementModalBus');
+  const modalRequests: Array<{ mode: string; hookId: string; attribution?: { modelId?: string; modelProvider?: string; modality?: string; gateReason?: string } }> = [];
+  const unsubscribe = subscribeEntitlementModal(req => modalRequests.push(req));
+  try {
+    const failedJob: GenerationJob = {
+      id: 'job-composite-model-id',
+      modality: 'image',
+      prompt: 'Product studio shot',
+      model: {
+        id: 'opendesign:seedream-5.5',
+        provider: 'opendesign',
+        modelId: 'seedream-5.5',
+        label: 'Seedream 5.5',
+        modality: 'image',
+        source: 'live',
+      },
+      parameters: {},
+      references: [],
+      state: 'failed',
+      createdAt: '2026-11-26T00:00:00Z',
+      updatedAt: '2026-11-26T00:00:01Z',
+      error: 'Insufficient credits to run this generation.',
+    };
+    await act(async () => root.render(
+      <AssetGenerationCard
+        job={failedJob}
+        onCancel={vi.fn()}
+        onView={vi.fn()}
+      />,
+    ));
+    const addCreditsBtn = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('Add credits'))!;
+    expect(addCreditsBtn).toBeTruthy();
+    await act(async () => addCreditsBtn.click());
+    expect(modalRequests).toHaveLength(1);
+    expect(modalRequests[0]).toMatchObject({
+      mode: 'upgrade',
+      hookId: 'failure_card_topup',
+      attribution: {
+        modelId: 'seedream-5.5',
+        modelProvider: 'opendesign',
+        modality: 'image',
+        gateReason: 'insufficient_credits',
+      },
+    });
+  } finally {
+    unsubscribe();
+  }
+});

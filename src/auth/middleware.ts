@@ -140,6 +140,43 @@ async function finalizeAuthContext(
 }
 
 /**
+ * Best-effort optional auth resolution for guest-accessible endpoints such as `POST /motion-api/tracking`.
+ * Never throws, never returns 401/403, and never auto-provisions dev tenants when no explicit
+ * session cookie or Bearer token is presented.
+ */
+export async function resolveOptionalTrackingAuth(
+  deps: AuthMiddlewareDeps,
+  request: Request,
+): Promise<AuthContext | null> {
+  try {
+    const requestedWorkspaceId = request.headers.get('x-openmotion-workspace-id') ?? null;
+
+    const authHeader = request.headers.get('authorization');
+    if (authHeader !== undefined && authHeader !== null) {
+      const bearer = extractBearerToken(request);
+      if (!bearer) return null;
+      const oauthCfg = deps.oauth21 ?? buildOAuth21Config(deps.config);
+      const provisionDev = createDevTenantProvisioner(deps.store, deps.config);
+      const rawAuth = await resolveBearerAuth(deps, oauthCfg, bearer, requestedWorkspaceId, provisionDev);
+      return rawAuth ? { ...rawAuth, entry: 'api' } : null;
+    }
+
+    const cookies = parseCookies(request.headers.get('cookie'));
+    const sessionCookie = cookies[SESSION_COOKIE_NAME];
+    if (!sessionCookie) return null;
+
+    const resolved = await resolveBrowserSession(deps.store, sessionCookie, {
+      authMode: deps.config.AUTH_MODE,
+      requestedWorkspaceId,
+      cache: deps.cache,
+    });
+    return resolved?.auth ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Standard API auth middleware for `/motion-api/*`, `/api/*`, and `/auth/me`.
  * Supports Bearer tokens (PAT / OAuth 2.1 / OIDC JWT / DEV_PAT), browser `om_session` cookies
  * with CSRF Origin defense on mutating methods, and `AUTH_MODE=dev` auto-provisioned tenant bypass.

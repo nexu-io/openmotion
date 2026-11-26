@@ -1,7 +1,11 @@
 import { projectSourceReadUrl } from '../../shared/project-source-url.ts';
 import { formatFileVersion } from '../studio/etag.ts';
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
-import { createCloudTracking, type CloudTrackingHandle } from '../cloud-tracking.ts';
+import {
+  createCloudTracking,
+  type CloudTrackingHandle,
+  type CloudTrackingOptions,
+} from '../cloud-tracking.ts';
 import {
   CatalogFilmstripAutoBakeDispatcher,
   InMemoryCatalogFilmstripBakeState,
@@ -77,6 +81,7 @@ import {
   type AuthMiddlewareDeps,
   type AuthStore,
 } from '../auth/index.ts';
+import { resolveOptionalTrackingAuth } from '../auth/middleware.ts';
 import {
   PREVIEW_TOKEN_QUERY_PARAM,
   buildPreviewAuthContext,
@@ -292,6 +297,7 @@ export interface CreateApiAppDeps {
   readonly requireBearerOnDevMcp?: boolean;
   readonly logger?: Logger;
   readonly trackingEnv?: NodeJS.ProcessEnv;
+  readonly trackingOptions?: CloudTrackingOptions;
   readonly runtimeRoot?: string;
   readonly fontsDir?: string;
   readonly checkDbHealth?: () => Promise<boolean>;
@@ -506,6 +512,7 @@ function createCloudMediaJobsPort(deps: {
   queues: Pick<QueueService, 'enqueueMediaGenerate'>;
   eventBus: Pick<RedisEventBus, 'publish'>;
   assets: AssetLibraryService;
+  cloudTracking?: CloudTrackingHandle;
 }): MediaJobPort & {
   handleMediaAction(auth: AuthContext, args: Record<string, unknown>): Promise<Record<string, unknown>>;
 } {
@@ -602,6 +609,11 @@ function createCloudMediaJobsPort(deps: {
         applied: false,
       });
     }
+    const actorUserId = auth.appUserId ?? auth.userId;
+    deps.cloudTracking?.trackMediaGenerationRequested({
+      modality,
+      userId: actorUserId,
+    });
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
     if (!prompt || prompt.length > MAX_GENERATION_PROMPT_LENGTH) {
       throw new CloudError('INVALID_ARGUMENT', `prompt must contain 1-${MAX_GENERATION_PROMPT_LENGTH} characters`, {
@@ -774,6 +786,11 @@ function createCloudMediaJobsPort(deps: {
       });
     }
 
+    deps.cloudTracking?.trackMediaGenerationSubmitted({
+      modality,
+      jobId,
+      userId: actorUserId,
+    });
     return { job: serializeJob(inserted), replayed: false };
   };
 
@@ -1782,6 +1799,7 @@ function createMcpDomainPorts(deps: {
           requestId: String(args.requestId ?? ''),
           compositionPath: typeof args.compositionPath === 'string' ? args.compositionPath : undefined,
           workId: typeof args.workId === 'string' ? args.workId : undefined,
+          exportRoute: 'mcp',
           phase1: true,
         });
         return started as unknown as Record<string, unknown>;
@@ -2107,8 +2125,15 @@ export function createApiApp(deps: CreateApiAppDeps): {
     files,
     hotTextCache: deps.hotTextCache,
   });
+  const effectiveTrackingEnv: NodeJS.ProcessEnv = {
+    ...(deps.trackingEnv ?? process.env),
+    ...(config.OPENMOTION_TRACERT_SPM_A ? { OPENMOTION_TRACERT_SPM_A: config.OPENMOTION_TRACERT_SPM_A } : {}),
+    ...(config.OPENMOTION_TRACERT_ENDPOINT ? { OPENMOTION_TRACERT_ENDPOINT: config.OPENMOTION_TRACERT_ENDPOINT } : {}),
+  };
+  const cloudTracking = createCloudTracking(VERSION, effectiveTrackingEnv, deps.trackingOptions);
+
   const assetNames = new AssetNamesService({ db, files });
-  const workRounds = new WorkRoundsService(db);
+  const workRounds = new WorkRoundsService(db, { cloudTracking });
   const archives = new ProjectArchiveService({ db, storage, workspace, files, publicOrigin: config.APP_PUBLIC_ORIGIN });
   const assets = new AssetLibraryService({
     db,
@@ -2124,6 +2149,7 @@ export function createApiApp(deps: CreateApiAppDeps): {
     queues,
     eventBus,
     presignGetTtlSec: config.S3_PRESIGN_GET_TTL_SEC,
+    cloudTracking,
   });
   const importAssets = new CloudImportAssetsService({
     store: createPgImportAssetsStore(db),
@@ -2132,7 +2158,7 @@ export function createApiApp(deps: CreateApiAppDeps): {
     eventBus,
     config,
   });
-  const mediaJobs = createCloudMediaJobsPort({ db, queues, eventBus, assets });
+  const mediaJobs = createCloudMediaJobsPort({ db, queues, eventBus, assets, cloudTracking });
 
   const mcpDispatcher = new McpToolDispatcher(
     config,
@@ -2154,6 +2180,7 @@ export function createApiApp(deps: CreateApiAppDeps): {
       gateway,
       mediaJobs,
     }),
+    { cloudTracking },
   );
 
   const services: ApiAppServices = {
@@ -2512,13 +2539,6 @@ export function createApiApp(deps: CreateApiAppDeps): {
   // 2. Auth & OAuth 2.1 Routes (`/auth/*`, `/.well-known/*`, `/oauth/*`, `/motion-api/tokens*`)
   // -------------------------------------------------------------------------
 
-  const effectiveTrackingEnv: NodeJS.ProcessEnv = {
-    ...(deps.trackingEnv ?? process.env),
-    ...(config.OPENMOTION_TRACERT_SPM_A ? { OPENMOTION_TRACERT_SPM_A: config.OPENMOTION_TRACERT_SPM_A } : {}),
-    ...(config.OPENMOTION_TRACERT_ENDPOINT ? { OPENMOTION_TRACERT_ENDPOINT: config.OPENMOTION_TRACERT_ENDPOINT } : {}),
-  };
-  const cloudTracking = createCloudTracking(VERSION, effectiveTrackingEnv);
-
   app.route('/', createAuthRoutes({ ...authDeps, cloudTracking }));
 
   // -------------------------------------------------------------------------
@@ -2763,7 +2783,15 @@ export function createApiApp(deps: CreateApiAppDeps): {
       return c.json({ ok: true, accepted: false }, 202);
     }
     const body = await c.req.json().catch(() => null);
-    const acceptedCount = cloudTracking.acceptBrowserBatch(body);
+    const optionalAuth = await resolveOptionalTrackingAuth(authDeps, c.req.raw);
+    const rawDeviceId =
+      (body && typeof body === 'object' && !Array.isArray(body)
+        ? (body as { device_id?: unknown }).device_id
+        : undefined) ?? c.req.header('x-openmotion-device-id');
+    const acceptedCount = cloudTracking.acceptBrowserBatch(body, {
+      userId: optionalAuth ? (optionalAuth.appUserId ?? optionalAuth.userId) : null,
+      deviceId: typeof rawDeviceId === 'string' ? rawDeviceId : null,
+    });
     return c.json({ ok: true, accepted: acceptedCount > 0, acceptedCount }, 202);
   });
   const trackingPreferencesPayload = () => {
@@ -2815,6 +2843,7 @@ export function createApiApp(deps: CreateApiAppDeps): {
     const result = await mcpDispatcher.dispatch(body.name, body.arguments ?? {}, {
       auth,
       supportsMcpAppsUi: false,
+      skipMcpToolTracking: true,
     });
 
     const firstContent = result.content?.[0];
@@ -3167,6 +3196,7 @@ export function createApiApp(deps: CreateApiAppDeps): {
     history,
     assetNames,
     workRounds,
+    cloudTracking,
     fontsDir: detectedFontsDir,
     runtimeRoot,
     studioVersion: VERSION,

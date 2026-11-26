@@ -11,6 +11,10 @@ import {
   type BrowserTracertConfig,
 } from '../../../shared/tracking-runtime-config.ts';
 import { deviceContext } from '../../../tracking/core.ts';
+import {
+  rotateBrowserTrackingDeviceId,
+  syncBrowserTrackingDeviceId,
+} from './trackingDeviceId.ts';
 
 export interface TracertClientLike {
   init(config: TracertConfig): unknown;
@@ -175,6 +179,15 @@ function readPersistedSdkUserId(client: TracertClientLike): string | null {
   }
 }
 
+function readPersistedSdkDeviceId(client: TracertClientLike): string | null {
+  try {
+    const deviceId = client.toPosthog?.()?.get_property?.('$device_id');
+    return typeof deviceId === 'string' && deviceId.trim().length > 0 ? deviceId.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function applyIdentityToClient(client: TracertClientLike, identity: TrackingUserIdentity): void {
   if (!enabled || browserDntEnabled()) return;
   try {
@@ -207,6 +220,7 @@ function applyIdentityToClient(client: TracertClientLike, identity: TrackingUser
       if (hadAuthenticatedIdentity) {
         client.clearContext('user');
         client.reset();
+        rotateBrowserTrackingDeviceId(readPersistedSdkDeviceId(client));
       }
     }
   } catch {
@@ -241,8 +255,9 @@ function applyResetToClient(client: TracertClientLike): void {
     if (enabled && !browserDntEnabled()) {
       client.reset();
     }
+    rotateBrowserTrackingDeviceId(readPersistedSdkDeviceId(client));
   } catch {
-    // Reset failures must never block sign-out.
+    rotateBrowserTrackingDeviceId();
   }
 }
 
@@ -294,6 +309,7 @@ function initializeClientInstance(
     // cannot override the authoritative runtime/preference decision.
     client.setConsent('granted');
     client.setContext('runtime', buildRuntimeContext(config));
+    syncBrowserTrackingDeviceId(readPersistedSdkDeviceId(client));
     activeClient = client;
     replayBootQueue(client);
     return true;
@@ -472,6 +488,7 @@ export function resetTracertIdentity(): void {
   }
   lastIdentifiedUserId = null;
   lastUserContextKey = '';
+  rotateBrowserTrackingDeviceId();
   if (enabled && activeConfig) {
     enqueueBootOp({ kind: 'reset' });
   }

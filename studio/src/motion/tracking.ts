@@ -4,10 +4,16 @@ import { studioEvents } from '../../../tracking/events.ts';
 import type { StudioEvent } from '../../../tracking/events.ts';
 import type { EventFields } from '../../../tracking/core.ts';
 import {
+  isCloudBrowserEventAllowed,
   parseTrackingRuntimeConfigResponse,
   readTrackingRuntimeConfigFromDocument,
   type BrowserTrackingRuntimeConfig,
 } from '../../../shared/tracking-runtime-config.ts';
+import {
+  getBrowserTrackingDeviceId,
+  resetBrowserTrackingDeviceIdForTests,
+  rotateBrowserTrackingDeviceId,
+} from './trackingDeviceId.ts';
 import {
   captureTracertEvent,
   configureTracert,
@@ -28,6 +34,7 @@ const tracking = createBrowserTracking({
   endpoint: '/motion-api/tracking',
   enabled: false,
   isEnabled: () => navigator.doNotTrack !== '1',
+  getDeviceId: () => getBrowserTrackingDeviceId(),
 });
 
 let initialization: Promise<void> | undefined;
@@ -35,10 +42,13 @@ let configuration: 'uninitialized' | 'loading' | 'ready' | 'disabled' | 'unavail
 let controller: AbortController | undefined;
 let retryAt = 0;
 let posthogEnabled = true;
+let allowlistEnabled = false;
+let lastSyncedSignedIn = false;
 const tracertOnlySeen = new Set<string>();
 
 function applyRuntimeConfig(runtimeConfig: BrowserTrackingRuntimeConfig): void {
   posthogEnabled = runtimeConfig.posthogEnabled;
+  allowlistEnabled = runtimeConfig.allowlistEnabled;
   tracking.setEnabled(runtimeConfig.enabled && runtimeConfig.posthogEnabled);
   configureTracert(runtimeConfig.tracert, runtimeConfig.enabled);
   configuration = runtimeConfig.enabled ? 'ready' : 'disabled';
@@ -100,6 +110,7 @@ export async function trackMotion<E extends StudioEvent>(event: E, properties: E
   if (!usePosthog && !useTracert) return 'disabled' as const;
 
   if (!validProperties(studioEvents, event, properties)) return 'invalid' as const;
+  if (allowlistEnabled && !isCloudBrowserEventAllowed({ event, properties })) return 'disabled' as const;
 
   const eventId = crypto.randomUUID();
   const occurredAt = new Date();
@@ -142,6 +153,7 @@ export function getMotionTrackingDiagnostics() {
   return {
     ...getMotionTrackingStatus(),
     posthogEnabled,
+    allowlistEnabled,
     tracert: getTracertStatus(),
   };
 }
@@ -171,10 +183,16 @@ export function syncMotionTrackingIdentity(identity: TrackingUserIdentity) {
   if (configuration === 'uninitialized' && navigator.doNotTrack !== '1') {
     hydrateInjectedConfigIfPresent();
   }
+  const signedOutAfterSignIn = !identity.signedIn && lastSyncedSignedIn;
+  lastSyncedSignedIn = identity.signedIn;
   syncTracertIdentity(identity);
+  if (signedOutAfterSignIn && !isTracertEnabled()) {
+    rotateBrowserTrackingDeviceId();
+  }
 }
 
 export function resetMotionTrackingIdentity() {
+  lastSyncedSignedIn = false;
   resetTracertIdentity();
 }
 
@@ -185,9 +203,12 @@ export function resetMotionTrackingForTests() {
   configuration = 'uninitialized';
   retryAt = 0;
   posthogEnabled = true;
+  allowlistEnabled = false;
+  lastSyncedSignedIn = false;
   tracertOnlySeen.clear();
   tracking.setEnabled(false);
   resetTracertForTests();
+  resetBrowserTrackingDeviceIdForTests();
 }
 
 window.addEventListener('pagehide', () => {
