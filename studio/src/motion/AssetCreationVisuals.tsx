@@ -60,7 +60,7 @@ export function AssetGenerationCard({ job, onCancel, onView, onRetrySave, onResu
     {job.state === 'failed' && (job.model.provider === 'account' || job.model.provider === 'opendesign' || isCloudWebMode()) && isInsufficientBalanceError(job.error) && (
       <InsufficientBalanceFailureGate
         attribution={{
-          modelId: job.model.id,
+          modelId: job.model.modelId ?? job.model.id,
           modelProvider: job.model.provider,
           modality: job.modality,
           gateReason: 'insufficient_credits',
