@@ -8,13 +8,14 @@ import { WorkspaceStore, projectPath } from './workspace.ts';
 import type { SourceFile } from './workspace.ts';
 
 // Windows refuses to replace a file for a moment while another process
-// (virus scanner, indexer, file watcher) still has it open.
+// (virus scanner, indexer, file watcher) still has it open. Elsewhere these
+// codes are permanent (immutable file, SELinux, busy mount), like process-lock.
 const transientRename = new Set(['EPERM', 'EACCES', 'EBUSY']);
 async function renameWithRetry(from: string, to: string) {
   for (let attempt = 0; ; attempt++) {
     try { return await rename(from, to); }
     catch (error) {
-      if (attempt >= 5 || !transientRename.has((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      if (attempt >= 5 || process.platform !== 'win32' || !transientRename.has((error as NodeJS.ErrnoException).code ?? '')) throw error;
       await sleep(25 * 2 ** attempt);
     }
   }

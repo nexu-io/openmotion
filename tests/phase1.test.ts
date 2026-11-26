@@ -534,15 +534,35 @@ function failRename(shouldFail: (from: string, to: string) => boolean) {
 }
 const journalWrite = (state: string) => (from: string) =>
   from.includes(path.sep + 'requests' + path.sep) && readFileSync(from, 'utf8').includes('"state":"' + state + '"');
+function onPlatform(platform: NodeJS.Platform) {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  Object.defineProperty(process, 'platform', { ...real, value: platform });
+  return () => { Object.defineProperty(process, 'platform', real); };
+}
 
 test('atomicJson retries a rename that is briefly locked and gives up cleanly when it stays locked', () => fixture(async store => {
   const file = path.join(store.directory, 'phase1', 'requests', 'locked.json');
-  let failures = 2;
-  let restore = failRename(() => failures-- > 0);
-  try { await atomicJson(file, { state: 'pending' }); } finally { restore(); }
+  const restorePlatform = onPlatform('win32');
+  try {
+    let failures = 2;
+    let restore = failRename(() => failures-- > 0);
+    try { await atomicJson(file, { state: 'pending' }); } finally { restore(); }
+    assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { state: 'pending' });
+    restore = failRename(() => true);
+    try { await assert.rejects(atomicJson(file, { state: 'completed' }), { code: 'EPERM' }); } finally { restore(); }
+  } finally { restorePlatform(); }
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { state: 'pending' });
-  restore = failRename(() => true);
-  try { await assert.rejects(atomicJson(file, { state: 'completed' }), { code: 'EPERM' }); } finally { restore(); }
+  assert.deepEqual((await readdir(path.dirname(file))).filter(name => name.endsWith('.tmp')), []);
+}, false));
+
+test('atomicJson does not retry a rename error off Windows', () => fixture(async store => {
+  const file = path.join(store.directory, 'phase1', 'requests', 'immutable.json');
+  await atomicJson(file, { state: 'pending' });
+  const restorePlatform = onPlatform('linux');
+  let attempts = 0;
+  const restore = failRename(() => { attempts++; return true; });
+  try { await assert.rejects(atomicJson(file, { state: 'completed' }), { code: 'EPERM' }); } finally { restore(); restorePlatform(); }
+  assert.equal(attempts, 1);
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { state: 'pending' });
   assert.deepEqual((await readdir(path.dirname(file))).filter(name => name.endsWith('.tmp')), []);
 }, false));
