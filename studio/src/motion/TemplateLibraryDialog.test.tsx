@@ -819,6 +819,7 @@ it.each([
   runtime.content = 'cloud-diskless';
   document.head.append(runtime);
   sessionStorage.removeItem('motion.template-handoff.preview');
+  localStorage.removeItem('openmotion.local-agent-handoff.dismissed');
   const request = vi.fn(async (url: string) => url.endsWith('/integration')
     ? new Response('', { status: 401 })
     : Response.json({ items: [{ ...items[1], title, id }], catalogVersion: 'v1', next: null }));
@@ -827,9 +828,10 @@ it.each([
     await mount();
     await act(async () => preview(title));
     expect(host.querySelector('[aria-label="Template recreation instruction"]')?.textContent).toContain(id);
-    await act(async () => button('Recreate this template').click());
+    await act(async () => button('Copy for local Agent').click());
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(title));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(location.origin + '/install.md'));
+    expect(host.querySelector('[aria-label="Copied — next step in your local Agent"]')?.textContent).toContain('30s plugin install guide');
     expect(request.mock.calls.some(([url]) => url.endsWith('/integration'))).toBe(false);
   } finally { runtime.remove(); }
 });
@@ -1430,6 +1432,7 @@ it('reconciles a retained request after remount without minting a new creation i
 
 it('keeps a delayed handoff result tied to its initiating detail and does not switch a later selection', async () => {
   sessionStorage.removeItem('motion.template-handoff.preview');
+  localStorage.removeItem('openmotion.local-agent-handoff.dismissed');
   let finish!: (value: any) => void;
   const prepare = vi.fn((_template, _requestId) => new Promise<any>(resolve => { finish = resolve; }));
   const open = vi.fn().mockResolvedValue(true);
@@ -1451,6 +1454,7 @@ it('preserves the TOP100 detail and return path alongside the regular template h
   const previous = location.href;
   history.replaceState({}, '', '/?brandStoriesPreview=1');
   sessionStorage.removeItem('motion.template-handoff.preview');
+  localStorage.removeItem('openmotion.local-agent-handoff.dismissed');
   try {
     await mount();
     await act(async () => button('TOP 100 brands').click());

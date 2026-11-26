@@ -16,7 +16,11 @@ function copyWithSelection(text: string): boolean {
   textarea.style.opacity = "0";
   textarea.style.pointerEvents = "none";
 
-  document.body.appendChild(textarea);
+  const openDialogs = document.querySelectorAll("dialog[open]");
+  const mountTarget = openDialogs.length > 0 ? openDialogs[openDialogs.length - 1] : document.body;
+  const previousFocus = document.activeElement as { isConnected?: boolean; focus?: (options?: { preventScroll?: boolean }) => void } | null;
+
+  mountTarget.appendChild(textarea);
   textarea.focus({ preventScroll: true });
   textarea.select();
   textarea.setSelectionRange(0, text.length);
@@ -27,6 +31,9 @@ function copyWithSelection(text: string): boolean {
     return false;
   } finally {
     textarea.remove();
+    if (previousFocus && previousFocus.isConnected && typeof previousFocus.focus === "function") {
+      previousFocus.focus({ preventScroll: true });
+    }
   }
 }
 

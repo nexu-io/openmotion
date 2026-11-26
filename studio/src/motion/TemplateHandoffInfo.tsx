@@ -1,14 +1,46 @@
 import { Button } from 'open-design-ui/button';
+import { IconButton } from 'open-design-ui/icon-button';
 import type { PreparedTemplateProject } from './templateHandoff';
 import type { GalleryTemplate } from '../../../shared/catalog';
 import { MotionIcon } from './icons';
 import { useI18n } from '../i18n/I18n';
 import styles from './TemplateLibraryDialog.module.css';
 
+const PLUGIN_INSTALL_URL = 'https://releases.open-design.ai/open-motion/install.md';
+const HANDOFF_DISMISSED_KEY = 'openmotion.local-agent-handoff.dismissed';
+
+export function hasDismissedLocalAgentHandoff(): boolean {
+  try { return typeof localStorage !== 'undefined' && localStorage.getItem(HANDOFF_DISMISSED_KEY) === '1'; }
+  catch { return false; }
+}
+
+export function dismissLocalAgentHandoff(): void {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(HANDOFF_DISMISSED_KEY, '1'); }
+  catch { /* ignore storage errors */ }
+}
+
 export type TemplateOpenProgress = {
   requestId: string; state: 'creating' | 'failed' | 'unknown' | 'ready' | 'opening' | 'open_failed';
   result?: PreparedTemplateProject; error?: string;
 };
+
+export function TemplateCopiedHandoffCard({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useI18n();
+  const handleDismiss = () => { dismissLocalAgentHandoff(); onDismiss(); };
+  return <section className={`${styles.handoffSteps} ${styles.copiedHandoff}`} role="status" aria-label={t('Copied — next step in your local Agent')}>
+    <div className={styles.copiedHandoffHeader}>
+      <strong><MotionIcon name="check" size={14} />{t('Copied — next step in your local Agent')}</strong>
+      <IconButton variant="plain" className={styles.copiedHandoffClose} onClick={handleDismiss} aria-label={t('Dismiss')} icon={<MotionIcon name="close" size={14} />} />
+    </div>
+    <p>{t('Paste into Codex, Claude Code, DeepSeek, or OpenDesign Desktop, and attach your logo or .ai / .svg / image files.')}</p>
+    <div className={styles.copiedHandoffFooter}>
+      <span>{t('No OpenMotion plugin yet?')}</span>
+      <a className="om-text-link" data-quiet href={PLUGIN_INSTALL_URL} target="_blank" rel="noreferrer">{t('30s plugin install guide')}<MotionIcon name="arrow-up-right" size={13} /></a>
+      <span className={styles.copiedHandoffDivider} aria-hidden="true">·</span>
+      <Button variant="plain" className="om-text-link" data-quiet onClick={handleDismiss}>{t("Already installed, don't show again")}</Button>
+    </div>
+  </section>;
+}
 
 export function TemplateHandoffSteps({ template }: { template: GalleryTemplate }) {
   const { t } = useI18n();

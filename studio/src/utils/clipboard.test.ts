@@ -70,6 +70,25 @@ describe("copyTextToClipboard", () => {
     expect(execCommand).toHaveBeenCalledWith("copy");
   });
 
+  it("mounts fallback textarea inside the topmost open dialog when a modal dialog is open", async () => {
+    let parentTag = "";
+    const execCommand = vi.fn((command: string) => {
+      parentTag = document.querySelector("textarea")?.parentElement?.tagName ?? "";
+      return command === "copy";
+    });
+    const writeText = vi.fn((_text: string) => Promise.reject(new Error("blocked")));
+
+    installDocument(execCommand);
+    installNavigator(writeText);
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    document.body.appendChild(dialog);
+
+    await expect(copyTextToClipboard("modal copy")).resolves.toBe(true);
+    expect(parentTag.toLowerCase()).toBe("dialog");
+    expect(document.querySelector("textarea")).toBeNull();
+  });
+
   it("reports failure when both copy paths fail", async () => {
     const execCommand = vi.fn(() => false);
     const writeText = vi.fn((_text: string) => Promise.reject(new Error("blocked")));

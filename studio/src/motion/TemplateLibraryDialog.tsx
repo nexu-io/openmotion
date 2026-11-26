@@ -42,7 +42,8 @@ import { TemplateReferenceDialog, TemplateSearchRecovery } from './TemplateSearc
 import { useTemplateSearchContext } from './useTemplateSearchContext';
 import * as tracking from './templateLibraryTracking';
 import type { DetailView, FilterAction, FilterGroup, Placement, Sort } from './templateLibraryTracking';
-import { TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress } from './TemplateHandoffInfo';
+import { hasDismissedLocalAgentHandoff, TemplateCopiedHandoffCard, TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress } from './TemplateHandoffInfo';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { TemplateDetailReview, TemplateProductionNotes, TemplateGuideReview, TemplateReviewSpecs } from './TemplateDetailReview';
 import { templateHandoffEnabled, templateHandoffPrompt, preparedTemplateProjects, pendingTemplateProjects, rememberTemplateRequest, forgetTemplateRequest, TemplatePreparationBlockedError, findPreparedTemplate, type PreparedTemplateProject } from './templateHandoff';
 import { useAccountSummary } from './AccountSettings';
@@ -107,6 +108,7 @@ export function TemplateLibraryDialog(props: Props) {
   const detailInfo = useRef<HTMLDivElement>(null), search = useRef<HTMLInputElement>(null);
   const instructionText = useRef<HTMLElement>(null), libraryShown = useRef(false);
   const [downloading, setDownloading] = useState(false);
+  const [copiedHandoff, setCopiedHandoff] = useState(false);
   const [catalog, setCatalog] = useState<GalleryTemplate[]>([]);
   const [warning, setWarning] = useState(''), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [attempt, retry] = useState(0), [libraryQuery, setLibraryQuery] = useState(''), [sort, setSort] = useState<Sort>('recommended');
@@ -612,6 +614,7 @@ export function TemplateLibraryDialog(props: Props) {
     return () => { observer.disconnect(); document.removeEventListener('visibilitychange', report); };
   }, [props.open, preview, prompt, manualCopy, promptExpanded, guideOpen]);
   useEffect(() => {
+    setCopiedHandoff(false);
     if (!preview) return;
     setPromptError(false);
     if (handoffPreview || blackFridayReference(preview.id, locale)) {
@@ -634,11 +637,11 @@ export function TemplateLibraryDialog(props: Props) {
     const template = preview, view = detailView.current, attemptId = tracking.newTrackingId();
     if (template) tracking.reportUseClicked(template, submit ? 'recreate_submit' : 'recreate', view, attemptId);
     try {
-      await navigator.clipboard.writeText(text);
-      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(''); showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info'); }
+      if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
+      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(''); if (cloudWeb && !hasDismissedLocalAgentHandoff()) setCopiedHandoff(true); showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info'); }
       if (template) tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view);
     } catch {
-      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(text); setPromptExpanded(true); showToast(handoffPreview ? t('Copy failed. Select the instruction in this section to copy manually, or try again.') : 'Copy failed. Select and copy the instruction below.', 'error', 'feedback'); }
+      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(text); setCopiedHandoff(false); setPromptExpanded(true); showToast(handoffPreview ? t('Copy failed. Select the instruction in this section to copy manually, or try again.') : 'Copy failed. Select and copy the instruction below.', 'error', 'feedback'); }
       if (template) tracking.reportCopyResult(template, 'manual_fallback_shown', attemptId, submit, view);
     }
   }
@@ -657,10 +660,11 @@ export function TemplateLibraryDialog(props: Props) {
     }
     let copyTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([
-        navigator.clipboard.writeText(text),
+      const copied = await Promise.race([
+        copyTextToClipboard(text),
         new Promise<never>((_, reject) => { copyTimeout = setTimeout(() => reject(new Error('Clipboard permission timed out')), 8000); }),
       ]);
+      if (!copied) throw new Error('Clipboard copy failed');
       showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
       tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view); return null;
     } catch {
@@ -859,7 +863,7 @@ export function TemplateLibraryDialog(props: Props) {
             </section>}
             {!handoffPreview && preview.description && <p className={styles.description}>{preview.description}</p>}
             {handoffPreview && <>
-              <TemplateDetailReview template={preview} onCopyColor={color => { tracking.reportDetailAction(preview, 'copy_color', detailView.current); void navigator.clipboard.writeText(color).then(() => showToast(t('Copied {color}', { color }), 'info')).catch(() => showToast(t('Could not copy color. Try again.'), 'error')); }} onFilter={filterBy} />
+              <TemplateDetailReview template={preview} onCopyColor={color => { tracking.reportDetailAction(preview, 'copy_color', detailView.current); void copyTextToClipboard(color).then(ok => showToast(ok ? t('Copied {color}', { color }) : t('Could not copy color. Try again.'), ok ? 'info' : 'error')); }} onFilter={filterBy} />
             </>}
             <section ref={instructionText} className={`${styles.instruction} ${handoffPreview ? styles.reviewCreation : ''}`} aria-label={t(handoffPreview ? 'Template recreation instruction' : 'Template instruction')}><header><h3>{t(handoffPreview ? 'Template recreation instruction' : 'Template instruction')}</h3>
               {handoffPreview && <Popover key={preview.id} container={detail} align="end" openOnHover aria-label={t('After copying')} className={styles.handoffPopover} initialFocus={false} onOpenChange={open => { if (open) tracking.reportDetailAction(preview, 'handoff_help', detailView.current); }}
@@ -870,9 +874,10 @@ export function TemplateLibraryDialog(props: Props) {
             {!handoffPreview && <div className={styles.actions}>
               {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
               <div className={styles.recreateActions}>
-                <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t('Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
+                <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
                 <Tooltip withinDialog wrap label={t('Recreate and submit')}><IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} onClick={() => void copy(true)} aria-label={t('Recreate and submit')} icon={<MotionIcon name="git-branch" size={17} />} /></Tooltip>
               </div>
+              {copiedHandoff && <TemplateCopiedHandoffCard onDismiss={() => setCopiedHandoff(false)} />}
             </div>}
             {!handoffPreview && <div className={styles.resourceLinks}>
               {!handoffPreview && <a className={`om-text-link ${styles.repositoryLink}`} data-quiet href={templateRepositoryUrl(preview)} target="_blank" rel="noreferrer" onClick={() => tracking.reportDetailLink(preview, 'view_repository', detailView.current)}><GithubLogo size={16} weight="fill" aria-hidden="true" />{t('View on GitHub')}</a>}
@@ -893,10 +898,11 @@ export function TemplateLibraryDialog(props: Props) {
             {handoffPreview && <TemplateProductionNotes template={preview} onGuide={() => { tracking.reportDetailAction(preview, 'view_guide', detailView.current); setGuideOpen(true); }} />}
           </div>
           {handoffPreview && <div ref={reviewFooter} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
+              {copiedHandoff && <TemplateCopiedHandoffCard onDismiss={() => setCopiedHandoff(false)} />}
               <div className={styles.handoffActions}>
                 {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
                 <div className={styles.recreateActions}>
-                  <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t('Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
+                  <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>
                     <IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} aria-label={t('Copy contribution brief')} onClick={() => void copy(true)} icon={<MotionIcon name="git-branch" size={17} />} />
                   </Tooltip>
