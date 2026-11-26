@@ -2293,6 +2293,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     await next();
     const auth = c.get('auth') as AuthContext | undefined;
     logger.info('HTTP request completed', {
+      ...(c.get('trackingBatch') && { trackingBatch: c.get('trackingBatch') }),
       method: c.req.method,
       path: routePath(c),
       status: c.res.status,
@@ -2515,7 +2516,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   // 2. Auth & OAuth 2.1 Routes (`/auth/*`, `/.well-known/*`, `/oauth/*`, `/motion-api/tokens*`)
   // -------------------------------------------------------------------------
 
-  const cloudTracking = createCloudTracking(VERSION);
+  const cloudTracking = createCloudTracking(VERSION, process.env, logger);
 
   app.route('/', createAuthRoutes({ ...authDeps, cloudTracking }));
 
@@ -2719,7 +2720,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
 
   app.get('/motion-api/tracking', (c) => {
     const enabled = cloudTracking.isEnabled();
-    return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
+    return c.json({ enabled, scope: 'entitlement', locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
   });
   app.post('/motion-api/tracking', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     const contentType = (c.req.header('content-type') ?? '').toLowerCase();
@@ -2758,12 +2759,15 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     if (!(await checkTrackingRateLimit(resolveClientIp()))) {
       return c.json({ error: 'Too many tracking requests' }, 429);
     }
-    if (!cloudTracking.isEnabled()) {
+    if (!cloudTracking.isEnabled() || c.req.header('dnt') === '1') {
       return c.json({ ok: true, accepted: false }, 202);
     }
     const body = await c.req.json().catch(() => null);
-    const acceptedCount = cloudTracking.acceptBrowserBatch(body);
-    return c.json({ ok: true, accepted: acceptedCount > 0, acceptedCount }, 202);
+    const receipt = cloudTracking.acceptBrowserBatch(body);
+    c.set('trackingBatch', receipt);
+    const { queued, full } = receipt;
+    if (full) return c.json({ ok: false, acceptedCount: queued, queueFullCount: full }, 429);
+    return c.json({ ok: true, accepted: queued > 0, acceptedCount: queued }, 202);
   });
   const trackingPreferencesPayload = () => {
     const enabled = cloudTracking.isEnabled();

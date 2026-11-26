@@ -34,6 +34,7 @@ export type AuthEnv = {
     previewAssetBase?: string;
     csrfTokenHash?: string;
     sessionTokenHash?: string;
+    trackingBatch?: { queued: number; full: number };
   };
 };
 

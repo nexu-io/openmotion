@@ -155,7 +155,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         maxAgeSec: 600,
       }),
     );
-    if (hookId || entryId) {
+    if (c.req.header('dnt') !== '1' && (hookId || entryId)) {
       headers.append(
         'Set-Cookie',
         serializeCookie(
@@ -236,7 +236,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       });
       await deps.cache?.set(oidcIdTokenCacheKey(session.token), idToken, DEFAULT_SESSION_TTL_SEC).catch(() => {});
 
-      if (authAttribution.hookId || authAttribution.entryId) {
+      if (c.req.header('dnt') !== '1' && (authAttribution.hookId || authAttribution.entryId)) {
         deps.cloudTracking?.trackWebSignInResult({
           outcome: 'success',
           hookId: authAttribution.hookId,

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import { isEntitlementHookId, type EntitlementHookId } from '../shared/entitlement-hooks.ts';
+import { isCloudEntitlementEvent, isEntitlementHookId, type EntitlementHookId } from '../shared/entitlement-hooks.ts';
+import type { Logger } from './infra/logger.ts';
 import { createTracker, uuid } from '../tracking/core.ts';
 import { omEvents, studioEvents } from '../tracking/events.ts';
 import { createPosthogSender } from '../tracking/node.ts';
@@ -14,7 +15,7 @@ const STUDIO_TRACKER_FLUSH_INTERVAL_MS = 500;
 export interface CloudTrackingHandle {
   isEnabled(): boolean;
   lockReason(): 'environment' | null;
-  acceptBrowserBatch(payload: unknown): number;
+  acceptBrowserBatch(payload: unknown): { queued: number; full: number };
   trackWebSignInResult(params: {
     outcome: 'success' | 'failure' | 'cancelled';
     hookId?: string | null;
@@ -34,7 +35,7 @@ function disabledCloudTracking(reason: 'environment' | null): CloudTrackingHandl
   return {
     isEnabled: () => false,
     lockReason: () => reason,
-    acceptBrowserBatch: () => 0,
+    acceptBrowserBatch: () => ({ queued: 0, full: 0 }),
     trackWebSignInResult: () => {},
   };
 }
@@ -63,13 +64,12 @@ function stableDeploymentInstallationId(env: NodeJS.ProcessEnv, host: string, to
 }
 
 /**
- * Env-controlled PostHog tracker for the Web Cloud API server.
- * Stays safely disabled unless OPENMOTION_TRACKING_ENABLED=1/true and a valid
- * public PostHog token (OPENMOTION_POSTHOG_TOKEN or OPENMOTION_POSTHOG_KEY=phc_...)
- * are configured, and always honors OPENMOTION_TELEMETRY=0, DO_NOT_TRACK=1,
- * test-context suppression, and fail-closed host validation.
+ * Hosted commercial funnel tracking is disabled by default. OPENMOTION_TRACKING_ENABLED=count-only
+ * logs aggregate counts locally without a PostHog token or host. Use 1 or true with a public
+ * project token and a valid ingestion host to forward events. Both modes honor environment
+ * opt-outs and test-context suppression.
  */
-export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv = process.env): CloudTrackingHandle {
+export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv = process.env, logger?: Logger): CloudTrackingHandle {
   const lockReason = cloudTrackingLockReason(env);
   if (lockReason !== null) {
     return disabledCloudTracking(lockReason);
@@ -80,6 +80,7 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
   }
 
   const flag = (env.OPENMOTION_TRACKING_ENABLED ?? '').trim().toLowerCase();
+  const countOnly = flag === 'count-only';
   const token = (env.OPENMOTION_POSTHOG_TOKEN ?? '').trim() || (env.OPENMOTION_POSTHOG_KEY ?? '').trim();
   const host = (env.OPENMOTION_POSTHOG_HOST ?? 'https://us.i.posthog.com').trim();
   const rawEnv = (env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production')).trim().toLowerCase();
@@ -88,13 +89,13 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
 
   const shouldEnable = (flag === '1' || flag === 'true') && /^phc_[A-Za-z0-9_]+$/.test(token);
 
-  if (!shouldEnable || !host) {
+  if (!countOnly && (!shouldEnable || !host)) {
     return disabledCloudTracking(null);
   }
 
-  let sender: ReturnType<typeof createPosthogSender>;
+  let posthog: ReturnType<typeof createPosthogSender> | undefined;
   try {
-    sender = createPosthogSender({
+    if (!countOnly) posthog = createPosthogSender({
       host,
       token,
       identity: {
@@ -111,6 +112,21 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
   }
 
   const isActive = () => cloudTrackingLockReason(env) === null;
+
+  const sender: ReturnType<typeof createPosthogSender> = async (events, signal) => {
+    const result = posthog ? await posthog(events, signal) : 'accepted';
+    // Only validated, low-cardinality fields reach deployment logs, once per batch.
+    const counts: Record<string, number> = {};
+    for (const { event, properties } of events) {
+      const attribution = properties.hook_id ?? properties.source_detail;
+      let key: string = event;
+      if (attribution) key = `${event}/${attribution}`;
+      else if (event === 'ui_click') key = `${event}/${properties.area}/${properties.element}`;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    logger?.info('Cloud entitlement tracking batch', { outcome: countOnly ? 'counted' : result, events: events.length, counts });
+    return result;
+  };
 
   const studioTracker = createTracker({
     registry: studioEvents,
@@ -133,22 +149,22 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
   return {
     isEnabled: isActive,
     lockReason: () => cloudTrackingLockReason(env),
-    acceptBrowserBatch(payload: unknown): number {
-      if (!isActive()) return 0;
+    acceptBrowserBatch(payload: unknown) {
+      const receipt = { queued: 0, full: 0 };
+      if (!isActive()) return receipt;
       const items = Array.isArray(payload)
         ? payload
         : payload && typeof payload === 'object' && Array.isArray((payload as { events?: unknown }).events)
           ? (payload as { events: unknown[] }).events
           : [];
-      let accepted = 0;
       for (const raw of items.slice(0, MAX_BROWSER_BATCH_SIZE)) {
         if (!raw || typeof raw !== 'object') continue;
-        const record = raw as { entrypoint?: unknown };
-        if (record.entrypoint !== 'studio') continue;
+        const record = raw as { entrypoint?: unknown; event?: unknown; properties?: unknown };
+        if (record.entrypoint !== 'studio' || !isCloudEntitlementEvent(record.event, record.properties)) continue;
         const status = studioTracker.ingest(raw);
-        if (status === 'queued') accepted++;
+        if (status === 'queued' || status === 'full') receipt[status]++;
       }
-      return accepted;
+      return receipt;
     },
     trackWebSignInResult({ outcome, hookId, entryId, userId, durationMs }) {
       if (!isActive()) return;
