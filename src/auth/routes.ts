@@ -672,7 +672,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           outcome: 'success',
           hookId: authAttribution.hookId,
           entryId: authAttribution.entryId,
-          userId: membership.user.id,
+          userId: membership.user.appUserId ?? membership.user.id,
           durationMs: authAttribution.startedAt ? Date.now() - authAttribution.startedAt : 0,
         });
       }

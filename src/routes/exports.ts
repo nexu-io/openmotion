@@ -137,6 +137,7 @@ export function createExportRoutes(deps: ExportRoutesDeps): Hono {
           : undefined,
       expected: body.expected as ExportExpectation | undefined,
       workId: body.workId as string | undefined,
+      exportRoute: 'studio',
     });
 
     return c.json(

@@ -9,6 +9,8 @@ import { findMediaStudio } from '../../../shared/studio-catalog';
 import { I18nProvider, translate } from '../i18n/I18n';
 import { languages } from '../i18n/messages';
 import soundStudioUi from '../i18n/sound-studio-ui.json';
+import { setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import type { AssetDraft } from './AssetComposer';
 import type { useAssetBrowser } from './AssetBrowser';
 import { studioDestination } from './creativeStudios';
@@ -331,6 +333,8 @@ describe('SoundStudioWorkspace', () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     host.remove();
+    setCloudFeatureOverridesForTest(null);
+    setCachedCloudDisklessMode(null);
     playSpy.mockRestore();
     pauseSpy.mockRestore();
     vi.restoreAllMocks();
@@ -343,6 +347,8 @@ describe('SoundStudioWorkspace', () => {
       assets?: LibraryAsset[];
       jobs?: GenerationJob[];
       initialPrompt?: string;
+      initialParameters?: Record<string, unknown>;
+      locale?: 'en' | 'zh-CN';
       source?: 'all' | 'generated' | 'upload';
       query?: string;
       page?: number;
@@ -352,7 +358,12 @@ describe('SoundStudioWorkspace', () => {
       onCreated?: (job: GenerationJob) => void;
     } = {},
   ) {
-    let currentDraft: AssetDraft = { modality: 'audio', prompt: options.initialPrompt ?? '', references: [] };
+    let currentDraft: AssetDraft = {
+      modality: 'audio',
+      prompt: options.initialPrompt ?? '',
+      ...(options.initialParameters ? { parameters: options.initialParameters } : {}),
+      references: [],
+    };
     let currentJobs: GenerationJob[] = options.jobs ?? [];
     let currentBrowser = {
       ...makeBrowser(options.assets ?? []),
@@ -370,7 +381,7 @@ describe('SoundStudioWorkspace', () => {
     const onCreated = options.onCreated ?? vi.fn();
 
     const renderTree = (activeFlag = options.active ?? true) => (
-      <I18nProvider>
+      <I18nProvider initialLocale={options.locale}>
         <SoundStudioWorkspace
           active={activeFlag}
           studio={studio}
@@ -1333,5 +1344,103 @@ describe('SoundStudioWorkspace', () => {
     expect(topUpBtn).toBeTruthy();
     await act(async () => { topUpBtn.click(); });
     expect(chromeMocks.openSubscriptionSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Custom voice ID in Cloud P1 mode for speech models, sanitizes recreated custom voices, and restores when re-enabled', async () => {
+    setCachedCloudDisklessMode(true);
+    const cloudEleven: Model = withOptions({
+      id: 'opendesign:elevenlabs-v3',
+      provider: 'opendesign',
+      modelId: 'elevenlabs-v3',
+      label: 'Eleven v3',
+      modality: 'audio',
+      mode: 'text-to-speech',
+      source: 'live',
+    });
+    const cloudByteplus: Model = withOptions({
+      id: 'opendesign:byteplus-tts-2',
+      provider: 'opendesign',
+      modelId: 'byteplus-tts-2',
+      label: 'BytePlus TTS 2.0',
+      modality: 'audio',
+      mode: 'text-to-speech',
+      source: 'live',
+    });
+    const cloudSpeechStudio = (modelId: string): StudioCreation => ({
+      destination: studioDestination(findMediaStudio('sound')!, 'speech', modelId),
+      soundTab: 'speech',
+      draftKey: `sound/speech/${modelId}`,
+      selectSoundTab: vi.fn(),
+      catalog: {
+        catalog: {
+          models: [cloudEleven, cloudByteplus],
+          status: {
+            providers: [
+              { id: 'opendesign', label: 'OpenDesign', available: true, configured: true, enabled: true, source: 'none', mode: 'opendesign' },
+            ],
+            routes: { audio: cloudEleven.id },
+          },
+        },
+        failed: false,
+        retry: vi.fn(),
+      } as StudioCreation['catalog'],
+      remember: vi.fn(),
+      reuseInScene: vi.fn(),
+      chooseModel: vi.fn(),
+    });
+
+    // 1. Eleven v3 hides the Custom voice ID button/input in zh-CN while preserving preset voice selection.
+    const legacyCustomTrack = makeAsset(
+      'speech-custom-1',
+      { name: 'Legacy custom VO' },
+      { model: cloudEleven.id, prompt: 'Recreate me cleanly.', parameters: { voice: 'custom_speaker_42', speed: 1.1 } },
+    );
+    await renderSound(cloudSpeechStudio(cloudEleven.id), {
+      assets: [legacyCustomTrack],
+      initialPrompt: 'Cloud speech check.',
+      initialParameters: { voice: 'custom_speaker_42' },
+      locale: 'zh-CN',
+    });
+    expect(host.querySelector('.om-sound-custom-voice-toggle')).toBeNull();
+    expect(host.querySelector('.om-sound-custom-voice-box')).toBeNull();
+    expect(host.querySelector('input[aria-label="自定义音色 ID"]')).toBeNull();
+    expect(host.textContent).not.toContain('自定义音色');
+
+    // Stale custom voice falls back cleanly to the model default preset (Rachel) on display and submit.
+    const voiceCards = [...host.querySelectorAll<HTMLButtonElement>('.om-sound-voice-select')];
+    expect(voiceCards.length).toBeGreaterThanOrEqual(4);
+    expect(voiceCards[0]?.getAttribute('aria-pressed')).toBe('true');
+
+    await act(async () => { host.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click(); });
+    expect(assetRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'generate',
+      model: cloudEleven.id,
+      parameters: expect.objectContaining({ voice: '21m00Tcm4TlvDq8ikWAM' }),
+    }));
+
+    // 2. Recreating a historical custom-voice track keeps custom voice hidden and preserves other valid params (speed).
+    assetRequestMock.mockClear();
+    const recreateBtn = host.querySelector<HTMLButtonElement>(`.om-sound-track-row button[aria-label="${translate('zh-CN', 'Recreate')}"]`)!;
+    await act(async () => { recreateBtn.click(); });
+    expect(host.querySelector('.om-sound-custom-voice-toggle')).toBeNull();
+    expect(host.querySelector('.om-sound-custom-voice-box')).toBeNull();
+    await act(async () => { host.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click(); });
+    expect(assetRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'generate',
+      model: cloudEleven.id,
+      prompt: 'Recreate me cleanly.',
+      parameters: expect.objectContaining({ voice: '21m00Tcm4TlvDq8ikWAM', speed: 1.1 }),
+    }));
+
+    // 3. BytePlus TTS 2.0 also hides Custom voice ID while keeping Vivi selectable.
+    await renderSound(cloudSpeechStudio(cloudByteplus.id), { assets: [], initialPrompt: '你好世界', locale: 'zh-CN' });
+    expect(host.querySelector('.om-sound-custom-voice-toggle')).toBeNull();
+    expect(host.querySelector('.om-sound-custom-voice-box')).toBeNull();
+    expect(host.textContent).toContain('Vivi');
+
+    // 4. Re-enabling the Cloud feature flag restores the inline Custom voice ID entry.
+    setCloudFeatureOverridesForTest({ customVoiceId: true });
+    await renderSound(cloudSpeechStudio(cloudEleven.id), { assets: [], initialPrompt: 'Restore check.', locale: 'en' });
+    expect(host.querySelector('.om-sound-custom-voice-toggle')).not.toBeNull();
   });
 });

@@ -1562,4 +1562,164 @@ describe('Sub-scene (<template>) Export Expectation, Parity Injection & Settings
       await rm(tmpBase, { recursive: true, force: true });
     }
   });
+
+  it('suppresses worker export_result, task_terminal, and work_generation_stage telemetry on both success and failure when telemetryOptOut is true, while emitting them for normal renders', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-test-render-telemetry-optout-'));
+    try {
+      const storage = new MemoryStorage();
+      const eventBus = new MemoryEventBus();
+      const indexHtml = `<!doctype html><html><body><div data-composition-id="root" data-width="1280" data-height="720" data-fps="30" data-duration="2">ok</div></body></html>`;
+      const indexSha = sha256(indexHtml);
+      await storage.putObject(workspaceBlobKey(WID_A, indexSha), indexHtml, 'text/html');
+      const snapshotRows = [
+        { path: 'index.html', blobScope: 'workspace', sha256: indexSha, sizeBytes: indexHtml.length, mimeType: 'text/html' },
+      ];
+      const fakeMp4 = Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypisom'), Buffer.alloc(64, 7)]);
+
+      const recorded: Array<{ kind: string; payload: Record<string, unknown> }> = [];
+      const mockCloudTracking = {
+        isEnabled: () => true,
+        trackExportResult: (input: Record<string, unknown>) => {
+          recorded.push({ kind: 'export_result', payload: input });
+        },
+        trackTaskTerminal: (input: Record<string, unknown>) => {
+          recorded.push({ kind: 'task_terminal', payload: input });
+        },
+        trackWorkGenerationStage: (input: Record<string, unknown>) => {
+          recorded.push({ kind: 'work_generation_stage', payload: input });
+        },
+      };
+
+      // 1. Opted-out render (success path via payload flag) emits zero worker telemetry.
+      const optedOutOkDb = createFakeRenderDb(snapshotRows, () => [
+        { id: JID_OK, inputPayload: { telemetryOptOut: true }, workId: null },
+      ]);
+      const optedOutOk = await processExportRenderJob(
+        {
+          db: optedOutOkDb,
+          storage,
+          eventBus,
+          logger: SILENT_LOGGER,
+          workerId: 'render-test-optout',
+          tmpBaseDir: tmpBase,
+          cloudTracking: mockCloudTracking as never,
+          runRenderCommand: async (_rt, _dir, args) => {
+            await writeFile(args[args.indexOf('--output') + 1], fakeMp4);
+            return { code: 0, stdout: 'Render complete\n', stderr: '' };
+          },
+          verifyExportFn: async (outFile, expected) => ({
+            scope: 'technical',
+            status: 'passed',
+            file: outFile,
+            sha256: sha256(fakeMp4),
+            expected,
+            checks: [{ name: 'probe', status: 'passed', details: 'ok' }],
+            remainingChecks: [],
+          }),
+        },
+        {
+          jobId: JID_OK,
+          workspaceId: WID_A,
+          projectId: PID_A,
+          versionId: VID_A,
+          revision: REV_1,
+          outputName: 'opted-out-ok.mp4',
+          format: 'mp4',
+          phase1: true,
+          telemetryOptOut: true,
+          userId: 'amr_should_not_emit',
+          exportRoute: 'studio',
+        },
+      );
+      assert.equal(optedOutOk.state, 'completed');
+      assert.equal(recorded.length, 0);
+
+      // 2. Opted-out render (failure path via persisted inputPayload flag) throws without emitting worker telemetry.
+      const optedOutFailDb = createFakeRenderDb(snapshotRows, () => [
+        { id: JID_FAIL, inputPayload: { telemetryOptOut: true, userId: 'amr_should_not_emit' }, workId: '77777777-7777-4777-8777-777777777777' },
+      ]);
+      await assert.rejects(
+        () =>
+          processExportRenderJob(
+            {
+              db: optedOutFailDb,
+              storage,
+              eventBus,
+              logger: SILENT_LOGGER,
+              workerId: 'render-test-optout',
+              tmpBaseDir: tmpBase,
+              cloudTracking: mockCloudTracking as never,
+              runRenderCommand: async () => ({ code: 1, stdout: '', stderr: 'render boom' }),
+            },
+            {
+              jobId: JID_FAIL,
+              workspaceId: WID_A,
+              projectId: PID_A,
+              versionId: VID_A,
+              revision: REV_1,
+              outputName: 'opted-out-fail.mp4',
+              format: 'mp4',
+              phase1: true,
+              exportRoute: 'studio',
+            },
+          ),
+        /Hyperframes render exited with code 1/,
+      );
+      assert.equal(recorded.length, 0);
+
+      // 3. Normal non-opted-out render emits export_result, task_terminal, and work_generation_stage(exported).
+      const workId = '88888888-8888-4888-8888-888888888888';
+      const normalDb = createFakeRenderDb(snapshotRows, () => [
+        { id: JID_OK, inputPayload: { userId: 'amr_normal_user', exportRoute: 'studio' }, workId },
+      ]);
+      const normalOk = await processExportRenderJob(
+        {
+          db: normalDb,
+          storage,
+          eventBus,
+          logger: SILENT_LOGGER,
+          workerId: 'render-test-optout',
+          tmpBaseDir: tmpBase,
+          cloudTracking: mockCloudTracking as never,
+          runRenderCommand: async (_rt, _dir, args) => {
+            await writeFile(args[args.indexOf('--output') + 1], fakeMp4);
+            return { code: 0, stdout: 'Render complete\n', stderr: '' };
+          },
+          verifyExportFn: async (outFile, expected) => ({
+            scope: 'technical',
+            status: 'passed',
+            file: outFile,
+            sha256: sha256(fakeMp4),
+            expected,
+            checks: [{ name: 'probe', status: 'passed', details: 'ok' }],
+            remainingChecks: [],
+          }),
+        },
+        {
+          jobId: JID_OK,
+          workspaceId: WID_A,
+          projectId: PID_A,
+          versionId: VID_A,
+          revision: REV_1,
+          outputName: 'normal-ok.mp4',
+          format: 'mp4',
+          phase1: true,
+          userId: 'amr_normal_user',
+          workId,
+          exportRoute: 'studio',
+        },
+      );
+      assert.equal(normalOk.state, 'completed');
+      assert.deepEqual(
+        recorded.map((entry) => entry.kind),
+        ['export_result', 'task_terminal', 'work_generation_stage'],
+      );
+      assert.equal(recorded[0].payload.userId, 'amr_normal_user');
+      assert.equal(recorded[1].payload.userId, 'amr_normal_user');
+      assert.equal(recorded[2].payload.stage, 'exported');
+      assert.equal(recorded[2].payload.workId, workId);
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
 });

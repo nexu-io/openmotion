@@ -24,11 +24,21 @@ import {
   type GoogleAccountsIdInitializeConfig,
   type GooglePromptMomentNotification,
 } from './googleOneTap';
-import { getMotionTrackingUserId, setMotionTrackingUserId } from './tracking';
-import { setMotionTrackingConsented } from './trackingIdentity';
+import { setMotionUsageTrackingActive } from './trackingIdentity';
 import { WorkspaceGoogleOneTap } from './WorkspaceFrame';
 
 const tracked: Array<{ event: string; properties: Record<string, unknown> }> = [];
+const syncedIdentities = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock('./trackingIdentity', async importOriginal => {
+  const actual = await importOriginal<typeof import('./trackingIdentity')>();
+  return {
+    ...actual,
+    syncMotionTrackingIdentity: vi.fn((identity: Record<string, unknown>) => {
+      syncedIdentities.push(identity);
+    }),
+  };
+});
+const clearMetricsConsentCookie = () => { document.cookie = 'om_metrics_consent=; max-age=0; path=/'; };
 vi.mock('./tracking', async importOriginal => {
   const actual = await importOriginal<typeof import('./tracking')>();
   return {
@@ -52,8 +62,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   tracked.length = 0;
   resetOneTapStateForTests();
-  setMotionTrackingUserId(null);
-  setMotionTrackingConsented(false);
+  syncedIdentities.length = 0;
+  setMotionUsageTrackingActive(false);
+  clearMetricsConsentCookie();
   sessionStorage.clear();
   localStorage.clear();
   document.cookie = 'od_attr=; max-age=0; path=/';
@@ -247,7 +258,7 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
     await Promise.resolve();
   });
 
-  expect(getMotionTrackingUserId()).toBe('usr_app_999');
+  expect(syncedIdentities).toEqual([{ signedIn: true, userId: 'usr_app_999' }]);
   expect(refreshAccount).toHaveBeenCalledTimes(1);
   expect(accountChanged).toHaveBeenCalledTimes(1);
   expect(document.getElementById(ONETAP_ANCHOR_ID)).toBeNull();
@@ -274,7 +285,6 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
         device_timezone: 'UTC',
         utc_offset_minutes: 0,
         properties: row.properties,
-        app_user_id: 'usr_app_999',
       }),
     ).toBe(true);
   }
@@ -483,7 +493,8 @@ it('resolves full od_* product entry attribution by URL -> localStorage -> od_at
 
   // Navigate to clean page with no query params -> persisted localStorage + od_attr fallback still resolves all fields
   history.replaceState(null, '', '/templates');
-  setMotionTrackingConsented(false);
+  // Usage tracking alone is not device-ID consent.
+  setMotionUsageTrackingActive(true);
   const unconsented = collectOneTapAttribution();
   expect(unconsented.attribution).toMatchObject({
     utmSource: 'url_src',
@@ -504,8 +515,8 @@ it('resolves full od_* product entry attribution by URL -> localStorage -> od_at
   expect(unconsentedStored).toBeTruthy();
   expect(unconsentedStored).not.toContain('dev_123');
 
-  // With explicit tracking consent active on landing -> odDeviceId is persisted and transmitted with consent flag
-  setMotionTrackingConsented(true);
+  // With the explicit device-ID consent cookie on landing -> odDeviceId is persisted and transmitted with consent flag
+  document.cookie = 'om_metrics_consent=granted; path=/';
   history.replaceState(
     null,
     '',
@@ -878,7 +889,7 @@ it('supports cross-tab logout cancellation and in-place retry with a fresh chall
     await Promise.resolve();
   });
   expect(refreshAccount).toHaveBeenCalledTimes(1);
-  expect(getMotionTrackingUserId()).toBe('usr_app_retry');
+  expect(syncedIdentities.at(-1)).toEqual({ signedIn: true, userId: 'usr_app_retry' });
 
   // Cross-tab logout storage event cancels local runtime and disables auto-select
   window.dispatchEvent(

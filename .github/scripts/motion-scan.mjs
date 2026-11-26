@@ -84,10 +84,20 @@ export function privacyFindings(name, text, kind = 'source') {
   const publicCommunityFiles = ['README.md', 'README.zh-CN.md', 'docs/README.zh-CN.md', 'docs/README.ja.md', 'studio/src/motion/CommunityLink.tsx'];
   // The npm installer archive keeps the same files under its single `package/` root.
   const publicCommunityFile = kind === 'package' ? name.replace(/^package\//, '') : name;
-  const publicCommunity = publicCommunityFiles.includes(publicCommunityFile) || /^studio\/build\/editor-assets\/[^/]+\.js$/.test(publicCommunityFile);
+  const isBundledStudioAsset = /^studio\/build\/editor-assets\/[^/]+\.js$/.test(publicCommunityFile);
+  const publicCommunity = publicCommunityFiles.includes(publicCommunityFile) || isBundledStudioAsset;
   const urls = text.match(/https?:\/\/[^\s"'<>)]*/gi) || [];
-  if (urls.some(url => /(?:powerformer\.(?:net|com)|feishu\.(?:cn|com)|larksuite\.com)/i.test(url)
-    && !(publicCommunity && createHash('sha256').update(url).digest('hex') === 'd3337d48607e553372bf4a64d1fb41299487d510b1cc95d565698ff4540003b3'))) add('internal-link');
+  const approvedBundledCollectorDigests = new Set([
+    // Owner-approved public Tracert browser collector endpoint embedded inside @powerformer/tracert.
+    '01324266d31db8b1c48c229933538e72f57a7025dd585776f57973b6ff35ac9e',
+  ]);
+  if (urls.some(url => {
+    if (!/(?:powerformer\.(?:net|com)|feishu\.(?:cn|com)|larksuite\.com)/i.test(url)) return false;
+    const digest = createHash('sha256').update(url).digest('hex');
+    if (publicCommunity && digest === 'd3337d48607e553372bf4a64d1fb41299487d510b1cc95d565698ff4540003b3') return false;
+    if (isBundledStudioAsset && approvedBundledCollectorDigests.has(digest)) return false;
+    return true;
+  })) add('internal-link');
   if (/\/(?:Users|home)\/[a-zA-Z0-9_.-]+\/|[a-z]:\\Users\\[^\\\s]+\\|\/var\/folders\//i.test(text)) add('personal-path');
   return findings;
 }

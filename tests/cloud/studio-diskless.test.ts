@@ -563,7 +563,12 @@ class MockStorage implements StoragePort {
   async ensureBucketAndCors(): Promise<void> {}
 }
 
-function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; programmatic?: boolean; fontCatalog?: Parameters<typeof createDisklessStudioApp>[0]['fontCatalog'] }) {
+function createStudioTestEnv(options?: {
+  renderProgressKeepaliveMs?: number;
+  programmatic?: boolean;
+  fontCatalog?: Parameters<typeof createDisklessStudioApp>[0]['fontCatalog'];
+  cloudTracking?: Parameters<typeof createDisklessStudioApp>[0]['cloudTracking'];
+}) {
   const pgClient = new StudioTestPgClient();
   const db = drizzle({ client: pgClient as never, schema }) as unknown as Database;
   const storage = new MockStorage();
@@ -648,6 +653,7 @@ function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; pro
     resolveAuth: () => auth,
     skipDeterministicFonts: true,
     fontCatalog: options?.fontCatalog,
+    ...(options?.cloudTracking ? { cloudTracking: options.cloudTracking } : {}),
     ...(options?.renderProgressKeepaliveMs !== undefined
       ? { renderProgressKeepaliveMs: options.renderProgressKeepaliveMs }
       : {}),
@@ -3409,5 +3415,67 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     const pending = projBody.pendingImports ?? [];
     assert.equal(pending.find((item) => item.id === freshWebJobId)?.source, 'web_upload');
     assert.equal(pending.find((item) => item.id === staleWebJobId), undefined);
+  });
+
+  it('propagates telemetryOptOut consistently to stored job input and render queue payload while emitting task_accepted for non-opted-out renders', async () => {
+    const acceptedCalls: Array<Record<string, unknown>> = [];
+    const env = createStudioTestEnv({
+      cloudTracking: {
+        isEnabled: () => true,
+        trackTaskAccepted: (input: Record<string, unknown>) => {
+          acceptedCalls.push(input);
+        },
+      } as never,
+    });
+
+    // 1. Opted-out Studio render suppresses task_accepted, omits userId/workId, and persists/enqueues telemetryOptOut: true.
+    const optOutProject = await env.workspace.createProject(env.auth, {
+      title: 'Telemetry OptOut Render Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>optout</body></html>' }],
+    });
+    const optOutRes = await env.studioApp.request(`/api/projects/${optOutProject.projectId}/render`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ format: 'mp4', fps: 30, quality: 'standard', telemetryOptOut: true }),
+    });
+    assert.equal(optOutRes.status, 200);
+    const optOutBody = (await optOutRes.json()) as { jobId: string };
+    assert.equal(acceptedCalls.length, 0);
+
+    const optOutQueued = env.enqueued.find(
+      (entry) => entry.queue === 'render-export' && (entry.payload as { jobId?: string }).jobId === optOutBody.jobId,
+    )?.payload as Record<string, unknown>;
+    assert.equal(optOutQueued.telemetryOptOut, true);
+    assert.equal(optOutQueued.userId, undefined);
+    assert.equal(optOutQueued.workId, undefined);
+
+    const optOutDbRow = env.pgClient.rows('jobs').find((row) => row.id === optOutBody.jobId);
+    const optOutInput = (optOutDbRow?.input_payload ?? {}) as Record<string, unknown>;
+    assert.equal(optOutInput.telemetryOptOut, true);
+    assert.equal(optOutInput.userId, undefined);
+    assert.equal(optOutDbRow?.work_id, null);
+
+    // 2. Non-opted-out Studio render persists/enqueues userId without telemetryOptOut and emits task_accepted.
+    const normalProject = await env.workspace.createProject(env.auth, {
+      title: 'Normal Render Telemetry Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>normal</body></html>' }],
+    });
+    const normalRes = await env.studioApp.request(`/api/projects/${normalProject.projectId}/render`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ format: 'mp4', fps: 30, quality: 'standard' }),
+    });
+    assert.equal(normalRes.status, 200);
+    const normalBody = (await normalRes.json()) as { jobId: string };
+    assert.equal(acceptedCalls.length, 1);
+    assert.equal(acceptedCalls[0].taskId, normalBody.jobId);
+    assert.equal(acceptedCalls[0].taskType, 'export');
+    assert.equal(acceptedCalls[0].userId, env.auth.userId);
+
+    const normalQueued = env.enqueued.find(
+      (entry) => entry.queue === 'render-export' && (entry.payload as { jobId?: string }).jobId === normalBody.jobId,
+    )?.payload as Record<string, unknown>;
+    assert.equal(normalQueued.telemetryOptOut, undefined);
+    assert.equal(normalQueued.userId, env.auth.userId);
   });
 });

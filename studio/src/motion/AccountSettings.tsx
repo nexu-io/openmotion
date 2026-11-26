@@ -1,6 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import * as tracking from './pageTracking';
+import { resetMotionTrackingIdentity } from './trackingIdentity';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import type { AccountSummary } from '../../../shared/provider-directory';
@@ -17,7 +18,6 @@ import { markAuthenticatedSession } from './authRecoveryStore';
 import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
 import { suppressOneTapAfterConfirmedLogout } from './googleOneTap';
-import { setMotionTrackingUserId } from './trackingIdentity';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 import {
   isDesktopApp,
@@ -432,9 +432,9 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error(t('Could not sign out'));
       suppressOneTapAfterConfirmedLogout();
-      setMotionTrackingUserId(null);
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
+      resetMotionTrackingIdentity();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));

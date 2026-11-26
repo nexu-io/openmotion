@@ -3,6 +3,10 @@ import {
   DEFAULT_TRACES_SAMPLE_RATE,
   parseSentryDsn,
 } from '../../packages/observability/config.ts';
+import {
+  parseTracertEndpoint,
+  parseTracertSpmA,
+} from '../../shared/tracking-runtime-config.ts';
 
 const booleanEnv = z.preprocess((value) => {
   if (typeof value === 'boolean') return value;
@@ -127,6 +131,10 @@ const rawConfigSchema = z.object({
   SENTRY_ENVIRONMENT: optionalNonEmptyString,
   SENTRY_RELEASE: optionalNonEmptyString,
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_TRACES_SAMPLE_RATE),
+
+  // Cloud web analytics (Tracert spmA injected into Studio HTML at runtime; empty = disabled)
+  OPENMOTION_TRACERT_SPM_A: optionalNonEmptyString,
+  OPENMOTION_TRACERT_ENDPOINT: optionalNonEmptyString,
 });
 
 export type AppConfig = z.infer<typeof rawConfigSchema>;
@@ -177,6 +185,18 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (config.SENTRY_WEB_DSN && !parseSentryDsn(config.SENTRY_WEB_DSN)) {
     throw new Error(
       'INVALID_CONFIG: SENTRY_WEB_DSN must be a valid Sentry DSN URL (https://<public-key>@<host>/<project-id>, or loopback http:// for local testing).',
+    );
+  }
+
+  if (config.OPENMOTION_TRACERT_SPM_A && parseTracertSpmA(config.OPENMOTION_TRACERT_SPM_A) === null) {
+    throw new Error(
+      'INVALID_CONFIG: OPENMOTION_TRACERT_SPM_A must be a positive safe integer or a non-empty string up to 256 characters.',
+    );
+  }
+
+  if (config.OPENMOTION_TRACERT_ENDPOINT && parseTracertEndpoint(config.OPENMOTION_TRACERT_ENDPOINT) === null) {
+    throw new Error(
+      'INVALID_CONFIG: OPENMOTION_TRACERT_ENDPOINT must be an HTTPS URL, loopback HTTP URL, or same-origin path without query/hash.',
     );
   }
 

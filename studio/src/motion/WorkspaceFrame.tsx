@@ -104,6 +104,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const workflowsEnabled = useCloudFeatureEnabled('workflows');
   const designStudioEnabled = useCloudFeatureEnabled('designStudio');
   const brandKitEnabled = useCloudFeatureEnabled('brandKit');
+  const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
   const routerLocation = useLocation();
   const [page, setPage] = useState(() => readWorkspacePage(routerLocation.search, routerLocation.hash, routerLocation.pathname));
   const [source, setSource] = useState(() => readLocationWorkspaceSource(routerLocation.state));
@@ -186,6 +187,10 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       navigatePage({ settings: fallbackSection, provider: null, mcpInSettings: false, assets: false, skills: false, templates: false }, true);
       return;
     }
+    if (page.studio?.studio.id === 'sound' && page.soundTab === 'sfx' && !soundEffectsEnabled) {
+      navigatePage({ soundTab: null }, true);
+      return;
+    }
     if (
       (page.settings === 'brand-kit' && !brandKitEnabled)
       || (page.designScene && !designStudioEnabled)
@@ -194,7 +199,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     ) {
       navigatePage({ explore: true, templates: false, ...lastExplore.current }, true);
     }
-  }, [routerLocation.pathname, routerLocation.search, routerLocation.hash, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, localAgentsEnabled, modelProvidersEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, navigatePage]);
+  }, [routerLocation.pathname, routerLocation.search, routerLocation.hash, page.settings, page.designScene, page.scenarioHub, page.scenario, page.specialty, page.studio?.studio.id, page.soundTab, localAgentsEnabled, modelProvidersEnabled, brandKitEnabled, designStudioEnabled, workflowsEnabled, gameStudioEnabled, soundEffectsEnabled, navigatePage]);
   const presentation = workspacePresentation(location.search);
   const guard = useRef<EditorGuard | null>(null);
   const [editorState, setEditorState] = useState<Pick<EditorGuard, 'blocked' | 'saveState' | 'message'> | null>(null);

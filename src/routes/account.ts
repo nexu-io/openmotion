@@ -142,6 +142,7 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
         slug: membership.workspace.slug,
         name: membership.workspace.name,
         role: membership.role,
+        externalWorkspaceId: membership.workspace.externalWorkspaceId ?? null,
       },
     });
   });

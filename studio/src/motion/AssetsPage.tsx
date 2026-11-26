@@ -119,6 +119,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const browser = useAssetBrowser({ kind, revision, active, lockedSource: mediaGenerations ? 'generated' : undefined });
   // Games made in Game Studio appear in the library view only, never inside a Studio form.
   const gameStudioEnabled = useCloudFeatureEnabled('gameStudio');
+  const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
   const [gamesView, setGamesView] = useState(false);
   const myGames = useMyGames(active && !studio && gameStudioEnabled);
   // One page view each time the library is shown; the page stays mounted while hidden. Inside a Design, Cinema or
@@ -653,7 +654,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     tracking.reportAssetsClick('asset_detail', 'edit_version', { modality: selected.modality });
     const currentTab = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
     const classified = classifyAudioTrackTab(version.model, detailModels, version.source, version.audioKind);
-    const targetTab = classified === 'upload' ? (currentTab === 'sfx' || currentTab === 'speech' ? currentTab : 'music') : classified;
+    const rawTargetTab = classified === 'upload' ? (currentTab === 'sfx' || currentTab === 'speech' ? currentTab : 'music') : classified;
+    const targetTab = !soundEffectsEnabled && rawTargetTab === 'sfx' ? 'music' : rawTargetTab;
     const nextDraft: AssetDraft = {
       modality: 'audio',
       prompt: version.prompt ?? '',

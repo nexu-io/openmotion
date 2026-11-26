@@ -1,7 +1,11 @@
 import { projectSourceReadUrl } from '../../shared/project-source-url.ts';
 import { formatFileVersion } from '../studio/etag.ts';
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
-import { createCloudTracking, type CloudTrackingHandle } from '../cloud-tracking.ts';
+import {
+  createCloudTracking,
+  type CloudTrackingHandle,
+  type CloudTrackingOptions,
+} from '../cloud-tracking.ts';
 import {
   CatalogFilmstripAutoBakeDispatcher,
   InMemoryCatalogFilmstripBakeState,
@@ -36,6 +40,7 @@ import {
   buildBrowserObservabilityConfig,
   injectRuntimeConfigIntoHtml,
 } from '../../packages/observability/config.ts';
+import { injectTrackingRuntimeConfigIntoHtml } from '../../shared/tracking-runtime-config.ts';
 import { commitProjectEdit } from '../services/project-edit.ts';
 import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
 import type { AudioKind } from '../../shared/audio-kind.ts';
@@ -65,8 +70,6 @@ import {
   METRICS_CONSENT_DENIED,
   METRICS_CONSENT_GRANTED,
   OidcService,
-  SESSION_COOKIE_NAME,
-  TRACKING_ATTESTATION_COOKIE_NAME,
   amrIdentityClientFromAppConfig,
   buildOAuth21Config,
   createAuthMiddleware,
@@ -77,17 +80,13 @@ import {
   getAuthContext,
   isHttpsOrigin,
   oidcConfigFromAppConfig,
-  parseCookies,
-  resolveBrowserSession,
-  resolveTrackingAttestationSecret,
-  serializeTrackingAttestationCookie,
   verifyCsrfOrigin,
-  verifyTrackingAttestationCookie,
   type AuthEnv,
   type AuthKeyValueCache,
   type AuthMiddlewareDeps,
   type AuthStore,
 } from '../auth/index.ts';
+import { resolveOptionalTrackingAuth } from '../auth/middleware.ts';
 import {
   PREVIEW_TOKEN_QUERY_PARAM,
   buildPreviewAuthContext,
@@ -353,8 +352,6 @@ export interface CreateApiAppDeps {
   readonly hotTextCache?: HotTextCachePort;
   readonly catalogFilmstripBakeState?: CatalogFilmstripBakeStatePort;
   readonly rateLimiter?: RateLimiter;
-  /** Browser telemetry pipeline; defaults to the env-configured PostHog tracker. */
-  readonly cloudTracking?: CloudTrackingHandle;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
   readonly oidc?: OidcService;
@@ -365,6 +362,8 @@ export interface CreateApiAppDeps {
   readonly disableWelcomeBootstrap?: boolean;
   readonly requireBearerOnDevMcp?: boolean;
   readonly logger?: Logger;
+  readonly trackingEnv?: NodeJS.ProcessEnv;
+  readonly trackingOptions?: CloudTrackingOptions;
   readonly runtimeRoot?: string;
   readonly fontsDir?: string;
   readonly checkDbHealth?: () => Promise<boolean>;
@@ -579,6 +578,7 @@ function createCloudMediaJobsPort(deps: {
   queues: Pick<QueueService, 'enqueueMediaGenerate'>;
   eventBus: Pick<RedisEventBus, 'publish'>;
   assets: AssetLibraryService;
+  cloudTracking?: CloudTrackingHandle;
 }): MediaJobPort & {
   handleMediaAction(auth: AuthContext, args: Record<string, unknown>): Promise<Record<string, unknown>>;
 } {
@@ -675,6 +675,11 @@ function createCloudMediaJobsPort(deps: {
         applied: false,
       });
     }
+    const actorUserId = auth.appUserId ?? auth.userId;
+    deps.cloudTracking?.trackMediaGenerationRequested({
+      modality,
+      userId: actorUserId,
+    });
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
     if (!prompt || prompt.length > MAX_GENERATION_PROMPT_LENGTH) {
       throw new CloudError('INVALID_ARGUMENT', `prompt must contain 1-${MAX_GENERATION_PROMPT_LENGTH} characters`, {
@@ -847,6 +852,11 @@ function createCloudMediaJobsPort(deps: {
       });
     }
 
+    deps.cloudTracking?.trackMediaGenerationSubmitted({
+      modality,
+      jobId,
+      userId: actorUserId,
+    });
     return { job: serializeJob(inserted), replayed: false };
   };
 
@@ -1855,6 +1865,7 @@ function createMcpDomainPorts(deps: {
           requestId: String(args.requestId ?? ''),
           compositionPath: typeof args.compositionPath === 'string' ? args.compositionPath : undefined,
           workId: typeof args.workId === 'string' ? args.workId : undefined,
+          exportRoute: 'mcp',
           phase1: true,
         });
         return started as unknown as Record<string, unknown>;
@@ -2110,7 +2121,11 @@ function createMcpDomainPorts(deps: {
 // Main Stateless Hono `api` App Factory (Testable Without Opening Sockets)
 // ---------------------------------------------------------------------------
 
-export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; services: ApiAppServices } {
+export function createApiApp(deps: CreateApiAppDeps): {
+  app: Hono<AuthEnv>;
+  services: ApiAppServices;
+  cloudTracking: CloudTrackingHandle;
+} {
   const { config, db, storage, queues, eventBus } = deps;
   const logger = deps.logger ?? createLogger({ level: config.LOG_LEVEL, bindings: { service: 'api', role: 'api' } });
   const runtimeRoot = deps.runtimeRoot ?? DEFAULT_RUNTIME_ROOT;
@@ -2176,8 +2191,15 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     files,
     hotTextCache: deps.hotTextCache,
   });
+  const effectiveTrackingEnv: NodeJS.ProcessEnv = {
+    ...(deps.trackingEnv ?? process.env),
+    ...(config.OPENMOTION_TRACERT_SPM_A ? { OPENMOTION_TRACERT_SPM_A: config.OPENMOTION_TRACERT_SPM_A } : {}),
+    ...(config.OPENMOTION_TRACERT_ENDPOINT ? { OPENMOTION_TRACERT_ENDPOINT: config.OPENMOTION_TRACERT_ENDPOINT } : {}),
+  };
+  const cloudTracking = createCloudTracking(VERSION, effectiveTrackingEnv, deps.trackingOptions);
+
   const assetNames = new AssetNamesService({ db, files });
-  const workRounds = new WorkRoundsService(db);
+  const workRounds = new WorkRoundsService(db, { cloudTracking });
   const archives = new ProjectArchiveService({ db, storage, workspace, files, publicOrigin: config.APP_PUBLIC_ORIGIN });
   const assets = new AssetLibraryService({
     db,
@@ -2193,6 +2215,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     queues,
     eventBus,
     presignGetTtlSec: config.S3_PRESIGN_GET_TTL_SEC,
+    cloudTracking,
   });
   const importAssets = new CloudImportAssetsService({
     store: createPgImportAssetsStore(db),
@@ -2201,7 +2224,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     eventBus,
     config,
   });
-  const mediaJobs = createCloudMediaJobsPort({ db, queues, eventBus, assets });
+  const mediaJobs = createCloudMediaJobsPort({ db, queues, eventBus, assets, cloudTracking });
 
   const mcpDispatcher = new McpToolDispatcher(
     config,
@@ -2223,6 +2246,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       gateway,
       mediaJobs,
     }),
+    { cloudTracking },
   );
 
   const services: ApiAppServices = {
@@ -2581,8 +2605,6 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   // 2. Auth & OAuth 2.1 Routes (`/auth/*`, `/.well-known/*`, `/oauth/*`, `/motion-api/tokens*`)
   // -------------------------------------------------------------------------
 
-  const cloudTracking = deps.cloudTracking ?? createCloudTracking(VERSION);
-
   app.route('/', createAuthRoutes({ ...authDeps, cloudTracking }));
 
   // -------------------------------------------------------------------------
@@ -2801,58 +2823,11 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     return 'local';
   };
 
-  // Google One Tap attribution: browser events may only carry an app_user_id the server has attested
-  // (signed om_track_att cookie or the live session), and device-ID attribution needs explicit consent.
-  const ONE_TAP_TRACKING_EVENTS = new Set([
-    'onetap_prompt_attempt',
-    'onetap_prompt_observed',
-    'onetap_credential_received',
-    'onetap_login_success',
-    'onetap_login_failed',
-  ]);
-  const trackingAttestationSecret = resolveTrackingAttestationSecret(config);
+  // Google One Tap: explicit device-ID attribution consent, read by the One Tap exchange.
   const trackingCookieSecure = isHttpsOrigin(config.APP_PUBLIC_ORIGIN);
-  const attributeBrowserTrackingBatch = (
-    payload: unknown,
-    attestedAppUserIds: ReadonlySet<string>,
-  ): unknown[] => {
-    const items = Array.isArray(payload)
-      ? payload
-      : payload && typeof payload === 'object' && Array.isArray((payload as { events?: unknown }).events)
-        ? (payload as { events: unknown[] }).events
-        : [];
-    const attributed: unknown[] = [];
-    for (const raw of items) {
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-        attributed.push(raw);
-        continue;
-      }
-      const event = { ...(raw as Record<string, unknown>) };
-      const isOneTapEvent = typeof event.event === 'string' && ONE_TAP_TRACKING_EVENTS.has(event.event);
-      const claimed = typeof event.app_user_id === 'string' ? event.app_user_id.trim() : '';
-      delete event.app_user_id;
-      if (claimed) {
-        // Keep server-confirmed attribution across account switches and post-logout flushes, and never
-        // trust an unverified/spoofed app_user_id: only One Tap events survive, as anonymous guest events.
-        if (attestedAppUserIds.has(claimed)) {
-          event.app_user_id = claimed;
-          attributed.push(event);
-        } else if (isOneTapEvent) {
-          attributed.push(event);
-        }
-        continue;
-      }
-      // Events queued without an app_user_id stay guest events, exactly as before One Tap attribution.
-      attributed.push(event);
-    }
-    return attributed;
-  };
 
   app.get('/motion-api/tracking', (c) => {
-    const enabled = cloudTracking.isEnabled();
-    // Server availability is never user consent for device-ID transmission.
-    const deviceIdConsented = parseCookies(c.req.header('cookie'))[METRICS_CONSENT_COOKIE_NAME] === METRICS_CONSENT_GRANTED;
-    return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud', deviceIdConsented });
+    return c.json(cloudTracking.browserConfig());
   });
   app.post('/motion-api/tracking/consent', async (c) => {
     if (!verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
@@ -2898,48 +2873,19 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     if (!(await checkTrackingRateLimit(resolveTrackingClientIp(c)))) {
       return c.json({ error: 'Too many tracking requests' }, 429);
     }
-    if (!cloudTracking.isEnabled()) {
+    if (!cloudTracking.isPosthogEnabled()) {
       return c.json({ ok: true, accepted: false }, 202);
     }
     const body = await c.req.json().catch(() => null);
-    const cookies = parseCookies(c.req.header('cookie'));
-    const rawSession = cookies[SESSION_COOKIE_NAME];
-    const rawTrackAtt = cookies[TRACKING_ATTESTATION_COOKIE_NAME];
-    const previouslyAttested = verifyTrackingAttestationCookie(rawTrackAtt, trackingAttestationSecret);
-    const attestedAppUserIds = new Set(previouslyAttested);
-    let sessionAppUserId: string | null = null;
-    if (rawSession) {
-      try {
-        const resolved = await resolveBrowserSession(authDeps.store, rawSession, {
-          authMode: config.AUTH_MODE,
-          cache: authDeps.cache,
-        });
-        if (resolved) {
-          // The membership row already carries the projected AMR app user id; only sessions that
-          // predate that projection need an AMR lookup.
-          sessionAppUserId = resolved.auth.appUserId ?? null;
-          if (!sessionAppUserId && config.AUTH_MODE === 'oidc' && authDeps.amrIdentity) {
-            const enriched = await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth);
-            sessionAppUserId = enriched.appUserId ?? null;
-          }
-          if (sessionAppUserId) attestedAppUserIds.add(sessionAppUserId);
-        }
-      } catch {
-        // Treat an invalid or expired session cookie, or a failed AMR fallback, as a guest for telemetry attribution.
-      }
-    }
-    const acceptedCount = cloudTracking.acceptBrowserBatch(
-      attributeBrowserTrackingBatch(body, attestedAppUserIds),
-    );
-    if (sessionAppUserId && !previouslyAttested.has(sessionAppUserId)) {
-      const attCookie = serializeTrackingAttestationCookie(
-        rawTrackAtt,
-        sessionAppUserId,
-        trackingAttestationSecret,
-        { secure: trackingCookieSecure },
-      );
-      if (attCookie) c.header('Set-Cookie', attCookie);
-    }
+    const optionalAuth = await resolveOptionalTrackingAuth(authDeps, c.req.raw);
+    const rawDeviceId =
+      (body && typeof body === 'object' && !Array.isArray(body)
+        ? (body as { device_id?: unknown }).device_id
+        : undefined) ?? c.req.header('x-openmotion-device-id');
+    const acceptedCount = cloudTracking.acceptBrowserBatch(body, {
+      userId: optionalAuth ? (optionalAuth.appUserId ?? optionalAuth.userId) : null,
+      deviceId: typeof rawDeviceId === 'string' ? rawDeviceId : null,
+    });
     return c.json({ ok: true, accepted: acceptedCount > 0, acceptedCount }, 202);
   });
   const trackingPreferencesPayload = () => {
@@ -2991,6 +2937,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const result = await mcpDispatcher.dispatch(body.name, body.arguments ?? {}, {
       auth,
       supportsMcpAppsUi: false,
+      skipMcpToolTracking: true,
     });
 
     const firstContent = result.content?.[0];
@@ -3354,6 +3301,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     history,
     assetNames,
     workRounds,
+    cloudTracking,
     fontsDir: detectedFontsDir,
     runtimeRoot,
     studioVersion: VERSION,
@@ -3411,7 +3359,10 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     // while returning an authentic HTTP 404 status code.
     try {
       const rawHtml = await readFile(path.join(studioBuildDir, 'index.html'), 'utf8');
-      const renderedHtml = injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig);
+      const renderedHtml = injectTrackingRuntimeConfigIntoHtml(
+        injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig),
+        cloudTracking.browserConfig(),
+      );
       const preconnectHints = [
         '<link rel="preconnect" href="https://r.open-design.ai" crossorigin>',
         ...(previewHostIsolationEnabled && previewOriginUrl
@@ -3480,7 +3431,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     });
   });
 
-  return { app, services };
+  return { app, services, cloudTracking };
 }
 
 // ---------------------------------------------------------------------------
@@ -3553,7 +3504,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
   const authCache = createRedisAuthCache(redisCmd);
   const mcpSessionStore = new RedisMcpSessionStore(redisCmd);
 
-  const { app, services } = createApiApp({
+  const { app, services, cloudTracking } = createApiApp({
     config,
     db: dbHandle.db,
     storage,
@@ -3569,6 +3520,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     checkDbHealth: () => dbHandle.checkHealth(),
     checkRedisHealth: async () => (await redisCmd.ping()) === 'PONG',
   });
+  shutdown.register('cloud-tracking', () => cloudTracking.shutdown({ timeoutMs: 3000 }));
 
   // In AUTH_MODE=dev, eagerly provision the dev tenant & welcome project (non-fatal if catalog isn't synced yet).
   if (config.AUTH_MODE === 'dev') {
@@ -3647,6 +3599,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     authMode: config.AUTH_MODE,
     modelGatewayMode: config.MODEL_GATEWAY_MODE,
     sentryWebEnabled: Boolean(config.SENTRY_WEB_DSN),
+    tracertEnabled: cloudTracking.isTracertEnabled(),
     version: VERSION,
     designSystemFiles: publicDesignFiles.length,
   });

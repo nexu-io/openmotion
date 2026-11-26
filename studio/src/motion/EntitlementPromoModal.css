@@ -205,14 +205,14 @@
   border-radius: 18px;
   text-align: left;
   overflow: hidden;
-  background: linear-gradient(100deg, color-mix(in srgb, var(--motion-entitlement-accent) 50%, transparent) 0%, color-mix(in srgb, var(--motion-entitlement-accent-mint) 50%, transparent) 55%, color-mix(in srgb, var(--motion-entitlement-ink-strong) 50%, transparent) 100%), var(--motion-entitlement-surface-card);
-  border: 1px solid color-mix(in srgb, var(--motion-entitlement-accent) 50%, transparent);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--motion-entitlement-accent) 14%, transparent) 0%, color-mix(in srgb, var(--motion-entitlement-accent-mint) 7%, transparent) 55%, color-mix(in srgb, var(--motion-entitlement-ink-strong) 3%, transparent) 100%), var(--motion-entitlement-surface-card);
+  border: 1px solid color-mix(in srgb, var(--motion-entitlement-accent) 26%, transparent);
 }
 .om-epm-giftbar::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--motion-entitlement-accent) 50%, transparent), transparent 70%);
+  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--motion-entitlement-accent) 14%, transparent), transparent 70%);
   pointer-events: none;
 }
 .om-epm-gm {
@@ -477,6 +477,13 @@
 /* Responsive layout for narrow viewports (e.g. 375px mobile) and 200% browser zoom:
    hide side reels, switch to a single scrollable column, and preserve readable typography
    and tappable CTA hit targets without scaling via CSS zoom. */
+@media (max-height: 860px) {
+  .om-epm-main {
+    overflow-y: auto;
+    max-height: calc(100dvh - 32px - var(--om-desktop-safe-top, 0px));
+  }
+}
+
 @media (max-width: 960px), (max-height: 680px) {
   .om-epm-mask {
     padding: calc(12px + var(--om-desktop-safe-top, 0px)) 12px 12px;
@@ -492,6 +499,8 @@
     display: none;
   }
   .om-epm-main {
+    overflow-y: visible;
+    max-height: none;
     padding: 28px 22px 24px;
   }
 }

@@ -17,7 +17,6 @@ import {
   ONETAP_CTX_COOKIE_NAME,
   OidcService,
   SESSION_COOKIE_NAME,
-  TRACKING_ATTESTATION_COOKIE_NAME,
   createAuthMiddleware,
   createAuthRoutes,
   createBrowserSession,
@@ -25,7 +24,6 @@ import {
   oneTapChallengeCookieName,
   type AuthEnv,
 } from '../../src/auth/index.ts';
-import type { CloudTrackingHandle } from '../../src/cloud-tracking.ts';
 import {
   createApiApp,
   type ApiEventBusPort,
@@ -78,24 +76,35 @@ function sha256Hex(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-/** Records the attributed browser batches the API hands to the cloud telemetry pipeline. */
-function createRecordingCloudTracking(): {
-  handle: CloudTrackingHandle;
-  batches: Array<Array<Record<string, unknown>>>;
-} {
-  const batches: Array<Array<Record<string, unknown>>> = [];
+const TRACKING_TEST_ENV: NodeJS.ProcessEnv = {
+  OPENMOTION_TRACKING_ENABLED: '1',
+  OPENMOTION_POSTHOG_TOKEN: 'phc_oneTapTestToken1234567890',
+  OPENMOTION_POSTHOG_HOST: 'https://us.i.posthog.com',
+  OPENMOTION_TRACKING_ENV: 'test',
+  OPENMOTION_TRACKING_TEST_RUN_ID: '44444444-4444-4444-8444-444444444444',
+};
+
+/** Captures what the cloud tracking pipeline sends to PostHog. */
+function createPosthogSink() {
+  const events: Array<{ event: string; uuid: string; properties: Record<string, unknown> }> = [];
+  const posthogFetch: typeof fetch = async (_input, init) => {
+    const parsed = JSON.parse(String(init?.body ?? '{}')) as { batch?: typeof events };
+    events.push(...(parsed.batch ?? []));
+    return Response.json({ status: 1 });
+  };
+  return { events, posthogFetch, propertiesById: () => new Map(events.map((item) => [item.uuid, item.properties])) };
+}
+
+function makeBrowserEvent(event: string, properties: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return {
-    batches,
-    handle: {
-      isEnabled: () => true,
-      lockReason: () => null,
-      acceptBrowserBatch(payload) {
-        const events = (Array.isArray(payload) ? payload : []) as Array<Record<string, unknown>>;
-        batches.push(events);
-        return events.length;
-      },
-      trackWebSignInResult: () => {},
-    },
+    event,
+    event_id: crypto.randomUUID(),
+    occurred_at: new Date().toISOString(),
+    entrypoint: 'studio',
+    device_timezone: 'UTC',
+    utc_offset_minutes: 0,
+    properties,
+    ...extra,
   };
 }
 
@@ -1026,7 +1035,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     assert.ok(logoutCookies.some((c) => c.startsWith(`${ONETAP_CTX_COOKIE_NAME}=`) && c.includes('Max-Age=0')));
   });
 
-  it('maps authoritative AMR membershipTier: null to free and forwards app_user_id in PostHog sender', async () => {
+  it('maps authoritative AMR membershipTier: null to free and attributes One Tap events to the server-resolved user in the PostHog sender', async () => {
     const freeClient = new AmrIdentityClient({
       apiUrl: AMR_API_URL,
       internalToken: INTERNAL_TOKEN,
@@ -1049,6 +1058,8 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       identity: { installation_id: '00000000-0000-4000-8000-000000000099', utm_source: null, created_at: new Date().toISOString() },
       appVersion: '0.1.0',
       env: 'test',
+      channel: 'cloud_web',
+      resolveEventIdentity: () => ({ distinct_id: 'usr_app_merged', user_id: 'usr_app_merged' }),
       fetch: (async (_url, init) => {
         capturedBatches.push(JSON.parse(String(init?.body)));
         return Response.json({ status: 1 });
@@ -1071,15 +1082,16 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
             plan_tier: 'free',
             post_login_action: 'in_place',
           },
-          app_user_id: 'usr_app_merged',
         },
       ],
       new AbortController().signal,
     );
     assert.equal(receipt, 'accepted');
-    assert.equal(capturedBatches[0].batch[0].properties.distinct_id, 'usr_app_merged');
-    assert.equal(capturedBatches[0].batch[0].properties.app_user_id, 'usr_app_merged');
-    assert.equal(capturedBatches[0].batch[0].properties.$process_person_profile, true);
+    const sent = capturedBatches[0].batch[0].properties;
+    assert.equal(sent.distinct_id, 'usr_app_merged');
+    assert.equal(sent.user_id, 'usr_app_merged');
+    assert.equal(sent.amr_user_id, 'usr_app_merged');
+    assert.equal(sent.channel, 'cloud_web');
   });
 
   it('rejects One Tap S2S when dedicated internal URL or token is missing (never falls back to public API) and enforces K8s deployment config', async () => {
@@ -1452,12 +1464,12 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     assert.equal(endSessionCalls.length, 1);
   });
 
-  it('hands cloud tracking only attested app_user_id attribution across guest->login, A->B switch, and logout->re-login', async () => {
+  it('attributes One Tap tracking only to the live session, never to a browser-claimed user id, across guest->login, A->B switch and logout', async () => {
     const config = makeConfig();
     const store = new InMemoryAuthStore();
     const cache = new InMemoryAuthCache();
 
-    const cloudTracking = createRecordingCloudTracking();
+    const sink = createPosthogSink();
 
     const amrUsers: Record<string, { authUserId: string; appUserId: string; wsId: string; email: string }> = {
       tok_A: { authUserId: 'ba_uA', appUserId: 'usr_app_A', wsId: 'ws_uA', email: 'a@example.com' },
@@ -1529,7 +1541,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         '<!doctype html><html><head><title>Studio</title></head><body></body></html>',
       );
 
-      const { app } = createApiApp({
+      const { app, cloudTracking } = createApiApp({
         config,
         db: {} as Database,
         storage: {} as StoragePort,
@@ -1539,26 +1551,12 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         authCache: cache,
         amrIdentity,
         gateway: new MockModelGateway(),
-        cloudTracking: cloudTracking.handle,
         runtimeRoot: tmpRoot,
+        trackingEnv: TRACKING_TEST_ENV,
+        trackingOptions: { posthogFetch: sink.posthogFetch },
       });
 
-      const makeEvent = (
-        event: string,
-        properties: Record<string, unknown>,
-        appUserId?: string,
-      ) => ({
-        event,
-        event_id: crypto.randomUUID(),
-        occurred_at: new Date().toISOString(),
-        entrypoint: 'studio',
-        device_timezone: 'UTC',
-        utc_offset_minutes: 0,
-        properties,
-        ...(appUserId ? { app_user_id: appUserId } : {}),
-      });
-
-      const loginOneTap = async (idToken: 'tok_A' | 'tok_B', existingTrackAtt?: string) => {
+      const loginOneTap = async (idToken: 'tok_A' | 'tok_B') => {
         const cRes = await app.request('/auth/one-tap/challenge', {
           method: 'POST',
           headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
@@ -1567,153 +1565,82 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         const cBody = (await cRes.json()) as { challengeId: string };
         const cName = oneTapChallengeCookieName(cBody.challengeId);
         const cTok = extractCookieValue(cRes.headers.getSetCookie(), cName)!;
-        const cookieParts = [`${cName}=${cTok}`];
-        if (existingTrackAtt) cookieParts.push(`${TRACKING_ATTESTATION_COOKIE_NAME}=${existingTrackAtt}`);
         const exRes = await app.request('/auth/one-tap', {
           method: 'POST',
-          headers: {
-            Origin: PUBLIC_ORIGIN,
-            'content-type': 'application/json',
-            Cookie: cookieParts.join('; '),
-          },
+          headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json', Cookie: `${cName}=${cTok}` },
           body: JSON.stringify({ challengeId: cBody.challengeId, idToken }),
         });
         assert.equal(exRes.status, 200);
-        const cookies = exRes.headers.getSetCookie();
-        return {
-          session: extractCookieValue(cookies, SESSION_COOKIE_NAME)!,
-          trackAtt: extractCookieValue(cookies, TRACKING_ATTESTATION_COOKIE_NAME)!,
-        };
+        return extractCookieValue(exRes.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
       };
+      const postBatch = async (sessionToken: string | null, events: unknown[], deviceId: string) => {
+        const res = await app.request('/motion-api/tracking', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'sec-fetch-site': 'same-origin',
+            'content-type': 'application/json',
+            ...(sessionToken ? { Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` } : {}),
+          },
+          body: JSON.stringify({ events, device_id: deviceId }),
+        });
+        assert.equal(res.status, 202);
+        return ((await res.json()) as { acceptedCount?: number }).acceptedCount ?? 0;
+      };
+      const promptAttempt = (attemptId: string, suppressed = false) =>
+        makeBrowserEvent('onetap_prompt_attempt', { surface: 'motion_web', attempt_id: attemptId, device_type: 'desktop', suppressed });
+      const loginSuccess = (attemptId: string) =>
+        makeBrowserEvent('onetap_login_success', {
+          surface: 'motion_web',
+          attempt_id: attemptId,
+          is_new_user: false,
+          plan_tier: 'free',
+          post_login_action: 'in_place',
+        });
+      const click = (extra: Record<string, unknown> = {}) =>
+        makeBrowserEvent('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation' }, extra);
 
-      // Sequence 1: Guest -> One Tap Login as A (mixed batch flushed after login)
+      // 1. Guest One Tap prompt events pass the cloud allowlist and stay anonymous (browser device_id).
+      const guestPrompt = promptAttempt('att-g1');
+      assert.equal(await postBatch(null, [guestPrompt], 'guest-device-0001'), 1);
+
+      // 2. After One Tap login as A, the live session (not the browser) names the user.
       const sessionA = await loginOneTap('tok_A');
-      assert.ok(sessionA.trackAtt, 'Expected signed tracking attestation cookie on login');
-      const seq1Res = await app.request('/motion-api/tracking', {
-        method: 'POST',
-        headers: {
-          Origin: PUBLIC_ORIGIN,
-          'sec-fetch-site': 'same-origin',
-          'content-type': 'application/json',
-          Cookie: `${SESSION_COOKIE_NAME}=${sessionA.session}; ${TRACKING_ATTESTATION_COOKIE_NAME}=${sessionA.trackAtt}`,
-        },
-        body: JSON.stringify({
-          events: [
-            makeEvent('onetap_prompt_attempt', {
-              surface: 'motion_web',
-              attempt_id: 'att-g1',
-              device_type: 'desktop',
-              suppressed: false,
-            }),
-            makeEvent(
-              'onetap_login_success',
-              {
-                surface: 'motion_web',
-                attempt_id: 'att-g1',
-                is_new_user: false,
-                plan_tier: 'free',
-                post_login_action: 'in_place',
-              },
-              'usr_app_A',
-            ),
-          ],
-        }),
-      });
-      assert.equal(seq1Res.status, 202);
-      const batch1 = cloudTracking.batches.at(-1)!;
-      assert.equal(batch1.length, 2);
-      assert.equal(batch1[0].event, 'onetap_prompt_attempt');
-      assert.equal(batch1[0].app_user_id, undefined, 'Guest pre-login event must stay anonymous');
-      assert.equal(batch1[1].event, 'onetap_login_success');
-      assert.equal(batch1[1].app_user_id, 'usr_app_A');
+      const loginA = loginSuccess('att-g1');
+      assert.equal(await postBatch(sessionA, [loginA], 'guest-device-0001'), 1);
 
-      // Sequence 2: Switch Account A -> Account B; A's queued event + B's event + spoofed victim event flushed under B's cookie
-      const sessionB = await loginOneTap('tok_B', sessionA.trackAtt);
-      const seq2Res = await app.request('/motion-api/tracking', {
-        method: 'POST',
-        headers: {
-          Origin: PUBLIC_ORIGIN,
-          'sec-fetch-site': 'same-origin',
-          'content-type': 'application/json',
-          Cookie: `${SESSION_COOKIE_NAME}=${sessionB.session}; ${TRACKING_ATTESTATION_COOKIE_NAME}=${sessionB.trackAtt}`,
-        },
-        body: JSON.stringify({
-          events: [
-            makeEvent('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation' }, 'usr_app_A'),
-            makeEvent('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation' }, 'usr_app_B'),
-            makeEvent('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation' }, 'usr_spoofed_victim'),
-          ],
-        }),
-      });
-      assert.equal(seq2Res.status, 202);
-      const batch2 = cloudTracking.batches.at(-1)!;
-      assert.equal(batch2.length, 2, 'Spoofed non-attested ui_click must be rejected');
-      assert.equal(batch2[0].app_user_id, 'usr_app_A', 'Queued Account A event must retain A attribution under B cookie');
-      assert.equal(batch2[1].app_user_id, 'usr_app_B');
+      // 3. A browser-claimed user id is never trusted: such packets are rejected with or without a session.
+      assert.equal(await postBatch(sessionA, [click({ app_user_id: 'usr_spoofed_victim' })], 'guest-device-0001'), 0);
+      assert.equal(
+        await postBatch(null, [{ ...promptAttempt('att-spoof'), app_user_id: 'usr_spoofed_victim' }], 'guest-device-0002'),
+        0,
+      );
 
-      // Sequence 3: Account B logs out -> B's queued event flushed AFTER logout (no om_session) -> guest prompt -> re-login as A
+      // 4. Switching to account B attributes B's events to B.
+      const sessionB = await loginOneTap('tok_B');
+      const clickB = click();
+      assert.equal(await postBatch(sessionB, [clickB], 'guest-device-0001'), 1);
+
+      // 5. After B logs out, the revoked cookie attributes nothing to B.
       const logoutRes = await app.request('/auth/logout', {
         method: 'POST',
-        headers: {
-          Origin: PUBLIC_ORIGIN,
-          Cookie: `${SESSION_COOKIE_NAME}=${sessionB.session}`,
-        },
+        headers: { Origin: PUBLIC_ORIGIN, Cookie: `${SESSION_COOKIE_NAME}=${sessionB}` },
       });
       assert.equal(logoutRes.status, 200);
+      const promptAfterLogout = promptAttempt('att-after-logout', true);
+      assert.equal(await postBatch(sessionB, [promptAfterLogout], 'guest-device-0003'), 1);
 
-      const seq3AfterLogout = await app.request('/motion-api/tracking', {
-        method: 'POST',
-        headers: {
-          Origin: PUBLIC_ORIGIN,
-          'sec-fetch-site': 'same-origin',
-          'content-type': 'application/json',
-          Cookie: `${TRACKING_ATTESTATION_COOKIE_NAME}=${sessionB.trackAtt}`,
-        },
-        body: JSON.stringify({
-          events: [
-            makeEvent('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation' }, 'usr_app_B'),
-            makeEvent('onetap_prompt_attempt', {
-              surface: 'motion_web',
-              attempt_id: 'att-after-logout',
-              device_type: 'desktop',
-              suppressed: true,
-            }),
-          ],
-        }),
-      });
-      assert.equal(seq3AfterLogout.status, 202);
-      const batch3 = cloudTracking.batches.at(-1)!;
-      assert.equal(batch3.length, 2);
-      assert.equal(batch3[0].app_user_id, 'usr_app_B', 'Account B event flushed after logout must preserve B attribution');
-      assert.equal(batch3[1].app_user_id, undefined);
-
-      const reloginA = await loginOneTap('tok_A', sessionB.trackAtt);
-      const seq3Relogin = await app.request('/motion-api/tracking', {
-        method: 'POST',
-        headers: {
-          Origin: PUBLIC_ORIGIN,
-          'sec-fetch-site': 'same-origin',
-          'content-type': 'application/json',
-          Cookie: `${SESSION_COOKIE_NAME}=${reloginA.session}; ${TRACKING_ATTESTATION_COOKIE_NAME}=${reloginA.trackAtt}`,
-        },
-        body: JSON.stringify({
-          events: [
-            makeEvent(
-              'onetap_login_success',
-              {
-                surface: 'motion_web',
-                attempt_id: 'att-relogin',
-                is_new_user: false,
-                plan_tier: 'free',
-                post_login_action: 'in_place',
-              },
-              'usr_app_A',
-            ),
-          ],
-        }),
-      });
-      assert.equal(seq3Relogin.status, 202);
-      assert.equal(cloudTracking.batches.at(-1)![0].app_user_id, 'usr_app_A');
+      await cloudTracking.shutdown({ timeoutMs: 2000 });
+      assert.equal(sink.events.length, 4);
+      const sent = sink.propertiesById();
+      assert.equal(sent.get(guestPrompt.event_id)?.distinct_id, 'guest-device-0001');
+      assert.equal(sent.get(guestPrompt.event_id)?.user_id, undefined);
+      assert.equal(sent.get(loginA.event_id)?.distinct_id, 'usr_app_A');
+      assert.equal(sent.get(loginA.event_id)?.user_id, 'usr_app_A');
+      assert.equal(sent.get(clickB.event_id)?.user_id, 'usr_app_B');
+      assert.equal(sent.get(promptAfterLogout.event_id)?.distinct_id, 'guest-device-0003');
+      assert.equal(sent.get(promptAfterLogout.event_id)?.user_id, undefined);
+      assert.doesNotMatch(JSON.stringify(sink.events), /usr_spoofed_victim|app_user_id/);
 
       // Item 13: Studio main HTML document reports (not enforces) the GIS CSP and enforces Permissions-Policy and compatible COOP
       const htmlRes = await app.request('/');
@@ -1745,11 +1672,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       const netPolYaml = await readFile(path.resolve('deploy/k8s/networkpolicy.yaml'), 'utf8');
       assert.match(netPolYaml, /kubernetes\.io\/metadata\.name:\s*nexu[\s\S]*?port:\s*18080/);
 
-      // /motion-api/tracking consent gate: default false, explicit consent cookie enables deviceIdConsented=true
-      const defaultTrackCfg = await app.request('/motion-api/tracking');
-      assert.equal(defaultTrackCfg.status, 200);
-      assert.equal(((await defaultTrackCfg.json()) as { deviceIdConsented?: boolean }).deviceIdConsented, false);
-
+      // Explicit device-ID consent is its own cookie, written only by /motion-api/tracking/consent.
       const grantConsentRes = await app.request('/motion-api/tracking/consent', {
         method: 'POST',
         headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
@@ -1758,120 +1681,6 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.equal(grantConsentRes.status, 200);
       const consentCookie = extractCookieValue(grantConsentRes.headers.getSetCookie(), METRICS_CONSENT_COOKIE_NAME);
       assert.equal(consentCookie, METRICS_CONSENT_GRANTED);
-      const consentedTrackCfg = await app.request('/motion-api/tracking', {
-        headers: { Cookie: `${METRICS_CONSENT_COOKIE_NAME}=${consentCookie}` },
-      });
-      assert.equal(((await consentedTrackCfg.json()) as { deviceIdConsented?: boolean }).deviceIdConsented, true);
-    } finally {
-      await rm(tmpRoot, { recursive: true, force: true });
-    }
-  });
-
-  it('attributes signed-in tracking from the session membership and only falls back to AMR when it has no app user id', async () => {
-    const config = makeConfig();
-    const store = new InMemoryAuthStore();
-    const cache = new InMemoryAuthCache();
-    const projected = await store.projectAmrUserAndWorkspace({
-      oidcSub: 'ba_usr_track',
-      appUserId: 'usr_app_track',
-      email: 'track@open-design.ai',
-      displayName: 'Track User',
-      avatarUrl: null,
-      externalWorkspaceId: 'ws_amr_track',
-      workspaceName: 'Track Workspace',
-      role: 'owner',
-    });
-    const projectedSession = await createBrowserSession(store, {
-      userId: projected.user.id,
-      workspaceId: projected.workspace.id,
-    });
-    // A session whose membership predates the AMR app-user projection.
-    const legacy = store.seedWorkspace({ role: 'owner', displayName: 'Legacy Track User' });
-    const legacySession = await createBrowserSession(store, {
-      userId: legacy.user.id,
-      workspaceId: legacy.workspace.id,
-    });
-
-    let amrFetches = 0;
-    const amrIdentity = new AmrIdentityClient({
-      apiUrl: AMR_API_URL,
-      internalToken: INTERNAL_TOKEN,
-      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
-      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
-      cache,
-      fetcher: (async () => {
-        amrFetches += 1;
-        return new Response('unexpected', { status: 500 });
-      }) as typeof fetch,
-    });
-    let enrichCalls = 0;
-    let enrichMode: 'resolve' | 'fail' = 'resolve';
-    amrIdentity.verifyAndEnrichAuthContext = async (_store, auth) => {
-      enrichCalls += 1;
-      if (enrichMode === 'fail') throw new Error('AMR identity lookup failed');
-      return { ...auth, appUserId: 'usr_app_legacy' };
-    };
-
-    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-track-identity-'));
-    try {
-      const cloudTracking = createRecordingCloudTracking();
-      const { app } = createApiApp({
-        config,
-        db: {} as never,
-        storage: {} as never,
-        queues: {} as never,
-        eventBus: {} as never,
-        authStore: store,
-        authCache: cache,
-        amrIdentity,
-        disableWelcomeBootstrap: true,
-        runtimeRoot: tmpRoot,
-        cloudTracking: cloudTracking.handle,
-      });
-      const postBatch = (sessionToken: string, appUserId: string) =>
-        app.request('/motion-api/tracking', {
-          method: 'POST',
-          headers: {
-            Origin: PUBLIC_ORIGIN,
-            'sec-fetch-site': 'same-origin',
-            'content-type': 'application/json',
-            Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}`,
-          },
-          body: JSON.stringify({
-            events: [{
-              event: 'ui_click',
-              event_id: crypto.randomUUID(),
-              occurred_at: new Date().toISOString(),
-              entrypoint: 'studio',
-              device_timezone: 'UTC',
-              utc_offset_minutes: 0,
-              properties: { page_name: 'studio', area: 'workspace', element: 'new_creation' },
-              app_user_id: appUserId,
-            }],
-          }),
-        });
-
-      // 1. The session membership already carries the AMR app user id: no AMR lookup.
-      const projectedRes = await postBatch(projectedSession.token, 'usr_app_track');
-      assert.equal(projectedRes.status, 202);
-      assert.equal(enrichCalls, 0);
-      assert.equal(amrFetches, 0);
-      assert.equal(cloudTracking.batches.at(-1)![0].app_user_id, 'usr_app_track');
-      assert.ok(extractCookieValue(projectedRes.headers.getSetCookie(), TRACKING_ATTESTATION_COOKIE_NAME));
-
-      // 2. A membership without an app user id falls back to AMR enrichment once.
-      const legacyRes = await postBatch(legacySession.token, 'usr_app_legacy');
-      assert.equal(legacyRes.status, 202);
-      assert.equal(enrichCalls, 1);
-      assert.equal(cloudTracking.batches.at(-1)![0].app_user_id, 'usr_app_legacy');
-
-      // 3. A failed fallback keeps guest attribution: the unattested id is dropped and no attestation is issued.
-      enrichMode = 'fail';
-      const failedRes = await postBatch(legacySession.token, 'usr_app_legacy');
-      assert.equal(failedRes.status, 202);
-      assert.equal(enrichCalls, 2);
-      assert.deepEqual(cloudTracking.batches.at(-1), []);
-      assert.equal(extractCookieValue(failedRes.headers.getSetCookie(), TRACKING_ATTESTATION_COOKIE_NAME), null);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }
@@ -2727,8 +2536,8 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         workspaceId: projected.workspace.id,
       });
 
-      const cloudTracking = createRecordingCloudTracking();
-      const { app } = createApiApp({
+      const sink = createPosthogSink();
+      const { app, cloudTracking } = createApiApp({
         config,
         db: {} as never,
         storage: {} as never,
@@ -2738,7 +2547,8 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         authCache: cache,
         disableWelcomeBootstrap: true,
         runtimeRoot: tmpRoot,
-        cloudTracking: cloudTracking.handle,
+        trackingEnv: TRACKING_TEST_ENV,
+        trackingOptions: { posthogFetch: sink.posthogFetch },
       });
 
       // Served SPA document carries the Compose HTTP object store and blob: frame-src
@@ -2749,18 +2559,12 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.match(servedCsp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
       assert.match(servedCsp, /media-src[^;]*http:\/\/127\.0\.0\.1:9000/);
 
-      // 2. Cloud tracking preferences stay deployment-locked; device-ID consent is reported separately.
+      // 2. Cloud tracking preferences stay deployment-locked; device-ID consent is a separate cookie.
       const prefRes = await app.request('/motion-api/tracking/preferences', {
         headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
       });
       assert.equal(prefRes.status, 200);
       assert.equal(((await prefRes.json()) as { locked?: boolean }).locked, true);
-
-      const cfgWithConsent = await app.request('/motion-api/tracking', {
-        headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}; ${METRICS_CONSENT_COOKIE_NAME}=${METRICS_CONSENT_GRANTED}` },
-      });
-      assert.equal(cfgWithConsent.status, 200);
-      assert.equal(((await cfgWithConsent.json()) as { deviceIdConsented?: boolean }).deviceIdConsented, true);
 
       const crossSiteConsent = await app.request('/motion-api/tracking/consent', {
         method: 'POST',
@@ -2769,35 +2573,37 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       });
       assert.equal(crossSiteConsent.status, 403);
 
-      // 3. Guest One Tap events stay anonymous even when they claim an unattested app_user_id.
-      const guestRes = await app.request('/motion-api/tracking', {
-        method: 'POST',
-        headers: {
-          Origin: PUBLIC_ORIGIN,
-          'sec-fetch-site': 'same-origin',
-          'content-type': 'application/json',
-          'x-forwarded-for': '203.0.113.20',
-        },
-        body: JSON.stringify({
-          events: [
-            {
-              event: 'onetap_prompt_attempt',
-              event_id: crypto.randomUUID(),
-              occurred_at: new Date().toISOString(),
-              entrypoint: 'studio',
-              device_timezone: 'UTC',
-              utc_offset_minutes: 0,
-              properties: { surface: 'motion_web', attempt_id: 'att-1', device_type: 'desktop', suppressed: false },
-              app_user_id: 'usr_spoofed_victim',
-            },
-          ],
-        }),
+      // 3. Guest One Tap events are anonymous; a packet claiming a user id is rejected, never forwarded.
+      const postGuest = (events: unknown[]) =>
+        app.request('/motion-api/tracking', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'sec-fetch-site': 'same-origin',
+            'content-type': 'application/json',
+            'x-forwarded-for': '203.0.113.20',
+          },
+          body: JSON.stringify({ events, device_id: 'guest-device-privacy' }),
+        });
+      const guestPrompt = makeBrowserEvent('onetap_prompt_attempt', {
+        surface: 'motion_web',
+        attempt_id: 'att-1',
+        device_type: 'desktop',
+        suppressed: false,
       });
+      const spoofedRes = await postGuest([{ ...guestPrompt, event_id: crypto.randomUUID(), app_user_id: 'usr_spoofed_victim' }]);
+      assert.equal(spoofedRes.status, 202);
+      assert.equal(((await spoofedRes.json()) as { acceptedCount?: number }).acceptedCount, 0);
+      const guestRes = await postGuest([guestPrompt]);
       assert.equal(guestRes.status, 202);
-      const guestBatch = cloudTracking.batches.at(-1)!;
-      assert.equal(guestBatch.length, 1);
-      assert.equal(guestBatch[0].app_user_id, undefined);
-      assert.equal(guestRes.headers.getSetCookie().length, 0, 'Guests must not receive a tracking attestation cookie');
+      assert.equal(((await guestRes.json()) as { acceptedCount?: number }).acceptedCount, 1);
+      assert.equal(guestRes.headers.getSetCookie().length, 0, 'Guest tracking must not set cookies');
+
+      await cloudTracking.shutdown({ timeoutMs: 2000 });
+      assert.equal(sink.events.length, 1);
+      assert.equal(sink.events[0].properties.distinct_id, 'guest-device-privacy');
+      assert.equal(sink.events[0].properties.user_id, undefined);
+      assert.doesNotMatch(JSON.stringify(sink.events), /usr_spoofed_victim/);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

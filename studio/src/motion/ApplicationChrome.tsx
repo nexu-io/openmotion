@@ -16,10 +16,9 @@ import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } f
 import { suppressOneTapAfterConfirmedLogout } from './googleOneTap';
 import { clearPrivateSwrCache } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
-import { flushMotionTracking } from './tracking';
-import { setMotionTrackingUserId } from './trackingIdentity';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
+import { resetMotionTrackingIdentity, syncMotionTrackingIdentity } from './trackingIdentity';
 import { GitHubLink } from './GitHubLink';
 import { repositorySupportLinks } from './githubRepository';
 import type { SettingsSection } from './workspacePageRouting';
@@ -126,12 +125,18 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   const { account } = useAccountSummary();
   useEffect(() => {
     if (!account) return;
-    setMotionTrackingUserId(account.state === 'signed-in' ? (account.appUserId ?? null) : null);
     setObservabilityContext({
       userId: account.state === 'signed-in' ? (account.userId ?? null) : null,
       workspaceId: account.activeWorkspace?.id ?? null,
       workspaceRole: account.activeWorkspace?.role ?? null,
       authMode: account.authMode ?? null,
+    });
+    syncMotionTrackingIdentity({
+      signedIn: account.state === 'signed-in',
+      userId: account.state === 'signed-in' ? (account.appUserId ?? account.userId ?? null) : null,
+      workspaceId: account.activeWorkspace?.externalWorkspaceId ?? account.activeWorkspace?.id ?? null,
+      workspaceRole: account.activeWorkspace?.role ?? null,
+      planTier: account.state === 'signed-in' && !account.billingUnavailable ? (account.plan ?? null) : null,
     });
   }, [account]);
   const cloudWeb = useCloudWebMode();
@@ -155,13 +160,12 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   const avatarInitial = avatarSegmenter.segment(userName)[Symbol.iterator]().next().value?.segment;
   async function signOut() {
     try {
-      void flushMotionTracking();
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error('Could not sign out');
       suppressOneTapAfterConfirmedLogout();
-      setMotionTrackingUserId(null);
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
+      resetMotionTrackingIdentity();
       window.dispatchEvent(new Event('motion:account-changed'));
     } catch {
       openSettings('account');

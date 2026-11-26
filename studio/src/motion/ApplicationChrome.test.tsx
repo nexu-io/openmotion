@@ -1,23 +1,49 @@
 // @vitest-environment happy-dom
 import React, { act } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanupMounted, mountHost } from '../components/ui/mountHost.testHelpers';
+import { cleanupMounted, mountHost, trackedRoot } from '../components/ui/mountHost.testHelpers';
 import { I18nProvider, LOCALE_STORAGE_KEY } from '../i18n/I18n';
 import { readStudioUiPreferences } from '../utils/studioUiPreferences';
 import { ApplicationAccountMenu } from './ApplicationChrome';
 import { SettingsCenter } from './SettingsCenter';
+import { resetMotionTrackingForTests } from './tracking';
+import { getBrowserTrackingDeviceId } from './trackingDeviceId';
 
-const accountState = vi.hoisted(() => ({
+const accountHook = vi.hoisted(() => ({
   account: null as Record<string, unknown> | null,
+  syncIdentity: vi.fn(),
+  resetIdentity: vi.fn(),
+  tracertEnabled: false,
 }));
-
 vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => ({ openHome: vi.fn(), openLibrary: vi.fn(), switchingDisabled: false, navigationCollapsed: false }) }));
-vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: accountState.account }), AccountSettings: () => null, buildLoginUrl: () => '/auth/login' }));
+vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: accountHook.account }), AccountSettings: () => null, buildLoginUrl: () => '/auth/login' }));
+vi.mock('./tracertClient', () => ({
+  captureTracertEvent: vi.fn(),
+  configureTracert: vi.fn(),
+  flushTracert: vi.fn(async () => {}),
+  getTracertStatus: () => ({ configured: false, enabled: accountHook.tracertEnabled, loaded: false, pendingOps: 0 }),
+  isTracertEnabled: () => accountHook.tracertEnabled,
+  resetTracertForTests: vi.fn(),
+  setTracertEnabled: vi.fn(),
+  setTracertIdentityResetListener: vi.fn(),
+  syncTracertIdentity: accountHook.syncIdentity,
+  resetTracertIdentity: accountHook.resetIdentity,
+}));
 vi.mock('./ModelSwitcher', () => ({ ModelSwitcher: () => null }));
 vi.mock('./GitHubLink', () => ({ GitHubLink: () => null }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: vi.fn(async () => ({ version: 'test' })) }));
 
-beforeEach(() => { accountState.account = null; localStorage.clear(); sessionStorage.clear(); delete window.google; history.replaceState(null, '', '/'); });
+beforeEach(() => {
+  accountHook.account = null;
+  accountHook.tracertEnabled = false;
+  accountHook.syncIdentity.mockClear();
+  accountHook.resetIdentity.mockClear();
+  localStorage.clear();
+  sessionStorage.clear();
+  delete window.google;
+  resetMotionTrackingForTests();
+  history.replaceState(null, '', '/');
+});
 afterEach(() => {
   cleanupMounted();
   delete document.documentElement.dataset.theme;
@@ -90,7 +116,7 @@ it('switches the theme from the appearance submenu without navigating to setting
 });
 
 it('checks response.ok before suppressing One Tap and broadcasting sign-out from the header menu', async () => {
-  accountState.account = {
+  accountHook.account = {
     state: 'signed-in',
     authMode: 'oidc',
     userId: 'om_u1',
@@ -138,4 +164,96 @@ it('checks response.ok before suppressing One Tap and broadcasting sign-out from
   } finally {
     window.removeEventListener('motion:account-changed', accountChanged);
   }
+});
+
+it('syncs canonical appUserId and externalWorkspaceId to tracking and resets identity on sign-out', async () => {
+  accountHook.account = {
+    state: 'signed-in',
+    userId: 'local-uuid-1',
+    appUserId: 'amr-app-user-42',
+    authMode: 'oidc',
+    plan: 'plus',
+    billingUnavailable: false,
+    user: { name: 'Ada', email: 'ada@example.test' },
+    activeWorkspace: {
+      id: 'local-ws-1',
+      slug: 'personal',
+      name: 'Personal',
+      role: 'owner',
+      externalWorkspaceId: 'amr-ws-99',
+    },
+  };
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
+
+  mountHost(<I18nProvider initialLocale="en"><ApplicationAccountMenu settings={null} openSettings={() => {}} /></I18nProvider>);
+  await settle();
+
+  expect(accountHook.syncIdentity).toHaveBeenCalledWith({
+    signedIn: true,
+    userId: 'amr-app-user-42',
+    workspaceId: 'amr-ws-99',
+    workspaceRole: 'owner',
+    planTier: 'plus',
+  });
+
+  await click(document.querySelector('[aria-label="Account menu"]'));
+  const signOutItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Sign out'))!;
+  await click(signOutItem);
+
+  expect(accountHook.resetIdentity).toHaveBeenCalledTimes(1);
+  vi.unstubAllGlobals();
+});
+
+it('rotates browser tracking device_id through ApplicationAccountMenu when a PostHog-only session expires', async () => {
+  accountHook.tracertEnabled = false;
+  const initialDeviceId = getBrowserTrackingDeviceId();
+  accountHook.account = {
+    state: 'signed-in',
+    userId: 'local-uuid-2',
+    appUserId: 'amr-app-user-expired',
+    authMode: 'oidc',
+    plan: 'plus',
+    billingUnavailable: false,
+    user: { name: 'Ada', email: 'ada@example.test' },
+    activeWorkspace: {
+      id: 'local-ws-2',
+      slug: 'personal',
+      name: 'Personal',
+      role: 'owner',
+      externalWorkspaceId: 'amr-ws-expired',
+    },
+  };
+
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = trackedRoot(host);
+  act(() => {
+    root.render(
+      <I18nProvider initialLocale="en">
+        <ApplicationAccountMenu settings={null} openSettings={() => {}} />
+      </I18nProvider>,
+    );
+  });
+  await settle();
+  expect(getBrowserTrackingDeviceId()).toBe(initialDeviceId);
+
+  // Session expires without clicking Sign out (account transitions to signed-out).
+  accountHook.account = {
+    state: 'signed-out',
+    authMode: 'oidc',
+    activeWorkspace: null,
+  };
+  act(() => {
+    root.render(
+      <I18nProvider initialLocale="en">
+        <ApplicationAccountMenu settings={null} openSettings={() => {}} />
+      </I18nProvider>,
+    );
+  });
+  await settle();
+  host.remove();
+
+  const rotatedDeviceId = getBrowserTrackingDeviceId();
+  expect(rotatedDeviceId).toBeTruthy();
+  expect(rotatedDeviceId).not.toBe(initialDeviceId);
 });

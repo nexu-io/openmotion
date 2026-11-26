@@ -15,7 +15,8 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { AssetTaskHistory } from './AssetTaskHistory';
 import { AssetGenerationCard, creationKinds } from './AssetCreationVisuals';
 import { GenerationParameters, emptyParameters, parameterInputImageRatio, requestParameters, shotParameters, type ParameterDraft } from './GenerationParameters';
-import { generationOptions, resolveGenerationParameters } from '../../../shared/generation-options';
+import { generationOptions, resolveGenerationParameters, resolveSpeechVoice, sanitizeSpeechVoiceParameters } from '../../../shared/generation-options';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { useMediaCatalog } from './useMediaCatalog';
@@ -225,6 +226,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     return qualityField?.choices?.some(choice => choice.value === 'medium') ? { quality: 'medium' } : undefined;
   };
   const activeDefaultValues = studioDefaultValues(parameterModel);
+  const customVoiceIdEnabled = useCloudFeatureEnabled('customVoiceId');
   const restoredParameters = (model: NonNullable<typeof parameterModel>): ParameterDraft => {
     if (draft.model !== model.id || !draft.parameters) {
       const base = shotParameters(model, shotPreferences);
@@ -232,7 +234,8 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       const seeded = videoFeatureParameters(videoFeature, model);
       return Object.keys(seeded).length ? { ...base, values: { ...base.values, ...seeded } } : base;
     }
-    return { values: {}, advanced: JSON.stringify(draft.parameters, null, 2) };
+    const restored = sanitizeSpeechVoiceParameters(model, draft.parameters, customVoiceIdEnabled) ?? {};
+    return { values: {}, advanced: JSON.stringify(restored, null, 2) };
   };
   const parameters = parameterModel ? parameterDrafts[parameterKey] ?? restoredParameters(parameterModel) : emptyParameters;
   const inputImageRatio = selected && parameterInputImageRatio(selected, parameters, draft.references.length > 0);
@@ -265,7 +268,12 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
         }
       : undefined;
     try {
-      const parsed = requestParameters(parameters, selected, draft.references.length > 0, studioDefaultValues(selected));
+      const rawParsed = requestParameters(parameters, selected, draft.references.length > 0, studioDefaultValues(selected));
+      const parsed = sanitizeSpeechVoiceParameters(selected, rawParsed, customVoiceIdEnabled) ?? {};
+      if (selected.mode === 'text-to-speech') {
+        const effectiveVoice = resolveSpeechVoice(selected, parsed.voice, customVoiceIdEnabled);
+        if (effectiveVoice) parsed.voice = effectiveVoice;
+      }
       const prompt = composedPrompt;
       const submittedParameters = { ...parsed, ...featureRule?.parameters };
       const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt, model: selected.id, mode: selected.mode, parameters: submittedParameters,
@@ -432,13 +440,35 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const resolutionCapExceeded = (planResCap === '1K' || planResCap === '2K') && exceedsResolutionCap(activeResolution, planResCap);
   const openResolutionUpgrade = () => {
     if (cloudWeb && hasEntitlementModalListeners()) {
-      openEntitlementModal({ mode: 'upgrade', hookId: 'studio_res_gate' });
+      openEntitlementModal({
+        mode: 'upgrade',
+        hookId: 'studio_res_gate',
+        attribution: {
+          modelId: selected?.modelId,
+          modelProvider: selected?.provider,
+          modality: draft.modality,
+          gateReason: 'resolution_locked',
+          userPlan: account?.plan ?? undefined,
+        },
+      });
     } else {
       (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
     }
   };
   const entitlementGate = hostedPlanUpgrade
-    ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
+    ? (
+      <FreePlanGenerationGate
+        onOpenProviders={cloudWeb ? undefined : openModelSettings}
+        hookId="studio_free_gate"
+        attribution={{
+          modelId: selected?.modelId,
+          modelProvider: selected?.provider,
+          modality: draft.modality,
+          gateReason: 'plan_locked',
+          userPlan: account?.plan ?? undefined,
+        }}
+      />
+    )
     : null;
   const setup = (cloudGuestSubmit || Boolean(hostedPlanUpgrade)) ? null : <>
       {unconfiguredPreferred && (imageWorkspace

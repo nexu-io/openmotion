@@ -46,9 +46,17 @@ export async function saveInstallationSource(directory: string, source?: string)
   return updated;
 }
 
+export type PosthogEventIdentity = {
+  distinct_id?: string;
+  device_id?: string;
+  device_id_source?: DeviceIdentity['device_id_source'] | 'browser';
+  user_id?: string;
+};
+
 export function createPosthogSender(options: {
   host: string; token: string; identity: Identity; appVersion: string; device?: () => Promise<DeviceIdentity>;
-  env: 'development' | 'test' | 'production'; testRunId?: string; timeoutMs?: number; fetch?: typeof fetch; geoip?: boolean; source?: () => string | null;
+  env: 'development' | 'test' | 'production'; channel?: 'standalone' | 'cloud_web'; testRunId?: string; timeoutMs?: number; fetch?: typeof fetch; geoip?: boolean; source?: () => string | null;
+  resolveEventIdentity?: (event: PendingEvent) => PosthogEventIdentity | undefined;
 }) {
   const url = new URL(options.host);
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('INVALID_INGEST_HOST');
@@ -60,28 +68,35 @@ export function createPosthogSender(options: {
     if (signal.aborted) return 'drop';
     const source = options.source?.() ?? options.identity.utm_source;
     const batch = events.map(event => {
-      const hasAppUserId = typeof event.app_user_id === 'string' && event.app_user_id.length > 0;
-      const distinctId = hasAppUserId ? event.app_user_id! : options.identity.installation_id;
+      const override = options.resolveEventIdentity?.(event);
+      const effectiveDevice = override?.device_id
+        ? { device_id: override.device_id, device_id_source: override.device_id_source ?? 'browser' }
+        : device;
+      const distinctId = override?.distinct_id || options.identity.installation_id;
+      const userProps = override?.user_id
+        ? {
+            user_id: override.user_id,
+            amr_user_id:
+              typeof event.properties.amr_user_id === 'string' && event.properties.amr_user_id
+                ? event.properties.amr_user_id
+                : override.user_id,
+          }
+        : {};
+      // One Tap sign-in events carry their landing utm_source; other events keep the installation source.
       const eventUtmSource =
         typeof event.properties?.utm_source === 'string' && event.properties.utm_source.length > 0
           ? event.properties.utm_source
           : null;
-      const eventOdUtmSource =
-        typeof event.properties?.od_utm_source === 'string' && event.properties.od_utm_source.length > 0
-          ? event.properties.od_utm_source
-          : null;
       const resolvedUtmSource = eventUtmSource ?? source;
-      const resolvedOdUtmSource = eventOdUtmSource ?? resolvedUtmSource;
       return { event: event.event, uuid: event.event_id, timestamp: event.occurred_at,
         properties: { ...event.properties, event_schema_version: 1, schema_version: 1, product: 'openmotion',
           ...(event.host_context ?? unknownHost),
-          app_version: options.appVersion, env: options.env, channel: 'standalone',
+          app_version: options.appVersion, env: options.env, channel: options.channel ?? 'standalone',
           ...(options.testRunId ? { test_run_id: options.testRunId } : {}),
           event_id: event.event_id, $insert_id: event.event_id, occurred_at: event.occurred_at,
-          installation_id: options.identity.installation_id, ...device,
-          distinct_id: distinctId,
-          ...(hasAppUserId ? { app_user_id: event.app_user_id } : {}),
-          utm_source: resolvedUtmSource, od_utm_source: resolvedOdUtmSource,
+          installation_id: options.identity.installation_id, ...effectiveDevice,
+          distinct_id: distinctId, ...userProps,
+          utm_source: resolvedUtmSource, od_utm_source: resolvedUtmSource,
           entrypoint: event.entrypoint, runtime: event.entrypoint === 'studio' ? 'browser' : 'node',
           capture_source: 'explicit', client_type: event.entrypoint === 'studio' ? 'web' : 'local',
           platform: os.platform(), arch: os.arch(), $os: os.type(), $os_version: os.release(),
@@ -89,8 +104,7 @@ export function createPosthogSender(options: {
           device_timezone: event.device_timezone, utc_offset_minutes: event.utc_offset_minutes,
           // GeoIP requires an ingress that discards IP after enrichment; custom collectors default to zero-IP mode.
           ...(options.geoip ? { location_source: 'geoip', $geoip_disable: false }
-            : { location_source: 'unknown', $geoip_disable: true, $ip: '0.0.0.0' }),
-          $process_person_profile: hasAppUserId } };
+            : { location_source: 'unknown', $geoip_disable: true, $ip: '0.0.0.0' }), $process_person_profile: false } };
     });
     const body = JSON.stringify({ api_key: options.token, batch });
     if (Buffer.byteLength(body) > 64 * 1024) return 'drop';

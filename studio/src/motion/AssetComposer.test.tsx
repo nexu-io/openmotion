@@ -9,6 +9,8 @@ import type { Model } from '../../../shared/gateway';
 import { imageFeaturePrompt } from '../../../shared/image-features';
 import { videoFeaturePrompt } from '../../../shared/video-features';
 import { assetPromptForReuse } from './assetPromptForReuse';
+import { setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 const { generate, loadGateway, gatewayRequest, chrome } = vi.hoisted(() => ({
   generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(),
   chrome: { openModelSettings: vi.fn(), openProviderSettings: vi.fn(), openAccountSettings: vi.fn(), openSubscriptionSettings: vi.fn() },
@@ -27,7 +29,7 @@ const props: ComponentProps<typeof AssetComposer> = {
   onNew: vi.fn(), onCancel: vi.fn(), onView: vi.fn(), onReference: vi.fn(), onCreated: created, onError: vi.fn(), onClose: vi.fn(),
 };
 beforeEach(() => { vi.clearAllMocks(); gatewayRequest.mockReset(); resetAccountSummaryCacheForTest(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); setCloudFeatureOverridesForTest(null); setCachedCloudDisklessMode(null); });
 it('exposes direct generation without a retired local Agent conversation tab', async () => {
   await act(async () => root.render(<AssetComposer {...props} />));
   expect(container.querySelector('button[aria-label="Agent conversation"]')).toBeNull();
@@ -1683,7 +1685,17 @@ it('opens upgrade modal directly when a Plus user clicks 2K on a size-based host
       await act(async () => twoKButton!.click());
     }
 
-    expect(modalRequests).toEqual([{ mode: 'upgrade', hookId: 'studio_res_gate' }]);
+    expect(modalRequests).toEqual([{
+      mode: 'upgrade',
+      hookId: 'studio_res_gate',
+      attribution: {
+        gateReason: 'resolution_locked',
+        modality: 'image',
+        modelId: 'seedream-5.5',
+        modelProvider: 'account',
+        userPlan: 'plus',
+      },
+    }]);
     expect(latestDraft.parameters?.size).toBe('1K');
     expect(container.querySelector('.om-entitlement-gate')).toBeNull();
     expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
@@ -1747,7 +1759,17 @@ it('gates an untouched Plus draft whose hosted model profile defaults to 2K and 
 
     await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
     expect(generate).not.toHaveBeenCalled();
-    expect(modalRequests).toEqual([{ mode: 'upgrade', hookId: 'studio_res_gate' }]);
+    expect(modalRequests).toEqual([{
+      mode: 'upgrade',
+      hookId: 'studio_res_gate',
+      attribution: {
+        gateReason: 'resolution_locked',
+        modality: 'image',
+        modelId: 'nano-banana-2',
+        modelProvider: 'account',
+        userPlan: 'plus',
+      },
+    }]);
   } finally {
     unsubscribe();
     setCachedCloudDisklessMode(null);
@@ -2141,4 +2163,69 @@ it('consumes hub template draft source after a successful submit or clearing the
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
   });
   expect(currentDraft.source).toBeUndefined();
+});
+
+it('strips legacy custom voice IDs when editing a speech asset from /assets in Cloud P1 and preserves them when re-enabled', async () => {
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const speechBase: Model = {
+    id: 'opendesign:elevenlabs-v3',
+    provider: 'opendesign',
+    modelId: 'elevenlabs-v3',
+    label: 'Eleven v3',
+    modality: 'audio',
+    mode: 'text-to-speech',
+    source: 'live',
+  };
+  const speech: Model = { ...speechBase, generationOptions: generationOptions(speechBase) };
+  loadGateway.mockResolvedValue({
+    models: [speech],
+    status: { providers: [{ id: 'opendesign', label: 'OpenDesign', available: true }], routes: { audio: speech.id } },
+  });
+  generate.mockResolvedValue({ job: { id: 'speech-edit-job' } });
+
+  setCachedCloudDisklessMode(true);
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={{
+        modality: 'audio',
+        model: speech.id,
+        prompt: 'Edited narration from assets library.',
+        parameters: { voice: 'custom_speaker_42', speed: 1.1 },
+        references: [],
+      }}
+    />,
+  ));
+
+  expect(container.textContent).not.toContain('custom_speaker_42');
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'generate',
+    modality: 'audio',
+    model: speech.id,
+    mode: 'text-to-speech',
+    parameters: { speed: 1.1, voice: '21m00Tcm4TlvDq8ikWAM' },
+  }));
+
+  // When customVoiceId is re-enabled, the stored custom voice ID passes through unchanged.
+  generate.mockClear();
+  setCloudFeatureOverridesForTest({ customVoiceId: true });
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={{
+        modality: 'audio',
+        model: speech.id,
+        prompt: 'Edited narration with custom voice enabled.',
+        parameters: { voice: 'custom_speaker_42', speed: 1.1 },
+        references: [],
+      }}
+    />,
+  ));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'generate',
+    model: speech.id,
+    parameters: { voice: 'custom_speaker_42', speed: 1.1 },
+  }));
 });

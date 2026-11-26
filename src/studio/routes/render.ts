@@ -327,14 +327,17 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       }
     }
 
+    const telemetryOptOut = body.telemetryOptOut === true;
     let workId: string | null = null;
-    if (body.telemetryOptOut !== true && deps.workRounds) {
+    if (!telemetryOptOut && deps.workRounds) {
       const latest = await deps.workRounds.latestGenerated(auth, project.id).catch(() => null);
       workId = latest?.id ?? null;
     }
 
     const jobId = randomUUID();
     const now = new Date();
+    const deadlineAt = new Date(now.getTime() + 30 * 60_000);
+    const actorUserId = auth.appUserId ?? auth.userId;
     const stem = renderFilenameStem(project.title);
     const filename = `${stem}-${jobId.slice(0, 6)}.${format}`;
     const settings: Record<string, unknown> = {
@@ -365,9 +368,12 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
             outputName: filename,
             format,
             compositionPath: compositionPath ?? 'index.html',
+            ...(telemetryOptOut ? { telemetryOptOut: true } : { userId: actorUserId }),
+            exportRoute: 'studio',
             ...(variables ? { variables } : {}),
             settings,
           },
+          deadlineAt,
           createdAt: now,
           updatedAt: now,
         }),
@@ -402,6 +408,13 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           outputName: filename,
           format,
           phase1: true,
+          ...(telemetryOptOut
+            ? { telemetryOptOut: true }
+            : {
+                userId: actorUserId,
+                ...(workId ? { workId } : {}),
+              }),
+          exportRoute: 'studio',
           settings,
         });
       } catch (err) {
@@ -421,6 +434,18 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId)));
         throw err;
       }
+    }
+
+    if (!telemetryOptOut) {
+      deps.cloudTracking?.trackTaskAccepted({
+        taskId: jobId,
+        taskType: 'export',
+        projectId: project.id,
+        acceptedAt: now,
+        deadlineAt,
+        userId: actorUserId,
+        entrypoint: 'worker',
+      });
     }
 
     return c.json({

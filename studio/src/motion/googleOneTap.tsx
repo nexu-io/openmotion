@@ -3,7 +3,7 @@ import { isDesktopApp } from '../utils/platformHost';
 import type { CloudAccountSummary } from './AccountSettings';
 import { clearPrivateSwrCache } from './swrCache';
 import { trackMotion } from './tracking';
-import { isMotionTrackingConsented, setMotionTrackingUserId } from './trackingIdentity';
+import { isMotionDeviceIdConsented, syncMotionTrackingIdentity } from './trackingIdentity';
 
 export const GOOGLE_GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client' as const;
 export const GOOGLE_GIS_LOAD_TIMEOUT_MS = 5000;
@@ -541,7 +541,7 @@ export function persistOneTapLandingAttribution(): void {
   if (typeof window === 'undefined') return;
   const fromUrl = readUrlAttribution();
   // Never persist odDeviceId to localStorage before explicit metrics consent is granted.
-  const safeFromUrl: StoredAttribution = isMotionTrackingConsented()
+  const safeFromUrl: StoredAttribution = isMotionDeviceIdConsented()
     ? fromUrl
     : { ...fromUrl, odDeviceId: undefined };
   if (Object.values(safeFromUrl).every(v => v === undefined)) return;
@@ -550,7 +550,7 @@ export function persistOneTapLandingAttribution(): void {
     const merged: StoredAttribution = {
       ...existing,
       ...safeFromUrl,
-      ...(isMotionTrackingConsented() ? {} : { odDeviceId: undefined }),
+      ...(isMotionDeviceIdConsented() ? {} : { odDeviceId: undefined }),
     };
     window.localStorage.setItem(ONETAP_ATTRIBUTION_STORAGE_ENTRY, JSON.stringify(merged));
   } catch {
@@ -600,7 +600,7 @@ export function collectOneTapAttribution() {
   const campaignId = pick('odCampaignId');
   const placementId = pick('odPlacementId');
   const conversionSource = pick('odConversionSource');
-  const consented = isMotionTrackingConsented();
+  const consented = isMotionDeviceIdConsented();
   const odDeviceId = consented ? pick('odDeviceId') : undefined;
 
   const odEntry =
@@ -973,9 +973,11 @@ export function useMotionGoogleOneTap({
 
               if (isStale()) return;
 
+              // Identify the new account before reporting the sign-in so Tracert attributes it; PostHog
+              // attribution comes from the session cookie this exchange just set.
               const appUserId = data.user?.appUserId ?? null;
               if (appUserId) {
-                setMotionTrackingUserId(appUserId);
+                syncMotionTrackingIdentity({ signedIn: true, userId: appUserId });
               }
 
               const safeRef = sanitizeTelemetryCode(referralCode);
