@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import { Hono } from 'hono';
 import { SignJWT } from 'jose';
 import {
@@ -76,6 +76,23 @@ function sha256Hex(value: string): string {
 }
 
 describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
+  // CI exports OPENMOTION_TELEMETRY=0; these cases exercise enabled telemetry,
+  // so isolate them from the runner's opt-out variables.
+  const telemetryOptOutKeys = ['OPENMOTION_TELEMETRY', 'DO_NOT_TRACK'] as const;
+  const savedTelemetryEnv = new Map<string, string | undefined>();
+  before(() => {
+    for (const key of telemetryOptOutKeys) {
+      savedTelemetryEnv.set(key, process.env[key]);
+      delete process.env[key];
+    }
+  });
+  after(() => {
+    for (const [key, value] of savedTelemetryEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   it('does not mount One Tap routes in AUTH_MODE=dev or without amrIdentity', async () => {
     const store = new InMemoryAuthStore();
 
