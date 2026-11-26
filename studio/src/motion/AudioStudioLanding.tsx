@@ -2,6 +2,7 @@ import { Button } from 'open-design-ui/button';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { scenesForStudio, studioIconTone, type StudioDestination } from './creativeStudios';
 import type { SoundLiveTabId } from './soundTabs';
 import { studioExamples } from './sceneShowcase';
@@ -13,9 +14,14 @@ export function AudioStudioLanding({ destination, active, onPrompt, onCreate }: 
   destination: StudioDestination; active: boolean; onPrompt: (prompt: string, tab: SoundLiveTabId) => void; onCreate: () => void;
 }) {
   const { t } = useI18n();
+  const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
   const { studio } = destination;
   // The home has no scene tabs: it lists every template in the studio that has an audio preview.
-  const templates = scenesForStudio(studio).flatMap(scene => studioExamples({ ...destination, scene }).filter(example => example.audio).map(example => ({ ...example, scene })));
+  const templates = scenesForStudio(studio).flatMap(scene =>
+    studioExamples({ ...destination, scene })
+      .filter(example => example.audio && (soundEffectsEnabled || example.kind !== 'Sound effect'))
+      .map(example => ({ ...example, scene })),
+  );
   const [selected, setSelected] = useState(0), [playing, setPlaying] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
   const featured = templates[selected] ?? templates[0];

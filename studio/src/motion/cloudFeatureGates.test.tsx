@@ -360,4 +360,45 @@ describe('Cloud Phase 1 feature gates', () => {
     expect(container.innerHTML).toBe('');
     expect(calledUrls().some(u => u.includes('/phase1/call'))).toBe(false);
   });
+
+  it('hides the Sound effects tab, type filter, and landing SFX templates in Cloud P1', async () => {
+    await mountApp('/audio/music');
+
+    const soundTabs = [...container.querySelectorAll<HTMLButtonElement>('button[data-sound-tab]')].map(
+      el => el.dataset.soundTab,
+    );
+    expect(soundTabs).toContain('music');
+    expect(soundTabs).toContain('speech');
+    expect(soundTabs).not.toContain('sfx');
+
+    const filterSelect = container.querySelector<HTMLButtonElement>('.om-sound-stage button[aria-label="Filter by type"]');
+    if (filterSelect) {
+      await act(async () => filterSelect.click());
+      const options = [...document.querySelectorAll('[role="option"]')].map(el => el.textContent?.trim());
+      expect(options).toContain('Music');
+      expect(options).toContain('Speech');
+      expect(options).not.toContain('Sound effects');
+    } else {
+      expect(container.querySelector('.om-sound-stage')?.textContent).not.toContain('Sound effects');
+    }
+
+    await mountApp('/sound', 1);
+    const titles = [...container.querySelectorAll('.om-audio-card strong')].map(el => el.textContent?.trim());
+    expect(titles).toContain('Minimal product score');
+    expect(titles).not.toContain('Notification chime');
+    expect(titles).not.toContain('Success sound');
+  });
+
+  it.each([
+    ['/audio/sfx', '/audio/music'],
+    ['/sound/sfx', '/sound/music'],
+  ])('redirects direct Cloud P1 navigation from %s to %s via replace', async (blockedPath, expectedPath) => {
+    const historyLengthBefore = history.length;
+    await mountApp(blockedPath);
+
+    expect(location.pathname).toBe(expectedPath);
+    expect(history.length).toBe(historyLengthBefore);
+    expect(container.querySelector('button[data-sound-tab="sfx"]')).toBeNull();
+    expect(container.querySelector('.om-sound-tab[aria-current="page"]')?.getAttribute('data-sound-tab')).toBe('music');
+  });
 });

@@ -15,6 +15,7 @@ export const CLOUD_P1_FEATURES = {
   asr: false,
   brandKit: false,
   reviewComments: false,
+  soundEffects: false,
 } as const;
 
 export type CloudFeatureKey = keyof typeof CLOUD_P1_FEATURES;

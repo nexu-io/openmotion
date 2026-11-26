@@ -51,6 +51,7 @@ import { useWorkspaceChrome } from './WorkspaceFrame';
 import { GeneratingWaveform, InteractiveWaveform } from './SoundWaveforms';
 import { useAudioWaveforms } from './useAudioWaveforms';
 import { useVoiceAudition } from './voicePreviews';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import './soundStudio.css';
 
 type AudioTypeFilter = 'all' | AudioKind;
@@ -461,9 +462,11 @@ export function SoundStudioWorkspace({
   onDownload: () => void;
 }) {
   const { t, formatDate } = useI18n();
+  const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
   const guestLibrary = browser.authRequired || studio.guestPreview;
   const requestLibrarySignIn = () => openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
-  const activeTab: SoundTabId = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
+  const rawActiveTab: SoundTabId = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
+  const activeTab: SoundTabId = !soundEffectsEnabled && rawActiveTab === 'sfx' ? 'music' : rawActiveTab;
   const tabDef = findSoundTab(activeTab) ?? SOUND_TABS[0];
   const isSoonTab = tabDef.status === 'soon';
   const liveTab: SoundLiveTabId = isSoonTab ? (tabDef.pivotTab ?? 'music') : (tabDef.id as SoundLiveTabId);
@@ -712,11 +715,12 @@ export function SoundStudioWorkspace({
   const hasQueryOrSource = Boolean(browser.query.trim() || browser.source !== 'all');
   const hasFilters = Boolean(hasQueryOrSource || typeFilter !== 'all');
   const libraryEmpty = browser.data !== undefined && browser.data.total === 0 && !hasFilters;
-  const starterTab: SoundLiveTabId | null = typeFilter === 'music' || typeFilter === 'sfx' || typeFilter === 'speech'
-    ? typeFilter
-    : libraryEmpty
-      ? liveTab
-      : null;
+  const starterTab: SoundLiveTabId | null =
+    typeFilter === 'music' || (typeFilter === 'sfx' && soundEffectsEnabled) || typeFilter === 'speech'
+      ? typeFilter
+      : libraryEmpty
+        ? liveTab
+        : null;
   const showStarters = Boolean(
     starterTab
     && browser.data !== undefined
@@ -820,7 +824,12 @@ export function SoundStudioWorkspace({
   ) => {
     const matchedModel = modelId ? models?.find(m => m.id === modelId) : undefined;
     const classified = classifyAudioTrackTab(modelId, models, undefined, savedAudioKind);
-    const targetTab: SoundLiveTabId = classified === 'upload' ? liveTab : classified;
+    const targetTab: SoundLiveTabId =
+      classified === 'upload'
+        ? liveTab
+        : !soundEffectsEnabled && classified === 'sfx'
+          ? 'music'
+          : classified;
 
     if (modelId && parameters && Object.keys(parameters).length > 0) {
       const key = matchedModel?.id ?? modelId;
@@ -919,10 +928,10 @@ export function SoundStudioWorkspace({
   const typeOptions: readonly { id: AudioTypeFilter; label: string }[] = useMemo(() => [
     { id: 'all', label: 'All' },
     { id: 'music', label: 'Music' },
-    { id: 'sfx', label: 'Sound effects' },
+    ...(soundEffectsEnabled ? [{ id: 'sfx' as const, label: 'Sound effects' }] : []),
     { id: 'speech', label: 'Speech' },
     ...(seenSources.upload || typeFilter === 'upload' ? [{ id: 'upload' as const, label: 'Local upload' }] : []),
-  ], [seenSources.upload, typeFilter]);
+  ], [seenSources.upload, soundEffectsEnabled, typeFilter]);
 
   const newAssetIds = useMemo(() => new Set(
     jobs

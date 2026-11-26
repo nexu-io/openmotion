@@ -20,6 +20,7 @@ import { DesignSceneTabs, type DesignTabId } from '../design/scenes/DesignSceneT
 import { SoundSceneTabs } from './SoundSceneTabs';
 import { findSoundTab, isSfxModel, type SoundLiveTabId, type SoundTabId } from './soundTabs';
 import { readPersistedStudioDrafts, savePersistedStudioDraft } from './authRecoveryStore';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 
 export type StudioCreation = {
   guestPreview?: boolean;
@@ -46,6 +47,7 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   skill: string | null; onCollection: (studio: TechniqueStudio, replace?: boolean) => void; onExplore: () => void; drafts: RefObject<Map<string, AssetDraft>>; destination: StudioDestination | null; active: boolean; visit: number; onNavigate: (next: StudioDestination, nextSoundTab?: SoundTabId | null) => void; hasProject: boolean;
 }) {
   const { t, locale } = useI18n();
+  const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
   const landingTabsRef = useRef<HTMLElement>(null);
   const comingSoon = studioComingSoon(destination?.studio);
   const guestPreview = Boolean(useOptionalWorkspaceChrome()?.guestMode);
@@ -61,8 +63,9 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   const { scene, studio } = destination;
   if (comingSoon && studio.surface === 'techniques') return <div className="om-assets-host om-creative-workspace"><WorkspaceBack fallback={onExplore} /><StudioComingSoon studio={studio} onExploreSkills={() => onCollection(studio, true)} /></div>;
   const isSoundStudio = studio.id === 'sound';
+  const effectiveSoundTab: SoundTabId | null | undefined = !soundEffectsEnabled && soundTab === 'sfx' ? null : soundTab;
   const activeSoundTab: SoundTabId | undefined = isSoundStudio
-    ? (destination.landing ? (scene.id === 'speech' ? 'speech' : 'music') : (soundTab ?? (scene.id === 'speech' ? 'speech' : 'music')))
+    ? (destination.landing ? (scene.id === 'speech' ? 'speech' : 'music') : (effectiveSoundTab ?? (scene.id === 'speech' ? 'speech' : 'music')))
     : undefined;
   const draftKey = activeSoundTab ? `sound/${activeSoundTab}` : studioDraftKey(destination, skill) + (cinemaTemplate ? '/' + cinemaTemplate.id : '');
   const persistedDraft = !drafts.current.has(draftKey)
@@ -90,29 +93,31 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   };
   const pinned = catalog.catalog?.models.find(model => model.id === destination.model);
   const openCreate = destination.home ? (prompt?: string, targetTab: SoundLiveTabId = scene.id === 'speech' ? 'speech' : 'music') => {
-    const next = mediaEditorDestination(findSoundTab(targetTab)!.backingScene, prompt === undefined ? destination.model : null);
+    const resolvedTab: SoundLiveTabId = !soundEffectsEnabled && targetTab === 'sfx' ? 'music' : targetTab;
+    const next = mediaEditorDestination(findSoundTab(resolvedTab)!.backingScene, prompt === undefined ? destination.model : null);
     if (prompt !== undefined) {
-      const key = `sound/${targetTab}`;
+      const key = `sound/${resolvedTab}`;
       const previous = drafts.current.get(key) ?? readPersistedStudioDrafts<AssetDraft>()[key];
       const draft: AssetDraft = { ...previous, modality: 'audio', prompt, references: previous?.references ?? [] };
       drafts.current.set(key, draft);
       savePersistedStudioDraft(key, draft);
     }
-    onNavigate(next, targetTab === 'sfx' ? targetTab : null);
+    onNavigate(next, resolvedTab === 'sfx' ? resolvedTab : null);
   } : undefined;
   const selectSoundTab = isSoundStudio ? (tabId: SoundTabId, nextDraft?: AssetDraft, model?: string | null) => {
-    const tabDef = findSoundTab(tabId);
+    const resolvedTab: SoundTabId = !soundEffectsEnabled && tabId === 'sfx' ? 'music' : tabId;
+    const tabDef = findSoundTab(resolvedTab);
     if (!tabDef) return;
-    if (nextDraft) drafts.current.set(`sound/${tabId}`, nextDraft);
+    if (nextDraft) drafts.current.set(`sound/${resolvedTab}`, nextDraft);
     const targetScene = scenesForStudio(studio).find(item => item.id === tabDef.backingScene) ?? scene;
     const keepPinned = model !== undefined
       ? model
-      : pinned && supportsScene(pinned, targetScene) && (tabId === 'sfx' ? isSfxModel(pinned) : tabId === 'music' ? !isSfxModel(pinned) : true)
+      : pinned && supportsScene(pinned, targetScene) && (resolvedTab === 'sfx' ? isSfxModel(pinned) : resolvedTab === 'music' ? !isSfxModel(pinned) : true)
         ? pinned.id
         : null;
     const next: StudioDestination = { studio, scene: targetScene, model: keepPinned, ...(destination.mediaTab ? { mediaTab: true as const } : {}) };
     reportCreativeClick('creative_studio', 'studio_bar', 'scene_tab', destinationTarget(next));
-    onNavigate(next, tabId === 'music' || tabId === 'speech' ? null : tabId);
+    onNavigate(next, resolvedTab === 'music' || resolvedTab === 'speech' ? null : resolvedTab);
   } : undefined;
   const showSoundBar = isSoundStudio && !destination.landing && !destination.home;
   const isImageStudio = studio.id === 'design' && scene.modality === 'image';
