@@ -232,7 +232,7 @@
 .handoffRecovery { display: grid; justify-items: start; gap: var(--motion-space-8); padding: var(--motion-space-12); margin-block: var(--motion-space-16); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-md); background: var(--motion-panel); font-size: var(--motion-text-sm); }
 .handoffRecovery strong { color: var(--motion-text); font-weight: var(--motion-weight-semibold); }
 .handoffRecovery small { display: block; color: var(--motion-muted); }
-.copiedHandoff { position: absolute; inset: auto var(--detail-gutter) calc(100% + var(--motion-space-8)) var(--detail-gutter); z-index: 4; margin: 0; border: 1px solid var(--motion-border); gap: var(--motion-space-6); background: var(--color-template-surface); box-shadow: 0 12px 32px color-mix(in srgb, #000 35%, transparent); }
+.copiedHandoff { position: absolute; inset: auto var(--detail-gutter) calc(100% + var(--motion-space-8)) var(--detail-gutter); z-index: 4; margin: 0; border: 1px solid var(--motion-border); gap: var(--motion-space-6); background: var(--color-template-surface); box-shadow: var(--motion-shadow-md); }
 .copiedHandoffHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-8); }
 .copiedHandoffHeader strong { display: inline-flex; align-items: center; gap: var(--motion-space-6); color: var(--motion-text); font-size: var(--motion-text-xs); font-weight: var(--motion-weight-semibold); }
 .copiedHandoffClose { width: var(--motion-space-24); height: var(--motion-space-24); color: var(--motion-muted); }
