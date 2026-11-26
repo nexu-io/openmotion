@@ -242,7 +242,9 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='peer-timing' || message.type==='peer-presentation'){
         if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
-        respond(requestId,applyPeerTiming(message)); return;
+        const applied=applyPeerTiming(message), target=message.selectionTarget;
+        const selected=target && !drag && typeof target.sourceFile==='string' && inspectorElement(target);
+        respond(requestId,selected?{applied,...canvasFrameBounds(selected)}:applied); return;
       }
       if(message.type==='refresh-parked-scene'){
         if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;

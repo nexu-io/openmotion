@@ -9,6 +9,7 @@ import { IsolatedCanvasOverlay } from "./IsolatedCanvasOverlay";
 import { observePreviewDocument, PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
 import { liveTime, usePlayerStore } from "../../player/store/playerStore";
 import { announcePreviewPromoted } from "../../player/sceneSwap";
+import { paintWithIsolatedSelection, type SelectionPaintReply } from "../../player/isolatedSelectionPaint";
 
 const state = vi.hoisted(() => ({
   writeBlockedReason: null as string | null,
@@ -16,9 +17,10 @@ const state = vi.hoisted(() => ({
   previewIframeRef: { current: null as HTMLIFrameElement | null },
   compositionRect: { left: 10, top: 10, width: 200, height: 100 },
   commitDomEditPatchBatches: vi.fn(),
+  applyDomSelection: vi.fn(),
   showToast: vi.fn(),
 }));
-vi.mock("../../contexts/DomEditContext", () => ({ useDomEditActionsContext: () => state, useDomEditSelectionContext: () => state }));
+vi.mock("../../contexts/DomEditContext", () => ({ useDomEditActionsContext: () => state, useDomEditSelectionContext: () => ({ ...state, domEditSelectionRef: selectionRef }) }));
 vi.mock("../../contexts/StudioContext", () => ({
   useStudioShellContext: () => ({ ...state, projectId: "project-1" }),
 }));
@@ -30,6 +32,7 @@ let messages: PreviewBridgeMessage[];
 const origin = "https://preview.test";
 const result = { sourceFile: "compositions/title.html", sha256: "a".repeat(64),
   elementId: "title", left: 12, top: 34, makeRelative: true };
+const selectionRef = { get current() { return state.domEditSelection; } };
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -397,6 +400,44 @@ it("keeps the selected element outlined across frame loads and layout changes un
   expect(canvas.firstElementChild).toBeNull();
 });
 
+it("applies the latest measured history bounds to the selected target without another inspection", async () => {
+  const geometry = { x: -12.5, y: 30, width: 152, height: 78.5 };
+  const measured = { applied: true, viewport: { width: 400, height: 200 }, geometry };
+  const target = { sourceFile: result.sourceFile, elementId: result.elementId };
+  state.domEditSelection = { isolatedTarget: target, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const older = Promise.withResolvers<SelectionPaintReply>();
+  const paint = (request: Parameters<typeof paintWithIsolatedSelection>[4]) =>
+    paintWithIsolatedSelection(frame, result.sourceFile, true, () => true, request);
+  const late = paint(() => older.promise);
+  const send = vi.fn().mockResolvedValue(measured);
+  await act(async () => { expect(await paint(send)).toBe(true); });
+  expect(send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(target));
+  expect(state.applyDomSelection).toHaveBeenCalledExactlyOnceWith({ ...state.domEditSelection,
+    boundingBox: geometry, isolatedBounds: { x: -12.5 / 400, y: .15, width: .38, height: 78.5 / 200 },
+  }, { preserveGroup: true, revealPanel: false, announce: false });
+  older.resolve({ ...measured, geometry: { ...geometry, x: 99 } });
+  await late;
+  expect(state.applyDomSelection).toHaveBeenCalledTimes(1);
+  expect(messages).toHaveLength(0);
+});
+
+it.each(["selection", "gesture"])('ignores a history measurement after a new %s takes ownership', async change => {
+  const selection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  state.domEditSelection = selection;
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const reply = Promise.withResolvers<SelectionPaintReply>();
+  const paint = paintWithIsolatedSelection(frame, result.sourceFile, true, () => true, () => reply.promise);
+  if (change === "gesture") { pointer("pointerdown", 60); pointer("pointerup", 60); }
+  else {
+    state.domEditSelection = { ...selection, isolatedTarget: { ...result, sourceFile: 'other.html' } };
+    act(() => root.render(<IsolatedCanvasOverlay />));
+  }
+  reply.resolve({ applied: true, geometry: { x: 10, y: 25, width: 60, height: 50 }, viewport: { width: 100, height: 100 } });
+  await paint;
+  expect(state.applyDomSelection).not.toHaveBeenCalled();
+});
+
 it.each([false, true])("only shows handles within the selected clip's interval (descendant %s)", child => {
   const clip = { id: "card", domId: "card", sourceFile: "index.html", start: 1, duration: 2, tag: "div", track: 0 };
   const prior = usePlayerStore.getState().elements;
@@ -498,11 +539,87 @@ it.each(["resize", "projected move"])("outlines the rendered size during a %s an
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
 });
 
+function selectLayer(elementId: string | null, x = 0) {
+  state.domEditSelection = elementId === null ? null : {
+    isolatedTarget: { ...result, elementId }, isolatedBounds: { x, y: 0, width: .1, height: .2 },
+  };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+}
+
+function layerPick(elementId: string, x: number) {
+  return { target: { ...result, elementId }, geometry: { x, y: 2, width: 20, height: 10 }, viewport: { width: 200, height: 100 } };
+}
+
+const outlineLeft = () => canvas.querySelector<HTMLElement>("[data-isolated-selection]")?.style.left;
+
+it("draws the picked layer through movement and release while inspection still reports the previous layer", async () => {
+  selectLayer("A");
+  pointer("pointerdown", 60);
+  await reply("start", layerPick("B", 40));
+  expect(outlineLeft()).toBe("50px");
+  pointer("pointermove", 80);
+  expect(outlineLeft()).toBe("70px");
+  pointer("pointerup", 90);
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  expect(outlineLeft()).toBe("80px");
+  selectLayer("B", .2);
+  expect(outlineLeft()).toBe("80px");
+  await reply("finish", { ...result, elementId: "B" });
+  selectLayer("A");
+  expect(outlineLeft()).toBe("10px");
+});
+
+it("resizes the visible draft if its projected move is released before inspection", async () => {
+  selectLayer("A");
+  pointer("pointerdown", 60);
+  const b = layerPick("B", 40);
+  await reply("start", { ...b, liveResizeBounds: true });
+  expect(outlineLeft()).toBe("50px");
+  pointer("pointerup", 80);
+  const handle = canvas.querySelector<HTMLElement>('[data-resize-corner="se"]')!;
+  act(() => handle.dispatchEvent(new PointerEvent("pointerdown", {
+    bubbles: true, pointerId: 1, isPrimary: true, button: 0, clientX: 70, clientY: 22,
+  })));
+  expect(messages.at(-1)).toMatchObject({ phase: "start", corner: "se", target: { elementId: "B" } });
+  await reply("finish", b.target);
+  pointer("pointercancel", 70);
+});
+
+it.each(["D", null])("keeps the latest hit through older replies and yields to a new selection (%s)", async next => {
+  selectLayer("A");
+  const undo = Promise.withResolvers<SelectionPaintReply>();
+  const paint = paintWithIsolatedSelection(frame, result.sourceFile, false, () => true, () => undo.promise);
+  const save = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(save.promise);
+  pointer("pointerdown", 60);
+  const b = messages.at(-1)!.gestureId;
+  pointer("pointerup", 80);
+  await reply("finish", { ...result, elementId: "B" }, b);
+  pointer("pointerdown", 80);
+  pointer("pointermove", 90);
+  const c = layerPick("C", 100);
+  await reply("start", c);
+  expect(outlineLeft()).toBe("120px");
+  await reply("start", layerPick("B", 40), b);
+  await act(async () => {
+    save.resolve({ durable: true, changed: true });
+    undo.resolve({ applied: true, geometry: c.geometry, viewport: c.viewport });
+    await paint;
+  });
+  expect(state.applyDomSelection).not.toHaveBeenCalled();
+  expect(outlineLeft()).toBe("120px");
+  selectLayer(next, .25);
+  pointer("pointermove", 100);
+  expect(outlineLeft()).toBe(next ? "60px" : undefined);
+  pointer("pointercancel", 100);
+});
+
 it("shows the released bounds even when the initial pick arrives after pointerup", async () => {
+  selectLayer("A");
   pointer("pointerdown", 60);
   pointer("pointermove", 72);
   pointer("pointerup", 90);
-  await reply("start", { geometry: { x: 1, y: 2, width: 20, height: 10 }, viewport: { width: 200, height: 100 } });
+  await reply("start", layerPick(result.elementId, 1));
   expect((canvas.firstElementChild as HTMLElement).style.left).toBe("41px");
   await reply("finish", result);
 });

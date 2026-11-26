@@ -43,6 +43,8 @@ If several local saves overlap and their combined inverse is still unknown, Undo
 
 With a local two-origin dev-auth stack and the Welcome template, run `STUDIO_URL=http://127.0.0.1:4173 node studio/tests/e2e/responsive-cloud-undo.mjs` to measure click-to-paint with delayed responses. Run `STUDIO_URL=http://127.0.0.1:4173 node studio/tests/e2e/cloud-history-conflicts.mjs` to exercise concurrent MCP edits, rejected history steps, and a late acknowledgment in two windows.
 
+For a selected canvas element, compare its visible edges with the green selection rectangle in the same composited frame. Check the first paint after Undo or Redo, the interval before acknowledgment, and the subsequent drag. A matching final position alone can hide a frame where the element has moved and the selection rectangle still marks its old position.
+
 ### Editing and recovery
 
 Use a disposable copy of Welcome in two Studio windows and an independent MCP client. Hold the first save response, move an image, resize it, then move a title. Run with the writer's SSE before and after its HTTP receipt. Check each operation in persisted history, all three final values in both windows and the reopened project, and the on-screen values while each response is released. Capture iframe identity and full-preview requests throughout.

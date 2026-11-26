@@ -8,6 +8,12 @@
   container: motion-player / inline-size;
 }
 
+/* Hold the complete preview (including out-of-frame handles) during a local history paint. */
+[data-preview-pan-surface]::view-transition { pointer-events: none; }
+[data-preview-pan-surface]::view-transition-group(root) { animation-play-state: paused; }
+[data-preview-pan-surface]::view-transition-old(root) { animation: none; opacity: 1; }
+[data-preview-pan-surface]::view-transition-new(root) { animation: none; opacity: 0; }
+
 .motion-player-control-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr);

@@ -192,7 +192,7 @@ export function useDomSelection({
             setRightPanelTab("design");
           }
         }
-        announceTimelineSelection(nextGroup, nextSelection, isAdditiveSelection);
+        if (options?.announce !== false) announceTimelineSelection(nextGroup, nextSelection, isAdditiveSelection);
         return;
       }
 

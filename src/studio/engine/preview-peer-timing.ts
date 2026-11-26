@@ -290,7 +290,6 @@ export const PREVIEW_PEER_TIMING = `
         applyTimelineReceipt(e.node, e.attr, e[key]);
       }
       for (const effect of effects) effect(key === 'to');
-      if (historyGeometry && picked?.isConnected) post('selection-geometry',{selection:describe(picked),historyRestore:true});
       // Lock is an editor flag. Studio reapplies the local monitor preference on mute.
       if (!structureChanged && !edits.some(edit => edit.attr !== 'data-timeline-locked' && edit.attr !== 'muted' && edit.attr !== 'data-color-grading')) return;
       p.seek(at);
