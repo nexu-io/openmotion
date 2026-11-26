@@ -10,8 +10,8 @@ import './EntitlementPromoModal.css';
 
 const MEDIA_BASE = '/editor-assets/epm-';
 const mediaUrl = (name: string) => `${MEDIA_BASE}${name}`;
-/** Starter trial credits policy is still pending confirmation; keep hidden until backend confirms. */
-const SHOW_STARTER_GIFT_BAR = false;
+/** Show the starter trial credits banner for guest sign-in (without image-generation claims). */
+const SHOW_STARTER_GIFT_BAR = true;
 
 const LEFT_TILES = [
   { v: 'bar-chart-skyline.webm', c: 'Data motion' },
