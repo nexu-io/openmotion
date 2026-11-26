@@ -73,7 +73,8 @@ export function OverlayLayer({
         {shouldRenderLibrary && (
           <LazyConnectionDialog
             collection={page.templateCollection}
-            onCollectionChange={templateCollection => navigatePage({ templateCollection }, true)}
+            industry={page.templateIndustry}
+            onCollectionChange={templateCollection => navigatePage({ templateCollection, templateIndustry: undefined }, true)}
             collectionSkillOpen={page.templateCollection === 'black-friday' && Boolean(page.skill)}
             detailOnly={detailOnly}
             initialTemplate={

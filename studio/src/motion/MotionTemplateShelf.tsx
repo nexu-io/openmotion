@@ -25,18 +25,20 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
   const { openLibrary, workspace, switchingDisabled, guestMode, startGuestSignIn } = useWorkspaceChrome();
   const { catalog, firstPage, failed, retry } = useCoveredTemplates(locale, true, { showFirstPage: true, covered: false });
   const [collection, setCollection] = useState<TemplateCollection | null>(null);
+  const [industry, setIndustry] = useState<string>();
   const [limit, setLimit] = useState(batchSize);
   const [priority, setPriority] = useState<string | null>(null);
-  const facet = collectionFacet(collection);
   const { purposes, industries } = useMemo(() => templateCollectionFacets(catalog ?? []), [catalog]);
   const categories: readonly (readonly [TemplateCollection | 'all', string])[] = catalog
     ? [['all', 'All'], ['top-100-brands', 'TOP 100 brands'], ...purposes.map(purpose => [`purpose:${purpose}`, purpose] as const), ['builtin', 'Editable templates']]
     : [['all', 'All']];
   const topBrands = collection === 'top-100-brands';
   // Same ranking as the Explore shelf: one lead work per brand, best-performing brands first.
-  const matches = useMemo(() => topBrands
-    ? rankDiscoverySeries(groupBrandSeries(catalog ?? [])).slice(0, topBrandsLimit).map(brand => brand.items[0])
-    : templatesInCollection(catalog ?? firstPage?.items ?? [], collection), [catalog, firstPage, collection, topBrands]);
+  const matches = useMemo(() => {
+    if (topBrands) return rankDiscoverySeries(groupBrandSeries(catalog ?? [])).slice(0, topBrandsLimit).map(brand => brand.items[0]);
+    const items = templatesInCollection(catalog ?? firstPage?.items ?? [], collection);
+    return industry ? templatesInCollection(items, industryCollection(industry)) : items;
+  }, [catalog, firstPage, collection, industry, topBrands]);
   const count = catalog ? matches.length : firstPage?.total;
   const visible = matches.slice(0, limit);
   const playing = useTemplatePlayback(root, visible.map(item => item.id).join('|'), active, true, priority, true);
@@ -45,24 +47,29 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
   const sentinel = useLoadMoreOnScroll(root, hasMore, () => {
     reportCreativeClick('creative_studio', 'studio_bar', 'load_more', { studio: 'motion' });
     setLimit(previous => previous + batchSize);
-  }, `${collection}:${limit}`);
-  const selectCollection = (next: TemplateCollection | null, group: 'uses' | 'industries' | 'editable' | 'brand') => {
-    if (next === collection) return;
+  }, `${collection}:${industry}:${limit}`);
+  const selectFilters = (next: TemplateCollection | null, nextIndustry: string | undefined, group: 'uses' | 'industries' | 'editable' | 'brand') => {
+    if (next === collection && nextIndustry === industry) return;
     setCollection(next);
+    setIndustry(nextIndustry);
     setLimit(batchSize);
     setPriority(null);
     send('ui_click', { page_name: 'creative_studio', area: 'studio_bar', element: 'category_select', studio_id: 'motion',
-      filter_group: group, ...optionId(collectionFacet(next)?.value ?? next ?? 'all') });
+      filter_group: group, ...optionId((group === 'industries' ? nextIndustry : collectionFacet(next)?.value ?? next) ?? 'all') });
   };
 
   return <ExploreShelf<TemplateCollection | 'all'> title="Motion templates" categoriesLabel="Template categories" categories={categories} selected={collection ?? 'all'}
     renderCategory={value => value === 'top-100-brands' ? <TopBrandsLabel /> : undefined}
-    onCategory={value => selectCollection(value === 'all' ? null : value, value === 'builtin' ? 'editable' : value === 'top-100-brands' ? 'brand' : 'uses')}
-    filters={<TemplateIndustryMenu industries={industries} selected={facet?.key === 'industries' ? [facet.value] : undefined}
-      onSelect={value => selectCollection(value ? industryCollection(value) : null, 'industries')} />}
+    onCategory={value => {
+      const group = value === 'builtin' ? 'editable' : value === 'top-100-brands' ? 'brand' : 'uses';
+      selectFilters(value === 'all' ? null : value, group === 'uses' ? industry : undefined, group);
+    }}
+    filters={<TemplateIndustryMenu industries={industries} selected={industry ? [industry] : undefined}
+      onSelect={value => selectFilters(!value || collection?.startsWith('purpose:') ? collection : null, value, 'industries')} />}
     action="Template library" onOpen={trigger => {
       reportCreativeClick('creative_studio', 'studio_bar', 'view_all_templates', { studio: 'motion' });
-      openLibrary(trigger, undefined, collection ?? undefined);
+      if (collection && industry) openLibrary(trigger, undefined, collection, industry);
+      else openLibrary(trigger, undefined, collection ?? (industry ? industryCollection(industry) : undefined));
     }}>
     {count != null && <span className="om-muted" role="status">{t('{count} templates', { count })}</span>}
     {!failed && !catalog && !firstPage && <div className="om-studio-template-grid" role="status" aria-label={t('Loading templates…')}>
@@ -89,7 +96,7 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
       {visible.map((item, index) => {
         const tags = [...new Set([discoveryPurposes(item)[0], item.styles?.[0]].filter((tag): tag is string => Boolean(tag)))];
         return <TemplateGalleryCard key={item.id} template={item} active={playing.has(item.id)} onPriority={setPriority}
-          brandCredit={topBrands || facet?.key === 'industries'}
+          brandCredit={topBrands || Boolean(industry)}
           onSelect={(template, trigger) => {
             reportCreativeClick('creative_studio', 'studio_bar', 'open_template', { studio: 'motion', template: template.id, position: index + 1 });
             openLibrary(trigger, template);

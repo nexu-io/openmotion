@@ -1,7 +1,7 @@
 import { IconButton } from 'open-design-ui/icon-button';
 import { CategoryStrip } from './CategoryStrip';
 import { TemplateIndustryMenu } from './TemplateIndustryMenu';
-import { collectionFacet, formatCategories, type TemplateCollection } from './templateCollections';
+import { collectionFacet, formatCategories, industryCollection, type TemplateCollection } from './templateCollections';
 import { loadCoveredTemplates, readCachedCoveredTemplates } from './useCoveredTemplates';
 import { Button } from 'open-design-ui/button';
 import { blackFridayReference, blackFridayTemplates } from '../../../shared/black-friday-collection';
@@ -86,7 +86,7 @@ function DetailMedia({ template }: { template: GalleryTemplate }) {
 }
 
 
-type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; guestMode?: boolean; onGuestTemplateSignIn?: (templateId: string, requestId: string) => void; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
+type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; industry?: string; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; guestMode?: boolean; onGuestTemplateSignIn?: (templateId: string, requestId: string) => void; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
 
 /** Full-window discovery using the existing catalog and guarded editable-project actions. */
 function DetailScroll({ enabled, container, children }: { enabled: boolean; container: RefObject<HTMLDivElement | null>; children: ReactNode }) {
@@ -116,15 +116,17 @@ export function TemplateLibraryDialog(props: Props) {
   const [attempt, retry] = useState(0), [libraryQuery, setLibraryQuery] = useState(''), [sort, setSort] = useState<Sort>('recommended');
   const [facetsSelected, setFacetsSelected] = useState<Filters>({});
   const preset = useMemo(() => collectionFacet(props.collection), [props.collection]);
-  const selected = useMemo<Filters>(() => preset ? { ...facetsSelected, [preset.key]: [preset.value] } : facetsSelected, [preset, facetsSelected]);
+  const selected = useMemo<Filters>(() => ({ ...facetsSelected, ...(preset && { [preset.key]: [preset.value] }),
+    ...(props.industry && { industries: [props.industry] }) }), [preset, facetsSelected, props.industry]);
   function setSelected(next: Filters) {
-    if (preset && next[preset.key]?.length === 1 && next[preset.key]?.[0] === preset.value) {
-      const { [preset.key]: _preset, ...otherFacets } = next;
-      setFacetsSelected(otherFacets);
-    } else {
-      setFacetsSelected(next);
-      if (preset) props.onCollectionChange?.(null);
-    }
+    const local = { ...next };
+    const keepCollection = preset && next[preset.key]?.length === 1 && next[preset.key]?.[0] === preset.value;
+    const retainedIndustry = next.industries?.length === 1 && next.industries[0] === props.industry ? props.industry : undefined;
+    if (keepCollection) delete local[preset.key];
+    if (retainedIndustry) delete local.industries;
+    setFacetsSelected(local);
+    if (preset && !keepCollection) props.onCollectionChange?.(retainedIndustry ? industryCollection(retainedIndustry) : null);
+    else if (props.industry && !retainedIndustry) props.onCollectionChange?.(props.collection ?? null);
   }
   const [preview, setPreview] = useState<GalleryTemplate | null>(null), [prompt, setPrompt] = useState('');
   const [manualCopy, setManualCopy] = useState('');

@@ -577,13 +577,13 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   // Hiding a notice never clears an editor's write guard. New errors reset the dismissal.
   const visibleNotice = notice && dismissedNotice !== noticeKey;
   if (!notice && dismissedNotice !== null) setDismissedNotice(null);
-  const openLibrary: WorkspaceChrome['openLibrary'] = (trigger, template, collection) => {
-    if (templatesPage && !page.creators && page.templateCollection === (collection ?? null) && !template) return;
+  const openLibrary: WorkspaceChrome['openLibrary'] = (trigger, template, collection, industry) => {
+    if (templatesPage && !page.creators && page.templateCollection === (collection ?? null) && page.templateIndustry === industry && !template) return;
     libraryTrigger.current = trigger ?? null;
     workspace.clearError();
     const openCollection = Boolean(collection) || !template;
     cardPreview.current = !openCollection && template ? { template, locale } : null;
-    navigatePage({ templates: openCollection, template: template?.id ?? null, templateCollection: openCollection ? (collection ?? null) : null, creators: false, creator: null, ...(page.templateCollection === 'black-friday' && { skill: null }) },
+    navigatePage({ templates: openCollection, template: template?.id ?? null, templateCollection: openCollection ? (collection ?? null) : null, templateIndustry: industry, creators: false, creator: null, ...(page.templateCollection === 'black-friday' && { skill: null }) },
       false, collection === 'black-friday' && page.explore && !connectionsOpen ? 'from-page' : undefined);
   };
   const openMotionTemplates = (trigger?: HTMLElement) => {

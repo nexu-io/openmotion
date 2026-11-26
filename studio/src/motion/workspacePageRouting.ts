@@ -28,7 +28,7 @@ export { findTemplateCollection, type TemplateCollection } from './templateColle
 export const defaultDesignScene = 'prototype';
 export type DesignSceneTarget = DesignScenarioId | 'projects';
 export type ScenarioWorkspaceMode = 'manual' | 'agent';
-export type WorkspacePage = ExploreFilters & { notFound: boolean; motion: boolean; cinemaLanding?: true; cinemaTemplate?: string | null; designScene?: DesignSceneTarget | null; designProject?: string | null; soundTab?: SoundTabId | null; specialty: TechniqueStudio | null; assetId: string | null; assetVersion: string | null; explore: boolean; scenarioHub: boolean; scenarioCategory: ScenarioCategory | null; scenario: ScenarioId | null; scenarioRun: string | null; scenarioStep: string | null; scenarioMode: ScenarioWorkspaceMode | null; studio: StudioDestination | null; settings: SettingsSection | null; assets: boolean; skills: boolean; skillCategory: SkillCategory | null; skill: string | null; templates: boolean; templateCollection: TemplateCollection | null; modelOverview: string | null; modelHub: string | null; creators: boolean; creator: string | null; mcpInSettings: boolean; mcpExample?: string | null; client: McpClient; setup: 'agent' | 'manual'; provider: string | null; template: string | null; brandKit: string | null };
+export type WorkspacePage = ExploreFilters & { notFound: boolean; motion: boolean; cinemaLanding?: true; cinemaTemplate?: string | null; designScene?: DesignSceneTarget | null; designProject?: string | null; soundTab?: SoundTabId | null; specialty: TechniqueStudio | null; assetId: string | null; assetVersion: string | null; explore: boolean; scenarioHub: boolean; scenarioCategory: ScenarioCategory | null; scenario: ScenarioId | null; scenarioRun: string | null; scenarioStep: string | null; scenarioMode: ScenarioWorkspaceMode | null; studio: StudioDestination | null; settings: SettingsSection | null; assets: boolean; skills: boolean; skillCategory: SkillCategory | null; skill: string | null; templates: boolean; templateCollection: TemplateCollection | null; templateIndustry?: string; modelOverview: string | null; modelHub: string | null; creators: boolean; creator: string | null; mcpInSettings: boolean; mcpExample?: string | null; client: McpClient; setup: 'agent' | 'manual'; provider: string | null; template: string | null; brandKit: string | null };
 
 export function changesWorkspaceDestination(patch: Partial<WorkspacePage>): boolean {
   return ['notFound', 'explore', 'motion', 'cinemaLanding', 'designScene', 'scenario', 'scenarioHub', 'studio', 'modelOverview', 'modelHub', 'specialty', 'assets', 'skills', 'settings'].some(key => key in patch);
@@ -116,13 +116,14 @@ export function readWorkspacePage(search: string, hash = '', pathname = ''): Wor
   const templates = query.get('templates') === '1';
   const creators = templates && query.get('view') === 'creators';
   const templateCollection = templates && !creators ? findTemplateCollection(query.get('collection')) : null;
+  const templateIndustry = templateCollection?.startsWith('purpose:') && query.get('industry')?.trim();
   const selectedSkill = templateCollection === 'black-friday' ? blackFridaySkillIds.find(id => id === skill) ?? null
     : page === 'skills' || collection?.techniques.some(id => id === skill) || (landing && isStudioTechnique(skill)) ? skill : null;
   return { notFound: false, motion: page === 'motion', ...(cinemaLanding && { cinemaLanding: true }), ...(cinemaTemplate && { cinemaTemplate }),
     ...(designScene ? { designScene } : {}), ...(designProject ? { designProject } : {}), ...(extendedSoundTab ? { soundTab: extendedSoundTab.id } : {}),
     modelOverview: page === 'model' ? model : null, modelHub: page === 'model-hub' ? query.get('hub') || null : null, creators, creator: creators ? query.get('creator')?.trim() || null : null, specialty, community, medium, assetId: page === 'assets' ? query.get('asset') || null : null,
     assetVersion: page === 'assets' && query.get('asset') ? query.get('version') || null : null, explore: page === 'explore', scenarioHub, scenarioCategory, scenario, scenarioRun, scenarioStep, scenarioMode, studio, settings, brandKit: settings === 'brand-kit' ? query.get('kit') || null : null, assets: page === 'assets', skills: page === 'skills', skillCategory: page === 'skills' ? skillCategories.find(value => value === (query.get('category') ?? query.get('skillCategory'))) ?? null : null, skill: selectedSkill, templates, templateCollection,
-    mcpInSettings: page === 'settings' && settings === 'mcp',
+    ...(templateIndustry && { templateIndustry }), mcpInSettings: page === 'settings' && settings === 'mcp',
     mcpExample: settings === 'mcp' ? query.get('example') : null,
     client: mcpClients.find(value => value.id === query.get('host'))?.id ?? 'codex',
     setup: query.get('setup') === 'manual' ? 'manual' : 'agent',
@@ -141,6 +142,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     isSpaRoute ? spaPathnameToSearch(originalPathname, url.search) : url.search,
   ).get('page');
   if (isSpaRoute) url.pathname = '/';
+  if (current.templates || page.templates) url.searchParams.delete('industry');
   for (const key of ['page', 'home', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'skillCategory', 'kit', 'community', 'medium', 'collection', 'hub', 'designProject', 'cinemaTemplate', 'scenario', 'run', 'step', 'mode', 'category']) url.searchParams.delete(key);
   if (current.settings === 'mcp' || page.settings === 'mcp') url.searchParams.delete('example');
   if (currentSearchPage === 'api') url.searchParams.delete('tool');
@@ -275,6 +277,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
       if (page.creator) url.searchParams.set('creator', page.creator);
     } else if (page.templateCollection) {
       url.searchParams.set('collection', page.templateCollection);
+      if (page.templateIndustry && page.templateCollection.startsWith('purpose:')) url.searchParams.set('industry', page.templateIndustry);
       if (page.templateCollection === 'black-friday' && page.skill) url.searchParams.set('skill', page.skill);
     }
   }
