@@ -1439,10 +1439,11 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.equal(seq3Relogin.status, 202);
       assert.equal(cloudTracking.batches.at(-1)![0].app_user_id, 'usr_app_A');
 
-      // Item 13: Verify Studio main HTML document emits Google GIS CSP, Permissions-Policy, and compatible COOP
+      // Item 13: Studio main HTML document reports (not enforces) the GIS CSP and enforces Permissions-Policy and compatible COOP
       const htmlRes = await app.request('/');
       assert.equal(htmlRes.status, 200);
-      const csp = htmlRes.headers.get('content-security-policy') ?? '';
+      assert.equal(htmlRes.headers.get('content-security-policy'), null);
+      const csp = htmlRes.headers.get('content-security-policy-report-only') ?? '';
       assert.match(csp, /script-src[^;]*https:\/\/accounts\.google\.com\/gsi\/client/);
       assert.match(csp, /style-src[^;]*https:\/\/accounts\.google\.com\/gsi\/style/);
       assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
@@ -2260,7 +2261,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     const composeHeaders = buildStudioDocumentSecurityHeaders({
       storagePublicOrigin: 'http://127.0.0.1:9000',
     });
-    const csp = composeHeaders['Content-Security-Policy']!;
+    const csp = composeHeaders['Content-Security-Policy-Report-Only']!;
     assert.match(csp, /frame-src[^;]*\bblob:/);
     assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
     assert.match(csp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
@@ -2272,7 +2273,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     const injectedHeaders = buildStudioDocumentSecurityHeaders({
       storagePublicOrigin: "http://127.0.0.1:9000; script-src 'unsafe-eval'",
     });
-    assert.doesNotMatch(injectedHeaders['Content-Security-Policy']!, /unsafe-eval/);
+    assert.doesNotMatch(injectedHeaders['Content-Security-Policy-Report-Only']!, /unsafe-eval/);
 
     const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-csp-privacy-rl-'));
     try {
@@ -2320,7 +2321,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       // Served SPA document carries the Compose HTTP object store and blob: frame-src
       const indexRes = await app.request('/');
       assert.equal(indexRes.status, 200);
-      const servedCsp = indexRes.headers.get('content-security-policy')!;
+      const servedCsp = indexRes.headers.get('content-security-policy-report-only')!;
       assert.match(servedCsp, /frame-src[^;]*\bblob:/);
       assert.match(servedCsp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
       assert.match(servedCsp, /media-src[^;]*http:\/\/127\.0\.0\.1:9000/);

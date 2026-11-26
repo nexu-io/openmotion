@@ -192,8 +192,11 @@ function normalizeCspOrigin(raw: string | null | undefined): string | null {
 
 /**
  * Main-document security headers required by Google Identity Services (GIS) One Tap + FedCM.
- * Enforces GIS script/style/frame/connect allowances, `identity-credentials-get` Permissions-Policy,
- * and `Cross-Origin-Opener-Policy: same-origin-allow-popups` (never `same-origin`).
+ * Enforces the `identity-credentials-get` Permissions-Policy and
+ * `Cross-Origin-Opener-Policy: same-origin-allow-popups` (never `same-origin`). The document CSP
+ * (GIS script/style/frame/connect allowances) is report-only: Studio still embeds third-party
+ * frames (for example external playable games) that this allowlist does not cover yet, and GIS
+ * itself does not need a CSP. Enforce it only after every embedded frame source is listed.
  */
 export function buildStudioDocumentSecurityHeaders(
   options: { previewOrigin?: string | null; storagePublicOrigin?: string | null } = {},
@@ -216,7 +219,7 @@ export function buildStudioDocumentSecurityHeaders(
   const mediaSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
   const fontSrc = uniqueSources(["'self'", 'data:', 'https:', storageOrigin]);
   return {
-    'Content-Security-Policy': [
+    'Content-Security-Policy-Report-Only': [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client",
       "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
