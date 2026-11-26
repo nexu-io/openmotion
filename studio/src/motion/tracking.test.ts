@@ -159,3 +159,121 @@ it('exposes safe queue and delivery statuses while rejecting private or non-Stud
   expect(await tracking.flushMotionTracking()).toBe('disabled');
   expect(tracking.getMotionTrackingStatus().pending).toBe(0);
 });
+
+it('reads HTML-injected runtime config with zero config GET and dual-reports identical event_id to PostHog and Tracert', async () => {
+  const tag = document.createElement('script');
+  tag.type = 'application/json';
+  tag.id = 'openmotion-tracking-config';
+  tag.textContent = JSON.stringify({
+    enabled: true,
+    posthogEnabled: true,
+    locked: true,
+    reason: 'cloud',
+    tracert: { spmA: 99, endpoint: '/t/events', environment: 'prod', appVersion: '0.1.0' },
+  });
+  document.head.appendChild(tag);
+
+  const posthogPayloads: Array<{ events: Array<{ event: string; event_id: string; occurred_at: string }> }> = [];
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.body) posthogPayloads.push(JSON.parse(String(init.body)));
+    return Response.json({ ok: true, accepted: true });
+  });
+  vi.stubGlobal('fetch', fetcher);
+
+  const tracertCaptures: Array<{ event: string; props: Record<string, unknown>; options: { uuid?: string; timestamp?: Date } }> = [];
+  const tracertConsents: string[] = [];
+  const tracertIdentifies: string[] = [];
+  let tracertResets = 0;
+
+  const tracertClient = await import('./tracertClient');
+  tracertClient.setTracertSdkLoaderForTests(async () => ({
+    Tracert: class {
+      init() { return this; }
+      capture(event: string, props: Record<string, unknown> = {}, options: { uuid?: string; timestamp?: Date } = {}) {
+        tracertCaptures.push({ event, props, options });
+      }
+      identify(id: string) { tracertIdentifies.push(id); }
+      reset() { tracertResets += 1; }
+      setContext() {}
+      clearContext() {}
+      setConsent(state: string) { tracertConsents.push(state); }
+      async flush() { return { status: 'confirmed' as const, accepted: 0, duplicate: 0, rejected: 0, dropped: 0, pending: 0 }; }
+      destroy() {}
+    },
+  }));
+
+  try {
+    const tracking = await import('./tracking');
+    tracking.syncMotionTrackingIdentity({
+      signedIn: true,
+      userId: 'app-user-dual-1',
+      workspaceId: 'ext-ws-dual-1',
+      workspaceRole: 'owner',
+      planTier: 'plus',
+    });
+
+    expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+    // Invalid private payload must be rejected for BOTH PostHog and Tracert.
+    expect(await tracking.trackMotion('ui_click', { ...click, prompt: 'SECRET' } as any)).toBe('invalid');
+    await tracking.flushMotionTracking();
+
+    // Only 1 POST to /motion-api/tracking; zero GET /motion-api/tracking because HTML tag hydrated synchronously.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(posthogPayloads).toHaveLength(1);
+    expect(posthogPayloads[0].events).toHaveLength(1);
+    expect(tracertCaptures).toHaveLength(1);
+    expect(tracertCaptures[0].event).toBe('ui_click');
+    expect(tracertCaptures[0].options.uuid).toBe(posthogPayloads[0].events[0].event_id);
+    expect(tracertCaptures[0].options.timestamp?.toISOString()).toBe(posthogPayloads[0].events[0].occurred_at);
+    expect(tracertIdentifies).toEqual(['app-user-dual-1']);
+
+    tracking.resetMotionTrackingIdentity();
+    expect(tracertResets).toBe(1);
+
+    tracking.setMotionTrackingEnabled(false);
+    expect(tracertConsents).toContain('denied');
+    tracking.resetMotionTrackingForTests();
+  } finally {
+    tag.remove();
+  }
+});
+
+it('supports Tracert-only mode without posting batches to /motion-api/tracking', async () => {
+  const fetcher = vi.fn(async () =>
+    Response.json({
+      enabled: true,
+      posthogEnabled: false,
+      locked: true,
+      reason: 'cloud',
+      tracert: { spmA: 'openmotion-web', environment: 'test' },
+    }),
+  );
+  vi.stubGlobal('fetch', fetcher);
+
+  const tracertCaptures: Array<{ event: string; uuid?: string }> = [];
+  const tracertClient = await import('./tracertClient');
+  tracertClient.setTracertSdkLoaderForTests(async () => ({
+    Tracert: class {
+      init() { return this; }
+      capture(event: string, _props?: Record<string, unknown>, options?: { uuid?: string }) {
+        tracertCaptures.push({ event, uuid: options?.uuid });
+      }
+      identify() {}
+      reset() {}
+      setContext() {}
+      clearContext() {}
+      setConsent() {}
+      async flush() { return { status: 'confirmed' as const, accepted: 0, duplicate: 0, rejected: 0, dropped: 0, pending: 0 }; }
+      destroy() {}
+    },
+  }));
+
+  const tracking = await import('./tracking');
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  expect(await tracking.flushMotionTracking()).toBe('accepted');
+  // Only the initial GET /motion-api/tracking config call occurred; no POST batch sent to PostHog proxy.
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(tracertCaptures).toHaveLength(1);
+  expect(tracertCaptures[0].event).toBe('ui_click');
+  tracking.resetMotionTrackingForTests();
+});

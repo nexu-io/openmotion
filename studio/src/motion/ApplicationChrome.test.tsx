@@ -7,13 +7,28 @@ import { readStudioUiPreferences } from '../utils/studioUiPreferences';
 import { ApplicationAccountMenu } from './ApplicationChrome';
 import { SettingsCenter } from './SettingsCenter';
 
+const accountHook = vi.hoisted(() => ({
+  account: null as Record<string, unknown> | null,
+  syncIdentity: vi.fn(),
+  resetIdentity: vi.fn(),
+}));
 vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => ({ openHome: vi.fn(), openLibrary: vi.fn(), switchingDisabled: false, navigationCollapsed: false }) }));
-vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: null }), AccountSettings: () => null }));
+vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: accountHook.account }), AccountSettings: () => null, buildLoginUrl: () => '/auth/login' }));
+vi.mock('./tracertClient', () => ({
+  syncTracertIdentity: accountHook.syncIdentity,
+  resetTracertIdentity: accountHook.resetIdentity,
+}));
 vi.mock('./ModelSwitcher', () => ({ ModelSwitcher: () => null }));
 vi.mock('./GitHubLink', () => ({ GitHubLink: () => null }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: vi.fn(async () => ({ version: 'test' })) }));
 
-beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/'); });
+beforeEach(() => {
+  accountHook.account = null;
+  accountHook.syncIdentity.mockClear();
+  accountHook.resetIdentity.mockClear();
+  localStorage.clear();
+  history.replaceState(null, '', '/');
+});
 afterEach(() => {
   cleanupMounted();
   delete document.documentElement.dataset.theme;
@@ -80,4 +95,42 @@ it('switches the theme from the appearance submenu without navigating to setting
   expect(appearance().textContent).toBe('AppearanceLight');
   await click(appearance());
   expect(light().getAttribute('aria-checked')).toBe('true');
+});
+
+it('syncs canonical appUserId and externalWorkspaceId to tracking and resets identity on sign-out', async () => {
+  accountHook.account = {
+    state: 'signed-in',
+    userId: 'local-uuid-1',
+    appUserId: 'amr-app-user-42',
+    authMode: 'oidc',
+    plan: 'plus',
+    billingUnavailable: false,
+    user: { name: 'Ada', email: 'ada@example.test' },
+    activeWorkspace: {
+      id: 'local-ws-1',
+      slug: 'personal',
+      name: 'Personal',
+      role: 'owner',
+      externalWorkspaceId: 'amr-ws-99',
+    },
+  };
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
+
+  mountHost(<I18nProvider initialLocale="en"><ApplicationAccountMenu settings={null} openSettings={() => {}} /></I18nProvider>);
+  await settle();
+
+  expect(accountHook.syncIdentity).toHaveBeenCalledWith({
+    signedIn: true,
+    userId: 'amr-app-user-42',
+    workspaceId: 'amr-ws-99',
+    workspaceRole: 'owner',
+    planTier: 'plus',
+  });
+
+  await click(document.querySelector('[aria-label="Account menu"]'));
+  const signOutItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Sign out'))!;
+  await click(signOutItem);
+
+  expect(accountHook.resetIdentity).toHaveBeenCalledTimes(1);
+  vi.unstubAllGlobals();
 });

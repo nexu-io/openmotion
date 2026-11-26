@@ -17,6 +17,7 @@ import { clearPrivateSwrCache } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
+import { resetTracertIdentity, syncTracertIdentity } from './tracertClient';
 import { GitHubLink } from './GitHubLink';
 import { repositorySupportLinks } from './githubRepository';
 import type { SettingsSection } from './workspacePageRouting';
@@ -129,6 +130,13 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
       workspaceRole: account.activeWorkspace?.role ?? null,
       authMode: account.authMode ?? null,
     });
+    syncTracertIdentity({
+      signedIn: account.state === 'signed-in',
+      userId: account.state === 'signed-in' ? (account.appUserId ?? account.userId ?? null) : null,
+      workspaceId: account.activeWorkspace?.externalWorkspaceId ?? account.activeWorkspace?.id ?? null,
+      workspaceRole: account.activeWorkspace?.role ?? null,
+      planTier: account.state === 'signed-in' && !account.billingUnavailable ? (account.plan ?? null) : null,
+    });
   }, [account]);
   const cloudWeb = useCloudWebMode();
   const theme = useStudioThemePreference();
@@ -155,6 +163,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
       if (!response.ok) throw new Error('Could not sign out');
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
+      resetTracertIdentity();
       window.dispatchEvent(new Event('motion:account-changed'));
     } catch {
       openSettings('account');

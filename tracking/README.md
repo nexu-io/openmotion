@@ -17,10 +17,11 @@ OpenDesign project (420348). Application version and environment remain event
 properties; they do not disable collection. DEV packages retain their separate
 installation/data directories and template routing.
 OM events carry `product=openmotion`; OM reports must filter by that property,
-and shared-project reports must distinguish OM from other products. The project's
-public, write-only token and ingestion host are distributed in
-`shared/tracking-config.json`; it contains no read/admin credentials and is never
-included in the browser bundle. Users do not need to supply a key or opt-in flag.
+and shared-project reports must distinguish OM from other products. Telemetry stays
+disabled by default for open-source and self-hosted deployments unless explicitly
+configured through environment variables (`OPENMOTION_TRACKING_ENABLED=1` with a
+public write-only `phc_` token for PostHog, and/or `OPENMOTION_TRACERT_SPM_A` for
+browser Tracert dual-reporting); no hardcoded project token is bundled in source.
 
 Users can turn collection off in Studio's **Privacy settings → Share usage data**.
 This preference is persisted under the installation's data directory and applies

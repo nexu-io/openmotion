@@ -1,6 +1,14 @@
 import crypto from 'node:crypto';
+import { TracertNode, type FlushResult as TracertFlushResult } from '@powerformer/tracert/node';
 import { isEntitlementHookId, type EntitlementHookId } from '../shared/entitlement-hooks.ts';
-import { createTracker, uuid } from '../tracking/core.ts';
+import {
+  buildBrowserTracertConfig,
+  buildBrowserTrackingRuntimeConfig,
+  normalizeTracertEnvironment,
+  type BrowserTracertConfig,
+  type BrowserTrackingRuntimeConfig,
+} from '../shared/tracking-runtime-config.ts';
+import { createTracker, deviceContext, uuid } from '../tracking/core.ts';
 import { omEvents, studioEvents } from '../tracking/events.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 
@@ -10,10 +18,19 @@ const MAX_BROWSER_BATCH_SIZE = 25;
 // drop conversion events while keeping each PostHog /batch/ request within its 16-event / 64 KB cap.
 const STUDIO_TRACKER_MAX_QUEUE = 1024;
 const STUDIO_TRACKER_FLUSH_INTERVAL_MS = 500;
+const MAX_IDENTITY_LENGTH = 256;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+
+export interface CloudTrackingOptions {
+  readonly tracertFetch?: typeof fetch;
+}
 
 export interface CloudTrackingHandle {
   isEnabled(): boolean;
+  isPosthogEnabled(): boolean;
+  isTracertEnabled(): boolean;
   lockReason(): 'environment' | null;
+  browserConfig(): BrowserTrackingRuntimeConfig;
   acceptBrowserBatch(payload: unknown): number;
   trackWebSignInResult(params: {
     outcome: 'success' | 'failure' | 'cancelled';
@@ -22,6 +39,8 @@ export interface CloudTrackingHandle {
     userId?: string | null;
     durationMs?: number;
   }): void;
+  flush(options?: { timeoutMs?: number }): Promise<TracertFlushResult | null>;
+  shutdown(options?: { timeoutMs?: number }): Promise<void>;
 }
 
 export function cloudTrackingLockReason(env: NodeJS.ProcessEnv = process.env): 'environment' | null {
@@ -31,12 +50,43 @@ export function cloudTrackingLockReason(env: NodeJS.ProcessEnv = process.env): '
 }
 
 function disabledCloudTracking(reason: 'environment' | null): CloudTrackingHandle {
+  const browserRuntimeConfig = buildBrowserTrackingRuntimeConfig({
+    posthogEnabled: false,
+    locked: true,
+    reason: reason ?? 'cloud',
+    tracert: null,
+  });
   return {
     isEnabled: () => false,
+    isPosthogEnabled: () => false,
+    isTracertEnabled: () => false,
     lockReason: () => reason,
+    browserConfig: () => browserRuntimeConfig,
     acceptBrowserBatch: () => 0,
     trackWebSignInResult: () => {},
+    flush: async () => null,
+    shutdown: async () => {},
   };
+}
+
+function resolveNodeTracertEndpoint(
+  endpoint: string | undefined,
+  env: NodeJS.ProcessEnv,
+): string | undefined | null {
+  if (!endpoint) return undefined;
+  if (!endpoint.startsWith('/')) return endpoint;
+  const rawOrigin = (env.APP_PUBLIC_ORIGIN ?? '').trim();
+  if (!rawOrigin) return null;
+  try {
+    const origin = new URL(rawOrigin);
+    const isHttps = origin.protocol === 'https:';
+    const isLoopbackHttp =
+      origin.protocol === 'http:' && LOOPBACK_HOSTS.has(origin.hostname.toLowerCase());
+    if (!isHttps && !isLoopbackHttp) return null;
+    return new URL(endpoint, origin.origin).toString();
+  } catch {
+    return null;
+  }
 }
 
 export function sanitizeHookId(value: string | null | undefined): EntitlementHookId | undefined {
@@ -63,13 +113,20 @@ function stableDeploymentInstallationId(env: NodeJS.ProcessEnv, host: string, to
 }
 
 /**
- * Env-controlled PostHog tracker for the Web Cloud API server.
- * Stays safely disabled unless OPENMOTION_TRACKING_ENABLED=1/true and a valid
- * public PostHog token (OPENMOTION_POSTHOG_TOKEN or OPENMOTION_POSTHOG_KEY=phc_...)
- * are configured, and always honors OPENMOTION_TELEMETRY=0, DO_NOT_TRACK=1,
- * test-context suppression, and fail-closed host validation.
+ * Env-controlled PostHog + Tracert web runtime configuration for the Cloud API server.
+ *
+ * - PostHog stays disabled unless `OPENMOTION_TRACKING_ENABLED=1/true` and a valid
+ *   public PostHog token (`OPENMOTION_POSTHOG_TOKEN` or `OPENMOTION_POSTHOG_KEY=phc_...`) are set.
+ * - Tracert web reporting stays disabled unless `OPENMOTION_TRACERT_SPM_A` is set.
+ * - Self-hosted deployments with neither configured emit zero telemetry.
+ * - Both channels honor `OPENMOTION_TELEMETRY=0`, `DO_NOT_TRACK=1`, test-context
+ *   suppression (unless `OPENMOTION_TRACKING_TEST_RUN_ID` is set), and fail-closed validation.
  */
-export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv = process.env): CloudTrackingHandle {
+export function createCloudTracking(
+  appVersion: string,
+  env: NodeJS.ProcessEnv = process.env,
+  options: CloudTrackingOptions = {},
+): CloudTrackingHandle {
   const lockReason = cloudTrackingLockReason(env);
   if (lockReason !== null) {
     return disabledCloudTracking(lockReason);
@@ -82,59 +139,117 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
   const flag = (env.OPENMOTION_TRACKING_ENABLED ?? '').trim().toLowerCase();
   const token = (env.OPENMOTION_POSTHOG_TOKEN ?? '').trim() || (env.OPENMOTION_POSTHOG_KEY ?? '').trim();
   const host = (env.OPENMOTION_POSTHOG_HOST ?? 'https://us.i.posthog.com').trim();
-  const rawEnv = (env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production')).trim().toLowerCase();
+  const rawEnv = (env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : (env.NODE_ENV ?? 'production'))).trim().toLowerCase();
   const trackingEnv: 'development' | 'test' | 'production' =
     rawEnv === 'development' || rawEnv === 'test' ? rawEnv : 'production';
 
-  const shouldEnable = (flag === '1' || flag === 'true') && /^phc_[A-Za-z0-9_]+$/.test(token);
+  const tracertConfig: BrowserTracertConfig | null = buildBrowserTracertConfig({
+    spmA: env.OPENMOTION_TRACERT_SPM_A,
+    endpoint: env.OPENMOTION_TRACERT_ENDPOINT,
+    environment: normalizeTracertEnvironment(rawEnv, trackingEnv === 'production' ? 'prod' : 'test'),
+    appVersion,
+  });
 
-  if (!shouldEnable || !host) {
-    return disabledCloudTracking(null);
+  const posthogRequested = (flag === '1' || flag === 'true') && /^phc_[A-Za-z0-9_]+$/.test(token) && Boolean(host);
+
+  let sender: ReturnType<typeof createPosthogSender> | null = null;
+  if (posthogRequested) {
+    try {
+      sender = createPosthogSender({
+        host,
+        token,
+        identity: {
+          installation_id: stableDeploymentInstallationId(env, host, token),
+          utm_source: 'openmotion_web',
+          created_at: '2026-01-01T00:00:00.000Z',
+        },
+        appVersion,
+        env: trackingEnv,
+        testRunId: (env.OPENMOTION_TRACKING_TEST_RUN_ID ?? '').trim() || undefined,
+      });
+    } catch {
+      sender = null;
+    }
   }
 
-  let sender: ReturnType<typeof createPosthogSender>;
-  try {
-    sender = createPosthogSender({
-      host,
-      token,
-      identity: {
-        installation_id: stableDeploymentInstallationId(env, host, token),
-        utm_source: 'openmotion_web',
-        created_at: '2026-01-01T00:00:00.000Z',
-      },
-      appVersion,
-      env: trackingEnv,
-      testRunId: (env.OPENMOTION_TRACKING_TEST_RUN_ID ?? '').trim() || undefined,
-    });
-  } catch {
+  let tracertNode: TracertNode | null = null;
+  if (tracertConfig) {
+    const nodeEndpoint = resolveNodeTracertEndpoint(tracertConfig.endpoint, env);
+    if (nodeEndpoint !== null) {
+      try {
+        tracertNode = new TracertNode({
+          spmA: tracertConfig.spmA,
+          ...(nodeEndpoint ? { endpoint: nodeEndpoint } : {}),
+          environment: tracertConfig.environment,
+          appVersion: tracertConfig.appVersion ?? appVersion,
+          defaultProperties: {
+            product: 'openmotion',
+            entrypoint: 'api',
+            env: tracertConfig.environment,
+          },
+          ...(options.tracertFetch ? { fetch: options.tracertFetch } : {}),
+        });
+      } catch {
+        tracertNode = null;
+      }
+    }
+  }
+
+  const posthogReady = sender !== null;
+  if (!posthogReady && !tracertConfig) {
     return disabledCloudTracking(null);
   }
 
   const isActive = () => cloudTrackingLockReason(env) === null;
+  const isPosthogActive = () => posthogReady && isActive();
+  const isTracertActive = () => Boolean(tracertConfig) && isActive();
 
-  const studioTracker = createTracker({
-    registry: studioEvents,
-    entrypoint: 'studio',
-    enabled: true,
-    maxQueue: STUDIO_TRACKER_MAX_QUEUE,
-    flushIntervalMs: STUDIO_TRACKER_FLUSH_INTERVAL_MS,
-    isEnabled: isActive,
-    send: sender,
-  });
+  const studioTracker = sender
+    ? createTracker({
+        registry: studioEvents,
+        entrypoint: 'studio',
+        enabled: true,
+        maxQueue: STUDIO_TRACKER_MAX_QUEUE,
+        flushIntervalMs: STUDIO_TRACKER_FLUSH_INTERVAL_MS,
+        isEnabled: isPosthogActive,
+        send: sender,
+      })
+    : null;
 
-  const serverTracker = createTracker({
-    registry: omEvents,
-    entrypoint: 'mcp',
-    enabled: true,
-    isEnabled: isActive,
-    send: sender,
-  });
+  const serverTracker = sender
+    ? createTracker({
+        registry: omEvents,
+        entrypoint: 'mcp',
+        enabled: true,
+        isEnabled: isPosthogActive,
+        send: sender,
+      })
+    : null;
 
   return {
     isEnabled: isActive,
+    isPosthogEnabled: isPosthogActive,
+    isTracertEnabled: isTracertActive,
     lockReason: () => cloudTrackingLockReason(env),
+    browserConfig() {
+      const currentLock = cloudTrackingLockReason(env);
+      if (currentLock !== null) {
+        return buildBrowserTrackingRuntimeConfig({
+          posthogEnabled: false,
+          locked: true,
+          reason: currentLock,
+          tracert: null,
+        });
+      }
+      return buildBrowserTrackingRuntimeConfig({
+        posthogEnabled: posthogReady,
+        locked: true,
+        reason: 'cloud',
+        tracert: tracertConfig,
+      });
+    },
     acceptBrowserBatch(payload: unknown): number {
-      if (!isActive()) return 0;
+      if (!studioTracker || !isPosthogActive()) return 0;
       const items = Array.isArray(payload)
         ? payload
         : payload && typeof payload === 'object' && Array.isArray((payload as { events?: unknown }).events)
@@ -152,19 +267,79 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
     },
     trackWebSignInResult({ outcome, hookId, entryId, userId, durationMs }) {
       if (!isActive()) return;
+      const posthogOn = Boolean(serverTracker && isPosthogActive());
+      const tracertOn = Boolean(tracertNode && isTracertActive());
+      if (!posthogOn && !tracertOn) return;
+
+      const eventId = crypto.randomUUID();
+      const occurredAt = new Date();
+      const attemptId = crypto.randomUUID();
       const safeHook: EntitlementHookId | 'openmotion_editor_login' = sanitizeHookId(hookId) ?? 'openmotion_editor_login';
       const safeEntry = sanitizeEntryId(entryId);
-      serverTracker.track('account_sign_in_result', {
-        attempt_id: crypto.randomUUID(),
+      const trimmedUserId = typeof userId === 'string' && userId.trim().length > 0 && userId.trim().length <= MAX_IDENTITY_LENGTH
+        ? userId.trim()
+        : undefined;
+      const properties = {
+        attempt_id: attemptId,
         outcome,
-        source_product: 'openmotion',
+        source_product: 'openmotion' as const,
         source_detail: safeHook,
         ...(safeEntry ? { entry_id: safeEntry } : {}),
-        ...(userId ? { amr_user_id: userId } : {}),
+        ...(trimmedUserId ? { amr_user_id: trimmedUserId } : {}),
         connector_version: 'web-oidc',
         resumed: false,
         duration_ms: Math.max(0, Math.round(durationMs ?? 0)),
-      });
+      };
+
+      if (posthogOn && serverTracker) {
+        serverTracker.ingest({
+          event: 'account_sign_in_result',
+          event_id: eventId,
+          occurred_at: occurredAt.toISOString(),
+          entrypoint: 'mcp',
+          ...deviceContext(),
+          properties,
+        });
+      }
+
+      if (tracertOn && tracertNode) {
+        try {
+          tracertNode.capture({
+            event: 'account_sign_in_result',
+            uuid: eventId,
+            timestamp: occurredAt,
+            identity: trimmedUserId
+              ? { userId: trimmedUserId }
+              : { anonymousId: safeEntry ?? attemptId },
+            properties,
+          });
+        } catch {
+          // Server telemetry must never disrupt auth callbacks.
+        }
+      }
+    },
+    async flush(flushOptions) {
+      const timeoutMs = flushOptions?.timeoutMs ?? 3000;
+      await Promise.allSettled([
+        studioTracker ? studioTracker.flush() : Promise.resolve(),
+        serverTracker ? serverTracker.flush() : Promise.resolve(),
+      ]);
+      if (!tracertNode || !isTracertActive()) return null;
+      try {
+        return await tracertNode.flush({ timeoutMs });
+      } catch {
+        return null;
+      }
+    },
+    async shutdown(shutdownOptions) {
+      const timeoutMs = shutdownOptions?.timeoutMs ?? 3000;
+      await Promise.allSettled([
+        studioTracker ? studioTracker.flush() : Promise.resolve(),
+        serverTracker ? serverTracker.flush() : Promise.resolve(),
+        tracertNode ? tracertNode.shutdown({ timeoutMs }) : Promise.resolve(),
+      ]);
+      studioTracker?.close();
+      serverTracker?.close();
     },
   };
 }

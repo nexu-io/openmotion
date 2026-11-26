@@ -1,7 +1,7 @@
 import { projectSourceReadUrl } from '../../shared/project-source-url.ts';
 import { formatFileVersion } from '../studio/etag.ts';
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
-import { createCloudTracking } from '../cloud-tracking.ts';
+import { createCloudTracking, type CloudTrackingHandle } from '../cloud-tracking.ts';
 import {
   CatalogFilmstripAutoBakeDispatcher,
   InMemoryCatalogFilmstripBakeState,
@@ -36,6 +36,7 @@ import {
   buildBrowserObservabilityConfig,
   injectRuntimeConfigIntoHtml,
 } from '../../packages/observability/config.ts';
+import { injectTrackingRuntimeConfigIntoHtml } from '../../shared/tracking-runtime-config.ts';
 import { commitProjectEdit } from '../services/project-edit.ts';
 import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
 import type { AudioKind } from '../../shared/audio-kind.ts';
@@ -290,6 +291,7 @@ export interface CreateApiAppDeps {
   readonly disableWelcomeBootstrap?: boolean;
   readonly requireBearerOnDevMcp?: boolean;
   readonly logger?: Logger;
+  readonly trackingEnv?: NodeJS.ProcessEnv;
   readonly runtimeRoot?: string;
   readonly fontsDir?: string;
   readonly checkDbHealth?: () => Promise<boolean>;
@@ -2035,7 +2037,11 @@ function createMcpDomainPorts(deps: {
 // Main Stateless Hono `api` App Factory (Testable Without Opening Sockets)
 // ---------------------------------------------------------------------------
 
-export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; services: ApiAppServices } {
+export function createApiApp(deps: CreateApiAppDeps): {
+  app: Hono<AuthEnv>;
+  services: ApiAppServices;
+  cloudTracking: CloudTrackingHandle;
+} {
   const { config, db, storage, queues, eventBus } = deps;
   const logger = deps.logger ?? createLogger({ level: config.LOG_LEVEL, bindings: { service: 'api', role: 'api' } });
   const runtimeRoot = deps.runtimeRoot ?? DEFAULT_RUNTIME_ROOT;
@@ -2506,7 +2512,12 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   // 2. Auth & OAuth 2.1 Routes (`/auth/*`, `/.well-known/*`, `/oauth/*`, `/motion-api/tokens*`)
   // -------------------------------------------------------------------------
 
-  const cloudTracking = createCloudTracking(VERSION);
+  const effectiveTrackingEnv: NodeJS.ProcessEnv = {
+    ...(deps.trackingEnv ?? process.env),
+    ...(config.OPENMOTION_TRACERT_SPM_A ? { OPENMOTION_TRACERT_SPM_A: config.OPENMOTION_TRACERT_SPM_A } : {}),
+    ...(config.OPENMOTION_TRACERT_ENDPOINT ? { OPENMOTION_TRACERT_ENDPOINT: config.OPENMOTION_TRACERT_ENDPOINT } : {}),
+  };
+  const cloudTracking = createCloudTracking(VERSION, effectiveTrackingEnv);
 
   app.route('/', createAuthRoutes({ ...authDeps, cloudTracking }));
 
@@ -2709,8 +2720,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   };
 
   app.get('/motion-api/tracking', (c) => {
-    const enabled = cloudTracking.isEnabled();
-    return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
+    return c.json(cloudTracking.browserConfig());
   });
   app.post('/motion-api/tracking', bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     const contentType = (c.req.header('content-type') ?? '').toLowerCase();
@@ -2749,7 +2759,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     if (!(await checkTrackingRateLimit(resolveClientIp()))) {
       return c.json({ error: 'Too many tracking requests' }, 429);
     }
-    if (!cloudTracking.isEnabled()) {
+    if (!cloudTracking.isPosthogEnabled()) {
       return c.json({ ok: true, accepted: false }, 202);
     }
     const body = await c.req.json().catch(() => null);
@@ -3214,7 +3224,10 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     // while returning an authentic HTTP 404 status code.
     try {
       const rawHtml = await readFile(path.join(studioBuildDir, 'index.html'), 'utf8');
-      const renderedHtml = injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig);
+      const renderedHtml = injectTrackingRuntimeConfigIntoHtml(
+        injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig),
+        cloudTracking.browserConfig(),
+      );
       const preconnectHints = [
         '<link rel="preconnect" href="https://r.open-design.ai" crossorigin>',
         ...(previewHostIsolationEnabled && previewOriginUrl
@@ -3277,7 +3290,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     });
   });
 
-  return { app, services };
+  return { app, services, cloudTracking };
 }
 
 // ---------------------------------------------------------------------------
@@ -3350,7 +3363,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
   const authCache = createRedisAuthCache(redisCmd);
   const mcpSessionStore = new RedisMcpSessionStore(redisCmd);
 
-  const { app, services } = createApiApp({
+  const { app, services, cloudTracking } = createApiApp({
     config,
     db: dbHandle.db,
     storage,
@@ -3366,6 +3379,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     checkDbHealth: () => dbHandle.checkHealth(),
     checkRedisHealth: async () => (await redisCmd.ping()) === 'PONG',
   });
+  shutdown.register('cloud-tracking', () => cloudTracking.shutdown({ timeoutMs: 3000 }));
 
   // In AUTH_MODE=dev, eagerly provision the dev tenant & welcome project (non-fatal if catalog isn't synced yet).
   if (config.AUTH_MODE === 'dev') {
@@ -3444,6 +3458,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     authMode: config.AUTH_MODE,
     modelGatewayMode: config.MODEL_GATEWAY_MODE,
     sentryWebEnabled: Boolean(config.SENTRY_WEB_DSN),
+    tracertEnabled: cloudTracking.isTracertEnabled(),
     version: VERSION,
     designSystemFiles: publicDesignFiles.length,
   });

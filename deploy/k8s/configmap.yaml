@@ -74,3 +74,7 @@ data:
   SENTRY_ENVIRONMENT: "production"
   SENTRY_RELEASE: ""
   SENTRY_TRACES_SAMPLE_RATE: "0.1"
+
+  # Cloud web analytics (Tracert spmA injected into Studio SPA HTML; empty = disabled)
+  OPENMOTION_TRACERT_SPM_A: ""
+  OPENMOTION_TRACERT_ENDPOINT: ""

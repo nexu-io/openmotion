@@ -8,7 +8,9 @@ import { transport } from './http.ts';
 // Run only in a child process against an extracted package; never contact a collector.
 const [root, mode] = process.argv.slice(2);
 assert(root && ['test', 'stable', 'local'].includes(mode));
-for (const key of ['OPENMOTION_TELEMETRY', 'DO_NOT_TRACK', 'OPENMOTION_POSTHOG_HOST', 'OPENMOTION_POSTHOG_KEY']) delete process.env[key];
+for (const key of ['OPENMOTION_TELEMETRY', 'DO_NOT_TRACK', 'OPENMOTION_POSTHOG_HOST', 'OPENMOTION_POSTHOG_KEY', 'OPENMOTION_POSTHOG_TOKEN']) delete process.env[key];
+process.env.OPENMOTION_POSTHOG_HOST = 'https://us.i.posthog.com';
+process.env.OPENMOTION_POSTHOG_KEY = 'phc_testPackageSyntheticToken123456';
 process.env.OPENMOTION_TRACKING_ENV = 'test'; process.env.OPENMOTION_TRACKING_TEST_RUN_ID = crypto.randomUUID();
 const directory = await mkdtemp(path.join(tmpdir(), 'motion-tracking-package-'));
 process.env.MOTION_DATA_DIR = directory;

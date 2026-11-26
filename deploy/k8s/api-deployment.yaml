@@ -325,6 +325,18 @@ spec:
                   name: openmotion-config
                   key: SENTRY_TRACES_SAMPLE_RATE
                   optional: true
+            - name: OPENMOTION_TRACERT_SPM_A
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACERT_SPM_A
+                  optional: true
+            - name: OPENMOTION_TRACERT_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: OPENMOTION_TRACERT_ENDPOINT
+                  optional: true
           livenessProbe:
             httpGet:
               path: /api/health/live
