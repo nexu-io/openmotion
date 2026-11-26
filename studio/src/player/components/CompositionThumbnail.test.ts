@@ -10,6 +10,8 @@ import {
   clearClientCompositionCaptureCacheForTest,
   peekCachedCompositionCapture,
   seedClientCompositionCaptureForTest,
+  seedClientCompositionSpriteForTest,
+  seedSplitCompositionCaptureFallback,
   setCachedProjectRevision,
   setClientCompositionCaptureCapabilityForTest,
   updateCachedCompositionRevisions,
@@ -607,7 +609,7 @@ describe("CompositionThumbnail retained filmstrip during refresh", () => {
       );
 
       // Even if LRU evicts the old entry from memoryStripCache mid-refresh, its object URLs stay valid.
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 135; i++) {
         seedClientCompositionCaptureForTest(
           {
             projectId: "other-project",
@@ -936,5 +938,114 @@ describe("CompositionThumbnail retained filmstrip during refresh", () => {
       retrySpy.mockRestore();
       env.cleanup();
     }
+  });
+
+  it("renders a newly split right-half selector clip immediately from inherited parent frames without flashing text", async () => {
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    setCachedProjectRevision("demo", "rev-1", { "compositions/scene-a.html": "file-v1" });
+    const previewUrl = "/api/projects/demo/preview/comp/compositions/scene-a.html";
+    seedClientCompositionCaptureForTest(
+      {
+        projectId: "demo",
+        previewUrl,
+        contentRevision: 0,
+        frameCount: 4,
+        selector: "#hero",
+        seekTime: 0,
+        duration: 10,
+      },
+      [
+        new Blob(["f0"], { type: "image/jpeg" }),
+        new Blob(["f1"], { type: "image/jpeg" }),
+        new Blob(["f2"], { type: "image/jpeg" }),
+        new Blob(["f3"], { type: "image/jpeg" }),
+      ],
+    );
+
+    const seeded = seedSplitCompositionCaptureFallback({
+      projectId: "demo",
+      previewUrl,
+      fromSelector: "#hero",
+      toSelector: "#hero-split",
+      splitFraction: 0.5,
+    });
+    expect(seeded).toBe(true);
+
+    // Mounting the newly created right-half clip should render inherited filmstrip frames immediately
+    // with zero text-strip fallback and zero poster HTTP fetches while background capture is pending.
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        React.createElement(CompositionThumbnail, {
+          previewUrl,
+          label: "",
+          labelColor: "#fff",
+          selector: "#hero-split",
+          seekTime: 5,
+          duration: 5,
+          projectId: "demo",
+          contentRevision: 0,
+        }),
+      );
+    });
+    await act(async () => {
+      reportResize(240, 48);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(host.querySelector('[data-composition-strip="text"]')).toBeNull();
+    expect(host.querySelectorAll("img").length).toBeGreaterThan(0);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("renders a zero-slice sprite sheet across timeline tiles using 1 shared object URL and CSS background-position", async () => {
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    setCachedProjectRevision("demo", "rev-sprite", { "compositions/scene-a.html": "file-sprite-v1" });
+    const previewUrl = "/api/projects/demo/preview/comp/compositions/scene-a.html";
+    const seeded = seedClientCompositionSpriteForTest(
+      {
+        projectId: "demo",
+        previewUrl,
+        contentRevision: 0,
+        frameCount: 8,
+      },
+      new Blob(["packed-8-frame-sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+    expect(seeded.kind).toBe("sprite");
+    const spriteUrl = seeded.kind === "sprite" ? seeded.url : "";
+
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        React.createElement(CompositionThumbnail, {
+          previewUrl,
+          label: "",
+          labelColor: "#fff",
+          projectId: "demo",
+          contentRevision: 0,
+          clipDuration: 8,
+        }),
+      );
+    });
+    await act(async () => {
+      reportResize(400, 48);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(host.querySelectorAll("img")).toHaveLength(0);
+    const tiles = [...host.querySelectorAll<HTMLElement>("[data-sprite-frame]")];
+    expect(tiles.length).toBeGreaterThan(1);
+    expect(tiles.every((tile) => tile.getAttribute("data-sprite-url") === spriteUrl)).toBe(true);
+    expect(tiles[0]?.getAttribute("data-sprite-frame")).toBe("0");
+    expect(tiles.at(-1)?.getAttribute("data-sprite-frame")).toBe("7");
+    const firstInner = tiles[0]?.firstElementChild as HTMLElement | null;
+    const lastInner = tiles.at(-1)?.firstElementChild as HTMLElement | null;
+    expect(firstInner?.style.backgroundSize).toBe("800% 100%");
+    expect(firstInner?.style.backgroundPosition).toBe("0% 0%");
+    expect(lastInner?.style.backgroundPosition).toBe("100% 0%");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

@@ -18,6 +18,7 @@ import {
   isCatalogCasKey,
   isImmutableCasKey,
   projectCompFilmstripKey,
+  projectCompThumbsPrefix,
 } from '../../src/infra/storage.ts';
 import {
   clearBuiltinFilmstripCacheForTest,
@@ -32,9 +33,12 @@ import { handleStudioError, type DisklessStudioDeps } from '../../src/studio/con
 import {
   COMPOSITION_FILMSTRIP_VERSION,
   computeCompositionFilmstripDepsDigest,
+  computeCompositionFilmstripRenderKey,
+  computeLegacyV1CompositionFilmstripDepsDigest,
   embedFilmstripComment,
   extractFilmstripMeta,
   extractIndexHeadMarkup,
+  preloadTransitiveReferencedCodeAssets,
   FILMSTRIP_HEADER_ASPECT,
   FILMSTRIP_HEADER_FRAMES,
   FILMSTRIP_HEADER_HEIGHT,
@@ -1015,5 +1019,314 @@ describe('Studio composition filmstrip HTTP routes', () => {
     assert.equal(res.status, 204);
     assert.deepEqual(readPaths, ['index.html', 'compositions/parent.html', 'compositions/child.html']);
     assert.equal(readPaths.includes('compositions/unrelated-sibling.html'), false);
+  });
+
+  it('keeps builtin and legacy v1 catalog filmstrips warm when unrelated audio or unreferenced media are uploaded', async () => {
+    const welcome = await assembleBuiltinTemplate(
+      BUILTIN_TEMPLATES.find((t) => t.id === WELCOME_TEMPLATE_ID)!,
+    );
+    const projectFiles = welcome.files.filter((f) => f.isProjectFile && f.bytes !== null);
+    const texts = new Map<string, string>();
+    const files: VirtualFileRecord[] = projectFiles.map((f) => {
+      const isText = /\.(?:html?|css|js|mjs|json|svg|txt)$/i.test(f.path);
+      if (isText) texts.set(f.path, f.bytes!.toString('utf8'));
+      return {
+        path: f.path,
+        blobScope: 'catalog',
+        sha256: f.sha256,
+        sizeBytes: f.sizeBytes,
+        mimeType: f.mimeType,
+        isText,
+        updatedAt: new Date(0),
+        metadata: f.metadata,
+      };
+    });
+
+    const storage = new MemoryStorage();
+    const app = makeRouteApp(
+      storage,
+      (_auth, projectId) => (projectId === PID_A ? { files, texts } : null),
+      () => makeAuth(),
+    );
+
+    const before = await app.request(
+      `http://studio.local/api/projects/${PID_A}/composition-filmstrip/compositions/intro.html`,
+    );
+    assert.equal(before.status, 200);
+    assert.equal(before.headers.get(FILMSTRIP_HEADER_SOURCE), 'builtin');
+    const beforeRenderKey = before.headers.get(FILMSTRIP_HEADER_RENDER_KEY);
+
+    // Upload a brand-new BGM audio track AND an unreferenced image/video to workspace -> ZERO invalidation!
+    files.push(
+      {
+        path: 'assets/user-bgm.mp3',
+        blobScope: 'workspace',
+        sha256: SHA_OTHER,
+        sizeBytes: 4096,
+        mimeType: 'audio/mpeg',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/unreferenced-banner.png',
+        blobScope: 'workspace',
+        sha256: SHA_PATCH,
+        sizeBytes: 8192,
+        mimeType: 'image/png',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/unreferenced-clip.mp4',
+        blobScope: 'workspace',
+        sha256: SHA_SCENE,
+        sizeBytes: 16384,
+        mimeType: 'video/mp4',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+    );
+
+    const afterUploads = await app.request(
+      `http://studio.local/api/projects/${PID_A}/composition-filmstrip/compositions/intro.html`,
+    );
+    assert.equal(afterUploads.status, 200);
+    assert.equal(afterUploads.headers.get(FILMSTRIP_HEADER_SOURCE), 'builtin');
+    assert.equal(afterUploads.headers.get(FILMSTRIP_HEADER_RENDER_KEY), beforeRenderKey);
+
+    // Editing a visual asset referenced by assets/film.css (`assets/sky.webp`) MUST invalidate cleanly.
+    const skyIdx = files.findIndex((f) => f.path === 'assets/sky.webp');
+    assert.ok(skyIdx >= 0);
+    files[skyIdx] = { ...files[skyIdx]!, blobScope: 'workspace', sha256: SHA_PATCH };
+    const afterSkyEdit = await app.request(
+      `http://studio.local/api/projects/${PID_A}/composition-filmstrip/compositions/intro.html`,
+    );
+    assert.equal(afterSkyEdit.status, 204);
+    assert.notEqual(afterSkyEdit.headers.get(FILMSTRIP_HEADER_RENDER_KEY), beforeRenderKey);
+
+    // Pre-existing v1 S3 catalog sprites still hit read-only even after uploading workspace BGM/unused PNG.
+    const catalogFiles: VirtualFileRecord[] = [
+      {
+        path: 'index.html',
+        blobScope: 'catalog',
+        sha256: SHA_OTHER,
+        sizeBytes: 64,
+        mimeType: 'text/html',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'compositions/scene.html',
+        blobScope: 'catalog',
+        sha256: SHA_SCENE,
+        sizeBytes: 64,
+        mimeType: 'text/html',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+    ];
+    const catalogTexts = new Map<string, string>([
+      ['index.html', '<html><head><title>Legacy</title></head><body></body></html>'],
+      ['compositions/scene.html', '<div>Legacy Scene</div>'],
+    ]);
+    const legacyV1 = computeLegacyV1CompositionFilmstripDepsDigest({
+      compPath: 'compositions/scene.html',
+      files: catalogFiles,
+      indexHead: extractIndexHeadMarkup(catalogTexts.get('index.html')),
+      readText: (p) => catalogTexts.get(p) ?? null,
+    });
+    const raw8 = await makeTestSpriteJpeg(8, 160, 90);
+    const tagged8 = embedFilmstripComment(raw8, {
+      version: 1,
+      frameCount: 8,
+      frameWidth: 160,
+      frameHeight: 90,
+      aspect: 16 / 9,
+    })!;
+    await storage.putObject(
+      catalogCompFilmstripKey(SHA_SCENE, legacyV1.depsSha256, COMPOSITION_FILMSTRIP_VERSION),
+      tagged8,
+      'image/jpeg',
+    );
+    const catalogWithUploads: VirtualFileRecord[] = [
+      ...catalogFiles,
+      {
+        path: 'assets/user-voiceover.wav',
+        blobScope: 'workspace',
+        sha256: SHA_PATCH,
+        sizeBytes: 2048,
+        mimeType: 'audio/wav',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/unused-extra.jpg',
+        blobScope: 'workspace',
+        sha256: SHA_PATCH,
+        sizeBytes: 2048,
+        mimeType: 'image/jpeg',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+    ];
+    const legacyApp = makeRouteApp(
+      storage,
+      (_auth, projectId) => (projectId === PID_B ? { files: catalogWithUploads, texts: catalogTexts } : null),
+      () => makeAuth(),
+    );
+    const legacyHit = await legacyApp.request(
+      `http://studio.local/api/projects/${PID_B}/composition-filmstrip/compositions/scene.html`,
+    );
+    assert.equal(legacyHit.status, 200);
+    assert.equal(legacyHit.headers.get(FILMSTRIP_HEADER_SOURCE), 'catalog');
+
+    // Pre-existing v1 workspace S3 sprites also hit read-only until superseded by an edit.
+    const wsFiles: VirtualFileRecord[] = [
+      {
+        path: 'compositions/custom-v1.html',
+        blobScope: 'workspace',
+        sha256: SHA_PATCH,
+        sizeBytes: 64,
+        mimeType: 'text/html',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+    ];
+    const wsLegacyDeps = computeLegacyV1CompositionFilmstripDepsDigest({
+      compPath: 'compositions/custom-v1.html',
+      files: wsFiles,
+      indexHead: null,
+    }).depsSha256;
+    const wsLegacyRenderKey = computeCompositionFilmstripRenderKey({
+      compPath: 'compositions/custom-v1.html',
+      fileSha256: SHA_PATCH,
+      blobScope: 'workspace',
+      depsSha256: wsLegacyDeps,
+    });
+    await storage.putObject(
+      projectCompFilmstripKey(WID_A, PID_B, wsLegacyRenderKey),
+      tagged8,
+      'image/jpeg',
+    );
+    const wsApp = makeRouteApp(
+      storage,
+      (_auth, projectId) => (projectId === PID_B ? { files: wsFiles } : null),
+      () => makeAuth(),
+    );
+    const wsLegacyHit = await wsApp.request(
+      `http://studio.local/api/projects/${PID_B}/composition-filmstrip/compositions/custom-v1.html`,
+    );
+    assert.equal(wsLegacyHit.status, 200);
+    assert.equal(wsLegacyHit.headers.get(FILMSTRIP_HEADER_SOURCE), 'workspace');
+
+    // Verify projectCompThumbsPrefix builds tenant-scoped cleanup prefixes safely.
+    assert.equal(
+      projectCompThumbsPrefix(WID_A, PID_A),
+      `workspaces/${WID_A}/comp-thumbs/${PID_A}/`,
+    );
+    assert.throws(() => projectCompThumbsPrefix('not-a-uuid', PID_A), { code: 'INVALID_PATH' });
+  });
+
+  it('tracks transitive JS/CSS refs, filenames with spaces, and image-set() consistently', async () => {
+    const files: VirtualFileRecord[] = [
+      {
+        path: 'index.html',
+        blobScope: 'workspace',
+        sha256: '1'.repeat(64),
+        sizeBytes: 64,
+        mimeType: 'text/html',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'compositions/scene.html',
+        blobScope: 'workspace',
+        sha256: '2'.repeat(64),
+        sizeBytes: 120,
+        mimeType: 'text/html',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/app.js',
+        blobScope: 'workspace',
+        sha256: '3'.repeat(64),
+        sizeBytes: 80,
+        mimeType: 'application/javascript',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/theme.css',
+        blobScope: 'workspace',
+        sha256: '4'.repeat(64),
+        sizeBytes: 90,
+        mimeType: 'text/css',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/hero banner.png',
+        blobScope: 'workspace',
+        sha256: '5'.repeat(64),
+        sizeBytes: 1024,
+        mimeType: 'image/png',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+      {
+        path: 'assets/bg-2x.webp',
+        blobScope: 'workspace',
+        sha256: '6'.repeat(64),
+        sizeBytes: 1024,
+        mimeType: 'image/webp',
+        isText: false,
+        updatedAt: new Date(0),
+      },
+    ];
+    const texts = new Map<string, string>([
+      ['index.html', '<html><head></head><body></body></html>'],
+      ['compositions/scene.html', '<div data-composition-id="s"><script src="../assets/app.js"></script></div>'],
+      ['assets/app.js', 'const css = "./theme.css"; const img = "./hero banner.png";'],
+      ['assets/theme.css', '.hero { background: image-set("./bg-2x.webp" 2x); }'],
+    ]);
+    const loaded = await preloadTransitiveReferencedCodeAssets({
+      files,
+      indexHead: '',
+      htmlSources: new Map([['compositions/scene.html', texts.get('compositions/scene.html')!]]),
+      loadCodeText: async (p) => texts.get(p) ?? null,
+    });
+    assert.equal(loaded.has('assets/app.js'), true);
+    assert.equal(loaded.has('assets/theme.css'), true);
+
+    const readText = (p: string) => texts.get(p) ?? null;
+    const digest1 = computeCompositionFilmstripDepsDigest({
+      compPath: 'compositions/scene.html',
+      files,
+      indexHead: '',
+      readText,
+    }).depsSha256;
+    // Editing the space-containing image OR image-set() webp MUST change depsSha256.
+    const editedSpaceImg = files.map((f) =>
+      f.path === 'assets/hero banner.png' ? { ...f, sha256: '7'.repeat(64) } : f,
+    );
+    const digest2 = computeCompositionFilmstripDepsDigest({
+      compPath: 'compositions/scene.html',
+      files: editedSpaceImg,
+      indexHead: '',
+      readText,
+    }).depsSha256;
+    assert.notEqual(digest2, digest1);
+
+    const editedWebp = files.map((f) =>
+      f.path === 'assets/bg-2x.webp' ? { ...f, sha256: '8'.repeat(64) } : f,
+    );
+    const digest3 = computeCompositionFilmstripDepsDigest({
+      compPath: 'compositions/scene.html',
+      files: editedWebp,
+      indexHead: '',
+      readText,
+    }).depsSha256;
+    assert.notEqual(digest3, digest1);
   });
 });

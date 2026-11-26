@@ -254,14 +254,29 @@ describe("VideoThumbnail", () => {
     expect(host.querySelector("img")?.parentElement?.style.width).toBe("108px");
   });
 
-  it("clears the loading shimmer when the scheduled decode fails", async () => {
-    vi.mocked(decodeVideoThumbnail).mockRejectedValue(new Error("decode failed"));
+  it("clears the loading shimmer, renders a bottom-right error badge, and reloads on click when decode fails", async () => {
+    vi.mocked(decodeVideoThumbnail)
+      .mockRejectedValueOnce(new Error("decode failed"))
+      .mockResolvedValueOnce({
+        value: { kind: "image", url: "blob:recovered", aspect: 16 / 9 },
+        weight: 128,
+      });
 
-    await render();
+    await render(60);
     await vi.waitFor(() => expect(thumbnailScheduler.getDiagnostics().active).toBe(0));
 
     expect(host.querySelector(".animate-pulse")).toBeNull();
     expect(host.querySelector("img")).toBeNull();
+
+    const errorBadge = host.querySelector<HTMLElement>('[data-testid="item-load-error"]');
+    expect(errorBadge).not.toBeNull();
+
+    await act(async () => {
+      errorBadge!.click();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:recovered"));
+    expect(host.querySelector('[data-testid="item-load-error"]')).toBeNull();
   });
 });
 
@@ -561,5 +576,71 @@ describe("VideoThumbnail during a trim", () => {
       await Promise.resolve();
     });
     expect(new Set(shownSources())).toEqual(new Set(["blob:trim-1", "blob:trim-2"]));
+  });
+
+  it("shows sliced parent frames immediately with 0 shimmer and 0 server calls when mounting a newly split right-half video clip", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    let resolveRightHalf:
+      | ((value: { value: { kind: "filmstrip"; urls: string[]; aspect: number }; weight: number }) => void)
+      | null = null;
+    vi.mocked(decodeVideoThumbnail).mockImplementation(({ frameCount, sourceStart }) => {
+      if ((sourceStart ?? 0) >= 5) {
+        return new Promise((resolve) => {
+          if (frameCount > 1) resolveRightHalf = resolve;
+        });
+      }
+      if (frameCount === 1) {
+        return Promise.resolve({
+          value: { kind: "image", url: "blob:poster-left", aspect: 16 / 9 },
+          weight: 1,
+        });
+      }
+      return Promise.resolve({
+        value: {
+          kind: "filmstrip",
+          urls: Array.from({ length: 8 }, (_, idx) => `blob:parent-${idx}`),
+          aspect: 16 / 9,
+        },
+        weight: 8,
+      });
+    });
+
+    const leftHost = document.body.appendChild(document.createElement("div"));
+    Object.defineProperty(leftHost, "clientWidth", { configurable: true, value: 440 });
+    Object.defineProperty(leftHost, "clientHeight", { configurable: true, value: 40 });
+    const leftRoot = harness.mount(leftHost);
+    await act(async () => {
+      leftRoot.render(trimmed(10, 0));
+      await Promise.resolve();
+    });
+    expect(leftHost.querySelectorAll("img").length).toBeGreaterThan(0);
+
+    // Mount a brand-new right-half VideoThumbnail (sourceStart=5, duration=5) while its own decode is pending.
+    const rightHost = document.body.appendChild(document.createElement("div"));
+    Object.defineProperty(rightHost, "clientWidth", { configurable: true, value: 300 });
+    Object.defineProperty(rightHost, "clientHeight", { configurable: true, value: 40 });
+    const rightRoot = harness.mount(rightHost);
+    await act(async () => {
+      rightRoot.render(trimmed(5, 5));
+      await Promise.resolve();
+    });
+
+    expect(rightHost.querySelector(".animate-pulse")).toBeNull();
+    const rightInitial = [...rightHost.querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    expect(rightInitial.length).toBeGreaterThan(0);
+    // Sliced strictly to the second half of the parent's decoded frames (blob:parent-4..blob:parent-7).
+    expect(rightInitial.every((src) => /^blob:parent-[4-7]$/.test(src ?? ""))).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // Swap cleanly once the right half's own browser decode resolves.
+    await act(async () => {
+      resolveRightHalf?.({
+        value: { kind: "filmstrip", urls: ["blob:right-1", "blob:right-2"], aspect: 16 / 9 },
+        weight: 2,
+      });
+      await Promise.resolve();
+    });
+    const rightFinal = [...rightHost.querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    expect(new Set(rightFinal)).toEqual(new Set(["blob:right-1", "blob:right-2"]));
   });
 });

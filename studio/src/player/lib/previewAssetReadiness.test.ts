@@ -5,6 +5,8 @@ import {
   assetLabelFromUrl,
   isDisplayablePreviewAssetName,
   isNonRetryableHttpStatus,
+  matchesFailedPreviewAsset,
+  normalizeAssetSourcePath,
   trackDocumentAssetReadiness,
   withRetryQueryParam,
   type PreviewAssetProgress,
@@ -96,6 +98,30 @@ describe("previewAssetReadiness helpers", () => {
       "sarah avatar.jpg",
     );
     expect(assetLabelFromUrl("data:image/png;base64,abc", "image-1")).toBe("image-1");
+  });
+
+  it("normalizes and matches failed preview asset paths across preview URLs and relative paths", () => {
+    expect(normalizeAssetSourcePath("/api/projects/p1/preview/assets/hero%20shot.png?revision=2")).toBe(
+      "assets/hero shot.png",
+    );
+    expect(normalizeAssetSourcePath("./assets/hero shot.png")).toBe("assets/hero shot.png");
+    const failed = [
+      {
+        id: "img-0",
+        label: "hero shot.png",
+        kind: "image" as const,
+        reason: "error" as const,
+        src: "/api/projects/p1/preview/assets/hero%20shot.png",
+      },
+    ];
+    expect(matchesFailedPreviewAsset(failed, "assets/hero shot.png")).toBe(true);
+    expect(
+      matchesFailedPreviewAsset(
+        failed,
+        "http://127.0.0.1:4173/api/projects/p1/preview/assets/hero%20shot.png?revision=3",
+      ),
+    ).toBe(true);
+    expect(matchesFailedPreviewAsset(failed, "assets/other.png")).toBe(false);
   });
 
   it("emits the same safe pending filename through both trackers", () => {
@@ -374,7 +400,7 @@ describe("trackDocumentAssetReadiness", () => {
         status: "ready",
         completed: 1,
         total: 1,
-        failed: [{ id: "img-0", label: "stalled.png", kind: "image", reason: "timeout" }],
+        failed: [{ id: "img-0", label: "stalled.png", kind: "image", reason: "timeout", src: "/assets/stalled.png" }],
       });
     } finally {
       tracker.dispose();
@@ -421,7 +447,7 @@ describe("trackDocumentAssetReadiness", () => {
         status: "ready",
         completed: 2,
         total: 2,
-        failed: [{ id: "video-0", label: "stalled.mp4", kind: "video", reason: "timeout" }],
+        failed: [{ id: "video-0", label: "stalled.mp4", kind: "video", reason: "timeout", src: "/assets/stalled.mp4" }],
       });
     } finally {
       tracker.dispose();

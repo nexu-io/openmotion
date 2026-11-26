@@ -119,6 +119,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const browser = useAssetBrowser({ kind, revision, active, lockedSource: mediaGenerations ? 'generated' : undefined });
   // Games made in Game Studio appear in the library view only, never inside a Studio form.
   const gameStudioEnabled = useCloudFeatureEnabled('gameStudio');
+  const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
   const [gamesView, setGamesView] = useState(false);
   const myGames = useMyGames(active && !studio && gameStudioEnabled);
   // One page view each time the library is shown; the page stays mounted while hidden. Inside a Design, Cinema or
@@ -623,7 +624,12 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     currentPrompt={draft.prompt} modelName={studioModels?.selected && imageModelLabel(studioModels.selected)} /> : <p className="om-muted">{t('No assets yet')}</p>);
   const history = { tasks, selectedKey, loading: historyLoading, error: historyError, onRetry: () => { setHistoryLoading(true); setHistoryRetry(value => value + 1); }, onSelect: (task: AssetTask) => { tracking.reportAssetsClick('asset_tasks', 'select_task', { task_mode: task.mode }); void selectTask(task); } };
   const taskMenu = <AssetTaskMenu {...history} disabled={selectingTask} />;
-  const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} promptAppliedToken={promptAppliedToken} jobs={jobs} showCurrentJob={mediaGenerations ? false : !showLibraryPlaceholders} taskId={taskId} history={history} selectingTask={selectingTask}
+  const selectedJob = taskId ? jobs.find(job => job.id === taskId) : undefined;
+  const selectedJobShownInLibrary = Boolean(
+    selectedJob && showLibraryPlaceholders && browser.page === 0
+    && placeholderJobs.some(job => job.id === selectedJob.id),
+  );
+  const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} promptAppliedToken={promptAppliedToken} jobs={jobs} showCurrentJob={mediaGenerations ? false : !selectedJobShownInLibrary} taskId={taskId} history={history} selectingTask={selectingTask}
     onNew={() => startDraft({ modality: draft.modality, prompt: '', references: [] })}
     onCancel={cancelJob} onRetrySave={retrySave} onResume={resumeJob} onView={viewJob} uploadingReferences={uploadingReferences} onUploadReference={studioForm ? () => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } referenceUpload.current?.click(); } : undefined} onUploadFiles={studioForm ? (files, source) => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } void uploadReferenceFiles(files, source === 'paste' ? 'other' : 'library_drop'); } : undefined} onReference={() => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } openReferencePicker(); }} onCreated={job => {
       markDraftSubmitted(studio?.draftKey ?? STANDALONE_ASSET_DRAFT_KEY);
@@ -653,7 +659,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     tracking.reportAssetsClick('asset_detail', 'edit_version', { modality: selected.modality });
     const currentTab = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
     const classified = classifyAudioTrackTab(version.model, detailModels, version.source, version.audioKind);
-    const targetTab = classified === 'upload' ? (currentTab === 'sfx' || currentTab === 'speech' ? currentTab : 'music') : classified;
+    const rawTargetTab = classified === 'upload' ? (currentTab === 'sfx' || currentTab === 'speech' ? currentTab : 'music') : classified;
+    const targetTab = !soundEffectsEnabled && rawTargetTab === 'sfx' ? 'music' : rawTargetTab;
     const nextDraft: AssetDraft = {
       modality: 'audio',
       prompt: version.prompt ?? '',

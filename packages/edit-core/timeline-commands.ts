@@ -25,7 +25,11 @@ import {
 import { walkCompositionDescendants } from '@hyperframes/parsers/hf-ids';
 import { extractGsapScriptBlock } from './gsap-block.ts';
 import { assertSafeElementDeletion } from './delete-dependencies.ts';
-import { applyAtomicCutsToHtml } from './split.ts';
+import {
+  applyAtomicCutsToHtml,
+  CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
+  isUnsplittableCanvasElement,
+} from './split.ts';
 import type { TimelineCommand } from './timeline-schema.ts';
 export type { TimelineCommand } from './timeline-schema.ts';
 
@@ -52,17 +56,38 @@ function number(value: unknown, name: string, minimum = 0) {
   return value;
 }
 const round = (value: number) => Math.round(value * 10000) / 10000;
+function isUntimedRootClip(el: Element, root: Element | null): boolean {
+  if (
+    !root ||
+    el === root ||
+    el.localName === 'video' ||
+    el.localName === 'audio' ||
+    el.hasAttribute('data-start') ||
+    el.hasAttribute('data-duration') ||
+    el.hasAttribute('data-end')
+  ) {
+    return false;
+  }
+  if (el.parentElement?.closest('[data-composition-id]') !== root) return false;
+  if (isTimelineIgnoredElement(el)) return false;
+  const timedParent = el.parentElement?.closest('[data-start]');
+  return !timedParent || timedParent === root;
+}
+
 function timing(el: Element) {
   const cache = new Map();
   const start = resolveReferencedStart(el.ownerDocument, el, cache, new Set());
-  const root = el.closest('[data-composition-id]');
+  const root = el.parentElement?.closest('[data-composition-id]') ?? null;
   const authoredDuration = resolveReferencedDuration(el.ownerDocument, el, cache, new Set());
-  const implicit = authoredDuration == null && isUntimedRootText(el, root);
-  const duration =
+  const implicit =
+    authoredDuration == null && (isUntimedRootText(el, root) || isUntimedRootClip(el, root));
+  const rootDuration =
     implicit && root
       ? (resolveReferencedDuration(el.ownerDocument, root, cache, new Set()) ??
         furthestClipEndFromDocument(el.ownerDocument))
-      : authoredDuration;
+      : null;
+  const duration =
+    implicit && rootDuration != null ? Math.max(0, rootDuration - start) : authoredDuration;
   return { start, duration: number(duration, 'clip duration', Number.MIN_VALUE), implicit };
 }
 function mediaIdentity(el: Element) {
@@ -233,6 +258,9 @@ function applySelectionCommand(
   if (command.kind === 'splitClips') {
     const cuts = command.hfIds.map((id) => {
       const el = target(id);
+      if (isUnsplittableCanvasElement(el)) {
+        throw new Error(CANVAS_SPLIT_UNSUPPORTED_MESSAGE);
+      }
       const innerMedia =
         el.hasAttribute('data-start') || el.hasAttribute('data-duration')
           ? null

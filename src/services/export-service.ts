@@ -8,6 +8,7 @@ import {
   projectPath,
   validateStableRequestId,
 } from '../../shared/project-validation.ts';
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError, revisionConflict } from '../contracts/errors.ts';
 import type { JobCancelEvent, JobProgressEvent, ProjectEvent } from '../contracts/events.ts';
@@ -36,6 +37,7 @@ export interface ExportServiceDeps {
   readonly queues: Pick<QueueService, 'enqueueRenderExport' | 'renderExport'>;
   readonly eventBus: Pick<RedisEventBus, 'publish' | 'subscribe'>;
   readonly presignGetTtlSec?: number;
+  readonly cloudTracking?: CloudTrackingHandle;
 }
 
 export interface StartExportOptions {
@@ -50,6 +52,7 @@ export interface StartExportOptions {
   settings?: Record<string, unknown>;
   expected?: ExportExpectation;
   workId?: string;
+  exportRoute?: 'mcp' | 'studio';
 }
 
 export interface ExportJobRecord {
@@ -188,6 +191,7 @@ export class ExportService {
   private readonly queues: Pick<QueueService, 'enqueueRenderExport' | 'renderExport'>;
   private readonly eventBus: Pick<RedisEventBus, 'publish' | 'subscribe'>;
   private readonly presignGetTtlSec: number;
+  private readonly cloudTracking?: CloudTrackingHandle;
 
   constructor(deps: ExportServiceDeps) {
     this.db = deps.db;
@@ -195,6 +199,7 @@ export class ExportService {
     this.queues = deps.queues;
     this.eventBus = deps.eventBus;
     this.presignGetTtlSec = deps.presignGetTtlSec ?? DEFAULT_EXPORT_PRESIGN_TTL_SEC;
+    this.cloudTracking = deps.cloudTracking;
   }
 
   /**
@@ -430,6 +435,8 @@ export class ExportService {
         const jobId = randomUUID();
         const now = new Date();
         const deadlineAt = new Date(now.getTime() + EXPORT_DEADLINE_MS);
+        const actorUserId = ctx.appUserId ?? ctx.userId;
+        const exportRoute: 'mcp' | 'studio' = opts.exportRoute ?? (ctx.entry === 'mcp' ? 'mcp' : 'studio');
 
         const inserted = await tx
           .insert(jobs)
@@ -453,6 +460,8 @@ export class ExportService {
                 outputName,
                 format,
                 phase1: opts.phase1 ?? true,
+                userId: actorUserId,
+                exportRoute,
                 ...(opts.settings ? { settings: opts.settings } : {}),
                 ...(validatedExpected ? { expected: validatedExpected } : {}),
                 studioManifests: includedStudioManifests,
@@ -516,6 +525,8 @@ export class ExportService {
     }
 
     if (!txOutcome.replayed) {
+      const actorUserId = ctx.appUserId ?? ctx.userId;
+      const exportRoute: 'mcp' | 'studio' = opts.exportRoute ?? (ctx.entry === 'mcp' ? 'mcp' : 'studio');
       try {
         await this.queues.enqueueRenderExport(
           'export_render',
@@ -529,6 +540,9 @@ export class ExportService {
             outputName: txOutcome.outputName,
             format,
             phase1: opts.phase1 ?? true,
+            userId: actorUserId,
+            ...(opts.workId ? { workId: opts.workId } : {}),
+            exportRoute,
             ...(opts.settings ? { settings: opts.settings } : {}),
             ...(validatedExpected ? { expected: validatedExpected } : {}),
           },
@@ -552,6 +566,17 @@ export class ExportService {
           .where(and(eq(jobs.id, txOutcome.row.id), eq(jobs.workspaceId, ctx.workspaceId)));
         throw error;
       }
+
+      this.cloudTracking?.trackTaskAccepted({
+        taskId: txOutcome.row.id,
+        taskType: 'export',
+        projectId,
+        acceptedAt: txOutcome.row.createdAt,
+        deadlineAt: txOutcome.row.deadlineAt ?? new Date(txOutcome.row.createdAt.getTime() + EXPORT_DEADLINE_MS),
+        operationId: requestId,
+        userId: actorUserId,
+        entrypoint: exportRoute === 'mcp' ? 'mcp' : 'worker',
+      });
 
       const progressEvent: JobProgressEvent = {
         jobId: txOutcome.row.id,

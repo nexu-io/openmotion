@@ -64,7 +64,7 @@ const setStrip = (size: typeof EMPTY_STRIP) =>
 
 import { AudioWaveform, drawWaveformCanvas } from "./AudioWaveform";
 import { I18nProvider } from "../../i18n/I18n";
-import type { ThumbnailRequest } from "../lib/thumbnailScheduler";
+import { thumbnailScheduler, type ThumbnailRequest } from "../lib/thumbnailScheduler";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -420,5 +420,37 @@ describe("AudioWaveform", () => {
       { top: "16px", height: "calc(100% - 16px)" },
       { top: "0px", height: "calc(100% - 0px)" },
     ]);
+  });
+
+  it("renders a bottom-right error reload badge when waveform loading fails and retries that entry on click", () => {
+    const retrySpy = vi.spyOn(thumbnailScheduler, "retryEntry").mockReturnValue(true);
+    leaseSpy.mockImplementation(() => ({ status: "error", error: new Error("failed") }) as never);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mounted.push(root);
+    act(() => {
+      root.render(
+        <I18nProvider initialLocale="zh-CN">
+          <AudioWaveform
+            audioUrl="/media/voice.wav"
+            waveformUrl="/waveform/voice.wav"
+            label=""
+            labelColor="#fff"
+            projectId="project-a"
+            sessionEpoch={1}
+            priority="visible"
+          />
+        </I18nProvider>,
+      );
+    });
+    const reloadBtn = host.querySelector<HTMLElement>('[data-testid="item-load-error"]');
+    expect(reloadBtn).not.toBeNull();
+    act(() => reloadBtn!.click());
+    expect(retrySpy).toHaveBeenCalledTimes(1);
+    expect(retrySpy.mock.calls[0]?.[0]).toMatchObject({
+      projectId: "project-a",
+      kind: "waveform",
+    });
   });
 });

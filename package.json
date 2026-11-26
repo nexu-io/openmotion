@@ -64,6 +64,7 @@
     "@hyperframes/shader-transitions": "0.9.7",
     "@hyperframes/studio-server": "0.9.7",
     "@modelcontextprotocol/server": "2.4.0",
+    "@powerformer/tracert": "0.6.0",
     "@zumer/snapdom": "^3.8.1",
     "acorn": "8.19.0",
     "bullmq": "^5.48.0",

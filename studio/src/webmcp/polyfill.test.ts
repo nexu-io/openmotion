@@ -10,6 +10,8 @@ vi.mock("@mcp-b/global", () => ({}));
 vi.mock("../telemetry/client", () => ({ trackEvent }));
 
 let loadModelContextPolyfill: typeof import("./polyfill").loadModelContextPolyfill;
+let getNativeModelContext: typeof import("./types").getNativeModelContext;
+let isPolyfilledModelContext: typeof import("./types").isPolyfilledModelContext;
 
 function installModelContext(): ModelContext {
   const modelContext: ModelContext = { registerTool: vi.fn().mockResolvedValue(undefined) };
@@ -24,6 +26,7 @@ function installModelContext(): ModelContext {
 beforeEach(async () => {
   vi.resetModules();
   ({ loadModelContextPolyfill } = await import("./polyfill"));
+  ({ getNativeModelContext, isPolyfilledModelContext } = await import("./types"));
   trackEvent.mockReset();
 });
 
@@ -94,5 +97,36 @@ describe("loadModelContextPolyfill", () => {
     const retry = loadModelContextPolyfill();
     expect(retry).not.toBe(first);
     await expect(retry).resolves.toBe(modelContext);
+  });
+
+  it("marks a newly polyfilled modelContext so native-only guards still distinguish it from a browser API", async () => {
+    const polyfilled: ModelContext = { registerTool: vi.fn().mockResolvedValue(undefined) };
+    vi.doMock("@mcp-b/global", () => {
+      Object.defineProperty(document, "modelContext", {
+        value: polyfilled,
+        configurable: true,
+        writable: true,
+      });
+      return {};
+    });
+    vi.resetModules();
+    const [{ loadModelContextPolyfill: freshLoad }, types] = await Promise.all([
+      import("./polyfill"),
+      import("./types"),
+    ]);
+
+    const loaded = await freshLoad();
+    expect(loaded).toBe(polyfilled);
+    expect(types.isPolyfilledModelContext(loaded)).toBe(true);
+    expect(types.getNativeModelContext()).toBeNull();
+    vi.doMock("@mcp-b/global", () => ({}));
+  });
+
+  it("preserves native classification when document.modelContext existed before polyfill import", async () => {
+    const native = installModelContext();
+    const loaded = await loadModelContextPolyfill();
+    expect(loaded).toBe(native);
+    expect(isPolyfilledModelContext(loaded)).toBe(false);
+    expect(getNativeModelContext()).toBe(native);
   });
 });

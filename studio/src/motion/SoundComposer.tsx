@@ -2,7 +2,7 @@ import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { useEffect, useId, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { GenerationJob, Model } from '../../../shared/gateway';
-import { generationOptions, resolveGenerationParameters } from '../../../shared/generation-options';
+import { resolveSpeechVoice, sanitizeSpeechVoiceParameters } from '../../../shared/generation-options';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n } from '../i18n/I18n';
@@ -31,6 +31,7 @@ import {
 import { isSfxModel, type SoundLiveTabId } from './soundTabs';
 import type { VoicePreviewController } from './voicePreviews';
 import { useWorkspaceChrome } from './WorkspaceFrame';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 
 export function resolveSoundModels(studio: StudioCreation, tabId: SoundLiveTabId) {
   const gateway = studio.catalog.catalog;
@@ -101,6 +102,7 @@ export function SoundComposer({
   onError: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
+  const customVoiceIdEnabled = useCloudFeatureEnabled('customVoiceId');
   const { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
   const modelId = studio.destination.model;
   const promptId = useId();
@@ -148,12 +150,11 @@ export function SoundComposer({
     setBusy(true);
     const studioContext = { studio: studio.destination.studio.id, scene: tabId, model: selected.id };
     try {
-      const parsed = requestParameters(parameters, selected, false);
-      const effectiveVoice = selected.mode === 'text-to-speech' && !parsed.voice
-        ? resolveGenerationParameters(selected, parsed, false).voice
-          ?? (selected.generationOptions ?? generationOptions(selected))?.fields.find(f => f.key === 'voice')?.default
+      const parsed = sanitizeSpeechVoiceParameters(selected, requestParameters(parameters, selected, false), customVoiceIdEnabled) ?? {};
+      const effectiveVoice = selected.mode === 'text-to-speech'
+        ? resolveSpeechVoice(selected, parsed.voice, customVoiceIdEnabled)
         : undefined;
-      const submitParams = typeof effectiveVoice === 'string' && effectiveVoice.trim()
+      const submitParams = effectiveVoice
         ? { ...parsed, voice: effectiveVoice }
         : parsed;
       const result = await assetRequest<{ job: GenerationJob }>({

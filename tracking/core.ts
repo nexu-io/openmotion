@@ -70,8 +70,19 @@ export function createTracker<const R extends Registry>(options: {
   let enabled = options.enabled, queue: PendingEvent[] = [], timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight: Promise<Receipt | 'disabled' | 'empty'> | undefined, controller: AbortController | undefined;
   const seen = new Set<string>(), maxQueue = options.maxQueue ?? 64;
-  let failures = 0;
-  function discard() { queue = []; seen.clear(); if (timer) clearTimeout(timer); timer = undefined; controller?.abort(); }
+  let failures = 0, epoch = 0;
+  function discard() {
+    epoch += 1;
+    queue = [];
+    seen.clear();
+    failures = 0;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    const activeController = controller;
+    controller = undefined;
+    inFlight = undefined;
+    activeController?.abort();
+  }
   function active() {
     let allowed = enabled;
     try { allowed = allowed && (options.isEnabled?.() ?? true); } catch { allowed = false; }
@@ -109,17 +120,26 @@ export function createTracker<const R extends Registry>(options: {
     if (timer) clearTimeout(timer); timer = undefined;
     queue = queue.filter(event => Date.now() - Date.parse(event.occurred_at) <= 86_400_000);
     if (!queue.length) return Promise.resolve('empty');
+    const flushEpoch = epoch;
     const snapshot = queue.slice(0, 16), request = new AbortController(); controller = request;
-    inFlight = (async () => {
+    const run = (async () => {
       let receipt: Receipt;
-      try { receipt = await options.send(snapshot, request.signal); } catch { receipt = 'retry'; }
+      try { receipt = await options.send(snapshot, request.signal); } catch { receipt = request.signal.aborted ? 'drop' : 'retry'; }
+      if (flushEpoch !== epoch) return 'drop' as const;
       if (!active()) return 'disabled' as const;
       failures = receipt === 'retry' ? Math.min(6, failures + 1) : 0;
       if (receipt !== 'retry') { const ids = new Set(snapshot.map(e => e.event_id)); queue = queue.filter(e => !ids.has(e.event_id)); }
       return receipt;
-    })().finally(() => { inFlight = undefined; controller = undefined; if (queue.length) schedule(); });
-    return inFlight;
+    })().finally(() => {
+      if (inFlight === run) {
+        inFlight = undefined;
+        controller = undefined;
+      }
+      if (flushEpoch === epoch && queue.length) schedule();
+    });
+    inFlight = run;
+    return run;
   }
-  return { track, ingest, flush, setEnabled, enabled: active, pending: () => queue.length,
+  return { track, ingest, flush, setEnabled, reset: discard, enabled: active, pending: () => queue.length,
     close: () => { setEnabled(false); } };
 }

@@ -313,12 +313,18 @@ describe('preview-thumbnail-capture embedded bridge script', () => {
       { path: 'compositions/nested-parent.html', sha256: 'np-cccccccccccccccc', blobScope: 'workspace' },
       { path: 'assets/gsap.min.js', sha256: 'gsap-1', blobScope: 'workspace' },
       { path: 'assets/hero.png', sha256: 'img-1', blobScope: 'workspace' },
+      { path: 'assets/shared-bg.webp', sha256: 'bg-1', blobScope: 'workspace' },
+      { path: 'assets/bgm.mp3', sha256: 'aud-1', blobScope: 'workspace' },
       { path: 'styles/theme.css', sha256: 'css-1', blobScope: 'workspace' },
       { path: 'motion-project.json', sha256: 'meta-1', blobScope: 'workspace' },
     ];
     const comps = ['index.html', 'compositions/s1.html', 'compositions/s2.html', 'compositions/nested-parent.html'];
     const readText = (p: string): string | null => {
       if (p === 'index.html') return baseIndexHtml;
+      if (p === 'styles/theme.css') return '.bg { background: url("../assets/shared-bg.webp"); }';
+      if (p === 'compositions/s1.html') {
+        return '<div><img src="assets/hero.png"><script>const tl = gsap.timeline({ paused: true }); tl.to("#a", { opacity: 1 });</script></div>';
+      }
       if (p === 'compositions/nested-parent.html') {
         return '<div data-composition-src="compositions/s2.html"></div><script>const tl = gsap.timeline({ paused: true });</script>';
       }
@@ -327,8 +333,8 @@ describe('preview-thumbnail-capture embedded bridge script', () => {
 
     const rev1 = computeCompositionRevisions(baseFiles, comps, baseIndexHtml, 'proj-rev-1', readText);
     assert.ok(rev1['index.html']!.startsWith('"sha256:idx-1"|deps:'));
-    assert.ok(rev1['compositions/s1.html']!.startsWith('"sha256:s1-aaaaaaaaaaaaaaaa"|shared:'));
-    assert.ok(rev1['compositions/s2.html']!.startsWith('"sha256:s2-bbbbbbbbbbbbbbbb"|shared:'));
+    assert.ok(rev1['compositions/s1.html']!.startsWith('"sha256:s1-aaaaaaaaaaaaaaaa"|media:'));
+    assert.ok(rev1['compositions/s2.html']!.startsWith('"sha256:s2-bbbbbbbbbbbbbbbb"|media:'));
     assert.ok(rev1['compositions/nested-parent.html']!.startsWith('"sha256:np-cccccccccccccccc"|deps:'));
 
     // Editing only s2.html updates s2.html, its nesting parent, and master index.html (transitive closure), while s1.html stays cached.
@@ -338,7 +344,7 @@ describe('preview-thumbnail-capture embedded bridge script', () => {
     const rev2 = computeCompositionRevisions(filesS2Edited, comps, baseIndexHtml, 'proj-rev-2', readText);
     assert.equal(rev2['compositions/s1.html'], rev1['compositions/s1.html']);
     assert.notEqual(rev2['index.html'], rev1['index.html']);
-    assert.ok(rev2['compositions/s2.html']!.startsWith('"patch:patch-id-2"|shared:'));
+    assert.ok(rev2['compositions/s2.html']!.startsWith('"patch:patch-id-2"|media:'));
     assert.notEqual(rev2['compositions/s2.html'], rev1['compositions/s2.html']);
     assert.notEqual(rev2['compositions/nested-parent.html'], rev1['compositions/nested-parent.html']);
 
@@ -380,12 +386,37 @@ describe('preview-thumbnail-capture embedded bridge script', () => {
     assert.notEqual(revCss['compositions/s1.html'], rev1['compositions/s1.html']);
     assert.notEqual(revCss['compositions/s2.html'], rev1['compositions/s2.html']);
 
+    // Editing an image referenced ONLY by s1.html invalidates s1.html + index.html, while untouched s2.html stays cached!
     const filesImgEdited = baseFiles.map((f) =>
       f.path === 'assets/hero.png' ? { ...f, sha256: 'img-2' } : f,
     );
     const revImg = computeCompositionRevisions(filesImgEdited, comps, baseIndexHtml, 'proj-rev-img', readText);
     assert.notEqual(revImg['compositions/s1.html'], rev1['compositions/s1.html']);
-    assert.notEqual(revImg['compositions/s2.html'], rev1['compositions/s2.html']);
+    assert.notEqual(revImg['index.html'], rev1['index.html']);
+    assert.equal(revImg['compositions/s2.html'], rev1['compositions/s2.html']);
+
+    // Editing a shared CSS-referenced image invalidates every scene using styles/theme.css.
+    const filesSharedBgEdited = baseFiles.map((f) =>
+      f.path === 'assets/shared-bg.webp' ? { ...f, sha256: 'bg-2' } : f,
+    );
+    const revSharedBg = computeCompositionRevisions(filesSharedBgEdited, comps, baseIndexHtml, 'proj-rev-bg', readText);
+    assert.notEqual(revSharedBg['compositions/s1.html'], rev1['compositions/s1.html']);
+    assert.notEqual(revSharedBg['compositions/s2.html'], rev1['compositions/s2.html']);
+
+    // Uploading or editing pure audio OR an unreferenced image/video leaves EVERY composition cached (no cache avalanche!).
+    const revWithUnrelatedUploads = computeCompositionRevisions(
+      [
+        ...baseFiles.map((f) => (f.path === 'assets/bgm.mp3' ? { ...f, sha256: 'aud-2' } : f)),
+        { path: 'assets/new-bgm.wav', sha256: 'wav-1', blobScope: 'workspace' },
+        { path: 'assets/unused-photo.png', sha256: 'unused-1', blobScope: 'workspace' },
+        { path: 'assets/unused-broll.mp4', sha256: 'unused-2', blobScope: 'workspace' },
+      ],
+      comps,
+      baseIndexHtml,
+      'proj-rev-uploads',
+      readText,
+    );
+    assert.deepEqual(revWithUnrelatedUploads, rev1);
 
     // Editing index.html <head> invalidates every composition cleanly.
     const editedHeadIndexHtml = baseIndexHtml.replace('</head>', '<style>.hero{color:red}</style></head>');
@@ -1176,5 +1207,159 @@ describe('preview-thumbnail-capture embedded bridge script', () => {
     assert.equal(createdCanvases[0]?.height, 0, 'output canvas backing should be released');
     assert.equal(snapCanvases[0]?.width, 0, 'snapdom canvas backing should be released');
     assert.equal(snapCanvases[0]?.height, 0, 'snapdom canvas backing should be released');
+  });
+
+  it('passes fast:"auto", placeholders:false, referentially-stable excludeStyleProps, and prefers WebP/JPEG when inlining images', async () => {
+    const snapOpts: Array<Record<string, unknown>> = [];
+    const dataUrlCalls: Array<{ mime?: string; quality?: number }> = [];
+    const attrsPng: Record<string, string> = { src: 'assets/logo.png' };
+    const attrsJpg: Record<string, string> = { src: 'assets/photo.jpg' };
+    const makeImg = (attrs: Record<string, string>) => ({
+      complete: true,
+      naturalWidth: 800,
+      naturalHeight: 450,
+      src: attrs.src,
+      currentSrc: attrs.src,
+      getAttribute: (name: string) => attrs[name] ?? null,
+      setAttribute: (name: string, val: string) => { attrs[name] = val; },
+      hasAttribute: (name: string) => name in attrs,
+      removeAttribute: (name: string) => { delete attrs[name]; },
+    });
+    const fakeStage = {
+      nodeType: 1,
+      tagName: 'DIV',
+      clientWidth: 1280,
+      clientHeight: 720,
+      textContent: 'Media scene',
+      getAttribute: (name: string) => (name === 'data-width' ? '1280' : name === 'data-height' ? '720' : null),
+      querySelectorAll: (sel: string) => (sel === 'img' ? [makeImg(attrsPng), makeImg(attrsJpg)] : []),
+      querySelector: () => null,
+      getBoundingClientRect: () => ({ width: 1280, height: 720 }),
+    };
+
+    let webpSupported = true;
+    const makeCanvas = () => ({
+      width: 0,
+      height: 0,
+      getContext: () => ({ clearRect: () => {}, drawImage: () => {} }),
+      toDataURL: (mime?: string, quality?: number) => {
+        dataUrlCalls.push({ mime, quality });
+        if (mime === 'image/webp') {
+          return webpSupported ? 'data:image/webp;base64,UklGR=' : 'data:image/png;base64,FALLBACK=';
+        }
+        if (mime === 'image/jpeg') return 'data:image/jpeg;base64,/9j/4AA=';
+        return 'data:image/png;base64,iVBOR=';
+      },
+      toBlob: (cb: (blob: { arrayBuffer: () => Promise<ArrayBuffer> }) => void) => {
+        cb({ arrayBuffer: () => Promise.resolve(new Uint8Array([0xff, 0xd8]).buffer) });
+      },
+    });
+
+    const sandbox: Record<string, unknown> = {
+      URL, Promise, Array, Object, Number, Math, String, Boolean, Error,
+      setTimeout, clearTimeout,
+      location: { origin: 'https://preview.example.test', href: 'https://preview.example.test/api/projects/p1/preview?capture=1&pt=tok' },
+      requestAnimationFrame: (fn: () => void) => setTimeout(fn, 0),
+      player: () => ({ pause: () => {}, seek: () => {} }),
+      document: {
+        body: fakeStage,
+        fonts: { ready: Promise.resolve() },
+        querySelector: () => fakeStage,
+        querySelectorAll: () => [],
+        createElement: (tag: string) => (tag === 'canvas' ? makeCanvas() : {}),
+      },
+      window: {
+        innerWidth: 1280,
+        innerHeight: 720,
+        fetch: () => Promise.resolve({ ok: true }),
+        snapdom: async (_el: unknown, opts: Record<string, unknown>) => {
+          snapOpts.push(opts);
+          return { toCanvas: async () => ({}) };
+        },
+      },
+    };
+
+    const capturePreviewFrames = vm.runInNewContext(
+      `(function(){${PREVIEW_THUMBNAIL_CAPTURE}; return capturePreviewFrames;})()`,
+      sandbox,
+    ) as (msg: Record<string, unknown>) => Promise<{ frames: ArrayBuffer[] }>;
+
+    await capturePreviewFrames({ times: [1, 2] });
+    assert.equal(snapOpts.length, 2);
+    assert.equal(snapOpts[0]?.fast, 'auto');
+    assert.equal(snapOpts[0]?.placeholders, false);
+    assert.equal(Object.prototype.toString.call(snapOpts[0]?.excludeStyleProps), '[object RegExp]');
+    assert.equal((snapOpts[0]?.excludeStyleProps as RegExp).test('--accent'), true);
+    assert.equal((snapOpts[0]?.excludeStyleProps as RegExp).test('background-color'), false);
+    assert.equal(snapOpts[0]?.excludeStyleProps, snapOpts[1]?.excludeStyleProps, 'excludeStyleProps RegExp must stay referentially stable across frames for SnapDOM style cache reuse');
+    assert.equal(attrsPng.src, 'data:image/webp;base64,UklGR=');
+    assert.equal(attrsJpg.src, 'data:image/webp;base64,UklGR=');
+
+    // When WebP is unavailable, opaque .jpg images fall back to image/jpeg (0.82) while .png keeps alpha PNG.
+    webpSupported = false;
+    attrsPng.src = 'assets/logo.png';
+    attrsJpg.src = 'assets/photo.jpg';
+    await capturePreviewFrames({ times: [1] });
+    assert.equal(attrsPng.src, 'data:image/png;base64,FALLBACK=');
+    assert.equal(attrsJpg.src, 'data:image/jpeg;base64,/9j/4AA=');
+  });
+
+  it('replaces <video poster> with <img> and forces preload="none" without autoplay in capture=1 builds only', async () => {
+    const files = new Map<string, string>([
+      ['index.html', '<!DOCTYPE html><html><head><title>Video</title></head><body></body></html>'],
+      [
+        'compositions/video-scene.html',
+        '<template><div data-composition-id="v" data-width="1920" data-height="1080">' +
+          '<video id="hero-vid" class="clip" src="assets/hero.mp4" poster="assets/hero-poster.jpg" autoplay style="width:1920px;height:1080px;object-fit:cover"></video>' +
+          '<video id="raw-vid" src="assets/raw.mp4" autoplay preload="auto"></video>' +
+          '<audio id="bgm" src="assets/bgm.mp3" autoplay preload="auto"></audio>' +
+          '</div></template>',
+      ],
+    ]);
+    const virtual = {
+      projectId: 'p1',
+      projectName: 'Video',
+      revision: 'rev-1',
+      getBlobMetadata: () => null,
+      listFiles: () =>
+        [...files.keys()].map((p) => ({
+          path: p,
+          sha256: 'a'.repeat(64),
+          sizeBytes: files.get(p)!.length,
+          mimeType: 'text/html',
+          isText: true,
+          blobScope: 'workspace' as const,
+          updatedAt: new Date(),
+          metadata: null,
+        })),
+      getFile: () => null,
+      exists: (p: string) => files.has(p) || p.startsWith('assets/'),
+      readText: (p: string) => files.get(p) ?? null,
+    };
+
+    const captureHtml = await buildSubCompositionHtmlInMemory(virtual, 'compositions/video-scene.html', {
+      capture: true,
+      skipDeterministicFonts: true,
+    });
+    assert.ok(captureHtml);
+    // Poster-backed <video> becomes an <img> with crossorigin="anonymous" and preserved id/class/style.
+    assert.match(
+      captureHtml,
+      /<img(?=[^>]*\bid="hero-vid")(?=[^>]*\bclass="clip")(?=[^>]*\bsrc="assets\/hero-poster\.jpg")(?=[^>]*\bcrossorigin="anonymous")(?=[^>]*\bdata-om-capture-video-poster="1")[^>]*>/,
+    );
+    // Posterless <video> and <audio> stay inert (preload="none", no autoplay).
+    assert.match(captureHtml, /<video(?=[^>]*\bid="raw-vid")(?=[^>]*\bpreload="none")[^>]*>/);
+    assert.doesNotMatch(captureHtml, /<video[^>]*\bautoplay\b/i);
+    assert.match(captureHtml, /<audio(?=[^>]*\bid="bgm")(?=[^>]*\bpreload="none")[^>]*>/);
+    assert.doesNotMatch(captureHtml, /<audio[^>]*\bautoplay\b/i);
+
+    // Interactive mode keeps the original <video> tags untouched.
+    const interactiveHtml = await buildSubCompositionHtmlInMemory(virtual, 'compositions/video-scene.html', {
+      capture: false,
+      skipDeterministicFonts: true,
+    });
+    assert.ok(interactiveHtml);
+    assert.match(interactiveHtml, /<video(?=[^>]*\bid="hero-vid")(?=[^>]*\bposter="assets\/hero-poster\.jpg")[^>]*>/);
+    assert.doesNotMatch(interactiveHtml, /data-om-capture-video-poster/);
   });
 });

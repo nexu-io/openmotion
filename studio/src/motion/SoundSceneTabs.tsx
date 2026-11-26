@@ -1,6 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { SOUND_TABS, type SoundTabId } from './soundTabs';
 
 export function SoundSceneTabs({
@@ -11,8 +12,10 @@ export function SoundSceneTabs({
   onSelectTab: (tabId: SoundTabId) => void;
 }) {
   const { t } = useI18n();
-  const liveTabs = SOUND_TABS.filter(tab => tab.status === 'live');
-  const soonTabs = SOUND_TABS.filter(tab => tab.status === 'soon');
+  const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
+  const visibleTabs = soundEffectsEnabled ? SOUND_TABS : SOUND_TABS.filter(tab => tab.id !== 'sfx');
+  const liveTabs = visibleTabs.filter(tab => tab.status === 'live');
+  const soonTabs = visibleTabs.filter(tab => tab.status === 'soon');
 
   const renderTab = (tab: (typeof SOUND_TABS)[number]) => {
     const active = tab.id === activeTab;

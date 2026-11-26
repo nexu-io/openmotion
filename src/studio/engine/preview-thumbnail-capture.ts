@@ -5,6 +5,18 @@
  */
 export const PREVIEW_THUMBNAIL_CAPTURE = `
   var snapdomPromise=null;
+  var CAPTURE_EXCLUDE_STYLE_PROPS=/^--/;
+  var OPAQUE_JPEG_URL_RE=/\\.jpe?g(?:[?#]|$)/i;
+  function encodeCaptureInlineDataUrl(canvas,sourceUrl){
+    var url=canvas.toDataURL('image/webp',0.8);
+    if(url&&url.indexOf('data:image/webp')===0) return url;
+    if(OPAQUE_JPEG_URL_RE.test(sourceUrl||'')){
+      var jpg=canvas.toDataURL('image/jpeg',0.82);
+      if(jpg&&jpg.indexOf('data:image/jpeg')===0) return jpg;
+    }
+    if(url&&url.indexOf('data:image/')===0) return url;
+    return canvas.toDataURL('image/png');
+  }
   function loadSnapdom(){
     if(typeof window.snapdom==='function') return Promise.resolve(window.snapdom);
     if(snapdomPromise) return snapdomPromise;
@@ -43,56 +55,85 @@ export const PREVIEW_THUMBNAIL_CAPTURE = `
       requestAnimationFrame(step);
     });
   }
+  var fetchPatchDepth=0;
+  var fetchPatchOrig=null;
+  var fetchPatchWrapped=null;
+  var activeFetchCache=null;
   function withPreviewRedirectSafeFetch(run,fetchCache){
-    var origFetch=window.fetch;
-    if(typeof origFetch!=='function') return run();
-    window.fetch=function(input,init){
-      var method=(init&&init.method?String(init.method):'GET').toUpperCase();
-      var cacheKey=null;
-      try {
-        var rawUrl=typeof input==='string'?input:(input&&typeof input.url==='string'?input.url:'');
-        if(rawUrl){
-          var parsed=new URL(rawUrl,location.href);
-          if(parsed.origin===location.origin&&/^\\/api\\/projects\\/[^/]+\\/preview\\//.test(parsed.pathname)){
-            if(init&&init.credentials==='include'){
-              init=Object.assign({},init,{credentials:'same-origin'});
+    if(typeof window.fetch!=='function') return run();
+    var prevCache=activeFetchCache;
+    activeFetchCache=fetchCache||null;
+    if(fetchPatchDepth===0){
+      var origFetch=window.fetch;
+      var wrapped=function(input,init){
+        var cache=activeFetchCache;
+        var method=(init&&init.method?String(init.method):(input&&typeof input==='object'&&input.method?String(input.method):'GET')).toUpperCase();
+        var cacheKey=null;
+        try {
+          var rawUrl=typeof input==='string'?input:(input&&typeof input.url==='string'?input.url:'');
+          if(rawUrl){
+            var parsed=new URL(rawUrl,location.href);
+            if(parsed.origin===location.origin&&/^\\/api\\/projects\\/[^/]+\\/preview\\//.test(parsed.pathname)){
+              if(init&&init.credentials==='include'){
+                init=Object.assign({},init,{credentials:'same-origin'});
+              } else if(!init&&typeof Request==='function'&&input instanceof Request&&input.credentials==='include'){
+                init={credentials:'same-origin'};
+              }
+              if(cache&&method==='GET') cacheKey=parsed.href;
             }
-            if(fetchCache&&method==='GET') cacheKey=parsed.href;
           }
-        }
-      } catch(_){}
-      if(cacheKey&&fetchCache[cacheKey]){
-        return fetchCache[cacheKey].then(function(entry){
-          return new Response(entry.buffer.slice(0),{status:entry.status,statusText:entry.statusText,headers:entry.headers});
-        });
-      }
-      var resPromise=origFetch.call(this,input,init);
-      if(cacheKey&&typeof Response==='function'){
-        var cached=resPromise.then(function(resp){
-          if(!resp||!resp.ok||typeof resp.clone!=='function'||typeof resp.arrayBuffer!=='function'){
-            delete fetchCache[cacheKey];
-            return null;
-          }
-          var headers=[];
-          if(resp.headers&&typeof resp.headers.forEach==='function'){
-            resp.headers.forEach(function(v,k){ headers.push([k,v]); });
-          }
-          return resp.clone().arrayBuffer().then(function(buf){
-            return {status:resp.status,statusText:resp.statusText,headers:headers,buffer:buf};
+        } catch(_){}
+        if(cacheKey&&cache&&cache[cacheKey]){
+          return cache[cacheKey].then(function(entry){
+            if(!entry) return origFetch.call(window,input,init);
+            return new Response(entry.buffer.slice(0),{status:entry.status,statusText:entry.statusText,headers:entry.headers});
+          },function(){
+            return origFetch.call(window,input,init);
           });
-        },function(err){
-          delete fetchCache[cacheKey];
-          throw err;
-        });
-        fetchCache[cacheKey]=cached;
-        return resPromise.then(function(resp){
-          if(!resp||!resp.ok||typeof resp.clone!=='function') delete fetchCache[cacheKey];
-          return resp;
-        });
+        }
+        var resPromise=origFetch.call(this,input,init);
+        if(cacheKey&&cache&&typeof Response==='function'){
+          var cached=resPromise.then(function(resp){
+            if(!resp||!resp.ok||typeof resp.clone!=='function'||typeof resp.arrayBuffer!=='function'){
+              delete cache[cacheKey];
+              return null;
+            }
+            var headers=[];
+            if(resp.headers&&typeof resp.headers.forEach==='function'){
+              resp.headers.forEach(function(v,k){ headers.push([k,v]); });
+            }
+            return resp.clone().arrayBuffer().then(function(buf){
+              return {status:resp.status,statusText:resp.statusText,headers:headers,buffer:buf};
+            },function(){
+              delete cache[cacheKey];
+              return null;
+            });
+          },function(err){
+            delete cache[cacheKey];
+            throw err;
+          });
+          cache[cacheKey]=cached;
+          return resPromise.then(function(resp){
+            if(!resp||!resp.ok||typeof resp.clone!=='function') delete cache[cacheKey];
+            return resp;
+          });
+        }
+        return resPromise;
+      };
+      fetchPatchOrig=origFetch;
+      fetchPatchWrapped=wrapped;
+      window.fetch=wrapped;
+    }
+    fetchPatchDepth+=1;
+    function restore(){
+      fetchPatchDepth=Math.max(0,fetchPatchDepth-1);
+      activeFetchCache=prevCache;
+      if(fetchPatchDepth===0){
+        if(fetchPatchOrig&&window.fetch===fetchPatchWrapped) window.fetch=fetchPatchOrig;
+        fetchPatchOrig=null;
+        fetchPatchWrapped=null;
       }
-      return resPromise;
-    };
-    function restore(){ if(window.fetch!==origFetch) window.fetch=origFetch; }
+    }
     var pending;
     try { pending=Promise.resolve(run()); }
     catch(err){ restore(); return Promise.reject(err); }
@@ -128,7 +169,7 @@ export const PREVIEW_THUMBNAIL_CAPTURE = `
           if(!ctx){ cache[key]=null; continue; }
           if(typeof ctx.clearRect==='function') ctx.clearRect(0,0,cw,ch);
           ctx.drawImage(img,0,0,cw,ch);
-          dataUrl=scratch.toDataURL('image/png');
+          dataUrl=encodeCaptureInlineDataUrl(scratch,key);
           cache[key]=dataUrl;
         } catch(_){
           // A tainted cross-origin image permanently taints this canvas; discard it so later images still inline.
@@ -323,7 +364,7 @@ export const PREVIEW_THUMBNAIL_CAPTURE = `
               return fn||loadSnapdom();
             }).then(function(fn){
               return withPreviewRedirectSafeFetch(function(){
-                return fn(target,{scale:scale,dpr:1,fast:true,embedFonts:false,exclude:'video'})
+                return fn(target,{scale:scale,dpr:1,fast:'auto',embedFonts:false,placeholders:false,excludeStyleProps:CAPTURE_EXCLUDE_STYLE_PROPS,exclude:'video'})
                   .then(function(res){ return res.toCanvas(); });
               },fetchCache);
             }).then(function(cv){

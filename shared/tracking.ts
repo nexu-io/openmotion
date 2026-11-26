@@ -38,11 +38,11 @@ export async function createAppTracking(directory: string, entrypoint: Entry): P
     if (testing && !process.env.OPENMOTION_TRACKING_TEST_RUN_ID) return disabled();
     const env = process.env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production');
     if (!['development', 'test', 'production'].includes(env)) return disabled();
-    const custom = process.env.OPENMOTION_POSTHOG_HOST !== undefined || process.env.OPENMOTION_POSTHOG_KEY !== undefined;
-    // Public write-only configuration only; malformed/missing configuration disables telemetry, not the application.
-    const config = custom ? { host: process.env.OPENMOTION_POSTHOG_HOST, token: process.env.OPENMOTION_POSTHOG_KEY,
-      geoip: process.env.OPENMOTION_GEOIP === '1' } : JSON.parse(readFileSync(new URL('./tracking-config.json', import.meta.url), 'utf8'));
-    if (!config.host || !config.token) return disabled();
+    const host = process.env.OPENMOTION_POSTHOG_HOST?.trim();
+    const token = process.env.OPENMOTION_POSTHOG_KEY?.trim() || process.env.OPENMOTION_POSTHOG_TOKEN?.trim();
+    // Public write-only configuration only; stay disabled unless explicitly configured via env vars.
+    if (!host || !token) return disabled();
+    const config = { host, token, geoip: process.env.OPENMOTION_GEOIP === '1' };
     const tracking = createNodeTracking({ registry: omEvents, entrypoint, enabled: true,
       identity: await loadIdentity(path.join(directory, 'tracking')), appVersion: VERSION,
       source: () => {

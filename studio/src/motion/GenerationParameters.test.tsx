@@ -3,8 +3,10 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { GenerationParameters, durationTicks, emptyParameters, parameterInputImageRatio, requestParameters, shotParameters } from './GenerationParameters';
-import { generationOptions } from '../../../shared/generation-options';
+import { generationOptions, resolveSpeechVoice, sanitizeSpeechVoiceParameters } from '../../../shared/generation-options';
 import type { Model } from '../../../shared/gateway';
+import { setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
+import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { toastErrorMessage } from '../components/ui/toastErrorMessage';
 import { languages, translate } from '../i18n/messages';
 import { ResizablePane, readPaneWidth } from './ResizablePane';
@@ -147,5 +149,75 @@ it('prefixes non-numeric parameter summary choices with their field label while 
   } finally {
     await act(async () => root.unmount());
     container.remove();
+  }
+});
+
+it('centralizes speech voice fallback and parameter sanitization across models and Cloud P1 gating', async () => {
+  const elevenBase: Model = {
+    id: 'opendesign:elevenlabs-v3',
+    provider: 'opendesign',
+    modelId: 'elevenlabs-v3',
+    label: 'Eleven v3',
+    modality: 'audio',
+    mode: 'text-to-speech',
+    source: 'live',
+  };
+  const eleven: Model = { ...elevenBase, generationOptions: generationOptions(elevenBase) };
+  const elevenCustomDefault: Model = { ...eleven, defaults: { voice: 'legacy_default_voice' } };
+  const kokoroBase: Model = {
+    id: 'fal:fal-ai/kokoro/american-english',
+    provider: 'fal',
+    modelId: 'fal-ai/kokoro/american-english',
+    label: 'Kokoro',
+    modality: 'audio',
+    mode: 'text-to-speech',
+    source: 'builtin',
+  };
+  const kokoro: Model = { ...kokoroBase, generationOptions: generationOptions(kokoroBase) };
+  const mockSpeechBase: Model = {
+    id: 'opendesign:mock-speech-1',
+    provider: 'opendesign',
+    modelId: 'mock-speech-1',
+    label: 'Mock Speech 1',
+    modality: 'audio',
+    mode: 'text-to-speech',
+    source: 'live',
+  };
+  const mockSpeech: Model = { ...mockSpeechBase, generationOptions: generationOptions(mockSpeechBase) };
+
+  // When custom voice IDs are disallowed, unrecognized voices fall back to the canonical preset default.
+  expect(resolveSpeechVoice(eleven, 'custom_speaker_42', false)).toBe('21m00Tcm4TlvDq8ikWAM');
+  expect(resolveSpeechVoice(elevenCustomDefault, undefined, false)).toBe('21m00Tcm4TlvDq8ikWAM');
+  expect(resolveSpeechVoice(eleven, 'JBFqnCBsd6RMkjVDRZzb', false)).toBe('JBFqnCBsd6RMkjVDRZzb');
+  expect(sanitizeSpeechVoiceParameters(eleven, { voice: 'custom_speaker_42', speed: 1.1 }, false)).toEqual({ speed: 1.1 });
+  expect(sanitizeSpeechVoiceParameters(eleven, { voice: 'JBFqnCBsd6RMkjVDRZzb', speed: 1.1 }, false)).toEqual({ voice: 'JBFqnCBsd6RMkjVDRZzb', speed: 1.1 });
+
+  // When custom voices are allowed, only models with allowCustom accept arbitrary IDs; free-text models keep their ID.
+  expect(resolveSpeechVoice(eleven, 'custom_speaker_42', true)).toBe('custom_speaker_42');
+  expect(resolveSpeechVoice(kokoro, 'custom_speaker_42', true)).toBe('af_heart');
+  expect(resolveSpeechVoice(mockSpeech, 'default', false)).toBe('default');
+  expect(sanitizeSpeechVoiceParameters(mockSpeech, { voice: 'default' }, false)).toEqual({ voice: 'default' });
+
+  // GenerationParameters uses the same centralized fallback in Cloud P1 mode.
+  setCachedCloudDisklessMode(true);
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      <GenerationParameters
+        model={eleven}
+        draft={{ values: {}, advanced: '{"voice":"custom_speaker_42"}' }}
+        appearance="boxed"
+        onChange={vi.fn()}
+      />,
+    ));
+    expect(container.querySelector('.om-generation-summary')?.textContent).toContain('Rachel');
+    expect(container.querySelector('.om-generation-summary')?.textContent).not.toContain('custom_speaker_42');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    setCloudFeatureOverridesForTest(null);
+    setCachedCloudDisklessMode(null);
   }
 });

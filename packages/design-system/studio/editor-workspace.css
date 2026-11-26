@@ -255,34 +255,53 @@
 :root[data-motion-ui] .hf-dock .dv-tabs-and-actions-container:has([data-icon-navigation]) {
   --dv-tabs-and-actions-container-height: calc(var(--motion-space-48) + var(--motion-space-4));
   height: var(--dv-tabs-and-actions-container-height);
+  padding-inline: var(--motion-space-8) var(--motion-space-2);
 }
 :root[data-motion-ui] .hf-dock .dv-tabs-and-actions-container:has([data-icon-navigation]) .dv-scrollable {
-  height: var(--motion-space-44);
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--motion-space-40);
+  margin-inline-end: var(--motion-space-4);
+}
+:root[data-motion-ui] .hf-dock .dv-tabs-and-actions-container:has([data-icon-navigation]) .dv-void-container {
+  flex: 0 0 0;
+  min-width: 0;
+}
+:root[data-motion-ui] .hf-dock .dv-tabs-container:has([data-icon-navigation]) {
+  width: 100%;
+  column-gap: var(--motion-space-4);
 }
 /* Icon navigation paints its selected background on the tab itself. */
 :root[data-motion-ui] .hf-dock .dv-tabs-container:has([data-icon-navigation]) > .hf-dock-tab-fill {
   display: none;
 }
 :root[data-motion-ui] .hf-dock .dv-groupview .dv-tabs-container > .dv-tab:has(.hf-dock-tab[data-icon-navigation]) {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
-  height: var(--motion-space-44);
-  padding-inline: var(--motion-space-2);
+  justify-content: center;
+  height: var(--motion-space-40);
+  padding-inline: var(--motion-space-4);
   font-size: var(--motion-text-xs);
 }
-:root[data-motion-ui] .hf-dock-tab[data-icon-navigation] {
+:root[data-motion-ui] .hf-dock .dv-groupview .dv-tabs-container > .dv-tab:has(.hf-dock-tab[data-icon-navigation]):not(.dv-active-tab):is(:hover, :focus-visible) {
+  background: var(--motion-hover);
+}
+:root[data-motion-ui] .hf-dock .dv-tabs-container .hf-dock-tab[data-icon-navigation] {
   flex-direction: column;
   justify-content: center;
+  align-items: center;
+  width: 100%;
   gap: var(--motion-space-2);
+  font-size: var(--motion-text-xs);
   text-align: center;
 }
-:root[data-motion-ui] .hf-dock-tab[data-icon-navigation] .hf-dock-tab-icon {
+:root[data-motion-ui] .hf-dock .dv-tabs-container .hf-dock-tab[data-icon-navigation] .hf-dock-tab-icon {
   display: block;
   animation: none;
 }
-:root[data-motion-ui] .hf-dock-tab[data-icon-navigation] .hf-dock-tab-label {
+:root[data-motion-ui] .hf-dock .dv-tabs-container .hf-dock-tab[data-icon-navigation] .hf-dock-tab-label {
   max-width: 100%;
-  line-height: var(--motion-space-16);
+  line-height: var(--motion-space-14);
 }
 /* Non-interactive frame inspection stays separate from the committed playhead. */
 .motion-timeline-hover-line { position: absolute; top: 0; bottom: 0; width: 1px; z-index: 61; pointer-events: none; background: var(--timeline-accent); opacity: 0.55; }

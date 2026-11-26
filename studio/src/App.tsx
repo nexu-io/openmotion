@@ -75,6 +75,8 @@ import { whenTimelineIdle } from "./player/components/timelineMotion";
 import { requestPreviewReload } from "./player/previewReloading";
 import { useStudioHost } from "./motion/StudioHost";
 import { preloadFontLists } from "./components/editor/propertyPanelFont";
+import { saveFailureFeedback } from "./utils/saveFailureFeedback";
+import { getStudioSaveErrorMessage, getStudioSaveStatusCode } from "./utils/studioSaveDiagnostics";
 const getTimelineSelectionSet = () => usePlayerStore.getState().selectedElementIds;
 
 export interface StudioAppProps {
@@ -422,6 +424,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
   });
   const renderClipContent = useRenderClipContent({
     fileTreeLoaded: fileManager.fileTreeLoaded,
+    fileTree: fileManager.fileTree,
     projectIdRef: fileManager.projectIdRef,
     compIdToSrc,
     activePreviewUrl:
@@ -525,7 +528,16 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     renderQueue,
     compositionDimensions,
     domEditSaveQueuePaused: previewPersistence.domEditSaveQueuePaused,
-    externalFileConflict: externalFileChanges.blocked !== null,
+    externalFileConflict: externalFileChanges.blocked?.status === "conflict",
+    externalFileBlockedReason:
+      externalFileChanges.blocked?.status === "conflict"
+        ? "an external change to this file is waiting to be resolved"
+        : externalFileChanges.blocked?.status === "failed"
+          ? saveFailureFeedback(
+              getStudioSaveStatusCode(externalFileChanges.blocked.error) ?? null,
+              getStudioSaveErrorMessage(externalFileChanges.blocked.error),
+            )
+          : null,
     waitForPendingDomEditSaves: previewPersistence.waitForPendingDomEditSaves,
     handlePreviewIframeRef,
     refreshPreviewDocumentVersion,

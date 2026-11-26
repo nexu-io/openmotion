@@ -81,6 +81,18 @@ function isModelContext(value: unknown): value is ModelContext {
   return typeof Reflect.get(value, "registerTool") === "function";
 }
 
+const polyfilledModelContexts = new WeakSet<ModelContext>();
+
+/** Mark a `document.modelContext` instance as installed by the Studio polyfill. */
+export function markModelContextPolyfilled(context: ModelContext): void {
+  polyfilledModelContexts.add(context);
+}
+
+/** True when `context` was installed by `loadModelContextPolyfill()` rather than the browser. */
+export function isPolyfilledModelContext(context: ModelContext | null): boolean {
+  return context !== null && polyfilledModelContexts.has(context);
+}
+
 /**
  * The live WebMCP entry point, or null when this browser has not shipped it.
  *
@@ -91,4 +103,13 @@ function isModelContext(value: unknown): value is ModelContext {
 export function getModelContext(doc: Document = document): ModelContext | null {
   const candidate = Reflect.get(doc, "modelContext");
   return isModelContext(candidate) ? candidate : null;
+}
+
+/**
+ * Returns `document.modelContext` only when it is browser-native (not installed
+ * by Studio's `@mcp-b/global` polyfill).
+ */
+export function getNativeModelContext(doc: Document = document): ModelContext | null {
+  const candidate = getModelContext(doc);
+  return candidate && !isPolyfilledModelContext(candidate) ? candidate : null;
 }

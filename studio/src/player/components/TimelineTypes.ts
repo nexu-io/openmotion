@@ -25,6 +25,10 @@ export interface TimelineProps
   extends TimelineDropCallbacks, TimelineEditOverrides, TimelineStackingSyncProps {
   /** Read-only source rows while the active preview is still discovering its authoritative timeline. */
   initialElements?: TimelineElement[];
+  /** Cached composition duration paired with `initialElements` while switching compositions. */
+  initialDuration?: number;
+  /** When true, show `initialElements` immediately whenever live elements/manifest are cleared (e.g. composition switch). */
+  preferInitialSnapshot?: boolean;
   /** Project-scoped reset boundary; soft source refreshes retain the same epoch. */
   sessionEpoch?: number;
   /** Intrinsic track geometry, excluding the host toolbar and footer. */

@@ -61,6 +61,75 @@ export function modelDefaults(model: Model): Record<string, unknown> {
   return voice ? { voice, ...model.defaults } : { ...model.defaults };
 }
 
+function speechVoiceField(model: Model | undefined): GenerationOption | undefined {
+  if (!model) return undefined;
+  return (model.generationOptions ?? generationOptions(model, false))?.fields.find(field => field.key === 'voice');
+}
+
+function isKnownVoiceChoice(field: GenerationOption, voice: string): boolean {
+  return Boolean(voice && (field.choices ?? []).some(choice => String(choice.value) === voice));
+}
+
+function normalizeVoiceValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+}
+
+/**
+ * Resolve the effective speech voice for a model under the active custom-voice policy.
+ *
+ * When `allowCustom` is false on a model whose `voice` field is a curated choice list,
+ * unrecognized custom voice IDs fall back to the model's canonical default preset voice
+ * (from `modelDefaults` / `field.default`) instead of passing through or leaving controls
+ * unmatched. Models with free-text voice IDs (no curated choice list) keep their value.
+ */
+export function resolveSpeechVoice(
+  model: Model | undefined,
+  value: unknown,
+  allowCustom: boolean,
+): string | undefined {
+  const raw = normalizeVoiceValue(value);
+  if (!model) return raw || undefined;
+  const voiceField = speechVoiceField(model);
+  const allowModelCustom = Boolean(allowCustom && voiceField?.allowCustom);
+
+  const defaultVoice = (() => {
+    const candidates = [modelDefaults(model).voice, voiceField?.default];
+    for (const candidate of candidates) {
+      const normalized = normalizeVoiceValue(candidate);
+      if (!normalized) continue;
+      if (!voiceField || voiceField.kind !== 'choice' || allowModelCustom || isKnownVoiceChoice(voiceField, normalized)) {
+        return normalized;
+      }
+    }
+    return undefined;
+  })();
+
+  if (!voiceField || voiceField.kind !== 'choice') return raw || defaultVoice;
+  if (!raw) return defaultVoice;
+  if (isKnownVoiceChoice(voiceField, raw) || allowModelCustom) return raw;
+  return defaultVoice;
+}
+
+/**
+ * Strip an unrecognized custom `voice` parameter when custom voice IDs are disallowed
+ * for a model with a curated choice list, preserving all other parameters.
+ */
+export function sanitizeSpeechVoiceParameters(
+  model: Model | undefined,
+  parameters: Record<string, unknown> | undefined,
+  allowCustom: boolean,
+): Record<string, unknown> | undefined {
+  if (!parameters || allowCustom || !model || parameters.voice === undefined) return parameters;
+  const voiceField = speechVoiceField(model);
+  if (!voiceField || voiceField.kind !== 'choice') return parameters;
+  const raw = normalizeVoiceValue(parameters.voice);
+  if (isKnownVoiceChoice(voiceField, raw)) return parameters;
+  const { voice: _dropped, ...rest } = parameters;
+  return rest;
+}
+
 /** These Cloud models derive first-frame video geometry from the input image. */
 export function usesInputImageRatio(model: Model, hasInputImage: boolean, parameters: Record<string, unknown> = {}): boolean {
   const images = { ...model.defaults, ...parameters }.images;

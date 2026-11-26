@@ -82,6 +82,40 @@ it.each([
   }
 });
 
+it.each([
+  ['empty public catalog', () => Response.json({ provider: 'opendesign', mode: 'opendesign', defaults: {}, models: [] })],
+  ['public preview catalog', () => Response.json({ provider: 'opendesign', mode: 'opendesign', defaults: {}, models: [{ id: 'opendesign:gpt-image-2.6-flare', provider: 'opendesign', modelId: 'gpt-image-2.6-flare', label: 'GPT Image 2.6 Flare', modality: 'image', source: 'builtin' }] })],
+])('asks a guest to sign in on /settings/models instead of upselling Plus (%s)', async (_name, catalog) => {
+  setCachedCloudDisklessMode(true);
+  history.replaceState(null, '', '/settings/models');
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('/models/catalog')) return catalog();
+    if (url.includes('/models/status')) {
+      return Response.json({ providers: [{ id: 'opendesign', label: 'OpenDesign', configured: true, enabled: true, available: false, credentialSource: 'environment' }], routes: {} });
+    }
+    return Response.json({ code: 'UNAUTHORIZED', errorCode: 'auth_required', sessionExpired: false, error: 'Authentication required' }, { status: 401 });
+  }));
+  const modal = vi.fn();
+  const unsubscribe = subscribeEntitlementModal(modal);
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    const main = container.querySelector('.om-settings-main')!;
+    expect(main.querySelector('h1')?.textContent).toBe('Default models');
+    expect(main.querySelector('[data-empty-models="true"]')).toBeNull();
+    expect(main.textContent).not.toContain('Upgrade to Plus');
+    expect(main.querySelector('button[aria-label="Select model"]')).toBeNull();
+    const signIn = [...main.querySelectorAll<HTMLButtonElement>('[data-guest-auth-guide="true"] button')].find(button => button.textContent?.trim() === 'Sign in with OpenDesign');
+    expect(signIn).toBeTruthy();
+    await act(async () => signIn!.click());
+    expect(modal).toHaveBeenCalledWith({ mode: 'guest', hookId: 'settings_signin' });
+  } finally {
+    act(() => root.unmount()); unsubscribe(); container.remove(); sessionStorage.clear(); setCachedCloudDisklessMode(null); history.replaceState(null, '', '/');
+  }
+});
+
 it.each([false, true])('prepares only existing projects while browsing, and creates only the selected template (existing=%s)', async existing => {
   history.replaceState(null, '', '/?templates=1&embed=1');
   sessionStorage.clear();

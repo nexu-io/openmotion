@@ -1,4 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm';
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { Database } from '../db/client.ts';
@@ -56,9 +57,30 @@ function toRecord(row: typeof workRounds.$inferSelect): WorkRoundRecord {
 
 export class WorkRoundsService {
   private readonly db: Database;
+  private readonly cloudTracking?: CloudTrackingHandle;
 
-  constructor(db: Database) {
+  constructor(db: Database, options?: { readonly cloudTracking?: CloudTrackingHandle }) {
     this.db = db;
+    this.cloudTracking = options?.cloudTracking;
+  }
+
+  private emitStage(
+    ctx: AuthContext,
+    record: WorkRoundRecord,
+    stage: 'started' | 'generated' | 'edited' | 'exported',
+    exportRoute?: 'mcp' | 'studio',
+  ): void {
+    this.cloudTracking?.trackWorkGenerationStage({
+      workId: record.id,
+      projectId: record.projectId,
+      stage,
+      taskType: record.mode,
+      versionId: record.versionId,
+      revision: record.revision,
+      ...(exportRoute ? { exportRoute } : {}),
+      userId: ctx.appUserId ?? ctx.userId,
+      entrypoint: 'mcp',
+    });
   }
 
   /** Start a new authoring work round bound to a project's current version & revision. */
@@ -100,7 +122,9 @@ export class WorkRoundsService {
       )
       .returning();
 
-    return toRecord(inserted);
+    const record = toRecord(inserted);
+    this.emitStage(ctx, record, 'started');
+    return record;
   }
 
   /** Read a single work round scoped by workspace + project. */
@@ -166,11 +190,13 @@ export class WorkRoundsService {
       generation?: Record<string, unknown> | null;
     } = {},
   ): Promise<WorkRoundRecord> {
-    return this.updateRound(ctx, projectId, workId, {
+    const record = await this.updateRound(ctx, projectId, workId, {
       state: 'saved',
       error: null,
       ...update,
     });
+    this.emitStage(ctx, record, 'generated');
+    return record;
   }
 
   /** Mark a work round as failed with a human-readable error message. */
@@ -203,10 +229,12 @@ export class WorkRoundsService {
       exportSource: details.source ?? 'studio',
       ...(details.jobId ? { exportJobId: details.jobId } : {}),
     };
-    return this.updateRound(ctx, projectId, workId, {
+    const record = await this.updateRound(ctx, projectId, workId, {
       ...(details.jobId ? { jobId: details.jobId, previousJobId: existing.jobId } : {}),
       generation,
     });
+    this.emitStage(ctx, record, 'exported', details.source === 'mcp' ? 'mcp' : 'studio');
+    return record;
   }
 
   /** Record that the user edited this work round inside Studio. */
@@ -219,7 +247,9 @@ export class WorkRoundsService {
       ...(existing.generation ?? {}),
       studioEditedAt: new Date().toISOString(),
     };
-    return this.updateRound(ctx, projectId, workId, { generation });
+    const record = await this.updateRound(ctx, projectId, workId, { generation });
+    this.emitStage(ctx, record, 'edited');
+    return record;
   }
 
   private async updateRound(

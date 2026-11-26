@@ -5,7 +5,14 @@ import type { TimelineElement } from "../player";
 import { usePlayerStore } from "../player";
 import { getTimelineElementLabel } from "../utils/studioHelpers";
 import { trackStudioRazorSplit } from "../telemetry/events";
-import { canSplitElementAt, selectSplittableElements, selectPlayheadSplitElements } from "../utils/timelineElementSplit";
+import {
+  CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
+  canSplitElementAt,
+  isSplitTimeWithinBounds,
+  isUnsplittableCanvasElement,
+  selectSplittableElements,
+  selectPlayheadSplitElements,
+} from "../utils/timelineElementSplit";
 import { linkedMembersOf } from "../player/components/audioClipLink";
 import { isLinkedSelectionOn } from "../utils/linkedClipPreferences";
 import { buildAtomicCutIntents, runAtomicCutTransaction } from "../utils/razorSplitTransaction";
@@ -117,6 +124,10 @@ export function useRazorSplit({
         showToast("Cannot edit timeline while recording", "error");
         return;
       }
+      if (isUnsplittableCanvasElement(element)) {
+        showToast(CANVAS_SPLIT_UNSUPPORTED_MESSAGE, "info");
+        return;
+      }
       if (!canSplitElementAt(element, splitTime)) return;
       try {
         const members = linkedMembersOf(
@@ -147,8 +158,17 @@ export function useRazorSplit({
         showToast("Cannot edit timeline while recording", "error");
         return;
       }
-      const splittable = selectSplittableElements(usePlayerStore.getState().elements, splitTime);
-      if (splittable.length === 0) return;
+      const allElements = usePlayerStore.getState().elements;
+      const splittable = selectSplittableElements(allElements, splitTime);
+      if (splittable.length === 0) {
+        const hasCanvasAtSplit = allElements.some(
+          (el) =>
+            isUnsplittableCanvasElement(el) &&
+            isSplitTimeWithinBounds(splitTime, el.start, el.duration),
+        );
+        if (hasCanvasAtSplit) showToast(CANVAS_SPLIT_UNSUPPORTED_MESSAGE, "info");
+        return;
+      }
       try {
         const result = await runCut(splittable, splitTime, "all");
         if (!result) return;
@@ -185,7 +205,18 @@ export function useRazorSplit({
         return;
       }
       const targets = selectPlayheadSplitElements(state, splitTime);
-      if (targets.length === 0) return;
+      if (targets.length === 0) {
+        const selectedIds = new Set(state.selectedElementIds);
+        if (selectedElementId) selectedIds.add(selectedElementId);
+        const hasSelectedCanvas = state.elements.some(
+          (el) =>
+            (selectedIds.size === 0 || selectedIds.has(el.key ?? el.id)) &&
+            isUnsplittableCanvasElement(el) &&
+            isSplitTimeWithinBounds(splitTime, el.start, el.duration),
+        );
+        if (hasSelectedCanvas) showToast(CANVAS_SPLIT_UNSUPPORTED_MESSAGE, "info");
+        return;
+      }
       if (!ordered) playheadCutPendingRef.current = true;
       try {
         const result = await runCut(targets, splitTime, targets.length === 1 ? "single" : "all");

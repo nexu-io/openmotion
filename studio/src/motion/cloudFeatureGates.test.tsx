@@ -15,6 +15,10 @@ import { TimelineCaptionActions } from './TimelineCaptionActions';
 import { TimelineCaptionsMenu } from './TimelineCaptionsMenu';
 import { ReviewPlayerControls } from './ReviewPlayerControls';
 import { ReviewCommentsPanel } from './ReviewCommentsPanel';
+import { SoundParameters } from './SoundParameters';
+import { emptyParameters } from './GenerationParameters';
+import { generationOptions } from '../../../shared/generation-options';
+import type { Model } from '../../../shared/gateway';
 import { useDockLayoutStore } from '../components/dock/dockLayoutStore';
 
 const studioMocks = vi.hoisted(() => ({
@@ -359,5 +363,71 @@ describe('Cloud Phase 1 feature gates', () => {
 
     expect(container.innerHTML).toBe('');
     expect(calledUrls().some(u => u.includes('/phase1/call'))).toBe(false);
+  });
+
+  it('hides Custom voice ID in SoundParameters for Cloud speech models while preserving preset voices', async () => {
+    const speechModelBase: Model = {
+      id: 'opendesign:elevenlabs-v3',
+      provider: 'opendesign',
+      modelId: 'elevenlabs-v3',
+      label: 'Eleven v3',
+      modality: 'audio',
+      mode: 'text-to-speech',
+      source: 'live',
+    };
+    const speechModel: Model = { ...speechModelBase, generationOptions: generationOptions(speechModelBase) };
+
+    await act(async () => root.render(
+      <I18nProvider initialLocale="en">
+        <SoundParameters
+          tabId="speech"
+          model={speechModel}
+          draft={emptyParameters}
+          onChange={vi.fn()}
+        />
+      </I18nProvider>,
+    ));
+
+    expect(container.querySelectorAll('.om-sound-voice-select').length).toBeGreaterThan(0);
+    expect(container.querySelector('.om-sound-custom-voice-toggle')).toBeNull();
+    expect(container.querySelector('.om-sound-custom-voice-box')).toBeNull();
+    expect(container.querySelector('input[aria-label="Custom voice ID"]')).toBeNull();
+    expect(container.textContent).not.toContain('Custom voice ID');
+  });
+
+  it('hides the Sound effects tab, type filter, and landing SFX templates in Cloud P1', async () => {
+    await mountApp('/audio/music');
+
+    const soundTabs = [...container.querySelectorAll<HTMLButtonElement>('button[data-sound-tab]')].map(
+      el => el.dataset.soundTab,
+    );
+    expect(soundTabs).toContain('music');
+    expect(soundTabs).toContain('speech');
+    expect(soundTabs).not.toContain('sfx');
+
+    const filterGroup = container.querySelector('[role="group"][aria-label="Audio type"]');
+    expect(filterGroup).not.toBeNull();
+    const filterLabels = [...filterGroup!.querySelectorAll<HTMLButtonElement>('button')].map(el => el.textContent?.trim());
+    expect(filterLabels).toEqual(['All', 'Music', 'Speech']);
+    expect(filterLabels).not.toContain('Sound effects');
+
+    await mountApp('/sound', 1);
+    const titles = [...container.querySelectorAll('.om-audio-card strong')].map(el => el.textContent?.trim());
+    expect(titles).toContain('Minimal product score');
+    expect(titles).not.toContain('Notification chime');
+    expect(titles).not.toContain('Success sound');
+  });
+
+  it.each([
+    ['/audio/sfx', '/audio/music'],
+    ['/sound/sfx', '/sound/music'],
+  ])('redirects direct Cloud P1 navigation from %s to %s via replace', async (blockedPath, expectedPath) => {
+    const historyLengthBefore = history.length;
+    await mountApp(blockedPath);
+
+    expect(location.pathname).toBe(expectedPath);
+    expect(history.length).toBe(historyLengthBefore);
+    expect(container.querySelector('button[data-sound-tab="sfx"]')).toBeNull();
+    expect(container.querySelector('.om-sound-tab[aria-current="page"]')?.getAttribute('data-sound-tab')).toBe('music');
   });
 });

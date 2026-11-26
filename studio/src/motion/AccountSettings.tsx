@@ -1,6 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import * as tracking from './pageTracking';
+import { resetMotionTrackingIdentity } from './trackingIdentity';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import type { AccountSummary } from '../../../shared/provider-directory';
@@ -33,6 +34,7 @@ export interface CloudWorkspaceSummary {
 
 export interface CloudAccountSummary extends AccountSummary {
   userId?: string;
+  appUserId?: string | null;
   authMode?: 'oidc' | 'dev';
   authMethod?: 'session_cookie' | 'pat' | 'oauth_bearer' | 'oidc_jwt' | 'dev_bypass';
   activeWorkspace?: CloudWorkspaceSummary | null;
@@ -75,6 +77,7 @@ interface CloudSummaryApiResponse {
   consoleUrl?: string;
   user?: {
     id?: string;
+    appUserId?: string | null;
     email?: string | null;
     displayName?: string | null;
     name?: string | null;
@@ -126,6 +129,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
     return {
       state: raw.state,
       userId: raw.user?.id,
+      appUserId: raw.user?.appUserId ?? null,
       consoleUrl,
       user: raw.user ? { name: raw.user.name ?? raw.user.displayName ?? undefined, email: raw.user.email ?? undefined } : undefined,
       plan: raw.plan,
@@ -146,6 +150,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
   return {
     state: authenticated ? 'signed-in' : 'signed-out',
     userId: raw.user?.id,
+    appUserId: raw.user?.appUserId ?? null,
     consoleUrl,
     user: raw.user
       ? {
@@ -410,6 +415,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       if (!response.ok) throw new Error(t('Could not sign out'));
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
+      resetMotionTrackingIdentity();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));

@@ -9,6 +9,7 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 import { MAX_MEDIA_BYTES, mediaType } from '../../gateway/network.ts';
 import type { AssetReference } from '../../shared/asset-library.ts';
 import type { Model } from '../../shared/gateway.ts';
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import { CloudError, isCloudError } from '../contracts/errors.ts';
 import type { JobProgressEvent } from '../contracts/events.ts';
 import type { MediaGenerateJobName, MediaGeneratePayloadMap } from '../contracts/jobs.ts';
@@ -106,6 +107,7 @@ export interface MediaGenerateDeps {
   readonly logger: Logger;
   readonly workerId: string;
   readonly gateway: PlatformModelGateway;
+  readonly cloudTracking?: CloudTrackingHandle;
   readonly pollIntervalMs?: number;
   readonly maxPollMs?: number;
   readonly tmpBaseDir?: string;
@@ -324,6 +326,21 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
   let claimedJob: typeof jobs.$inferSelect | null = null;
   let terminalHandled = false;
   let savePending = retrySave;
+  let parsedModality: AssetModality | null = null;
+  let actorUserId: string | undefined;
+  let terminalResultTracked = false;
+
+  const emitMediaResult = (jobState: 'completed' | 'failed' | 'cancelled', assetCount: number) => {
+    if (terminalResultTracked || !parsedModality || !deps.cloudTracking) return;
+    terminalResultTracked = true;
+    deps.cloudTracking.trackMediaGenerationResult({
+      modality: parsedModality,
+      jobId,
+      jobState,
+      assetCount,
+      userId: actorUserId,
+    });
+  };
 
   const publishProgress = async (
     state: JobProgressEvent['state'],
@@ -382,6 +399,8 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
     });
 
     const spec = parseGenerationInput(claimedJob.inputPayload ?? {});
+    parsedModality = spec.modality;
+    actorUserId = spec.appUserId ?? spec.externalUserId;
     const callCtx: GatewayCallContext = {
       workspaceId,
       externalWorkspaceId: spec.externalWorkspaceId,
@@ -526,6 +545,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           errorMessage,
           remoteTerminal: !outcomeUnknown,
         });
+        emitMediaResult('cancelled', 0);
         terminalHandled = true;
         return { jobId, state: 'cancelled', remoteId };
       }
@@ -585,6 +605,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
             .returning();
           if (updatedCancelled.length > 0) {
             await publishProgress('cancelled', 'cancelled', 0);
+            emitMediaResult('cancelled', 0);
             terminalHandled = true;
             return { jobId, state: 'cancelled', remoteId };
           }
@@ -594,6 +615,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
             errorMessage,
             remoteTerminal: !outcomeUnknown,
           });
+          emitMediaResult('failed', 0);
         }
         terminalHandled = true;
         throw new CloudError('STORAGE_ERROR', errorMessage, { status: 502 });
@@ -847,6 +869,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
 
     if (committedResult.cancelled) {
       await publishProgress('cancelled', 'cancelled', 0);
+      emitMediaResult('cancelled', 0);
       return { jobId, state: 'cancelled' };
     }
 
@@ -855,6 +878,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
       libraryAssets: committedResult.libraryAssets,
     };
     await publishProgress('completed', 'completed', 100, { resultJson: finalPayload });
+    emitMediaResult('completed', committedResult.libraryAssets.length);
     return { jobId, state: 'completed', ...finalPayload };
   } catch (error) {
     if (claimedJob && !terminalHandled) {
@@ -880,6 +904,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           // Best-effort terminal persistence during cancellation.
         }
         await publishProgress('cancelled', 'cancelled', 0);
+        emitMediaResult('cancelled', 0);
       } else {
         const rawCode =
           !isCloudError(error) && error instanceof Error
@@ -946,6 +971,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
         }
         if (finalizedState === 'cancelled') {
           await publishProgress('cancelled', 'cancelled', 0);
+          emitMediaResult('cancelled', 0);
           return { jobId, state: 'cancelled' };
         }
         if (finalizedState === 'failed') {
@@ -954,6 +980,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
             errorMessage,
             remoteTerminal: false,
           });
+          emitMediaResult('failed', 0);
         }
       }
     }

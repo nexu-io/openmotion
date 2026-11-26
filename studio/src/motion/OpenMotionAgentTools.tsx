@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { studioApiFetch } from '../utils/studioApiFetch';
+import { resolvePendingCloudDisklessMode } from '../utils/cloudRuntime';
 import { readStudioUiPreferences } from '../utils/studioUiPreferences';
 import { makeStudioDebugLogger } from '../utils/studioDebug';
-import { getModelContext } from '../webmcp/types';
+import { getModelContext, getNativeModelContext } from '../webmcp/types';
 import { loadModelContextPolyfill } from '../webmcp/polyfill';
 import { registerStudioTools } from '../webmcp/registrar';
 import { useCloudWebMode } from './entitlementModalBus';
@@ -13,25 +14,27 @@ export function OpenMotionAgentTools({ polyfillOnly = false }: { polyfillOnly?: 
   const cloudMode = useCloudWebMode();
   useEffect(() => {
     if (readStudioUiPreferences().agentToolsEnabled === false) return;
-    if (polyfillOnly && getModelContext()) return;
+    if (polyfillOnly && getNativeModelContext()) return;
     const controller = new AbortController();
     let idleHandle: number | undefined;
     let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
 
     const registerTools = () => {
       if (controller.signal.aborted) return;
-      if (polyfillOnly && getModelContext()) return;
+      if (polyfillOnly && getNativeModelContext()) return;
       void (async () => {
-        const context = polyfillOnly
-          ? await loadModelContextPolyfill()
-          : (getModelContext() ?? await loadModelContextPolyfill());
+        const context = getModelContext() ?? await loadModelContextPolyfill();
         if (!context || controller.signal.aborted) return;
-        const { buildOpenMotionWebMcpTools } = await import('../../../shared/webmcp-tools');
+        if (polyfillOnly && getNativeModelContext()) return;
+        const [{ buildOpenMotionWebMcpTools }, resolvedCloudMode] = await Promise.all([
+          import('../../../shared/webmcp-tools'),
+          cloudMode ? Promise.resolve(true) : resolvePendingCloudDisklessMode(),
+        ]);
         if (controller.signal.aborted) return;
         const report = await registerStudioTools(
           context,
           buildOpenMotionWebMcpTools(studioApiFetch, {
-            cloud: cloudMode,
+            cloud: resolvedCloudMode,
             publicOrigin: typeof window !== 'undefined' ? window.location.origin : undefined,
           }),
           controller.signal,

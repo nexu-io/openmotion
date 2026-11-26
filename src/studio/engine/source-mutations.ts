@@ -48,7 +48,12 @@ export function collectProjectHtmlIds(htmlByPath: ReadonlyMap<string, string>): 
 
 export { duplicateElementInHtml, unwrapGroupWithGsapCleanup, isStudioFontFaceCss, ensureStudioFontFaceCss } from '../../../packages/edit-core/canvas-source.ts';
 
-export { applyAtomicCutsToHtml, type AtomicCutTarget } from '../../../packages/edit-core/split.ts';
+export {
+  applyAtomicCutsToHtml,
+  assertSplittableElementInHtml,
+  CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
+  type AtomicCutTarget,
+} from '../../../packages/edit-core/split.ts';
 
 export { insertCompositionInMemory } from '../../../packages/edit-core/insert-composition.ts';
 

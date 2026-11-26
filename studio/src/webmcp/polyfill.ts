@@ -14,7 +14,7 @@
 
 import { makeStudioDebugLogger } from "../utils/studioDebug";
 import { trackEvent } from "../telemetry/client";
-import { getModelContext, type ModelContext } from "./types";
+import { getModelContext, markModelContextPolyfilled, type ModelContext } from "./types";
 
 const log = makeStudioDebugLogger("webmcp");
 
@@ -26,6 +26,7 @@ let pending: Promise<ModelContext | null> | null = null;
 
 async function importPolyfill(): Promise<ModelContext | null> {
   try {
+    const existingBeforeImport = getModelContext();
     await import("@mcp-b/global");
     const modelContext = getModelContext();
     if (!modelContext) {
@@ -33,6 +34,9 @@ async function importPolyfill(): Promise<ModelContext | null> {
       log("polyfill", { loaded: true, modelContext: false });
       trackEvent("webmcp.polyfill_failed", { error_name: "ModelContextMissingError" });
     } else {
+      if (!existingBeforeImport) {
+        markModelContextPolyfilled(modelContext);
+      }
       trackEvent("webmcp.polyfill_loaded");
     }
     return modelContext;

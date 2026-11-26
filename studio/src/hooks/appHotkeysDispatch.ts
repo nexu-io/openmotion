@@ -6,7 +6,12 @@ import { useDockLayoutStore } from "../components/dock/dockLayoutStore";
 import { isTypingTarget, ownsPlainKeys } from "../utils/typingTarget";
 import { isEditableTarget } from "../utils/timelineDiscovery";
 import { shouldIgnoreHistoryShortcut } from "../utils/studioHelpers";
-import { canSplitElement } from "../utils/timelineElementSplit";
+import {
+  CANVAS_SPLIT_UNSUPPORTED_MESSAGE,
+  canSplitElement,
+  isSplitTimeWithinBounds,
+  isUnsplittableCanvasElement,
+} from "../utils/timelineElementSplit";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { noteHistoryTrigger } from "../motion/editorTracking";
 import { razorClaimsKey } from "../player/lib/playbackShortcuts";
@@ -189,6 +194,14 @@ export function dispatchPlainKey(event: KeyboardEvent, _key: string, cb: HotkeyC
     }
     if (selectedElementId) {
       const el = elements.find((e) => (e.key ?? e.id) === selectedElementId);
+      if (
+        el &&
+        isUnsplittableCanvasElement(el) &&
+        isSplitTimeWithinBounds(currentTime, el.start, el.duration)
+      ) {
+        cb.showToast(CANVAS_SPLIT_UNSUPPORTED_MESSAGE, "info");
+        return;
+      }
       if (
         el &&
         canSplitElement(el) &&

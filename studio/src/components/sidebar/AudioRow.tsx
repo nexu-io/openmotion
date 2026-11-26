@@ -4,6 +4,10 @@ import { AssetQuickAdd } from "./AssetQuickAdd";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { OverflowText } from "../ui/OverflowText";
 import { Tooltip } from "../ui/Tooltip";
+import { ItemLoadErrorBadge } from "../ui/ItemLoadErrorBadge";
+import { triggerEditorAssetRetry } from "../EditorAssetLoadingOverlay";
+import { useDockPanelVisible } from "../dock/Dock";
+import { matchesFailedPreviewAsset } from "../../player/lib/previewAssetReadiness";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
 import { useState, useRef, useEffect, useCallback, useId } from "react";
@@ -55,20 +59,33 @@ export function AudioRow({
 }) {
   const { t } = useI18n();
   const mvp = useMvpEditor();
+  const panelVisible = useDockPanelVisible();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [usageExpanded, setUsageExpanded] = useState(false);
   const usageListId = useId();
   useEffect(() => setUsageExpanded(false), [asset, projectId]);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
-  const visible = useNearViewport(element);
+  const visible = useNearViewport(element, panelVisible);
   const sessionEpoch = usePlayerStore(s => s.timelineSessionEpoch);
   const revision = usePlayerStore(s => thumbnailRevisionOf(s.thumbnailRevisions, asset));
   const { toasts, showToast, dismissToast } = useToast();
   const name = displayName ?? filename(asset);
   const sourceUrl = resolveMediaPreviewUrl(asset, projectId);
   const serveUrl = `${sourceUrl}${sourceUrl.includes("?") ? "&" : "?"}assetRevision=${revision}&session=${sessionEpoch}`;
-  const { playing, pending, duration, toggle, stop } = useAudioAssetPreview(serveUrl, visible, () => showToast(t("Preview failed to load")));
+  const { playing, pending, duration, error: audioError = false, toggle, stop, reload } = useAudioAssetPreview(serveUrl, visible, () => showToast(t("Preview failed to load")));
+  useEffect(() => {
+    if (!panelVisible) stop();
+  }, [panelVisible, stop]);
+  const previewAssetFailed = usePlayerStore((s) =>
+    matchesFailedPreviewAsset(s.assetReadinessFailed, asset),
+  );
+  const previewAssetRetrying = usePlayerStore((s) => s.assetReadinessRetrying);
+  const showAudioError = audioError || previewAssetFailed;
+  const handleReloadAudio = useCallback(() => {
+    reload?.();
+    if (previewAssetFailed) void triggerEditorAssetRetry();
+  }, [previewAssetFailed, reload]);
   const durationLabel = formatDuration(duration || meta?.duration || 0);
   const timeLabel = durationLabel || "—";
   const isCopied = copyFeedback?.path === asset && copyFeedback.ok;
@@ -218,7 +235,16 @@ export function AudioRow({
               })}
               </span>
             </div>
-            {!used && <span className="motion-audio-time">{timeLabel}</span>}
+            {showAudioError ? (
+              <ItemLoadErrorBadge
+                inline
+                compact
+                reloading={previewAssetFailed && previewAssetRetrying}
+                onReload={handleReloadAudio}
+              />
+            ) : (
+              !used && <span className="motion-audio-time">{timeLabel}</span>
+            )}
           </div>
         </div>
       </div>

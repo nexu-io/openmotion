@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CompositionThumbnail, VideoThumbnail } from "../player";
 import { AudioWaveform } from "../player/components/AudioWaveform";
 import { AudibleVideoClipContent } from "../player/components/AudibleVideoClipContent";
+import { ImageThumbnail } from "../player/components/ImageThumbnail";
 import { TextClipContent } from "../player/components/TextClipContent";
 import { ClipPeakMarks } from "../player/components/ClipPeakMarks";
 
@@ -84,6 +85,7 @@ describe("useRenderClipContent", () => {
     context?: TimelineClipRenderContext,
     mvpEditor = false,
     fileTreeLoaded = true,
+    fileTree?: readonly string[],
   ): ReactNode {
     const host = document.createElement("div");
     document.body.append(host);
@@ -93,6 +95,7 @@ describe("useRenderClipContent", () => {
     function Harness() {
       const render = useRenderClipContent({
         fileTreeLoaded,
+        fileTree,
         projectIdRef: { current: "my-project" },
         compIdToSrc: new Map(),
         activePreviewUrl,
@@ -604,4 +607,157 @@ describe("useRenderClipContent", () => {
       expect(clipUrl).toBe(compositionCardThumbnailUrl("my-project", compositionSrc, 3));
     },
   );
+
+  it("routes drilled-in <video> and <img> clips to native media thumbnails instead of CompositionThumbnail", () => {
+    usePlayerStore.setState({ thumbnailMode: "adaptive" });
+    const drilledPreview = "/api/projects/my-project/preview/comp/compositions/scene.html";
+
+    const video = renderClipContent(
+      {
+        id: "hero-vid",
+        tag: "video",
+        start: 1,
+        duration: 5,
+        track: 0,
+        src: "../assets/demo.mp4",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+    );
+    expect(isValidElement<{ videoSrc: string }>(video)).toBe(true);
+    if (isValidElement<{ videoSrc: string }>(video)) {
+      expect(video.type).toBe(VideoThumbnail);
+      expect(video.props.videoSrc).toBe("/api/projects/my-project/preview/assets/demo.mp4");
+    }
+
+    const image = renderClipContent(
+      {
+        id: "hero-img",
+        tag: "img",
+        start: 0,
+        duration: 4,
+        track: 0,
+        src: "../assets/banner.png",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+    );
+    expect(isValidElement<{ imageSrc: string }>(image)).toBe(true);
+    if (isValidElement<{ imageSrc: string }>(image)) {
+      expect(image.type).toBe(ImageThumbnail);
+      expect(image.props.imageSrc).toBe("/api/projects/my-project/preview/assets/banner.png");
+    }
+
+    // Non-media elements inside a drilled-in composition still render via CompositionThumbnail.
+    const box = renderClipContent(
+      {
+        id: "card",
+        tag: "div",
+        start: 0,
+        duration: 4,
+        track: 0,
+        selector: "#card",
+      },
+      drilledPreview,
+    );
+    expect(isValidElement(box) && box.type).toBe(CompositionThumbnail);
+  });
+
+  it("keeps preview-root-relative bare media paths intact and only rebases sibling bare paths that exist in fileTree", () => {
+    usePlayerStore.setState({ thumbnailMode: "adaptive" });
+    const drilledPreview = "/api/projects/my-project/preview/comp/compositions/scene.html";
+    const fileTree = [
+      "index.html",
+      "compositions/scene.html",
+      "media/intro.mp4",
+      "compositions/media/nested.mp4",
+      "compositions/sibling.png",
+    ];
+
+    // Root-level bare path under media/ must stay root-relative (not compositions/media/intro.mp4).
+    const rootMedia = renderClipContent(
+      {
+        id: "root-vid",
+        tag: "video",
+        start: 0,
+        duration: 4,
+        track: 0,
+        src: "media/intro.mp4",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+      undefined,
+      false,
+      true,
+      fileTree,
+    );
+    expect(isValidElement<{ videoSrc: string }>(rootMedia) && rootMedia.type).toBe(VideoThumbnail);
+    if (isValidElement<{ videoSrc: string }>(rootMedia)) {
+      expect(rootMedia.props.videoSrc).toBe("/api/projects/my-project/preview/media/intro.mp4");
+    }
+
+    // Already-rewritten compositions/media/nested.mp4 must NOT be double-prefixed.
+    const rewrittenMedia = renderClipContent(
+      {
+        id: "rewritten-vid",
+        tag: "video",
+        start: 0,
+        duration: 4,
+        track: 0,
+        src: "compositions/media/nested.mp4",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+      undefined,
+      false,
+      true,
+      fileTree,
+    );
+    expect(isValidElement<{ videoSrc: string }>(rewrittenMedia) && rewrittenMedia.type).toBe(VideoThumbnail);
+    if (isValidElement<{ videoSrc: string }>(rewrittenMedia)) {
+      expect(rewrittenMedia.props.videoSrc).toBe(
+        "/api/projects/my-project/preview/compositions/media/nested.mp4",
+      );
+    }
+
+    // Bare sibling path that actually exists beside the composition resolves relative to sourceFile.
+    const siblingImg = renderClipContent(
+      {
+        id: "sib-img",
+        tag: "img",
+        start: 0,
+        duration: 3,
+        track: 0,
+        src: "sibling.png",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+      undefined,
+      false,
+      true,
+      fileTree,
+    );
+    expect(isValidElement<{ imageSrc: string }>(siblingImg) && siblingImg.type).toBe(ImageThumbnail);
+    if (isValidElement<{ imageSrc: string }>(siblingImg)) {
+      expect(siblingImg.props.imageSrc).toBe("/api/projects/my-project/preview/compositions/sibling.png");
+    }
+
+    // Dot-relative ./ paths always resolve relative to sourceFile even without fileTree.
+    const dotImg = renderClipContent(
+      {
+        id: "dot-img",
+        tag: "img",
+        start: 0,
+        duration: 3,
+        track: 0,
+        src: "./sibling.png",
+        sourceFile: "compositions/scene.html",
+      },
+      drilledPreview,
+    );
+    expect(isValidElement<{ imageSrc: string }>(dotImg) && dotImg.type).toBe(ImageThumbnail);
+    if (isValidElement<{ imageSrc: string }>(dotImg)) {
+      expect(dotImg.props.imageSrc).toBe("/api/projects/my-project/preview/compositions/sibling.png");
+    }
+  });
 });

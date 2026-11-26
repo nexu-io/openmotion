@@ -105,6 +105,8 @@ All runtime variables are validated strictly by [`src/infra/config.ts`](../src/i
 | `SENTRY_WEB_DSN` | *(empty)* | Optional Sentry public DSN injected into Studio `index.html` at runtime by `api` (via `@openmotion/observability`). Leave empty to disable web Sentry completely. |
 | `SENTRY_ENVIRONMENT` / `SENTRY_RELEASE` | `NODE_ENV` / `openmotion@<version>` | Runtime Sentry environment and release labels injected alongside `SENTRY_WEB_DSN`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Browser performance tracing sample rate in `[0, 1]` (`0` disables performance traces while keeping error capture). |
+| `OPENMOTION_TRACERT_SPM_A` | *(empty)* | Optional Tracert site identifier injected into Studio `index.html` at runtime by `api`. Leave empty to keep browser Tracert reporting disabled (zero SDK download, zero requests for self-hosted deployments). |
+| `OPENMOTION_TRACERT_ENDPOINT` | *(empty)* | Optional Tracert collector endpoint override (HTTPS URL or same-origin reverse-proxy path such as `/t/events`). Omit to use the SDK default collector when `OPENMOTION_TRACERT_SPM_A` is set. |
 | `RENDER_SHM_SIZE` / `RENDER_MEM_LIMIT` | `512m` / `2g` | Chromium `/dev/shm` and container memory limit on `worker-render`. Raise to `1g`–`2g` / `4g` on `>= 8 GiB` hosts. |
 
 ### Web Sentry SourceMaps & Observability Guide

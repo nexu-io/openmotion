@@ -168,6 +168,85 @@ function shouldInjectPreviewMediaCrossOrigin(el: Element): boolean {
   return urls.length > 0 && urls.every((url) => isProjectLocalMediaUrl(url));
 }
 
+const CAPTURE_VIDEO_PRESERVED_ATTRS = new Set([
+  'id',
+  'class',
+  'style',
+  'width',
+  'height',
+  'title',
+  'alt',
+  'role',
+  'aria-label',
+  'aria-hidden',
+  'crossorigin',
+]);
+
+/**
+ * Lighten hidden `?capture=1` preview documents so offscreen thumbnail iframes:
+ * 1. Never stream `<video>`/`<audio>` media bytes (`preload="none"`, no `autoplay`).
+ * 2. Replace `<video poster="...">` elements with matching `<img>` tags so SnapDOM
+ *    captures the real video poster frame instead of an excluded black hole while
+ *    keeping `#id`/`.clip`/`data-*` attributes intact for GSAP animations.
+ */
+function prepareCaptureMediaElements(root: ParentNode): boolean {
+  const ownerDoc =
+    'createElement' in root && typeof (root as Document).createElement === 'function'
+      ? (root as Document)
+      : (root as Element).ownerDocument;
+  if (!ownerDoc) return false;
+  let changed = false;
+
+  for (const audio of Array.from(root.querySelectorAll('audio'))) {
+    if (audio.getAttribute('preload') !== 'none') {
+      audio.setAttribute('preload', 'none');
+      changed = true;
+    }
+    if (audio.hasAttribute('autoplay')) {
+      audio.removeAttribute('autoplay');
+      changed = true;
+    }
+  }
+
+  for (const video of Array.from(root.querySelectorAll('video'))) {
+    const poster = video.getAttribute('poster')?.trim();
+    if (poster) {
+      const img = ownerDoc.createElement('img');
+      img.setAttribute('src', poster);
+      img.setAttribute('decoding', 'sync');
+      for (const attr of Array.from(video.attributes)) {
+        const lower = attr.name.toLowerCase();
+        if (CAPTURE_VIDEO_PRESERVED_ATTRS.has(lower) || lower.startsWith('data-')) {
+          img.setAttribute(attr.name, attr.value);
+        }
+      }
+      img.setAttribute('data-om-capture-video-poster', '1');
+      video.replaceWith(img);
+      changed = true;
+      continue;
+    }
+    if (video.getAttribute('preload') !== 'none') {
+      video.setAttribute('preload', 'none');
+      changed = true;
+    }
+    if (video.hasAttribute('autoplay')) {
+      video.removeAttribute('autoplay');
+      changed = true;
+    }
+  }
+
+  for (const tpl of Array.from(root.querySelectorAll('template'))) {
+    const raw = tpl.innerHTML;
+    if (!/<(?:audio|video)\b/i.test(raw)) continue;
+    const tplDoc = parseHTMLContent(`<!DOCTYPE html><html><head></head><body>${raw}</body></html>`);
+    if (prepareCaptureMediaElements(tplDoc.body)) {
+      tpl.innerHTML = tplDoc.body.innerHTML;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /**
  * Cloud preview serves project binary assets via same-origin `/api/projects/:id/preview/*`
  * URLs that `302` redirect to cross-origin presigned S3/R2 URLs (with canonical S3 CORS).
@@ -962,6 +1041,9 @@ export async function bundlePreviewInMemory(
 
   // Assign deterministic media render IDs and opt project-local media into CORS for S3 302 redirects
   assignMediaRenderIds(document);
+  if (options.capture) {
+    prepareCaptureMediaElements(document);
+  }
   ensurePreviewMediaCrossOrigin(document, Boolean(options.capture));
 
   let html = document.toString();
@@ -1072,6 +1154,9 @@ export async function buildSubCompositionHtmlInMemory(
     if (headChanged) headContent = scriptsDoc.head.innerHTML;
   }
   deferScriptsUntilFonts(scriptsDoc);
+  if (options.capture) {
+    prepareCaptureMediaElements(scriptsDoc.body);
+  }
   ensurePreviewMediaCrossOrigin(scriptsDoc.body, Boolean(options.capture));
   const rootComp = scriptsDoc.body.querySelector('[data-composition-id]');
   if (rootComp && !rootComp.getAttribute('data-composition-file')) {

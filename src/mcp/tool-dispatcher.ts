@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { installMotionComponent, listMotionComponents, type MotionComponentFiles } from '../services/motion-component-registry.ts';
 import { readFile } from 'node:fs/promises';
 import { assetReadToolResult, type AssetReadResult } from '../../shared/asset-library.ts';
@@ -9,8 +10,9 @@ import {
   validateInput,
 } from '../../shared/phase1-tools.ts';
 import { cloudProjectArchiveImportInstructions } from '../../shared/project-archive.ts';
-import { publicToolName, publicToolResult } from '../../shared/public-names.mjs';
+import { legacyToolName, publicToolName, publicToolResult } from '../../shared/public-names.mjs';
 import { ToolInputError } from '../../shared/tool-input-error.ts';
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import {
   hasMinRole,
   hasScope,
@@ -85,6 +87,7 @@ export interface McpDispatchContext {
   boundSessionId?: string;
   boundProjectId?: string;
   supportsMcpAppsUi: boolean;
+  skipMcpToolTracking?: boolean;
   templatePresentation?: McpTemplatePresentation | null;
   renderTemplateRecommendations?: (
     presentation: McpTemplatePresentation,
@@ -230,11 +233,17 @@ function formatErrorResult(error: unknown): McpToolCallResponse {
 export class McpToolDispatcher {
   private readonly config: AppConfig;
   private readonly ports: McpDomainPorts;
+  private readonly cloudTracking?: CloudTrackingHandle;
   private readonly phase1ByName: Map<string, ReturnType<typeof cloudPhase1Tools>[number]>;
 
-  constructor(config: AppConfig, ports: McpDomainPorts) {
+  constructor(
+    config: AppConfig,
+    ports: McpDomainPorts,
+    options?: { readonly cloudTracking?: CloudTrackingHandle },
+  ) {
     this.config = config;
     this.ports = ports;
+    this.cloudTracking = options?.cloudTracking;
     this.phase1ByName = new Map(cloudPhase1Tools(config.APP_PUBLIC_ORIGIN).map(tool => [tool.name, tool]));
   }
 
@@ -243,13 +252,36 @@ export class McpToolDispatcher {
     rawArgs: unknown,
     ctx: McpDispatchContext,
   ): Promise<McpToolCallResponse> {
-    try {
-      const name = publicToolName(rawToolName);
-      const argsObj =
-        rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
-          ? ({ ...(rawArgs as Record<string, unknown>) })
-          : {};
+    const startedAt = Date.now();
+    const callId = randomUUID();
+    const name = publicToolName(rawToolName);
+    const argsObj =
+      rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
+        ? ({ ...(rawArgs as Record<string, unknown>) })
+        : {};
+    let accepted = false;
 
+    const emitToolFinished = (
+      outcome: 'success' | 'failure',
+      extra?: { replayed?: boolean; error?: unknown },
+    ): void => {
+      if (!this.cloudTracking || ctx.skipMcpToolTracking) return;
+      this.cloudTracking.trackMcpToolFinished({
+        canonicalToolName: legacyToolName(name),
+        publicToolName: name,
+        args: argsObj,
+        callId,
+        operationId: typeof argsObj.requestId === 'string' ? argsObj.requestId : undefined,
+        accepted,
+        outcome,
+        durationMs: Date.now() - startedAt,
+        replayed: extra?.replayed,
+        error: extra?.error,
+        userId: ctx.auth.appUserId ?? ctx.auth.userId,
+      });
+    };
+
+    try {
       // 1. Optional negotiated MCP Apps presentation tools.
       if (name === TEMPLATE_PRESENTATION_TOOL_NAME) {
         if (!ctx.supportsMcpAppsUi || !ctx.templatePresentation || !ctx.renderTemplateRecommendations) {
@@ -260,10 +292,12 @@ export class McpToolDispatcher {
         }
         requireToolScopes(ctx.auth, ['projects:read']);
         validateInput(ctx.templatePresentation.tool.inputSchema, argsObj);
+        accepted = true;
         const value = ctx.renderTemplateRecommendations(
           ctx.templatePresentation,
           argsObj as { templateIds: string[]; onboarding?: boolean; language?: string },
         );
+        emitToolFinished('success');
         return {
           content: [
             {
@@ -290,6 +324,7 @@ export class McpToolDispatcher {
         }
         requireToolScopes(ctx.auth, ['projects:read']);
         validateInput(finalVideoTool.inputSchema, argsObj);
+        accepted = true;
         if (!this.ports.projects) {
           throw new CloudError('SERVICE_UNAVAILABLE', 'Project service is not wired', {
             status: 503,
@@ -313,6 +348,7 @@ export class McpToolDispatcher {
           ...projectState,
           inlineVideoTransport: 'presigned-url',
         }) as Record<string, unknown>;
+        emitToolFinished('success');
         return {
           content: [{ type: 'text', text: JSON.stringify(presentation) }],
           structuredContent: presentation,
@@ -381,6 +417,7 @@ export class McpToolDispatcher {
 
       // Validate input against the cloud phase-one schema.
       validateInput(definition.inputSchema, argsObj);
+      accepted = true;
 
       const result = await this.dispatchDomainTool(name, argsObj, ctx);
 
@@ -396,16 +433,20 @@ export class McpToolDispatcher {
         });
       }
 
+      const replayed = typeof result.replayed === 'boolean' ? result.replayed : undefined;
       if (isAssetsUseTool && argsObj.action === 'read' && Array.isArray(result.content)) {
+        emitToolFinished('success', { replayed });
         return assetReadToolResult(result as unknown as AssetReadResult) as McpToolCallResponse;
       }
 
       const normalized = publicToolResult(result) as Record<string, unknown>;
+      emitToolFinished('success', { replayed });
       return {
         content: [{ type: 'text', text: JSON.stringify(normalized) }],
         structuredContent: normalized,
       };
     } catch (error) {
+      emitToolFinished('failure', { error });
       if (
         isCloudError(error) &&
         (error.code === 'PROJECT_NOT_FOUND' || error.code === 'SESSION_NOT_FOUND')

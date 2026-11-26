@@ -39,6 +39,7 @@ function parseBridgeAssetProgress(raw: unknown): PreviewAssetProgress | null {
               ? item.kind
               : "image",
           reason: item.reason === "timeout" ? "timeout" : "error",
+          ...(typeof item.src === "string" && item.src ? { src: item.src } : {}),
         }))
     : [];
   // Before duration is known the bridge can see a pending file, but the tracker has no totals yet.

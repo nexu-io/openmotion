@@ -4,7 +4,12 @@ import { decodedUrlPath } from '@hyperframes/parsers/asset-paths';
 import { and, desc, eq, gt, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { FONT_EXT } from '../../../shared/asset-names.ts';
-import { extractIndexHeadMarkup, isNonPreviewFile } from '../../../shared/preview-impact.ts';
+import { extractIndexHeadMarkup, isNonVisualPreviewFile } from '../../../shared/preview-impact.ts';
+import {
+  isVisualMediaPath,
+  preloadTransitiveReferencedCodeAssets,
+  resolveReferencedVisualMediaPaths,
+} from '../engine/composition-filmstrip-sprite.ts';
 import { uploadTickets } from '../../db/schema/blobs-assets.ts';
 import { jobs } from '../../db/schema/jobs.ts';
 import type { AuthContext } from '../../contracts/auth.ts';
@@ -118,7 +123,12 @@ function collectNestedCompositionDeps(
  * `projectRevision`.
  */
 export function computeCompositionRevisions(
-  fileList: ReadonlyArray<{ readonly path: string; readonly sha256: string; readonly blobScope?: string }>,
+  fileList: ReadonlyArray<{
+    readonly path: string;
+    readonly sha256: string;
+    readonly blobScope?: string;
+    readonly sizeBytes?: number;
+  }>,
   compositions: readonly string[],
   indexHtml: string | null = null,
   projectRevision = '',
@@ -129,7 +139,8 @@ export function computeCompositionRevisions(
   const indexHeadHash = hashIndexHeadMarkup(indexHtml);
   const compSet = new Set(compositions);
   const byPath = new Map<string, string>();
-  const sharedHash = createHash('sha256');
+  const sharedNonMediaHash = createHash('sha256');
+  const sharedAllVisualHash = createHash('sha256');
   const sorted = [...fileList].sort((a, b) => a.path.localeCompare(b.path));
   for (const file of sorted) {
     const scope =
@@ -138,14 +149,21 @@ export function computeCompositionRevisions(
         : 'workspace';
     const version = formatFileVersion(scope, file.sha256);
     byPath.set(file.path, version);
-    if (file.path !== 'index.html' && !compSet.has(file.path) && !isNonPreviewFile(file.path)) {
-      sharedHash.update(file.path);
-      sharedHash.update(':');
-      sharedHash.update(version);
-      sharedHash.update('\n');
+    if (file.path !== 'index.html' && !compSet.has(file.path) && !isNonVisualPreviewFile(file.path)) {
+      sharedAllVisualHash.update(file.path);
+      sharedAllVisualHash.update(':');
+      sharedAllVisualHash.update(version);
+      sharedAllVisualHash.update('\n');
+      if (!isVisualMediaPath(file.path)) {
+        sharedNonMediaHash.update(file.path);
+        sharedNonMediaHash.update(':');
+        sharedNonMediaHash.update(version);
+        sharedNonMediaHash.update('\n');
+      }
     }
   }
-  const sharedTag = `${indexHeadHash}:${sharedHash.digest('hex').slice(0, 12)}`;
+  const sharedNonMediaTag = `${indexHeadHash}:${sharedNonMediaHash.digest('hex').slice(0, 12)}`;
+  const sharedAllVisualTag = `${indexHeadHash}:${sharedAllVisualHash.digest('hex').slice(0, 12)}`;
   const readCompositionText = readText
     ? (filePath: string) => {
         const text = readText(filePath);
@@ -169,8 +187,28 @@ export function computeCompositionRevisions(
       revisions[comp] = projectRevision;
       continue;
     }
+    const includedComps = new Set<string>(nestedDeps);
+    const referencedMedia = resolveReferencedVisualMediaPaths({
+      compPath: comp,
+      includedComps,
+      files: sorted,
+      indexHead: indexHtml !== null ? indexHead : null,
+      readText: readCompositionText,
+    });
+    const sharedTag = referencedMedia !== null ? sharedNonMediaTag : sharedAllVisualTag;
+    let mediaPart = '';
+    if (referencedMedia !== null && referencedMedia.size > 0) {
+      const mediaHash = createHash('sha256');
+      for (const mediaPath of [...referencedMedia].sort((a, b) => a.localeCompare(b))) {
+        mediaHash.update(mediaPath);
+        mediaHash.update(':');
+        mediaHash.update(byPath.get(mediaPath) ?? '');
+        mediaHash.update('\n');
+      }
+      mediaPart = `|media:${mediaHash.digest('hex').slice(0, 12)}`;
+    }
     if (nestedDeps.length === 0) {
-      revisions[comp] = `${ownVersion}|shared:${sharedTag}`;
+      revisions[comp] = `${ownVersion}${mediaPart}|shared:${sharedTag}`;
       continue;
     }
     const nestedHash = createHash('sha256');
@@ -180,7 +218,7 @@ export function computeCompositionRevisions(
       nestedHash.update(byPath.get(dep) ?? '');
       nestedHash.update('\n');
     }
-    revisions[comp] = `${ownVersion}|deps:${nestedHash.digest('hex').slice(0, 12)}|shared:${sharedTag}`;
+    revisions[comp] = `${ownVersion}|deps:${nestedHash.digest('hex').slice(0, 12)}${mediaPart}|shared:${sharedTag}`;
   }
   return revisions;
 }
@@ -254,17 +292,43 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
       return c.json({ assetDetailsKey: assetDetailsKey(files, detail.namingLanguage), ...await readAssetDetails(deps, auth, projectId, files) });
     }
     const editor = view === 'editor';
-    const virtual = await deps.files.loadVirtualProject(auth, projectId, editor ? path => /\.html?$/i.test(path) : undefined);
+    const virtual = await deps.files.loadVirtualProject(
+      auth,
+      projectId,
+      editor ? (filePath) => /\.html?$/i.test(filePath) : undefined,
+    );
     const fileList = virtual.listFiles();
     const filePaths = fileList.map((f) => f.path);
     const compositions = listVirtualCompositions(fileList);
     const revision = editor ? virtual.revision : detail.revision;
+    const indexHtml = virtual.readText('index.html');
+    let extraCodeText = new Map<string, string | null>();
+    if (editor && fileList.some((f) => isVisualMediaPath(f.path))) {
+      const htmlSources = new Map<string, string | null>();
+      if (indexHtml !== null) htmlSources.set('index.html', indexHtml);
+      for (const comp of compositions) {
+        htmlSources.set(comp, virtual.readText(comp));
+      }
+      extraCodeText = await preloadTransitiveReferencedCodeAssets({
+        files: fileList,
+        indexHead: indexHtml !== null ? extractIndexHeadMarkup(indexHtml) : null,
+        htmlSources,
+        loadCodeText: async (codePath) => {
+          try {
+            const read = await deps.files.readTextFile(auth, projectId, codePath);
+            return read?.content ?? null;
+          } catch {
+            return null;
+          }
+        },
+      });
+    }
     const compositionRevisions = computeCompositionRevisions(
       fileList,
       compositions,
-      virtual.readText('index.html'),
+      indexHtml,
       revision,
-      (filePath) => virtual.readText(filePath),
+      (filePath) => virtual.readText(filePath) ?? extraCodeText.get(filePath) ?? null,
     );
     const info = editor ? null : infoInMemory(virtual);
 

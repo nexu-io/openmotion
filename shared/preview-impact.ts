@@ -54,10 +54,42 @@ export function isNonPreviewFile(path: string): boolean {
   return AUDIO_EXT.test(audio) || VIDEO_EXT.test(audio);
 }
 
+/**
+ * Pure audio files and non-preview metadata never affect visual composition frames
+ * (thumbnails, filmstrips, or SnapDOM captures). Live playback impact still tracks
+ * audio separately via `computePreviewImpact`.
+ */
+export function isNonVisualPreviewFile(path: string): boolean {
+  return isNonPreviewFile(path) || AUDIO_EXT.test(path);
+}
+
 /** Extract the inner `<head>...</head>` markup from `index.html` (empty string when absent). */
 export function extractIndexHeadMarkup(indexHtml: string | null | undefined): string {
   if (!indexHtml) return '';
   return /<head[^>]*>([\s\S]*?)<\/head>/i.exec(indexHtml)?.[1] ?? '';
+}
+
+/** Extract the root `data-composition-variables` attribute value from `index.html` (empty string when absent). */
+export function extractIndexCompositionVariables(indexHtml: string | null | undefined): string {
+  if (!indexHtml) return '';
+  const htmlTag = /<html\b[^>]*>/i.exec(indexHtml)?.[0] ?? '';
+  const match = /\bdata-composition-variables\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(htmlTag);
+  return match?.[1] ?? match?.[2] ?? '';
+}
+
+/**
+ * True when an `index.html` edit modified shared render context (`<head>` styles/scripts/fonts
+ * or root `data-composition-variables`) that affects child compositions, ignoring pure `<body>`
+ * timeline clip moves/trims/splits.
+ */
+export function hasIndexSharedRenderContextChanged(
+  before: string | null | undefined,
+  after: string | null | undefined,
+): boolean {
+  return (
+    extractIndexHeadMarkup(before) !== extractIndexHeadMarkup(after) ||
+    extractIndexCompositionVariables(before) !== extractIndexCompositionVariables(after)
+  );
 }
 
 export interface PreviewImpact {

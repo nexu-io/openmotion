@@ -191,6 +191,12 @@ export function projectCompFilmstripKey(
   return `workspaces/${workspaceId}/comp-thumbs/${projectId}/filmstrip-v1-${renderKey}.jpg`;
 }
 
+export function projectCompThumbsPrefix(workspaceId: string, projectId: string): string {
+  assertUuid(workspaceId, 'workspaceId');
+  assertUuid(projectId, 'projectId');
+  return `workspaces/${workspaceId}/comp-thumbs/${projectId}/`;
+}
+
 export function exportKey(workspaceId: string, jobId: string, name: string): string {
   assertUuid(workspaceId, 'workspaceId');
   assertUuid(jobId, 'jobId');
@@ -541,8 +547,16 @@ export class StorageService implements StoragePort {
   }
 
   async deletePrefix(prefix: string): Promise<number> {
-    if (!prefix || prefix === '/' || !prefix.endsWith('/')) {
-      throw new CloudError('INVALID_PATH', 'deletePrefix requires a non-root trailing-slash prefix', {
+    const segments = prefix.split('/').filter(Boolean);
+    if (
+      !prefix ||
+      prefix === '/' ||
+      !prefix.endsWith('/') ||
+      segments.length < 2 ||
+      segments.includes('..') ||
+      segments.includes('.')
+    ) {
+      throw new CloudError('INVALID_PATH', 'deletePrefix requires a safe scoped trailing-slash prefix', {
         status: 400,
       });
     }
@@ -558,13 +572,21 @@ export class StorageService implements StoragePort {
       );
       const keys = (listed.Contents ?? []).map((item) => item.Key).filter((k): k is string => Boolean(k));
       if (keys.length > 0) {
-        await this.internalClient.send(
+        const res = await this.internalClient.send(
           new DeleteObjectsCommand({
             Bucket: this.bucket,
             Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
           }),
         );
-        deleted += keys.length;
+        const failed = res.Errors ?? [];
+        deleted += Math.max(0, keys.length - failed.length);
+        if (failed.length > 0) {
+          throw new CloudError(
+            'STORAGE_ERROR',
+            `deletePrefix failed for ${failed.length} object(s) under ${prefix}: ${failed[0]?.Code ?? 'UnknownError'}`,
+            { status: 502 },
+          );
+        }
       }
       continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
     } while (continuationToken);

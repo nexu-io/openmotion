@@ -7,6 +7,9 @@
   pointer-events: none;
   transition: opacity var(--motion-duration-fast);
 }
+.motion-asset-thumbnail[data-item-error="true"] .om-media-quick-actions {
+  right: var(--motion-space-44);
+}
 .motion-asset-thumbnail:hover .om-media-quick-actions,
 .motion-asset-thumbnail:focus-within .om-media-quick-actions,
 [draggable]:focus-visible > .motion-asset-thumbnail .om-media-quick-actions,

@@ -70,6 +70,22 @@ test('the shared Studio community link may carry the same approved invitation in
   }
 });
 
+test('the approved public Tracert collector URL is permitted only inside bundled Studio JS assets', () => {
+  const collectorUrl = 'https://' + 'tracert.' + 'powerformer.net/t/events';
+  const otherInternal = 'https://' + 'admin.' + 'powerformer.net/internal';
+  for (const kind of ['source', 'package']) {
+    const prefix = kind === 'package' ? 'package/' : '';
+    const bundlePath = `${prefix}studio/build/editor-assets/tracert-a1b2c3d4.js`;
+    assert.deepEqual(privacyFindings(bundlePath, `const DEFAULT_COLLECTOR_ENDPOINT = "${collectorUrl}";`, kind), []);
+    for (const bad of [collectorUrl + '?debug=1', collectorUrl + '/extra', collectorUrl.replace('https:', 'http:'), otherInternal]) {
+      assert(privacyFindings(bundlePath, bad, kind).some(hit => hit.rule === 'internal-link'));
+    }
+    for (const nonBundle of ['studio/src/motion/tracertClient.ts', 'deploy/.env.example', 'studio/build/index.html', 'studio/build/editor-assets/tracert-a1b2c3d4.css']) {
+      assert(privacyFindings(prefix + nonBundle, collectorUrl, kind).some(hit => hit.rule === 'internal-link'));
+    }
+  }
+});
+
 async function scanner(t, findings = []) {
   const work = await mkdtemp(path.join(os.tmpdir(), 'motion-scanner-test-')); t.after(() => rm(work, { recursive: true, force: true }));
   const binary = path.join(work, 'scanner');

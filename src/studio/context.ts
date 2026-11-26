@@ -15,6 +15,7 @@ import type {
   RenderExportJobName,
   RenderExportPayloadMap,
 } from '../contracts/jobs.ts';
+import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import type { Database } from '../db/client.ts';
 import type { AssetNamesService } from '../services/asset-names-service.ts';
@@ -61,6 +62,7 @@ export interface DisklessStudioDeps {
   readonly history: VersionHistoryService;
   readonly assetNames: AssetNamesService;
   readonly workRounds?: WorkRoundsService;
+  readonly cloudTracking?: CloudTrackingHandle;
   readonly fontCatalog?: ContainerFontCatalog;
   readonly fontsDir?: string;
   readonly runtimeRoot?: string;

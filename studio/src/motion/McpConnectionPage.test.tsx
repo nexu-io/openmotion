@@ -678,3 +678,37 @@ it('matches cloud manual configuration instructions to each client transport and
   expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.open-design.ai/install.md'));
   expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('Wait for my creative brief'));
 });
+
+it('shows exact contract descriptions for MCP tools in zh-CN without misattributing scenario copy (OPEND-5678)', async () => {
+  const cloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://motion.open-design.ai',
+    version: '1.2.3',
+    workspaceId: 'ws-prod',
+    authMode: 'oidc',
+    oauth2Enabled: true,
+    patEnabled: true,
+    tools: [
+      { name: 'openmotion_get_template', description: 'Read one exact template ID and its TEMPLATE.md guidance.' },
+      { name: 'openmotion_list_templates', description: 'Index templates from the cloud template catalog.' },
+      { name: 'openmotion_open_preview', description: 'For video production, action=begin...' },
+    ],
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('template-catalog')) return Response.json({ items: [] });
+    return Response.json(cloud);
+  }));
+  await mount('zh-CN');
+  await act(async () => (document.querySelector('#dev-drawer > button') as HTMLButtonElement).click());
+  const chips = Object.fromEntries(
+    [...document.querySelectorAll('.om-mcp-tool-chip')].map(el => [
+      el.querySelector('code')?.textContent ?? '',
+      el.querySelector('span')?.textContent ?? '',
+    ]),
+  );
+  expect(chips.openmotion_get_template).toContain('templateId');
+  expect(chips.openmotion_get_template).toContain('TEMPLATE.md');
+  expect(chips.openmotion_get_template).not.toContain('Explore');
+  expect(chips.openmotion_get_template).not.toContain('创作者');
+  expect(chips.openmotion_list_templates).toContain('模板目录');
+  expect(chips.openmotion_open_preview).toContain('预览');
+});

@@ -15,6 +15,16 @@ export type ThumbnailValue =
       label?: string;
     }
   | { kind: "filmstrip"; urls: readonly string[]; aspect: number }
+  | {
+      kind: "sprite";
+      url: string;
+      aspect: number;
+      frameCount: number;
+      cols: number;
+      rows: number;
+      frameWidth: number;
+      frameHeight: number;
+    }
   | { kind: "waveform"; peaks: readonly number[] };
 
 export interface ThumbnailLoadedResult {
@@ -363,6 +373,32 @@ export class ThumbnailScheduler {
         this.uncache(entry);
       }
     }
+  }
+
+  /**
+   * Re-queue a single failed thumbnail entry by request identity so an individual
+   * item can be reloaded in place without waiting for failure TTL or disturbing other items.
+   */
+  retryEntry(
+    request: Pick<ThumbnailRequest, "key" | "projectId" | "sessionEpoch" | "kind" | "rich"> | null,
+  ): boolean {
+    if (!request) return false;
+    const scopedKey = createThumbnailRequestIdentity(request);
+    const entry = this.entries.get(scopedKey);
+    if (!entry || entry.state !== "error") return false;
+    if (entry.leases.size === 0) {
+      this.deleteEntry(scopedKey, entry);
+      return true;
+    }
+    entry.state = "queued";
+    entry.error = undefined;
+    entry.failedAt = undefined;
+    entry.preempted = false;
+    entry.lastAccess = this.nextSequence++;
+    entry.snapshot = Object.freeze({ status: "queued" });
+    this.notify(entry);
+    this.pump();
+    return true;
   }
 
   /**

@@ -13,8 +13,9 @@ import { ProviderAvatar, ModelAvatar, SettingsError, SettingsLoading } from './s
 import { kindLabels, modelKindLabel } from './ModelEditor';
 import { modelDisplayLabel, modelMediaCapabilities, shouldShowInlineModelId } from './modelMediaCapabilities';
 import { ModelCatalog } from './ModelCatalog';
-import { buildLoginUrl } from './AccountSettings';
+import { buildLoginUrl, useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
+import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { isDesktopApp, startDesktopBrowserLogin } from '../utils/platformHost';
 
 export { kindLabels, modelKindLabel } from './ModelEditor';
@@ -38,27 +39,10 @@ export function ModelSettings({
   onProviderChange?: (id: string | null) => void;
 }) {
   const { t } = useI18n();
-  const cloudWeb = useCloudWebMode();
   const directory = useProviderDirectory();
+  const signedOut = useModelSettingsSignedOut(directory.authRequired);
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-
-  const startSignIn = () => {
-    if (cloudWeb && !isDesktopApp() && hasEntitlementModalListeners()) {
-      openEntitlementModal({ mode: 'guest', hookId: 'settings_signin' });
-      return;
-    }
-    if (openAccount) {
-      openAccount();
-      return;
-    }
-    const loginUrl = buildLoginUrl();
-    if (isDesktopApp()) {
-      void startDesktopBrowserLogin({ loginUrl });
-      return;
-    }
-    window.location.assign(loginUrl);
-  };
 
   const data = directory.data;
   const provider = data?.providers.find(item => item.id === 'opendesign') ?? data?.providers[0];
@@ -105,17 +89,7 @@ export function ModelSettings({
 
   return (
     <section className="om-settings-page" aria-label={t('Model gateway')}>
-      {directory.authRequired ? (
-        <div className="om-empty om-asset-empty" data-guest-auth-guide="true">
-          <RemixIcon name="lock-line" size={32} />
-          <h2 className="om-subtitle">{t('Sign in with OpenDesign to continue.')}</h2>
-          <p className="om-muted">{t('Sign in with OpenDesign to access your cloud workspace, personal access tokens, and unified image, video, speech and music generation.')}</p>
-          <Button variant="ghost" className="om-button h-auto" data-primary onClick={startSignIn}>
-            <RemixIcon name="login-box-line" size={16} />
-            {t('Sign in with OpenDesign')}
-          </Button>
-        </div>
-      ) : directory.error ? <SettingsError retry={directory.refresh} /> : !data || !provider ? <SettingsLoading /> : (
+      {signedOut ? <ModelSettingsSignInGuide openAccount={openAccount} /> : directory.error ? <SettingsError retry={directory.refresh} /> : !data || !provider ? <SettingsLoading /> : (
         <>
           <header className="om-settings-row">
             <div className="om-provider-heading">
@@ -184,6 +158,50 @@ export function ModelSettings({
       )}
       <StudioToastViewport {...toast} />
     </section>
+  );
+}
+
+/**
+ * Workspace model settings need an OpenDesign session. Guests can read the public preview catalog,
+ * so its contents cannot tell a guest from a signed-in workspace: guests get a sign-in guide
+ * instead of model rows or plan upgrade prompts.
+ */
+export function useModelSettingsSignedOut(catalogAuthRequired: boolean): boolean {
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
+  const guestMode = Boolean(useOptionalWorkspaceChrome()?.guestMode);
+  return catalogAuthRequired || guestMode || (cloudWeb && account?.state === 'signed-out');
+}
+
+export function ModelSettingsSignInGuide({ openAccount }: { openAccount?: () => void }) {
+  const { t } = useI18n();
+  const cloudWeb = useCloudWebMode();
+  const startSignIn = () => {
+    if (cloudWeb && !isDesktopApp() && hasEntitlementModalListeners()) {
+      openEntitlementModal({ mode: 'guest', hookId: 'settings_signin' });
+      return;
+    }
+    if (openAccount) {
+      openAccount();
+      return;
+    }
+    const loginUrl = buildLoginUrl();
+    if (isDesktopApp()) {
+      void startDesktopBrowserLogin({ loginUrl });
+      return;
+    }
+    window.location.assign(loginUrl);
+  };
+  return (
+    <div className="om-empty om-asset-empty" data-guest-auth-guide="true">
+      <RemixIcon name="lock-line" size={32} />
+      <h2 className="om-subtitle">{t('Sign in with OpenDesign to continue.')}</h2>
+      <p className="om-muted">{t('Sign in with OpenDesign to access your cloud workspace, personal access tokens, and unified image, video, speech and music generation.')}</p>
+      <Button variant="ghost" className="om-button h-auto" data-primary onClick={startSignIn}>
+        <RemixIcon name="login-box-line" size={16} />
+        {t('Sign in with OpenDesign')}
+      </Button>
+    </div>
   );
 }
 

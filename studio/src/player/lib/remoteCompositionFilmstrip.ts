@@ -8,10 +8,11 @@ const MAX_FRAME_HEIGHT = 320;
 const MAX_SPRITE_UPLOAD_BYTES = 512 * 1024;
 const MAX_UPLOAD_FRAME_WIDTH = 160;
 const SPRITE_ENCODE_QUALITY = 0.78;
-const SLICE_ENCODE_QUALITY = 0.82;
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const MAX_PENDING_WRITE_TARGETS = 256;
 const MAX_COMPLETED_UPLOADS = 512;
+/** Quiet-period stability gate before persisting a client-captured filmstrip sprite to S3. */
+export const DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS = 5_000;
 
 const HEADER_FRAMES = "x-openmotion-filmstrip-frames";
 const HEADER_WIDTH = "x-openmotion-filmstrip-width";
@@ -24,8 +25,10 @@ const HEADER_SOURCE = "x-openmotion-filmstrip-source";
 
 export interface RemoteFilmstripHit {
   readonly status: "hit";
-  readonly blobs: Blob[];
+  readonly spriteBlob: Blob;
   readonly frameCount: number;
+  readonly cols: number;
+  readonly rows: number;
   readonly width: number;
   readonly height: number;
   readonly aspect: number;
@@ -45,10 +48,6 @@ export interface RemoteFilmstripMiss {
 export type RemoteFilmstripResult = RemoteFilmstripHit | RemoteFilmstripMiss;
 
 export interface RemoteFilmstripCodec {
-  decodeSprite(
-    spriteBlob: Blob,
-    meta: { frameCount: number; frameWidth: number; frameHeight: number },
-  ): Promise<Blob[] | null>;
   packSprite(
     blobs: readonly Blob[],
     frameWidth: number,
@@ -63,24 +62,52 @@ interface PendingWriteTarget {
   readonly existingFrames: number;
 }
 
+interface ScheduledUploadEntry {
+  readonly timer: ReturnType<typeof setTimeout>;
+  readonly frameCount: number;
+  readonly compRev: string;
+}
+
 const inFlightFetches = new Map<string, Promise<RemoteFilmstripResult>>();
 const pendingWriteTargets = new Map<string, PendingWriteTarget>();
 const completedUploads = new Set<string>();
 const inFlightUploads = new Set<string>();
+const scheduledUploads = new Map<string, ScheduledUploadEntry>();
 let testCodecOverride: RemoteFilmstripCodec | null = null;
+let uploadStabilityDelayMsOverride: number | null = null;
 
 /** Inject deterministic sprite decode/pack stubs in unit tests (HappyDOM has no native JPEG canvas encoder). */
 export function setRemoteFilmstripCodecForTest(codec: RemoteFilmstripCodec | null): void {
   testCodecOverride = codec;
 }
 
+/** Override the quiet-period S3 write-back debounce delay in unit tests (`null` restores 5s default). */
+export function setRemoteFilmstripUploadDelayForTest(delayMs: number | null): void {
+  uploadStabilityDelayMsOverride = delayMs;
+}
+
+/** Cancel queued S3 filmstrip write-backs for a project (or a single composition path) before they fire. */
+export function cancelPendingRemoteFilmstripUploads(projectId?: string, compPath?: string): void {
+  const normalizedComp = compPath ? compPath.replace(/^(\.\/|\/)+/, "") : null;
+  for (const [key, entry] of [...scheduledUploads.entries()]) {
+    if (projectId) {
+      const prefix = normalizedComp ? `${projectId}|${normalizedComp}` : `${projectId}|`;
+      if (normalizedComp ? key !== prefix : !key.startsWith(prefix)) continue;
+    }
+    clearTimeout(entry.timer);
+    scheduledUploads.delete(key);
+  }
+}
+
 /** Reset remote filmstrip dedupe and write-back state between unit tests. */
 export function clearRemoteCompositionFilmstripStateForTest(): void {
+  cancelPendingRemoteFilmstripUploads();
   inFlightFetches.clear();
   pendingWriteTargets.clear();
   completedUploads.clear();
   inFlightUploads.clear();
   testCodecOverride = null;
+  uploadStabilityDelayMsOverride = null;
 }
 
 function normalizeCompositionPath(previewUrl: string): string | null {
@@ -217,50 +244,6 @@ function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<B
       resolve(null);
     }
   });
-}
-
-async function defaultDecodeSprite(
-  spriteBlob: Blob,
-  meta: { frameCount: number; frameWidth: number; frameHeight: number },
-): Promise<Blob[] | null> {
-  if (typeof document === "undefined") return null;
-  const decoded = await decodeBlobToSource(spriteBlob);
-  if (!decoded) return null;
-  try {
-    const expectedTotalW = meta.frameCount * meta.frameWidth;
-    if (decoded.width !== expectedTotalW || decoded.height !== meta.frameHeight) {
-      return null;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = meta.frameWidth;
-    canvas.height = meta.frameHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    const blobs: Blob[] = [];
-    for (let i = 0; i < meta.frameCount; i++) {
-      ctx.clearRect(0, 0, meta.frameWidth, meta.frameHeight);
-      ctx.drawImage(
-        decoded.source,
-        i * meta.frameWidth,
-        0,
-        meta.frameWidth,
-        meta.frameHeight,
-        0,
-        0,
-        meta.frameWidth,
-        meta.frameHeight,
-      );
-      const frameBlob = await canvasToJpegBlob(canvas, SLICE_ENCODE_QUALITY);
-      if (!frameBlob) return null;
-      blobs.push(frameBlob);
-    }
-    canvas.width = 0;
-    canvas.height = 0;
-    return blobs;
-  } finally {
-    decoded.release();
-  }
 }
 
 /**
@@ -408,14 +391,6 @@ export function fetchRemoteCompositionFilmstrip(input: {
         return { status: "miss" };
       }
 
-      const codec = testCodecOverride;
-      const blobs = codec
-        ? await codec.decodeSprite(spriteBlob, { frameCount, frameWidth, frameHeight })
-        : await defaultDecodeSprite(spriteBlob, { frameCount, frameWidth, frameHeight });
-      if (!blobs || blobs.length !== frameCount) {
-        return { status: "miss" };
-      }
-
       if (sha256 && renderKey && frameCount < MAX_REMOTE_FILMSTRIP_FRAMES) {
         // Allow a later higher-frame-count capture to upgrade this cached sprite in S3.
         recordPendingWriteTarget(targetKey, { sha256, renderKey, scope, existingFrames: frameCount });
@@ -425,8 +400,10 @@ export function fetchRemoteCompositionFilmstrip(input: {
 
       return {
         status: "hit",
-        blobs,
+        spriteBlob,
         frameCount,
+        cols: frameCount,
+        rows: 1,
         width: frameWidth,
         height: frameHeight,
         aspect,
@@ -446,13 +423,7 @@ export function fetchRemoteCompositionFilmstrip(input: {
   return task;
 }
 
-/**
- * Best-effort async write-back after browser SnapDOM completes a cold capture.
- * Only executes when a prior Tier 1.5 `GET` observed a `204` miss (or lower-frame sprite)
- * with an authoritative file `sha256`, keeping isolated unit tests and unchanged scenes free
- * of extra network writes.
- */
-export async function uploadRemoteCompositionFilmstripIfEligible(input: {
+export interface RemoteCompositionFilmstripUploadInput {
   projectId: string;
   previewUrl: string;
   compRev: string;
@@ -462,7 +433,60 @@ export async function uploadRemoteCompositionFilmstripIfEligible(input: {
   height: number;
   aspect: number;
   duration?: number;
-}): Promise<boolean> {
+}
+
+/**
+ * Schedule an S3 filmstrip write-back after a quiet stability window (`DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS`)
+ * per `(projectId, compPath)`. Rapid edits supersede and cancel prior pending timers so throwaway
+ * intermediate drafts stay purely local in RAM/IDB and never churn S3.
+ */
+export function scheduleRemoteCompositionFilmstripUpload(
+  input: RemoteCompositionFilmstripUploadInput,
+): void {
+  const compPath = normalizeCompositionPath(input.previewUrl);
+  if (!input.projectId || !compPath) return;
+  if (input.blobs.length === 0 || input.blobs.length > MAX_REMOTE_FILMSTRIP_FRAMES) return;
+  if (
+    input.blobs.length === 1 &&
+    !(typeof input.duration === "number" && input.duration > 0 && input.duration <= 0.5)
+  ) {
+    return;
+  }
+  const scheduleKey = `${input.projectId}|${compPath}`;
+  const prior = scheduledUploads.get(scheduleKey);
+  if (prior !== undefined) {
+    // Never let a lower-frame capture (e.g. 4-frame cover) overwrite a pending 8-frame upload for the same revision.
+    if (prior.compRev === input.compRev && prior.frameCount > input.blobs.length) {
+      return;
+    }
+    clearTimeout(prior.timer);
+    scheduledUploads.delete(scheduleKey);
+  }
+  const delayMs = uploadStabilityDelayMsOverride ?? DEFAULT_REMOTE_UPLOAD_STABILITY_DELAY_MS;
+  if (delayMs <= 0) {
+    void uploadRemoteCompositionFilmstripIfEligible(input);
+    return;
+  }
+  const timer = setTimeout(() => {
+    scheduledUploads.delete(scheduleKey);
+    void uploadRemoteCompositionFilmstripIfEligible(input);
+  }, delayMs);
+  scheduledUploads.set(scheduleKey, {
+    timer,
+    frameCount: input.blobs.length,
+    compRev: input.compRev,
+  });
+}
+
+/**
+ * Best-effort async write-back after browser SnapDOM completes a cold capture.
+ * Only executes when a prior Tier 1.5 `GET` observed a `204` miss (or lower-frame sprite)
+ * with an authoritative file `sha256`, keeping isolated unit tests and unchanged scenes free
+ * of extra network writes.
+ */
+export async function uploadRemoteCompositionFilmstripIfEligible(
+  input: RemoteCompositionFilmstripUploadInput,
+): Promise<boolean> {
   if (input.blobs.length === 0 || input.blobs.length > MAX_REMOTE_FILMSTRIP_FRAMES) {
     return false;
   }

@@ -67,13 +67,19 @@ export function useCompositionStack({
   const compIdToSrcRef = useRef(compIdToSrc);
   compIdToSrcRef.current = compIdToSrc;
 
+  const clearTimelineForSwitch = useCallback(() => {
+    const store = usePlayerStore.getState();
+    store.setElements([]);
+    store.setClipManifest(null);
+  }, []);
+
   const handleNavigateComposition = useCallback(
     (index: number) => {
-      usePlayerStore.getState().setElements([]);
+      clearTimelineForSwitch();
       updateCompositionStack((prev) => prev.slice(0, index + 1));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [clearTimelineForSwitch],
   );
 
   const handleDrillDown = useCallback(
@@ -84,7 +90,7 @@ export function useCompositionStack({
       const normalized = normalizeTimelineCompositionSource(src) ?? src;
       const resolvedPath = normalized.replace(/^(\.\/|\/)+/, "");
 
-      usePlayerStore.getState().setElements([]);
+      clearTimelineForSwitch();
 
       updateCompositionStack((prev) => {
         const currentId = prev[prev.length - 1].id;
@@ -104,7 +110,7 @@ export function useCompositionStack({
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projectId],
+    [clearTimelineForSwitch, projectId],
   );
 
   // Navigate to a composition when activeCompositionPath changes.
@@ -118,9 +124,10 @@ export function useCompositionStack({
     // Route hydration can repeat the source already on screen (including null → index.html).
     // Only discard rows when the owning project or composition actually changes.
     const current = stackRef.current;
+    const sameProjectMaster = current[0]?.previewUrl === master.previewUrl;
     const destination = !activeCompositionPath || activeCompositionPath === "index.html" ? "master" : activeCompositionPath;
-    if (current[0]?.previewUrl !== master.previewUrl || current.at(-1)?.id !== destination) {
-      usePlayerStore.getState().setElements([]);
+    if (!sameProjectMaster || current.at(-1)?.id !== destination) {
+      clearTimelineForSwitch();
     }
     if (activeCompositionPath === "index.html") {
       updateCompositionStack([master]);
@@ -137,13 +144,13 @@ export function useCompositionStack({
         `/preview/comp/${encodePreviewPath(activeCompositionPath)}`,
       );
       updateCompositionStack((prev) => {
-        if (prev[prev.length - 1]?.id === activeCompositionPath) return prev;
+        if (sameProjectMaster && prev[prev.length - 1]?.id === activeCompositionPath) return prev;
         return [master, { id: activeCompositionPath, label, previewUrl }];
       });
     } else {
       updateCompositionStack([master]);
     }
-  }, [activeCompositionPath, projectId, updateCompositionStack]);
+  }, [activeCompositionPath, clearTimelineForSwitch, projectId, updateCompositionStack]);
 
   return {
     compositionStack,

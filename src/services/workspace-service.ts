@@ -23,7 +23,7 @@ import {
   type ProjectType,
   type SessionMessageRole,
 } from '../db/schema/projects.ts';
-import { workspaceBlobKey } from '../infra/storage.ts';
+import { projectCompThumbsPrefix, workspaceBlobKey } from '../infra/storage.ts';
 import { validateInstruction, type SessionMessage } from '../../shared/conversation.ts';
 import {
   computeProjectRevision,
@@ -1292,7 +1292,20 @@ export class WorkspaceService {
 
       return mutation;
     });
-    if (!result.replayed) this.onCatalogChange?.(ctx.workspaceId);
+    if (!result.replayed) {
+      this.onCatalogChange?.(ctx.workspaceId);
+    }
+    // Best-effort idempotent cleanup of project-scoped composition thumbnails and filmstrips in S3.
+    // Run on replays as well so a transient S3 error after DB commit is cleaned up on retry.
+    await this.storage
+      .deletePrefix(projectCompThumbsPrefix(ctx.workspaceId, result.projectId))
+      .catch((err) => {
+        console.warn('[workspace-service] Failed to clean project composition filmstrips in S3', {
+          workspaceId: ctx.workspaceId,
+          projectId: result.projectId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     return result;
   }
 

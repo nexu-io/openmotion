@@ -77,4 +77,37 @@ describe("dock panel strip contract", () => {
   it("takes every colour from a token", () => {
     expect(dockCss).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(|oklch\(/i);
   });
+
+  it("spreads icon-navigation side tabs evenly across the header without crowding", () => {
+    const editorWorkspaceCss = readFileSync(
+      path.join(import.meta.dirname, "../../../../packages/design-system/studio/editor-workspace.css"),
+      "utf8",
+    );
+    const workspaceRules = rules(editorWorkspaceCss);
+    const workspaceBodyOf = (selector: string) =>
+      workspaceRules.find((rule) => rule.selector === selector)?.body;
+
+    const scrollable = workspaceBodyOf(
+      ":root[data-motion-ui] .hf-dock .dv-tabs-and-actions-container:has([data-icon-navigation]) .dv-scrollable",
+    );
+    expect(scrollable).toContain("flex: 1 1 0");
+    expect(scrollable).toContain("min-width: 0");
+
+    const voidContainer = workspaceBodyOf(
+      ":root[data-motion-ui] .hf-dock .dv-tabs-and-actions-container:has([data-icon-navigation]) .dv-void-container",
+    );
+    expect(voidContainer).toContain("flex: 0 0 0");
+
+    const tabsContainer = workspaceBodyOf(
+      ":root[data-motion-ui] .hf-dock .dv-tabs-container:has([data-icon-navigation])",
+    );
+    expect(tabsContainer).toContain("width: 100%");
+    expect(tabsContainer).toContain("column-gap:");
+
+    const tab = workspaceBodyOf(
+      ":root[data-motion-ui] .hf-dock .dv-groupview .dv-tabs-container > .dv-tab:has(.hf-dock-tab[data-icon-navigation])",
+    );
+    expect(tab).toContain("flex: 1 1 auto");
+    expect(tab).toContain("justify-content: center");
+  });
 });

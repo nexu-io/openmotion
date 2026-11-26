@@ -269,7 +269,9 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
         var onFrame=message.progressive===true?function(frameEvent,buf){
           post('capture-frame',frameEvent,requestId,buf?[buf]:undefined);
         }:null;
-        capturePreviewFrames(message,onFrame).then(function(result){
+        var runCapture=function(){ return capturePreviewFrames(message,onFrame); };
+        var capturePromise=(window.__omCaptureQueue=Promise.resolve(window.__omCaptureQueue).then(runCapture,runCapture));
+        capturePromise.then(function(result){
           respond(requestId,result,null,result&&Array.isArray(result.frames)&&result.frames.length?result.frames:undefined);
         },function(error){
           respond(requestId,null,error);

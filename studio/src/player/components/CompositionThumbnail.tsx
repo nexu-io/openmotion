@@ -11,6 +11,7 @@ import {
 import { usePlayerStore } from "../store/playerStore";
 import { TIMELINE_VIEWPORT_BUDGETS } from "../lib/timelineViewportBudgets";
 import { ThumbnailTiles } from "./ThumbnailTiles";
+import { SpriteFrame } from "./SpriteFrame";
 import {
   computeThumbnailStrip,
   probeImageAspect,
@@ -41,6 +42,7 @@ import {
 } from "../lib/clientCompositionCapture";
 import { studioApiFetch } from "../../utils/studioApiFetch";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { ItemLoadErrorBadge } from "../../components/ui/ItemLoadErrorBadge";
 
 interface CompositionThumbnailProps {
   previewUrl: string;
@@ -208,13 +210,28 @@ async function loadCompositionImage(url: string, signal: AbortSignal) {
 
 type RenderedCaptureValue =
   | Extract<ThumbnailValue, { kind: "filmstrip" }>
+  | Extract<ThumbnailValue, { kind: "sprite" }>
   | (Extract<ThumbnailValue, { kind: "image" }> & { representative: "render" });
+
+type VisualThumbnailValue =
+  | Extract<ThumbnailValue, { kind: "image" }>
+  | Extract<ThumbnailValue, { kind: "filmstrip" }>
+  | Extract<ThumbnailValue, { kind: "sprite" }>;
+
+function isVisualThumbnailValue(
+  value: ThumbnailValue | null | undefined,
+): value is VisualThumbnailValue {
+  return Boolean(
+    value && (value.kind === "image" || value.kind === "filmstrip" || value.kind === "sprite"),
+  );
+}
 
 function isRenderedCaptureValue(
   value: ThumbnailValue | null | undefined,
 ): value is RenderedCaptureValue {
   if (!value) return false;
   if (value.kind === "filmstrip") return value.urls.length > 0;
+  if (value.kind === "sprite") return value.frameCount > 0;
   return value.kind === "image" && value.representative === "render";
 }
 
@@ -356,10 +373,12 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     ? `${projectId}|${previewUrl}|${compCacheRev}|${desiredCaptureFrames}|${selector ?? ""}|${selectorIndex ?? 0}|${selectorCaptureWindowKey({ selector, seekTime: selectorStart, duration: selectorDuration }) ?? ""}`
     : null;
 
-  // Tier 0: synchronous in-memory hit (0ms across project/composition switches).
+  // Tier 0: synchronous in-memory hit (0ms across project/composition switches and splits).
+  // Whole-composition clips always use the canonical 8-frame strip regardless of measured
+  // width, so check memory immediately on mount without waiting for ResizeObserver.
   const syncCachedValue = useMemo(
     () =>
-      captureEnabled && captureMeasured
+      captureEnabled && (captureMeasured || !selector)
         ? peekCachedCompositionCapture({
             previewUrl,
             projectId,
@@ -598,23 +617,16 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
 
   const snapshot = captureSnapshot.status === "ready" ? captureSnapshot : posterSnapshot;
   const resolvedValue =
-    cachedValue ??
-    (captureSnapshot.status === "ready" &&
-    (captureSnapshot.value.kind === "image" || captureSnapshot.value.kind === "filmstrip")
+    (isVisualThumbnailValue(cachedValue) ? cachedValue : null) ??
+    (captureSnapshot.status === "ready" && isVisualThumbnailValue(captureSnapshot.value)
       ? captureSnapshot.value
       : null) ??
     retainedCapture ??
-    (progressiveValue && (progressiveValue.kind === "image" || progressiveValue.kind === "filmstrip")
-      ? progressiveValue
-      : null) ??
-    (posterSnapshot.status === "ready" &&
-    (posterSnapshot.value.kind === "image" || posterSnapshot.value.kind === "filmstrip")
+    (isVisualThumbnailValue(progressiveValue) ? progressiveValue : null) ??
+    (posterSnapshot.status === "ready" && isVisualThumbnailValue(posterSnapshot.value)
       ? posterSnapshot.value
       : null);
-  const value =
-    resolvedValue && (resolvedValue.kind === "image" || resolvedValue.kind === "filmstrip")
-      ? resolvedValue
-      : null;
+  const value = isVisualThumbnailValue(resolvedValue) ? resolvedValue : null;
   const { frameW, frameCount } = computeThumbnailStrip(
     container.width,
     value?.aspect ?? 16 / 9,
@@ -635,10 +647,69 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
       : "";
   const mediaTitle = isSingleMediaStrip ? (label || (!selector ? compositionName : "")) : "";
   const showInlineMediaTitle = Boolean(mediaTitle) && container.width >= frameW + 48;
+  const captureFailed = captureEnabled ? captureSnapshot.status === "error" : true;
+  const posterFailed = !request || posterSnapshot.status === "error";
+  const showError =
+    !value &&
+    !idbPending &&
+    !autoRetryPending &&
+    captureFailed &&
+    posterFailed &&
+    (captureSnapshot.status === "error" || posterSnapshot.status === "error");
+  const handleReload = useCallback(() => {
+    autoRetriedKeyRef.current = null;
+    let retried = false;
+    if (captureRequest && thumbnailScheduler.retryEntry(captureRequest)) retried = true;
+    if (request && thumbnailScheduler.retryEntry(request)) retried = true;
+    if (!retried && projectId) {
+      thumbnailScheduler.retryFailed(projectId, compPath);
+    }
+  }, [captureRequest, compPath, projectId, request]);
   const showOverlayLabel = Boolean(label) && !isTextStrip && !showInlineMediaTitle;
 
   return (
     <div ref={setContainerRef} className="absolute inset-0 overflow-hidden">
+      {value?.kind === "sprite" && value.frameCount > 0 && (
+        <ThumbnailTiles
+          strip={container}
+          frameW={frameW}
+          frameCount={frameCount}
+          watchGap={watchGap}
+          style={{
+            mixBlendMode:
+              "var(--timeline-composition-thumbnail-blend)" as CSSProperties["mixBlendMode"],
+          }}
+        >
+          {(index) => {
+            const frameIndex =
+              value.frameCount <= 1
+                ? 0
+                : frameCount <= 1
+                  ? Math.floor(value.frameCount / 2)
+                  : Math.min(
+                      value.frameCount - 1,
+                      Math.round((index / (frameCount - 1)) * (value.frameCount - 1)),
+                    );
+            return (
+              <div
+                key={index}
+                className="relative h-full shrink-0 overflow-hidden"
+                style={{ width: frameW }}
+              >
+                <SpriteFrame
+                  sprite={value}
+                  frameIndex={frameIndex}
+                  fit="cover"
+                  containerWidth={frameW}
+                  containerHeight={container.height}
+                  className="absolute inset-0"
+                  style={{ opacity: "var(--timeline-composition-thumbnail-opacity)" }}
+                />
+              </div>
+            );
+          }}
+        </ThumbnailTiles>
+      )}
       {value?.kind === "filmstrip" && value.urls.length > 0 && (
         <ThumbnailTiles
           strip={container}
@@ -738,8 +809,15 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
           </div>
         </div>
       )}
-      {!value && (snapshot.status !== "error" || autoRetryPending) && (
+      {!value && !showError && (snapshot.status !== "error" || autoRetryPending) && (
         <Skeleton style={{ position: "absolute", inset: 0 }} />
+      )}
+      {showError && (
+        <ItemLoadErrorBadge
+          nestedInButton
+          compact={container.width > 0 && container.width < 96}
+          onReload={handleReload}
+        />
       )}
       {showOverlayLabel && (
         <div className="absolute inset-y-0 left-3 z-10 flex items-center">

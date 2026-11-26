@@ -184,6 +184,70 @@ function isSmallInsetImage(
   return false;
 }
 
+const BACKGROUND_URL_DECL_RE =
+  /\bbackground(?:-image)?\s*:[^;{}]*?url\(\s*(?:"([^"]+)"|'([^']+)'|([^)"'\s]+))\s*\)/gi;
+
+function extractBackgroundImageUrls(declarations: string): string[] {
+  const urls: string[] = [];
+  BACKGROUND_URL_DECL_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = BACKGROUND_URL_DECL_RE.exec(declarations)) !== null) {
+    const raw = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    if (raw) urls.push(raw);
+  }
+  return urls;
+}
+
+function findBackgroundImageMedia(
+  scope: ParentNode,
+  projectId: string,
+  path: string,
+  stage: { width: number; height: number } | null,
+  styleHints: Map<string, BoxDimensions>,
+): URL | null {
+  for (const el of queryAllIn(scope, "[style]")) {
+    const styleText = el.getAttribute("style") ?? "";
+    if (!/url\s*\(/i.test(styleText)) continue;
+    for (const rawUrl of extractBackgroundImageUrls(styleText)) {
+      if (el !== scope && (hasDecorativeMarkers(el, rawUrl) || isSmallInsetImage(el, stage, styleHints))) {
+        continue;
+      }
+      const url = projectMediaUrl(rawUrl, projectId, path);
+      if (url && IMAGE_EXT.test(url.pathname)) return url;
+    }
+  }
+
+  if ("querySelectorAll" in scope) {
+    for (const styleEl of scope.querySelectorAll("style")) {
+      const css = styleEl.textContent ?? "";
+      if (!/url\s*\(/i.test(css)) continue;
+      for (const block of css.split("}")) {
+        const brace = block.indexOf("{");
+        if (brace < 0) continue;
+        const selectorText = block.slice(0, brace).trim();
+        if (selectorText && DECORATIVE_MEDIA_TOKEN.test(selectorText)) continue;
+        const declarations = block.slice(brace + 1);
+        const box = parseStyleBox(declarations);
+        if (box.width !== undefined || box.height !== undefined) {
+          const maxDim = Math.max(box.width ?? 0, box.height ?? 0);
+          const minDim = Math.min(box.width ?? Infinity, box.height ?? Infinity);
+          if (maxDim <= 96 || minDim <= 64) continue;
+          if (stage && box.width !== undefined && box.height !== undefined) {
+            if ((box.width * box.height) / (stage.width * stage.height) < 0.08) continue;
+          }
+        }
+        for (const rawUrl of extractBackgroundImageUrls(declarations)) {
+          if (isDecorativeMediaPath(rawUrl)) continue;
+          const url = projectMediaUrl(rawUrl, projectId, path);
+          if (url && IMAGE_EXT.test(url.pathname)) return url;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 function findRepresentativeMedia(
   scope: ParentNode,
   projectId: string,
@@ -198,7 +262,7 @@ function findRepresentativeMedia(
   }
 
   const images = queryAllIn(scope, "img[src]");
-  const styleHints = images.length > 0 ? parseStyleDimensionHints(scope) : new Map<string, BoxDimensions>();
+  const styleHints = parseStyleDimensionHints(scope);
   for (const img of images) {
     const src = img.getAttribute("src") ?? "";
     // Skip decorative icons, avatars, wordmarks and small inset graphics when summarizing a scene,
@@ -216,7 +280,7 @@ function findRepresentativeMedia(
     if (url && (IMAGE_EXT.test(url.pathname) || VIDEO_EXT.test(url.pathname))) return url;
   }
 
-  return null;
+  return findBackgroundImageMedia(scope, projectId, path, stage, styleHints);
 }
 
 function cleanNodeText(node: ParentNode | null | undefined): string {

@@ -88,6 +88,13 @@ function resolveClipTag(clip: ClipManifestClip): string {
   return clip.tagName || clip.kind || "div";
 }
 
+function elementContainsCanvas(el: Element): boolean {
+  if (el.hasAttribute("data-composition-src") || el.hasAttribute("data-composition-file")) {
+    return false;
+  }
+  return el.tagName.toLowerCase() === "canvas" || Boolean(el.querySelector("canvas"));
+}
+
 // fallow-ignore-next-line complexity
 export function createTimelineElementFromManifestClip(params: {
   clip: ClipManifestClip;
@@ -205,6 +212,9 @@ export function createTimelineElementFromManifestClip(params: {
       entry.track = implicitTextLane(fallbackIndex);
       entry.authoredTrack = 0;
     }
+    if (elementContainsCanvas(hostEl)) {
+      entry.containsCanvas = true;
+    }
   }
   if (!doc && clip.authored) {
     entry.hidden = clip.authored.hidden || undefined;
@@ -212,6 +222,7 @@ export function createTimelineElementFromManifestClip(params: {
     entry.muted = clip.authored.muted || undefined;
     entry.hasAudio = isVideoAudible({ tag: entry.tag, hasAudioAttr: clip.authored.hasAudioAttr, muted: clip.authored.muted }) || undefined;
     if (Number.isFinite(clip.authored.volume)) entry.volume = clip.authored.volume;
+    if (clip.authored.containsCanvas) entry.containsCanvas = true;
   }
   if (clip.assetUrl) entry.src = clip.assetUrl;
   if (clip.kind === "composition" && clip.compositionId) {
@@ -439,6 +450,9 @@ function scanTimelineFromDOM(
     if (entry.kind === "composition") {
       entry.playbackStart ??= 0;
       entry.playbackRate ??= 1;
+    }
+    if (elementContainsCanvas(el)) {
+      entry.containsCanvas = true;
     }
 
     els.push(entry);

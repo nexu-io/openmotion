@@ -15,6 +15,7 @@ import {
   extractIndexHeadMarkup,
   isHtmlCompositionPath,
   MAX_FILMSTRIP_JPEG_BYTES,
+  preloadTransitiveReferencedCodeAssets,
 } from '../studio/engine/composition-filmstrip-sprite.ts';
 import {
   listVirtualCompositions,
@@ -226,6 +227,46 @@ export async function processBakeCatalogFilmstripsJob(
   }
 
   const indexHead = extractIndexHeadMarkup(textContents.get('index.html'));
+  // When the template includes image/video assets, transitively prefetch referenced small
+  // non-vendor CSS/JS before computing depsSha256 so baked S3 keys match composition-filmstrips.ts
+  // identically. Any fetch error aborts the bake instead of persisting sprites under a degraded key.
+  try {
+    await preloadTransitiveReferencedCodeAssets({
+      files: normalizedFiles,
+      indexHead,
+      htmlSources: textContents,
+      hasLoaded: (codePath) => textContents.has(codePath),
+      loadCodeText: async (codePath) => {
+        const file = byPath.get(codePath);
+        if (!file) return null;
+        const cachedBytes = assetBytesCache.get(file.path);
+        const bytes = cachedBytes ?? (await fetchVerifiedCatalogFileBytes(file, deps.storage, fetchImpl));
+        assetBytesCache.set(file.path, bytes);
+        const text = bytes.toString('utf8');
+        textContents.set(file.path, text);
+        return text;
+      },
+    });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    deps.logger.error('Failed to prefetch referenced catalog code assets for filmstrip baking', {
+      templateId: payload.templateId,
+      error: reason,
+    });
+    await deps.bakeState?.markFailed(formatVersion, payload.templateBakeHash, reason).catch(() => {});
+    return {
+      status: 'failed',
+      templateId: payload.templateId,
+      templateBakeHash: payload.templateBakeHash,
+      formatVersion,
+      totalCompositions: allCompositions.length,
+      bakedCount: 0,
+      skippedBuiltinCount: 0,
+      skippedExistingCount: 0,
+      failedCompositions: [...allCompositions],
+      totalBytes: 0,
+    };
+  }
   const targetsToBake: Array<{
     readonly compPath: string;
     readonly fileSha256: string;

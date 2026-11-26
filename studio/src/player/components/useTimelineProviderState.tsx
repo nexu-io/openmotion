@@ -50,6 +50,8 @@ import {
 import { cancelBeatDrag } from "./BeatStrip";
 export function useTimelineProviderState({
   initialElements,
+  initialDuration,
+  preferInitialSnapshot = false,
   onSeek,
   onDrillDown,
   renderClipContent,
@@ -115,12 +117,23 @@ export function useTimelineProviderState({
   });
   const refreshAfterLaneMove = useTimelineLaneMoveRefresh();
   useMusicBeatAnalysis();
-  const timelineElements = usePlayerStore(s =>
-    initialElements && !s.timelineReady && !s.timelineSourceProjected && !s.elements.length && !s.clipManifest
-      ? initialElements : s.elements,
+  const useInitialSnapshot = usePlayerStore(
+    (s) =>
+      Boolean(initialElements?.length) &&
+      !s.timelineSourceProjected &&
+      !s.elements.length &&
+      !s.clipManifest &&
+      (preferInitialSnapshot || !s.timelineReady),
+  );
+  const timelineElements = usePlayerStore((s) =>
+    useInitialSnapshot && initialElements ? initialElements : s.elements,
   );
   const adjustedBeatAnalysis = useAdjustedBeatAnalysis();
-  const duration = usePlayerStore((s) => s.duration);
+  const storeDuration = usePlayerStore((s) => s.duration);
+  const duration =
+    useInitialSnapshot && initialDuration != null && initialDuration > 0
+      ? initialDuration
+      : storeDuration;
   const timeDisplayMode = usePlayerStore((s) => s.timeDisplayMode);
   const timelineReady = usePlayerStore((s) => s.timelineReady || !!s.authoredTimelinePath);
   const selectedElementId = usePlayerStore((s) => s.selectedElementId);

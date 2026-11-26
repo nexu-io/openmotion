@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as dockLayout from "./dockLayout";
 import { I18nProvider, useI18n } from "../../i18n/I18n";
-import { Dock } from "./Dock";
+import { Dock, useDockPanelVisible } from "./Dock";
 import { StudioHostContext } from "../../motion/StudioHost";
 import { parseDockLayout } from "./dockLayoutSchema";
 import { useDockLayoutStore } from "./dockLayoutStore";
@@ -1106,6 +1106,25 @@ it("keeps preferred side widths across a compressed-layout save and reload", asy
   expect(dockApi!.getPanel("design")!.group.width).toBe(330);
 });
 
+it("migrates legacy 200/230 saved layout to the widened 288px left rail at 1280 (OPEND-5674)", async () => {
+  const width = 1280;
+  mount("legacy-default-reload", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, dockWidth: () => width });
+  await act(async () => {
+    resizeDock(dockApi!, width);
+    dockApi!.getPanel("compositions")!.group.api.setSize({ width: 200 });
+    dockApi!.getPanel("design")!.group.api.setSize({ width: 230 });
+    await Promise.resolve();
+  });
+  act(() => vi.advanceTimersByTime(400));
+  expect(readStudioUiPreferences(undefined, "legacy-default-reload").dockLayout).toBeDefined();
+  act(() => root?.unmount());
+
+  mount("legacy-default-reload", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, dockWidth: () => width });
+  act(() => resizeDock(dockApi!, width));
+  expect(dockApi!.getPanel("compositions")!.group.width).toBe(288);
+  expect(dockApi!.getPanel("design")!.group.width).toBe(230);
+});
+
 it.each(["compositions", "design"] as const)("shrinks the single open %s side before preview", (id) => {
   let width = 1400;
   mount("one-side", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, dockWidth: () => width });
@@ -1128,14 +1147,14 @@ it.each(["compositions", "design"] as const)("shrinks the single open %s side be
 
 
 it.each(["compositions", "design"] as const)("opens a new %s side at its preferred width without reserving an expanded opposite side", (id) => {
-  let width = 800;
+  let width = 900;
   mount("default-single-side", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, initialCompactLayout: true, dockWidth: () => width });
   const api = dockApi!;
   const controller = useDockLayoutStore.getState().controller!;
   const side = api.getPanel(id)!.group;
   const opposite = api.getPanel(id === "compositions" ? "design" : "compositions")!.group;
   const preview = api.getPanel("preview")!.group;
-  const preferred = id === "compositions" ? 200 : 230;
+  const preferred = id === "compositions" ? 288 : 230;
   act(() => { resizeDock(api, width); controller.setGroupCollapsed!(id, false); });
   expect(side.width).toBe(preferred);
   expect(opposite.width).toBe(48);
@@ -1143,15 +1162,15 @@ it.each(["compositions", "design"] as const)("opens a new %s side at its preferr
   act(() => { width -= 20; resizeDock(api, width); });
   expect(side.width).toBe(preferred - 20);
   expect(preview.width).toBe(beforePreview);
-  act(() => { width = 800; resizeDock(api, width); });
+  act(() => { width = 900; resizeDock(api, width); });
   expect(side.width).toBe(preferred);
   act(() => controller.setGroupCollapsed!(id === "compositions" ? "design" : "compositions", false));
   expect(side.width).toBe(preferred);
   expect(preview.width).toBeGreaterThanOrEqual(360);
-  act(() => { width = 750; resizeDock(api, width); });
+  act(() => { width = 850; resizeDock(api, width); });
   expect(side.width).toBeLessThan(preferred);
   expect(preview.width).toBeGreaterThanOrEqual(360);
-  act(() => { width = 800; resizeDock(api, width); });
+  act(() => { width = 900; resizeDock(api, width); });
   act(() => controller.setGroupCollapsed!(id === "compositions" ? "design" : "compositions", true));
   expect(side.width).toBe(preferred);
 });
@@ -1432,4 +1451,58 @@ it.each(["captions", "transcript"] as const)("retains %s and custom widths while
       expect(api.getPanel(panel)!.api.isActive).toBe(true);
     }
   }
+});
+
+it("keeps collapsed left sidebar tabs unmounted until first expand, then preserves DOM while toggling panel visibility", async () => {
+  function VisibilityProbe({ id }: { id: string }) {
+    const visible = useDockPanelVisible();
+    return <div data-testid={`probe-${id}`} data-visible={String(visible)}>{id}</div>;
+  }
+  const host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  act(() => root?.render(
+    <I18nProvider initialLocale="en">
+      <Dock.Root projectId="lazy-left" panels={MVP_PANEL_IDS} fixedLayout initialCompactLayout dockWidth={() => 1400}>
+        {MVP_PANEL_IDS.map((id) => (
+          <Dock.Panel key={id} id={id}>
+            <VisibilityProbe id={id} />
+          </Dock.Panel>
+        ))}
+      </Dock.Root>
+    </I18nProvider>,
+  ));
+  const api = dockApi!;
+  act(() => { api.layout(1400, 800); vi.advanceTimersByTime(32); });
+
+  // While collapsed on initial load, neither compositions nor assets mounts.
+  expect(host.querySelector('[data-testid="probe-compositions"]')).toBeNull();
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBeNull();
+
+  // Expanding left sidebar mounts compositions with visible=true; assets stays unmounted.
+  const controller = useDockLayoutStore.getState().controller!;
+  await act(async () => { controller.setGroupCollapsed!("compositions", false); await Promise.resolve(); });
+  const compsNode = host.querySelector('[data-testid="probe-compositions"]');
+  expect(compsNode).not.toBeNull();
+  expect(compsNode?.getAttribute("data-visible")).toBe("true");
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBeNull();
+
+  // Switching to assets keeps compositions mounted in place (visible=false) and mounts assets (visible=true).
+  await act(async () => { useDockLayoutStore.getState().activatePanel("assets"); await Promise.resolve(); });
+  const assetsNode = host.querySelector('[data-testid="probe-assets"]');
+  expect(host.querySelector('[data-testid="probe-compositions"]')).toBe(compsNode);
+  expect(compsNode?.getAttribute("data-visible")).toBe("false");
+  expect(assetsNode?.getAttribute("data-visible")).toBe("true");
+
+  // Collapsing left sidebar keeps both mounted while marking both hidden.
+  await act(async () => { controller.setGroupCollapsed!("assets", true); await Promise.resolve(); });
+  expect(host.querySelector('[data-testid="probe-compositions"]')).toBe(compsNode);
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBe(assetsNode);
+  expect(compsNode?.getAttribute("data-visible")).toBe("false");
+  expect(assetsNode?.getAttribute("data-visible")).toBe("false");
+
+  // Re-expanding restores assets as visible without recreating DOM nodes.
+  await act(async () => { controller.setGroupCollapsed!("assets", false); await Promise.resolve(); });
+  expect(host.querySelector('[data-testid="probe-assets"]')).toBe(assetsNode);
+  expect(assetsNode?.getAttribute("data-visible")).toBe("true");
 });

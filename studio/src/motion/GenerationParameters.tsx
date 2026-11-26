@@ -3,7 +3,8 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { Slider } from 'open-design-ui/slider';
 import { useId, useState } from 'react';
 import { modelReferenceLimit, type Model } from '../../../shared/gateway';
-import { compatibleImageResolutions, generationOptions, resolveGenerationParameters, usesInputImageRatio, validateGenerationOptions, videoAudioAlwaysOn, type GenerationOption } from '../../../shared/generation-options';
+import { compatibleImageResolutions, generationOptions, resolveGenerationParameters, resolveSpeechVoice, usesInputImageRatio, validateGenerationOptions, videoAudioAlwaysOn, type GenerationOption } from '../../../shared/generation-options';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { cn } from '../components/ui/cn';
 import { FieldTrigger } from '../components/ui/FormField';
 import { Popover } from '../components/ui/Popover';
@@ -201,6 +202,7 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
   appearance?: 'standard' | 'boxed'; popupClassName?: string; onChange: (draft: ParameterDraft) => void;
 }) {
   const { t } = useI18n();
+  const customVoiceIdEnabled = useCloudFeatureEnabled('customVoiceId');
   const settingsLabelId = useId();
   const settingsSummaryId = useId();
   const boxed = appearance === 'boxed';
@@ -220,7 +222,13 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
     }
     return preferred;
   };
-  const value = (field: GenerationOption) => draft.values[field.key] ?? extra[field.key] ?? effectiveDefault(field);
+  const value = (field: GenerationOption) => {
+    const raw = draft.values[field.key] ?? extra[field.key] ?? effectiveDefault(field);
+    if (field.key === 'voice' && field.kind === 'choice') {
+      return resolveSpeechVoice(model, raw, customVoiceIdEnabled);
+    }
+    return raw;
+  };
   const choicesFor = (field: GenerationOption) => {
     const choices = field.choices ?? [];
     if (field.key !== 'resolution' || !allowedResolutions) return choices;

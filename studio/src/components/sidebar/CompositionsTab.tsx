@@ -4,12 +4,14 @@ import { IconButton } from "open-design-ui/icon-button";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
+import { useNearViewport } from "../../hooks/useNearViewport";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import {
   thumbnailScheduler,
   type ThumbnailRequest,
   type ThumbnailSnapshot,
+  type ThumbnailValue,
 } from "../../player/lib/thumbnailScheduler";
 import {
   buildCompositionThumbnailUrl,
@@ -22,17 +24,32 @@ import {
   acquireCachedCompositionCaptureFromIdb,
   canCaptureCompositionInBrowser,
   createClientCompositionCaptureRequest,
+  evictStaleCompositionCaptures,
   getCompositionCacheKeyRevision,
+  getProgressiveCompositionCapture,
   peekCachedCompositionCapture,
+  peekFallbackCompositionCapture,
   retainCachedCompositionCapture,
   subscribeCompositionCacheRevision,
+  subscribeProgressiveCompositionCapture,
 } from "../../player/lib/clientCompositionCapture";
 import { setPreviewMediaMuted } from "../../player/lib/timelineIframeHelpers";
 import { postFrameDisplayScale } from "../../player/lib/runtimeProtocol";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { thumbnailRevisionOf } from "../../player/store/thumbnailSlice";
+import { peekCachedCompositionTimeline } from "../../player/lib/compositionTimelineCache";
 import { encodePreviewPath } from "../../player/components/thumbnailUtils";
+import { SpriteFrame } from "../../player/components/SpriteFrame";
+import {
+  detectFirstVisibleFilmstripFrame,
+  detectFirstVisibleSpriteFrame,
+  OPENING_COVER_SEEK_TIME_SECONDS,
+  openingFrameCacheKey,
+  peekFirstVisibleCoverFrame,
+} from "./coverOpeningFrame";
 import { TIMELINE_COMPOSITION_MIME } from "../../utils/timelineCompositionDrop";
+import { useDockPanelVisible } from "../dock/Dock";
+import { ItemLoadErrorBadge } from "../ui/ItemLoadErrorBadge";
 import { Tooltip } from "../ui/Tooltip";
 import { OverflowText } from "../ui/OverflowText";
 
@@ -53,6 +70,13 @@ const DEFAULT_PREVIEW_STAGE = { width: 1920, height: 1080 };
 const CARD_W = 80;
 const CARD_H = 45;
 const THUMBNAIL_PLAYBACK_SYNC_ATTEMPTS = 10;
+const SPRITE_HOVER_DEBOUNCE_MS = 120;
+const SPRITE_HOVER_INTERVAL_MS = 360;
+const IFRAME_HOVER_DEBOUNCE_MS = 300;
+const SCRUB_DRAG_THRESHOLD_PX = 6;
+const SCRUB_IDLE_RESUME_MS = 550;
+const EDIT_COVER_REFRESH_DEBOUNCE_MS = 250;
+const EDIT_COVER_REFRESH_FRAMES = 4;
 
 type PreviewWindow = Window & {
   __player?: {
@@ -149,48 +173,215 @@ export function syncIframePlayback(iframe: HTMLIFrameElement | null, shouldPlay:
   }
 }
 
+const coverFrameCount = (value: ThumbnailValue | null | undefined): number =>
+  value?.kind === "sprite"
+    ? Math.max(0, value.frameCount)
+    : value?.kind === "filmstrip"
+      ? value.urls.length
+      : value?.kind === "image" && value.url
+        ? 1
+        : 0;
+
+const coverUrlOf = (value: ThumbnailValue | null | undefined): string | null =>
+  value?.kind === "image"
+    ? value.url
+    : value?.kind === "sprite"
+      ? (value.frameCount > 0 ? value.url : null)
+      : value?.kind === "filmstrip"
+        ? (value.urls[0] ?? null)
+        : null;
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
 const imageUrlOf = (snapshot: ThumbnailSnapshot) =>
-  snapshot.status === "ready"
-    ? snapshot.value.kind === "image"
-      ? snapshot.value.url
-      : snapshot.value.kind === "filmstrip"
-        ? (snapshot.value.urls[0] ?? null)
-        : null
-    : null;
+  snapshot.status === "ready" ? coverUrlOf(snapshot.value) : null;
 
 // A layout effect takes the old frame's lease before the passive cleanup drops the first one.
-function useLastFrame(request: ThumbnailRequest | null, snapshot: ThumbnailSnapshot) {
+// Preserves the last shown frame across transient null requests (e.g. IDB probe on revision bump)
+// while releasing its scheduler lease as soon as the card leaves the viewport or panel hides.
+function useLastFrame(
+  request: ThumbnailRequest | null,
+  snapshot: ThumbnailSnapshot,
+  keepLease: boolean,
+  identityKey: string,
+) {
   const current = imageUrlOf(snapshot);
-  const [kept, setKept] = useState<{ request: ThumbnailRequest; url: string } | null>(null);
-  if (!request && kept) setKept(null);
-  if (request && current && kept?.request !== request) setKept({ request, url: current });
+  const [kept, setKept] = useState<{
+    identityKey: string;
+    request: ThumbnailRequest;
+    url: string;
+  } | null>(null);
+  if (kept && (!keepLease || kept.identityKey !== identityKey)) setKept(null);
+  if (
+    keepLease &&
+    request &&
+    current &&
+    (kept?.request !== request || kept.identityKey !== identityKey)
+  ) {
+    setKept({ identityKey, request, url: current });
+  }
   useLayoutEffect(() => {
-    if (!request || !kept || kept.request === request) return;
+    if (!keepLease || !kept || kept.identityKey !== identityKey || kept.request === request) return;
     const lease = thumbnailScheduler.acquire(kept.request, () => {});
     return () => lease.release();
-  }, [kept, request]);
-  return current ?? kept?.url ?? null;
+  }, [identityKey, keepLease, kept, request]);
+  return current ?? (keepLease && kept?.identityKey === identityKey ? kept.url : null);
 }
 
-function useNearViewport<T extends Element>(): [(element: T | null) => void, boolean] {
-  const [element, setElement] = useState<T | null>(null);
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    if (!element) return;
-    if (typeof IntersectionObserver === "undefined") return setNear(true);
-    const observer = new IntersectionObserver(
-      ([entry]) => setNear(entry.isIntersecting),
-      { root: element.closest("[data-composition-list]"), rootMargin: "200px" },
+/** Retain a cloud-captured cover across revision bumps / IDB checks so edits never flash back to loading. */
+function useRetainedCardCover({
+  captureEnabled,
+  projectId,
+  previewUrl,
+  coverIdentity,
+  compCacheRev,
+  settledCover,
+  captureFailed,
+}: {
+  captureEnabled: boolean;
+  projectId: string;
+  previewUrl: string;
+  coverIdentity: string;
+  compCacheRev: string;
+  settledCover: ThumbnailValue | null;
+  captureFailed: boolean;
+}): ThumbnailValue | null {
+  const fallbackCachedCover = useMemo(() => {
+    if (!captureEnabled || settledCover || captureFailed) return null;
+    const candidate = peekFallbackCompositionCapture({ projectId, previewUrl });
+    return coverUrlOf(candidate) ? candidate : null;
+  }, [captureEnabled, captureFailed, compCacheRev, previewUrl, projectId, settledCover]);
+
+  const [retained, setRetained] = useState<{
+    identity: string;
+    value: ThumbnailValue;
+  } | null>(null);
+
+  if (!captureEnabled || captureFailed) {
+    if (retained !== null) setRetained(null);
+  } else if (settledCover) {
+    if (retained?.identity !== coverIdentity || retained.value !== settledCover) {
+      setRetained({ identity: coverIdentity, value: settledCover });
+    }
+  } else if (retained && retained.identity !== coverIdentity) {
+    setRetained(
+      fallbackCachedCover ? { identity: coverIdentity, value: fallbackCachedCover } : null,
     );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element]);
-  return [setElement, near];
+  } else if (!retained && fallbackCachedCover) {
+    setRetained({ identity: coverIdentity, value: fallbackCachedCover });
+  }
+
+  const activeRetained =
+    !captureEnabled || captureFailed
+      ? null
+      : settledCover ??
+        (retained?.identity === coverIdentity ? retained.value : fallbackCachedCover);
+
+  useLayoutEffect(() => retainCachedCompositionCapture(activeRetained), [activeRetained]);
+  return activeRetained;
 }
 
+function resolveCoverFrameBounds(
+  totalFrames: number,
+  windowStartFraction?: number,
+  windowEndFraction?: number,
+): { minFrame: number; maxFrame: number; defaultFrame: number } {
+  const safeTotal = Math.max(0, Math.floor(totalFrames));
+  if (safeTotal <= 1) {
+    return { minFrame: 0, maxFrame: 0, defaultFrame: 0 };
+  }
+  const hasWindow =
+    typeof windowStartFraction === "number" &&
+    Number.isFinite(windowStartFraction) &&
+    typeof windowEndFraction === "number" &&
+    Number.isFinite(windowEndFraction) &&
+    (windowStartFraction > 0.01 || windowEndFraction < 0.99);
+  if (!hasWindow) {
+    return {
+      minFrame: 0,
+      maxFrame: safeTotal - 1,
+      defaultFrame: 0,
+    };
+  }
+  const toFrame = (fraction: number) => {
+    const normalized = Math.max(0, Math.min(1, (fraction - 0.04) / 0.9));
+    return Math.max(0, Math.min(safeTotal - 1, Math.round(normalized * (safeTotal - 1))));
+  };
+  const startFrac = Math.max(0, Math.min(0.99, windowStartFraction));
+  const endFrac = Math.max(startFrac, Math.min(1, windowEndFraction));
+  const minFrame = toFrame(startFrac);
+  const maxFrame = Math.max(minFrame, toFrame(endFrac));
+  return { minFrame, maxFrame, defaultFrame: minFrame };
+}
+
+function usePreferredOpeningFrame(
+  value: ThumbnailValue | null | undefined,
+  minFrame: number,
+  maxFrame: number,
+  defaultFrame: number,
+): number {
+  const detectionKey = useMemo(() => {
+    if (!value || maxFrame <= minFrame) return null;
+    if (value.kind === "sprite" && value.frameCount > 1 && value.url) {
+      return openingFrameCacheKey(value.url, minFrame, maxFrame);
+    }
+    if (value.kind === "filmstrip" && value.urls.length > 1) {
+      const slice = value.urls.slice(minFrame, maxFrame + 1).join("|");
+      return slice ? openingFrameCacheKey(slice, minFrame, maxFrame) : null;
+    }
+    return null;
+  }, [maxFrame, minFrame, value]);
+
+  const syncDetected = detectionKey ? peekFirstVisibleCoverFrame(detectionKey) : null;
+  const [detected, setDetected] = useState<{ key: string; frame: number } | null>(null);
+
+  useEffect(() => {
+    if (!detectionKey || syncDetected !== null || !value) return;
+    let cancelled = false;
+    const promise =
+      value.kind === "sprite"
+        ? detectFirstVisibleSpriteFrame({
+            url: value.url,
+            frameCount: value.frameCount,
+            cols: value.cols,
+            rows: value.rows,
+            minFrame,
+            maxFrame,
+          })
+        : value.kind === "filmstrip"
+          ? detectFirstVisibleFilmstripFrame({
+              urls: value.urls,
+              minFrame,
+              maxFrame,
+            })
+          : null;
+    if (!promise) return;
+    void promise.then((frame) => {
+      if (!cancelled) setDetected({ key: detectionKey, frame });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detectionKey, maxFrame, minFrame, syncDetected, value]);
+
+  if (syncDetected !== null) return syncDetected;
+  if (detectionKey && detected?.key === detectionKey) return detected.frame;
+  return defaultFrame;
+}
+
+// fallow-ignore-next-line complexity
 function CompCard({
   projectId,
   comp,
+  coverComp = comp,
+  coverWindowStartFraction,
+  coverWindowEndFraction,
   isActive,
   isRoot,
   onSelect,
@@ -198,9 +389,13 @@ function CompCard({
   isRendering,
   onAddToTimeline,
   contentRevision,
+  coverContentRevision = contentRevision,
 }: {
   projectId: string;
   comp: string;
+  coverComp?: string;
+  coverWindowStartFraction?: number;
+  coverWindowEndFraction?: number;
   isActive: boolean;
   isRoot: boolean;
   onSelect: () => void;
@@ -208,16 +403,25 @@ function CompCard({
   isRendering?: boolean;
   onAddToTimeline?: () => void;
   contentRevision: number;
+  coverContentRevision?: number;
 }) {
   const { t } = useI18n();
+  const panelVisible = useDockPanelVisible();
   const previewOrigin = isolatedPreviewOrigin();
   const [hovered, setHovered] = useState(false);
+  const [spriteHoverActive, setSpriteHoverActive] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [hoverFrameIndex, setHoverFrameIndex] = useState<number | null>(null);
   const [stageSize, setStageSize] = useState(DEFAULT_PREVIEW_STAGE);
   const [livePreviewLoaded, setLivePreviewLoaded] = useState(false);
   const [loadedFrameUrl, setLoadedFrameUrl] = useState<string | null>(null);
+  const [renderedCoverIdentity, setRenderedCoverIdentity] = useState<string | null>(null);
   const [failedFrameUrl, setFailedFrameUrl] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrubIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrubAnchorXRef = useRef<number | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draggedRef = useRef(false);
 
@@ -236,29 +440,50 @@ function CompCard({
     sync(THUMBNAIL_PLAYBACK_SYNC_ATTEMPTS);
   }, []);
 
-  const handleEnter = () => {
-    hoverTimer.current = setTimeout(() => setHovered(true), 300);
-  };
-  const stopHoverPreview = () => {
+  const stopHoverPreview = useCallback(() => {
     if (hoverTimer.current) {
       clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
     }
+    if (liveHoverTimer.current) {
+      clearTimeout(liveHoverTimer.current);
+      liveHoverTimer.current = null;
+    }
+    if (scrubIdleTimer.current) {
+      clearTimeout(scrubIdleTimer.current);
+      scrubIdleTimer.current = null;
+    }
+    scrubAnchorXRef.current = null;
     if (syncTimer.current) {
       clearTimeout(syncTimer.current);
       syncTimer.current = null;
     }
     setHovered(false);
+    setSpriteHoverActive(false);
+    setIsScrubbing(false);
+    setHoverFrameIndex(null);
     setLivePreviewLoaded(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!panelVisible) stopHoverPreview();
+  }, [panelVisible, stopHoverPreview]);
+
   const openComposition = () => {
     stopHoverPreview();
     onSelect();
   };
   const name = comp.replace(/^compositions\//, "").replace(/\.html$/, "");
-  const previewUrl = compositionPreviewUrl(projectId, comp);
-  const thumbnailUrl = compositionCardThumbnailUrl(projectId, comp, contentRevision);
-  const [thumbnailBox, nearViewport] = useNearViewport<HTMLDivElement>();
+  const previewUrl = isRoot
+    ? buildProjectApiPath(projectId, "/preview")
+    : compositionPreviewUrl(projectId, comp);
+  const coverPreviewUrl = compositionPreviewUrl(projectId, coverComp);
+  const coverIdentity = `${projectId}|${coverComp}`;
+  const thumbnailUrl = compositionCardThumbnailUrl(projectId, coverComp, coverContentRevision);
+  const [thumbnailEl, thumbnailBox] = useState<HTMLDivElement | null>(null);
+  const nearViewport = useNearViewport(thumbnailEl, panelVisible, {
+    rootSelector: "[data-composition-list]",
+  });
   const timelineSessionEpoch = usePlayerStore((state) => state.timelineSessionEpoch);
   const captureEnabled = nearViewport && getCachedCloudDisklessMode() && canCaptureCompositionInBrowser();
   const subscribeCacheRev = useCallback(
@@ -267,39 +492,74 @@ function CompCard({
     [captureEnabled, projectId],
   );
   const getCacheRev = useCallback(
-    () => (captureEnabled ? getCompositionCacheKeyRevision(projectId, previewUrl, contentRevision) : ""),
-    [captureEnabled, contentRevision, previewUrl, projectId],
+    () =>
+      captureEnabled
+        ? getCompositionCacheKeyRevision(projectId, coverPreviewUrl, coverContentRevision)
+        : "",
+    [captureEnabled, coverContentRevision, coverPreviewUrl, projectId],
   );
   const compCacheRev = useSyncExternalStore(subscribeCacheRev, getCacheRev, () => "");
-  const captureContentRevision = compCacheRev.startsWith("file:") ? 0 : contentRevision;
+  const captureContentRevision = compCacheRev.startsWith("file:") ? 0 : coverContentRevision;
   const syncCachedCover = useMemo(
     () =>
       captureEnabled
         ? peekCachedCompositionCapture({
-            previewUrl,
+            previewUrl: coverPreviewUrl,
             projectId,
             contentRevision: captureContentRevision,
             frameCount: 1,
+            preferMultiFrame: true,
           })
         : null,
-    [captureContentRevision, captureEnabled, compCacheRev, previewUrl, projectId],
+    [captureContentRevision, captureEnabled, compCacheRev, coverPreviewUrl, projectId],
   );
   // Keep cached cover object URLs alive while this card renders them, even after LRU eviction.
   useLayoutEffect(() => retainCachedCompositionCapture(syncCachedCover), [syncCachedCover]);
-  const coverProbeKey = captureEnabled ? `${projectId}|${previewUrl}|${compCacheRev}|${captureContentRevision}` : null;
+  const coverProbeKey = captureEnabled
+    ? `${projectId}|${coverPreviewUrl}|${compCacheRev}|${captureContentRevision}`
+    : null;
+  const fallbackCoverForDebounce = useMemo(
+    () =>
+      captureEnabled && !syncCachedCover
+        ? peekFallbackCompositionCapture({ projectId, previewUrl: coverPreviewUrl })
+        : null,
+    [captureEnabled, compCacheRev, coverPreviewUrl, projectId, syncCachedCover],
+  );
+  const isPostEditRefresh = Boolean(coverProbeKey && !syncCachedCover && fallbackCoverForDebounce);
+  // Coalesce rapid edits on an already-rendered card (e.g. slider drags / typing) before
+  // triggering IDB/SnapDOM refresh, while keeping cold initial opens and RAM Undo hits at 0ms.
+  const [debouncedRefreshKey, setDebouncedRefreshKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!coverProbeKey || !isPostEditRefresh) {
+      setDebouncedRefreshKey(coverProbeKey);
+      return;
+    }
+    const timer = setTimeout(() => setDebouncedRefreshKey(coverProbeKey), EDIT_COVER_REFRESH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [coverProbeKey, isPostEditRefresh]);
+  const activeCoverProbeKey =
+    !coverProbeKey
+      ? null
+      : isPostEditRefresh && debouncedRefreshKey !== coverProbeKey
+        ? null
+        : coverProbeKey;
+  const refreshDebouncePending = Boolean(
+    coverProbeKey && !syncCachedCover && activeCoverProbeKey !== coverProbeKey,
+  );
   const [idbCoverProbe, setIdbCoverProbe] = useState<{
     key: string;
     value: ReturnType<typeof peekCachedCompositionCapture>;
   } | null>(null);
   useEffect(() => {
-    if (!coverProbeKey || syncCachedCover) return;
+    if (!activeCoverProbeKey || syncCachedCover) return;
     let cancelled = false;
     let releaseLease: (() => void) | null = null;
     void acquireCachedCompositionCaptureFromIdb({
-      previewUrl,
+      previewUrl: coverPreviewUrl,
       projectId,
       contentRevision: captureContentRevision,
       frameCount: 1,
+      preferMultiFrame: true,
     })
       .then((lease) => {
         if (cancelled) {
@@ -307,71 +567,294 @@ function CompCard({
           return;
         }
         releaseLease = lease?.release ?? null;
-        setIdbCoverProbe({ key: coverProbeKey, value: lease?.value ?? null });
+        setIdbCoverProbe({ key: activeCoverProbeKey, value: lease?.value ?? null });
       })
       .catch(() => {
-        if (!cancelled) setIdbCoverProbe({ key: coverProbeKey, value: null });
+        if (!cancelled) setIdbCoverProbe({ key: activeCoverProbeKey, value: null });
       });
     return () => {
       cancelled = true;
       releaseLease?.();
       releaseLease = null;
     };
-  }, [captureContentRevision, coverProbeKey, previewUrl, projectId, syncCachedCover]);
+  }, [activeCoverProbeKey, captureContentRevision, coverPreviewUrl, projectId, syncCachedCover]);
   const idbCachedCover =
-    coverProbeKey && idbCoverProbe?.key === coverProbeKey ? idbCoverProbe.value : null;
+    activeCoverProbeKey && idbCoverProbe?.key === activeCoverProbeKey ? idbCoverProbe.value : null;
   const cachedCover = syncCachedCover ?? idbCachedCover;
   const idbCoverPending = Boolean(
-    coverProbeKey && !syncCachedCover && idbCoverProbe?.key !== coverProbeKey,
+    refreshDebouncePending ||
+      (activeCoverProbeKey && !syncCachedCover && idbCoverProbe?.key !== activeCoverProbeKey),
   );
+  // Cold unvisited cards capture 1 frame to avoid fan-out on large projects; refreshing an
+  // already-rendered card after a real edit captures a fast 4-frame strip (progressive hero
+  // frame first, interaction priority when active) so edits anywhere in the scene update the
+  // sidebar cover quickly without stalling behind inner timeline element captures.
+  const desiredRefreshFrames = isPostEditRefresh ? EDIT_COVER_REFRESH_FRAMES : 1;
+  const captureRequest = useMemo(
+    () =>
+      captureEnabled && !cachedCover && !idbCoverPending
+        ? createClientCompositionCaptureRequest({
+            previewUrl: coverPreviewUrl,
+            projectId,
+            sessionEpoch: timelineSessionEpoch,
+            contentRevision: captureContentRevision,
+            frameCount: desiredRefreshFrames,
+            seekTime: desiredRefreshFrames === 1 ? OPENING_COVER_SEEK_TIME_SECONDS : undefined,
+            priority: isPostEditRefresh && isActive ? "interaction" : "overscan",
+            rich: true,
+          })
+        : null,
+    [
+      cachedCover,
+      captureContentRevision,
+      captureEnabled,
+      compCacheRev,
+      coverPreviewUrl,
+      desiredRefreshFrames,
+      idbCoverPending,
+      isActive,
+      isPostEditRefresh,
+      projectId,
+      timelineSessionEpoch,
+    ],
+  );
+  const captureThumbnail = useThumbnailLease(captureRequest);
+  const progressiveTarget = useMemo(
+    () =>
+      captureEnabled &&
+      isPostEditRefresh &&
+      !cachedCover &&
+      !idbCoverPending &&
+      captureThumbnail.status !== "ready"
+        ? {
+            previewUrl: coverPreviewUrl,
+            projectId,
+            contentRevision: captureContentRevision,
+            frameCount: desiredRefreshFrames,
+          }
+        : null,
+    [
+      cachedCover,
+      captureContentRevision,
+      captureEnabled,
+      captureThumbnail.status,
+      compCacheRev,
+      coverPreviewUrl,
+      desiredRefreshFrames,
+      idbCoverPending,
+      isPostEditRefresh,
+      projectId,
+    ],
+  );
+  const subscribeProgressive = useCallback(
+    (listener: () => void) =>
+      progressiveTarget ? subscribeProgressiveCompositionCapture(progressiveTarget, listener) : () => {},
+    [progressiveTarget],
+  );
+  const getProgressiveSnapshot = useCallback(
+    () => (progressiveTarget ? getProgressiveCompositionCapture(progressiveTarget) : null),
+    [progressiveTarget],
+  );
+  const progressiveCover = useSyncExternalStore(subscribeProgressive, getProgressiveSnapshot, () => null);
+  const settledCover =
+    cachedCover ??
+    (captureThumbnail.status === "ready" && coverUrlOf(captureThumbnail.value)
+      ? captureThumbnail.value
+      : null);
+  const activeRetainedCover = useRetainedCardCover({
+    captureEnabled,
+    projectId,
+    previewUrl: coverPreviewUrl,
+    coverIdentity,
+    compCacheRev,
+    settledCover,
+    captureFailed: captureThumbnail.status === "error",
+  });
   const thumbnailRequest = useMemo(
     () =>
-      nearViewport && !cachedCover && !idbCoverPending
+      nearViewport && !cachedCover && !idbCoverPending && !activeRetainedCover
         ? compositionThumbnailRequest(thumbnailUrl, projectId, {
             sessionEpoch: timelineSessionEpoch,
             rich: true,
           })
         : null,
-    [cachedCover, idbCoverPending, nearViewport, projectId, thumbnailUrl, timelineSessionEpoch],
-  );
-  const captureRequest = useMemo(
-    () =>
-      captureEnabled && !cachedCover && !idbCoverPending
-        ? createClientCompositionCaptureRequest({
-            previewUrl,
-            projectId,
-            sessionEpoch: timelineSessionEpoch,
-            contentRevision: captureContentRevision,
-            frameCount: 1,
-            seekTime: THUMBNAIL_SEEK_TIME_SECONDS,
-            priority: "overscan",
-            rich: true,
-          })
-        : null,
-    [cachedCover, captureContentRevision, captureEnabled, compCacheRev, idbCoverPending, previewUrl, projectId, timelineSessionEpoch],
+    [
+      activeRetainedCover,
+      cachedCover,
+      idbCoverPending,
+      nearViewport,
+      projectId,
+      thumbnailUrl,
+      timelineSessionEpoch,
+    ],
   );
   const posterThumbnail = useThumbnailLease(thumbnailRequest);
-  const captureThumbnail = useThumbnailLease(captureRequest);
-  const activeRequest = cachedCover
+  const activeRequest = activeRetainedCover
     ? null
     : captureThumbnail.status === "ready"
       ? captureRequest
       : thumbnailRequest;
-  const thumbnail: ThumbnailSnapshot = cachedCover
-    ? { status: "ready", value: cachedCover }
+  const thumbnail: ThumbnailSnapshot = activeRetainedCover
+    ? { status: "ready", value: activeRetainedCover }
     : captureThumbnail.status === "ready"
       ? captureThumbnail
       : posterThumbnail;
-  const lastFrameUrl = useLastFrame(activeRequest, thumbnail);
-  const frameUrl =
-    cachedCover?.kind === "image"
-      ? cachedCover.url
-      : cachedCover?.kind === "filmstrip"
-        ? (cachedCover.urls[0] ?? null)
-        : lastFrameUrl;
+  const lastFrameUrl = useLastFrame(activeRequest, thumbnail, nearViewport, coverIdentity);
+  const displayedCoverValue =
+    settledCover ??
+    (progressiveCover && coverUrlOf(progressiveCover) ? progressiveCover : null) ??
+    activeRetainedCover ??
+    (thumbnail.status === "ready" ? thumbnail.value : null);
+  const totalCoverFrames = coverFrameCount(displayedCoverValue);
+  const frameBounds = resolveCoverFrameBounds(
+    totalCoverFrames,
+    coverWindowStartFraction,
+    coverWindowEndFraction,
+  );
+  const preferredOpeningFrame = usePreferredOpeningFrame(
+    displayedCoverValue,
+    frameBounds.minFrame,
+    frameBounds.maxFrame,
+    frameBounds.defaultFrame,
+  );
+  const visibleFrameSpan = frameBounds.maxFrame - frameBounds.minFrame + 1;
+  const hasMultiFramePreview =
+    visibleFrameSpan > 1 &&
+    (displayedCoverValue?.kind === "sprite" || displayedCoverValue?.kind === "filmstrip");
+  const activeFrameIndex =
+    hoverFrameIndex !== null
+      ? Math.max(frameBounds.minFrame, Math.min(frameBounds.maxFrame, hoverFrameIndex))
+      : preferredOpeningFrame;
+  const spriteCoverValue =
+    displayedCoverValue?.kind === "sprite" &&
+    displayedCoverValue.frameCount > 0 &&
+    displayedCoverValue.url !== failedFrameUrl
+      ? displayedCoverValue
+      : null;
+  if (spriteCoverValue && renderedCoverIdentity !== coverIdentity) {
+    setRenderedCoverIdentity(coverIdentity);
+  }
+  const activeFilmstripUrl =
+    displayedCoverValue?.kind === "filmstrip" && displayedCoverValue.urls.length > 0
+      ? (displayedCoverValue.urls[activeFrameIndex] ?? displayedCoverValue.urls[0] ?? null)
+      : null;
+  const frameUrl = activeFilmstripUrl ?? coverUrlOf(activeRetainedCover) ?? lastFrameUrl;
   const thumbnailFailed = thumbnail.status === "error";
-  const posterUrl = !thumbnailFailed && frameUrl !== failedFrameUrl ? frameUrl : null;
-  const posterLoaded = !!posterUrl && loadedFrameUrl === posterUrl;
+  const posterUrl =
+    spriteCoverValue || thumbnailFailed || frameUrl === failedFrameUrl ? null : frameUrl;
+  const posterLoaded = Boolean(spriteCoverValue) || (!!posterUrl && loadedFrameUrl === posterUrl);
+  const hasRenderedCover = Boolean(spriteCoverValue) || (Boolean(posterUrl) && renderedCoverIdentity === coverIdentity);
+  const posterRequestFailed = Boolean(thumbnailRequest) && posterThumbnail.status === "error";
+  const captureRequestFailed = captureEnabled
+    ? Boolean(captureRequest) && captureThumbnail.status === "error"
+    : true;
+  const imageElementFailed = Boolean(frameUrl && failedFrameUrl === frameUrl);
+  const showCoverError =
+    !spriteCoverValue &&
+    !activeRetainedCover &&
+    !livePreviewLoaded &&
+    !idbCoverPending &&
+    !posterLoaded &&
+    !hasRenderedCover &&
+    (imageElementFailed || (posterRequestFailed && captureRequestFailed));
+  const handleEnter = () => {
+    if (!panelVisible) return;
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    if (liveHoverTimer.current) {
+      clearTimeout(liveHoverTimer.current);
+      liveHoverTimer.current = null;
+    }
+    const reduced = prefersReducedMotion();
+    if (hasMultiFramePreview && !reduced) {
+      hoverTimer.current = setTimeout(() => {
+        setSpriteHoverActive(true);
+      }, SPRITE_HOVER_DEBOUNCE_MS);
+    }
+    if (!reduced) {
+      liveHoverTimer.current = setTimeout(() => setHovered(true), IFRAME_HOVER_DEBOUNCE_MS);
+    }
+  };
+  const handleThumbnailPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!panelVisible || !hasMultiFramePreview) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    if (scrubAnchorXRef.current === null) {
+      scrubAnchorXRef.current = event.clientX;
+      return;
+    }
+    if (!isScrubbing && Math.abs(event.clientX - scrubAnchorXRef.current) < SCRUB_DRAG_THRESHOLD_PX) {
+      return;
+    }
+    const ratio = Math.max(0, Math.min(0.9999, (event.clientX - rect.left) / rect.width));
+    const nextIdx = frameBounds.minFrame + Math.floor(ratio * visibleFrameSpan);
+    setIsScrubbing(true);
+    setLivePreviewLoaded(false);
+    setHoverFrameIndex(nextIdx);
+    if (scrubIdleTimer.current) clearTimeout(scrubIdleTimer.current);
+    scrubIdleTimer.current = setTimeout(() => {
+      scrubIdleTimer.current = null;
+      scrubAnchorXRef.current = event.clientX;
+      setIsScrubbing(false);
+    }, SCRUB_IDLE_RESUME_MS);
+  };
+  const handleThumbnailPointerLeave = () => {
+    if (scrubIdleTimer.current) {
+      clearTimeout(scrubIdleTimer.current);
+      scrubIdleTimer.current = null;
+    }
+    scrubAnchorXRef.current = null;
+    setIsScrubbing(false);
+  };
+  const shouldMountIframeHover = hovered && panelVisible && !isScrubbing;
+  const showLiveHover = shouldMountIframeHover && livePreviewLoaded;
+
+  useEffect(() => {
+    if (
+      !hasMultiFramePreview ||
+      !spriteHoverActive ||
+      !panelVisible ||
+      isScrubbing ||
+      showLiveHover
+    ) {
+      return;
+    }
+    if (prefersReducedMotion()) return;
+    const step = (prev: number | null) => {
+      if (prev === null || prev < frameBounds.minFrame || prev >= frameBounds.maxFrame) {
+        return prev === null ? preferredOpeningFrame : frameBounds.minFrame;
+      }
+      return prev + 1;
+    };
+    setHoverFrameIndex(step);
+    const interval = setInterval(() => {
+      setHoverFrameIndex(step);
+    }, SPRITE_HOVER_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [
+    frameBounds.maxFrame,
+    frameBounds.minFrame,
+    hasMultiFramePreview,
+    isScrubbing,
+    panelVisible,
+    preferredOpeningFrame,
+    showLiveHover,
+    spriteHoverActive,
+  ]);
+
+  const handleReloadCover = useCallback(() => {
+    const hadImgError = Boolean(failedFrameUrl);
+    setFailedFrameUrl(null);
+    let retried = false;
+    if (captureRequest && thumbnailScheduler.retryEntry(captureRequest)) retried = true;
+    if (thumbnailRequest && thumbnailScheduler.retryEntry(thumbnailRequest)) retried = true;
+    if (hadImgError || !retried) {
+      evictStaleCompositionCaptures(projectId, [coverComp]);
+      thumbnailScheduler.retryFailed(projectId, coverComp);
+    }
+  }, [captureRequest, coverComp, failedFrameUrl, projectId, thumbnailRequest]);
   const previewScale = resolveCompositionPreviewScale({
     cardWidth: CARD_W,
     cardHeight: CARD_H,
@@ -382,15 +865,15 @@ function CompCard({
   const thumbnailOffsetY = (CARD_H - stageSize.height * previewScale) / 2;
 
   useEffect(() => {
-    if (hovered && !previewOrigin) requestIframePlaybackSync(true);
-  }, [hovered, previewOrigin, requestIframePlaybackSync]);
+    if (shouldMountIframeHover && !previewOrigin) requestIframePlaybackSync(true);
+  }, [shouldMountIframeHover, previewOrigin, requestIframePlaybackSync]);
 
   useEffect(() => {
     if (livePreviewLoaded) postFrameDisplayScale(iframeRef.current);
   }, [livePreviewLoaded, previewScale]);
 
   useEffect(() => {
-    if (!hovered) return;
+    if (!shouldMountIframeHover) return;
     const onRuntimeReady = (event: MessageEvent) => {
       const frame = iframeRef.current;
       if (frame && event.source === frame.contentWindow && event.data?.type === "ready") {
@@ -399,11 +882,13 @@ function CompCard({
     };
     window.addEventListener("message", onRuntimeReady);
     return () => window.removeEventListener("message", onRuntimeReady);
-  }, [hovered]);
+  }, [shouldMountIframeHover]);
 
   useEffect(() => {
     return () => {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (liveHoverTimer.current) clearTimeout(liveHoverTimer.current);
+      if (scrubIdleTimer.current) clearTimeout(scrubIdleTimer.current);
       if (syncTimer.current) clearTimeout(syncTimer.current);
     };
   }, []);
@@ -449,35 +934,76 @@ function CompCard({
     >
       <div
         ref={thumbnailBox}
+        onPointerMove={handleThumbnailPointerMove}
+        onPointerLeave={handleThumbnailPointerLeave}
         className="w-20 h-[45px] rounded-sm overflow-hidden bg-neutral-900 shrink-0 relative"
       >
-        {!posterLoaded && !livePreviewLoaded && (
+        {!posterLoaded && !hasRenderedCover && !livePreviewLoaded && (
           <div className="motion-composition-placeholder absolute inset-0 flex items-center justify-center" data-testid="composition-cover-placeholder" aria-hidden="true">
             <span className="motion-composition-placeholder-mark" />
           </div>
         )}
+        {spriteCoverValue && (
+          <SpriteFrame
+            sprite={spriteCoverValue}
+            frameIndex={activeFrameIndex}
+            fit="contain"
+            containerWidth={CARD_W}
+            containerHeight={CARD_H}
+            className={`absolute inset-0 transition-opacity ${
+              showLiveHover ? "opacity-0" : "opacity-100"
+            }`}
+          />
+        )}
         {posterUrl && (
           <img
-            key={posterUrl}
             src={posterUrl}
             alt=""
             draggable={false}
             decoding="async"
-            onLoad={() => setLoadedFrameUrl(posterUrl)}
-            onError={() => setFailedFrameUrl(posterUrl)}
+            data-filmstrip-frame={hasMultiFramePreview ? activeFrameIndex : undefined}
+            onLoad={() => {
+              setLoadedFrameUrl(posterUrl);
+              setRenderedCoverIdentity(coverIdentity);
+            }}
+            onError={() => {
+              setFailedFrameUrl(posterUrl);
+              setRenderedCoverIdentity(null);
+            }}
             className={`absolute inset-0 h-full w-full object-contain transition-opacity ${
-              livePreviewLoaded || !posterLoaded ? "opacity-0" : "opacity-100"
+              showLiveHover || (!posterLoaded && !hasRenderedCover) ? "opacity-0" : "opacity-100"
             }`}
           />
         )}
-        {hovered && previewOrigin && (
-          <div className="absolute inset-0 pointer-events-none" style={{ visibility: livePreviewLoaded ? "visible" : "hidden" }}>
-            <IsolatedHoverPlayer source={previewUrl} origin={previewOrigin} onReady={setLivePreviewLoaded}
-              onError={() => setLivePreviewLoaded(false)} />
+        {hasMultiFramePreview && (spriteHoverActive || isScrubbing) && !showLiveHover && (
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-neutral-950/60"
+            data-testid="composition-hover-progress"
+            aria-hidden="true"
+          >
+            <div
+              className="h-full bg-studio-accent transition-[width] duration-75"
+              style={{ width: `${((activeFrameIndex - frameBounds.minFrame + 1) / visibleFrameSpan) * 100}%` }}
+            />
           </div>
         )}
-        {hovered && !previewOrigin && (
+        {shouldMountIframeHover && previewOrigin && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ visibility: showLiveHover ? "visible" : "hidden" }}
+          >
+            <IsolatedHoverPlayer
+              key={`${previewUrl}|${contentRevision}|${compCacheRev}`}
+              source={previewUrl}
+              origin={previewOrigin}
+              onReady={setLivePreviewLoaded}
+              onError={() => setLivePreviewLoaded(false)}
+            />
+          </div>
+        )}
+        {shouldMountIframeHover && !previewOrigin && (
           <iframe
+            key={`${previewUrl}|${contentRevision}|${compCacheRev}`}
             ref={iframeRef}
             src={previewUrl}
             sandbox="allow-scripts allow-same-origin"
@@ -489,6 +1015,7 @@ function CompCard({
               left: thumbnailOffsetX,
               top: thumbnailOffsetY,
               transform: `scale(${previewScale})`,
+              visibility: showLiveHover ? "visible" : "hidden",
             }}
             onLoad={(e) => {
               try {
@@ -509,6 +1036,7 @@ function CompCard({
             tabIndex={-1}
           />
         )}
+        {showCoverError && <ItemLoadErrorBadge compact onReload={handleReloadCover} />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1">
@@ -561,6 +1089,94 @@ function CompCard({
   );
 }
 
+interface RootCoverSpec {
+  compPath: string;
+  windowStartFraction?: number;
+  windowEndFraction?: number;
+}
+
+const MAX_REMEMBERED_ROOT_COVERS = 64;
+const rememberedRootCoverByProject = new Map<string, RootCoverSpec>();
+
+interface MasterChildClipLike {
+  compositionSrc?: string;
+  hidden?: boolean;
+  start: number;
+  duration?: number;
+  playbackStart?: number;
+  playbackRate?: number;
+  sourceDuration?: number;
+}
+
+function normalizeChildCompPath(raw: string): string {
+  return raw.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+}
+
+function findEarliestChildCompositionSpec(
+  elements: readonly MasterChildClipLike[],
+  masterCompositionPath: string,
+): RootCoverSpec | null {
+  let earliestStart = Infinity;
+  let earliestEl: MasterChildClipLike | null = null;
+  let earliestComp: string | null = null;
+  for (const el of elements) {
+    if (!el.compositionSrc || el.hidden) continue;
+    const normalized = normalizeChildCompPath(el.compositionSrc);
+    if (normalized === masterCompositionPath) continue;
+    if (el.start < earliestStart) {
+      earliestStart = el.start;
+      earliestEl = el;
+      earliestComp = normalized;
+    }
+  }
+  if (!earliestComp || !earliestEl) return null;
+
+  let maxSourceEnd = 0;
+  for (const el of elements) {
+    if (!el.compositionSrc || el.hidden || normalizeChildCompPath(el.compositionSrc) !== earliestComp) continue;
+    const rate = el.playbackRate && el.playbackRate > 0 ? el.playbackRate : 1;
+    const playedEnd = Math.max(0, el.playbackStart ?? 0) + Math.max(0, el.duration ?? 0) * rate;
+    const candidate =
+      el.sourceDuration && Number.isFinite(el.sourceDuration) && el.sourceDuration > 0
+        ? Math.max(el.sourceDuration, playedEnd)
+        : playedEnd;
+    if (candidate > maxSourceEnd) maxSourceEnd = candidate;
+  }
+
+  const rate = earliestEl.playbackRate && earliestEl.playbackRate > 0 ? earliestEl.playbackRate : 1;
+  const playedStart = Math.max(0, earliestEl.playbackStart ?? 0);
+  const playedSpan = Math.max(0, earliestEl.duration ?? 0) * rate;
+  if (
+    maxSourceEnd > 0 &&
+    playedSpan > 0 &&
+    (playedStart > 0.05 || playedSpan < maxSourceEnd * 0.95)
+  ) {
+    const windowStartFraction = Math.max(0, Math.min(0.99, playedStart / maxSourceEnd));
+    const windowEndFraction = Math.max(
+      windowStartFraction,
+      Math.min(1, (playedStart + playedSpan) / maxSourceEnd),
+    );
+    return { compPath: earliestComp, windowStartFraction, windowEndFraction };
+  }
+  return { compPath: earliestComp };
+}
+
+function rememberProjectRootCover(projectId: string, spec: RootCoverSpec): void {
+  if (!projectId || !spec.compPath) return;
+  rememberedRootCoverByProject.delete(projectId);
+  rememberedRootCoverByProject.set(projectId, spec);
+  while (rememberedRootCoverByProject.size > MAX_REMEMBERED_ROOT_COVERS) {
+    const oldest = rememberedRootCoverByProject.keys().next().value;
+    if (!oldest) break;
+    rememberedRootCoverByProject.delete(oldest);
+  }
+}
+
+/** Tests only: reset remembered per-project Root card cover specs. */
+export function clearRememberedRootCoversForTest(): void {
+  rememberedRootCoverByProject.clear();
+}
+
 export const CompositionsTab = memo(function CompositionsTab({
   projectId,
   compositions,
@@ -573,6 +1189,63 @@ export const CompositionsTab = memo(function CompositionsTab({
 }: CompositionsTabProps) {
   const { t } = useI18n();
   const thumbnailRevisions = usePlayerStore((state) => state.thumbnailRevisions);
+  const viewingMaster =
+    masterCompositionPath !== null &&
+    (!activeComposition || activeComposition === masterCompositionPath);
+  const liveMasterFirstChildKey = usePlayerStore((state) => {
+    if (!viewingMaster || !masterCompositionPath) return "";
+    const spec = findEarliestChildCompositionSpec(state.elements, masterCompositionPath);
+    if (!spec) return "";
+    return `${spec.compPath}|${spec.windowStartFraction?.toFixed(4) ?? ""}|${spec.windowEndFraction?.toFixed(4) ?? ""}`;
+  });
+  const liveMasterFirstChildSpec = useMemo<RootCoverSpec | null>(() => {
+    if (!liveMasterFirstChildKey) return null;
+    const [compPath, rawStart, rawEnd] = liveMasterFirstChildKey.split("|");
+    if (!compPath) return null;
+    const windowStartFraction = rawStart ? Number(rawStart) : undefined;
+    const windowEndFraction = rawEnd ? Number(rawEnd) : undefined;
+    return {
+      compPath,
+      ...(Number.isFinite(windowStartFraction) ? { windowStartFraction } : {}),
+      ...(Number.isFinite(windowEndFraction) ? { windowEndFraction } : {}),
+    };
+  }, [liveMasterFirstChildKey]);
+  const sortedCompositions = useMemo(
+    () =>
+      [...compositions].sort(
+        (a, b) => Number(b === masterCompositionPath) - Number(a === masterCompositionPath),
+      ),
+    [compositions, masterCompositionPath],
+  );
+  // Reuse the master timeline's earliest child composition cover (and trimmed/split playback
+  // window) for the Root card, and keep it pinned across sub-composition switches so drilling
+  // into another scene never makes the Root card jump to the alphabetically first scene.
+  const rootCoverSpec = useMemo<RootCoverSpec | null>(() => {
+    if (!masterCompositionPath) return null;
+    if (liveMasterFirstChildSpec && compositions.includes(liveMasterFirstChildSpec.compPath)) {
+      rememberProjectRootCover(projectId, liveMasterFirstChildSpec);
+      return liveMasterFirstChildSpec;
+    }
+    const remembered = rememberedRootCoverByProject.get(projectId);
+    if (
+      remembered &&
+      remembered.compPath !== masterCompositionPath &&
+      compositions.includes(remembered.compPath)
+    ) {
+      return remembered;
+    }
+    const cachedMaster = peekCachedCompositionTimeline(projectId, masterCompositionPath);
+    const cachedFirst = cachedMaster
+      ? findEarliestChildCompositionSpec(cachedMaster.elements, masterCompositionPath)
+      : null;
+    if (cachedFirst && compositions.includes(cachedFirst.compPath)) {
+      rememberProjectRootCover(projectId, cachedFirst);
+      return cachedFirst;
+    }
+    const fallbackPath = sortedCompositions.find((c) => c !== masterCompositionPath) ?? null;
+    return fallbackPath ? { compPath: fallbackPath } : null;
+  }, [compositions, liveMasterFirstChildSpec, masterCompositionPath, projectId, sortedCompositions]);
+
   if (compositions.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-4">
@@ -583,20 +1256,28 @@ export const CompositionsTab = memo(function CompositionsTab({
 
   return (
     <div className="flex-1 overflow-y-auto" data-composition-list>
-      {[...compositions].sort((a, b) => Number(b === masterCompositionPath) - Number(a === masterCompositionPath)).map((comp) => (
-        <CompCard
-          key={`${projectId}:${comp}`}
-          projectId={projectId}
-          comp={comp}
-          isActive={activeComposition === comp}
-          isRoot={comp === masterCompositionPath}
-          onSelect={() => onSelect(comp)}
-          onRender={onRenderComposition ? () => onRenderComposition(comp) : undefined}
-          onAddToTimeline={onAddToTimeline ? () => onAddToTimeline(comp) : undefined}
-          isRendering={isRendering}
-          contentRevision={thumbnailRevisionOf(thumbnailRevisions, comp)}
-        />
-      ))}
+      {sortedCompositions.map((comp) => {
+        const isRoot = comp === masterCompositionPath;
+        const effectiveCoverComp = isRoot && rootCoverSpec ? rootCoverSpec.compPath : comp;
+        return (
+          <CompCard
+            key={`${projectId}:${comp}`}
+            projectId={projectId}
+            comp={comp}
+            coverComp={effectiveCoverComp}
+            coverWindowStartFraction={isRoot ? rootCoverSpec?.windowStartFraction : undefined}
+            coverWindowEndFraction={isRoot ? rootCoverSpec?.windowEndFraction : undefined}
+            isActive={activeComposition === comp}
+            isRoot={isRoot}
+            onSelect={() => onSelect(comp)}
+            onRender={onRenderComposition ? () => onRenderComposition(comp) : undefined}
+            onAddToTimeline={onAddToTimeline ? () => onAddToTimeline(comp) : undefined}
+            isRendering={isRendering}
+            contentRevision={thumbnailRevisionOf(thumbnailRevisions, comp)}
+            coverContentRevision={thumbnailRevisionOf(thumbnailRevisions, effectiveCoverComp)}
+          />
+        );
+      })}
     </div>
   );
 });

@@ -1,7 +1,7 @@
 import { buildProjectApiPath } from "../utils/projectRouting";
 import { resolvePreviewRelative } from "../utils/previewRelativePath";
 import { VIDEO_EXT } from "../utils/mediaTypes";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { createElement } from "react";
 import { CompositionThumbnail, VideoThumbnail } from "../player";
 import {
@@ -121,8 +121,52 @@ function withSoundStrip(
   return createElement(AudibleVideoClipContent, { thumbnail, waveform: waveform(0) });
 }
 
+function resolveAuthoredMediaSrc(
+  rawSrc: string,
+  sourceFile: string | undefined,
+  projectFileSet: ReadonlySet<string> | null,
+): string {
+  const trimmed = rawSrc.trim();
+  const isRelative =
+    Boolean(trimmed) &&
+    !trimmed.startsWith("/") &&
+    !/^[a-z][a-z0-9+.-]*:/i.test(trimmed) &&
+    !trimmed.startsWith("//");
+  if (sourceFile && isRelative) {
+    const isDotRelative = /^\.\.?(?:\/|$)/.test(trimmed);
+    if (isDotRelative || projectFileSet) {
+      try {
+        const normalizedSource = sourceFile.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+        const resolved = new URL(trimmed, `https://project.invalid/${normalizedSource}`);
+        const relPath = resolved.pathname.replace(/^\/+/, "");
+        if (relPath) {
+          if (isDotRelative) {
+            return authoredSrcPath(`${relPath}${resolved.search}${resolved.hash}`);
+          }
+          let decodedRelPath = relPath;
+          try {
+            decodedRelPath = decodeURIComponent(relPath);
+          } catch {
+            // Keep raw relPath if percent-encoding is malformed.
+          }
+          // Mirror preview-bundler's existence-aware rewriteAssetPath: only rebase bare
+          // relative paths against the composition directory when that sibling file actually
+          // exists in the loaded file tree; otherwise preserve preview-root-relative paths.
+          if (projectFileSet?.has(decodedRelPath)) {
+            return authoredSrcPath(`${relPath}${resolved.search}${resolved.hash}`);
+          }
+        }
+      } catch {
+        // Fall back to direct authored path normalization below.
+      }
+    }
+  }
+  return authoredSrcPath(rawSrc);
+}
+
 export interface UseRenderClipContentOptions {
   fileTreeLoaded: boolean;
+  fileTree?: readonly string[];
   projectIdRef: { current: string | null };
   compIdToSrc: Map<string, string>;
   activePreviewUrl: string | null;
@@ -131,6 +175,7 @@ export interface UseRenderClipContentOptions {
 
 export function useRenderClipContent({
   fileTreeLoaded,
+  fileTree,
   projectIdRef,
   compIdToSrc,
   activePreviewUrl,
@@ -142,6 +187,10 @@ export function useRenderClipContent({
   const effectiveMode = effectiveThumbnailMode(thumbnailMode);
   const sessionEpoch = usePlayerStore((s) => s.timelineSessionEpoch);
   const thumbnailRevisions = usePlayerStore((s) => s.thumbnailRevisions);
+  const projectFileSet = useMemo(() => {
+    if (!fileTree || fileTree.length === 0) return null;
+    return new Set(fileTree.map((p) => p.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "")));
+  }, [fileTree]);
   return useCallback(
     // Pre-existing clip-content dispatcher; reduced by extracting renderAudioClip.
     // fallow-ignore-next-line complexity
@@ -204,34 +253,14 @@ export function useRenderClipContent({
 
       if (el.text) return createElement(TextClipContent, { text: el.text });
 
-      // When drilled into a composition, render all inner elements via
-      // CompositionThumbnail at their start time — most accurate visual.
-      if (activePreviewUrl && el.duration > 0) {
-        return createElement(CompositionThumbnail, {
-          previewUrl: activePreviewUrl,
-          label: "",
-          labelColor: style.label,
-
-          selector: el.selector,
-          selectorIndex: el.selectorIndex,
-          seekTime: el.start,
-          duration: el.duration,
-          projectId: pid,
-          sessionEpoch,
-          contentRevision: thumbnailRevisionOf(
-            thumbnailRevisions,
-            compositionPathOfPreviewUrl(activePreviewUrl),
-          ),
-          priority: context.priority,
-          rich: context.rich,
-        });
-      }
-
-      const htmlPreviewEligible = el.duration > 0 && effectiveTimelineDuration > 0;
-
+      // Direct <video> and <img> clips always use native media thumbnail decoders — even
+      // when drilled into a sub-composition — instead of spawning offscreen SnapDOM captures.
       if ((el.tag === "video" || el.tag === "img") && el.src) {
+        const sourceFile =
+          el.sourceFile ??
+          (activePreviewUrl ? compositionPathOfPreviewUrl(activePreviewUrl) : undefined);
         let mediaSrc = resolveMediaPreviewUrl(
-          authoredSrcPath(el.src),
+          resolveAuthoredMediaSrc(el.src, sourceFile, projectFileSet),
           pid,
           window.location.origin,
         );
@@ -242,7 +271,14 @@ export function useRenderClipContent({
         ) {
           const mediaUrl = new URL(mediaSrc, window.location.origin);
           // A visibility edit changes the composition, but the original media frames stay valid.
-          const assetPath = authoredSrcPath(mediaUrl.pathname.slice(previewPrefix.length));
+          const rawAssetSegment = mediaUrl.pathname.slice(previewPrefix.length);
+          let decodedAssetSegment = rawAssetSegment;
+          try {
+            decodedAssetSegment = decodeURIComponent(rawAssetSegment);
+          } catch {
+            // Preserve raw segment if percent-encoding is malformed.
+          }
+          const assetPath = authoredSrcPath(decodedAssetSegment);
           const revision = mediaThumbnailRevisionOf(thumbnailRevisions, assetPath);
           if (revision) {
             mediaUrl.searchParams.set("revision", String(revision));
@@ -277,6 +313,31 @@ export function useRenderClipContent({
         return mvp ? thumbnail : withSoundStrip(el, thumbnail, waveform);
       }
 
+      // When drilled into a composition, render remaining inner HTML elements via
+      // CompositionThumbnail at their start time — most accurate visual.
+      if (activePreviewUrl && el.duration > 0) {
+        return createElement(CompositionThumbnail, {
+          previewUrl: activePreviewUrl,
+          label: "",
+          labelColor: style.label,
+
+          selector: el.selector,
+          selectorIndex: el.selectorIndex,
+          seekTime: el.start,
+          duration: el.duration,
+          projectId: pid,
+          sessionEpoch,
+          contentRevision: thumbnailRevisionOf(
+            thumbnailRevisions,
+            compositionPathOfPreviewUrl(activePreviewUrl),
+          ),
+          priority: context.priority,
+          rich: context.rich,
+        });
+      }
+
+      const htmlPreviewEligible = el.duration > 0 && effectiveTimelineDuration > 0;
+
       if (htmlPreviewEligible) {
         return createElement(CompositionThumbnail, {
           previewUrl: buildProjectApiPath(pid, `/preview`),
@@ -299,6 +360,7 @@ export function useRenderClipContent({
     },
     [
       fileTreeLoaded,
+      projectFileSet,
       projectIdRef,
       compIdToSrc,
       activePreviewUrl,

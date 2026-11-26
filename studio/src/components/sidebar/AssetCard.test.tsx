@@ -351,3 +351,49 @@ describe('background optimization hints', () => {
     expect(audioReady.querySelector('[data-asset-optimizing="true"]')).toBeNull();
   });
 });
+
+describe("per-item bottom-right error badge and reload", () => {
+  it("shows a bottom-right error reload badge on failed image AssetCard and retries with _omRetry without opening preview", () => {
+    const host = mount(
+      <AssetCard projectId="p1" asset="assets/broken.png" used={false} onCopy={() => {}} copyFeedback={null} />,
+    );
+    const img = host.querySelector<HTMLImageElement>('img[alt="broken"]')!;
+    expect(host.querySelector('[data-testid="item-load-error"]')).toBeNull();
+
+    act(() => {
+      img.dispatchEvent(new Event("error"));
+    });
+
+    const reloadBtn = host.querySelector<HTMLButtonElement>('[data-testid="item-load-error"]');
+    expect(reloadBtn).not.toBeNull();
+    expect(host.querySelector(".motion-asset-thumbnail")?.getAttribute("data-item-error")).toBe("true");
+
+    const PointerCtor = window.PointerEvent ?? MouseEvent;
+    act(() => {
+      reloadBtn!.dispatchEvent(new PointerCtor("pointerdown", { bubbles: true, clientX: 4, clientY: 4 }));
+      reloadBtn!.dispatchEvent(new PointerCtor("pointerup", { bubbles: true, clientX: 4, clientY: 4 }));
+      reloadBtn!.click();
+    });
+
+    expect(useAssetPreviewStore.getState().previewAsset).toBeNull();
+    const retriedImg = host.querySelector<HTMLImageElement>('img[alt="broken"]');
+    expect(retriedImg?.getAttribute("src")).toContain("_omRetry=1");
+    expect(host.querySelector('[data-testid="item-load-error"]')).toBeNull();
+  });
+
+  it("surfaces preview-asset failure on matching AssetCard and AudioRow", () => {
+    usePlayerStore.setState({
+      assetReadinessFailed: [
+        { id: "img-0", label: "hero.png", kind: "image", reason: "error", src: "assets/hero.png" },
+        { id: "audio-0", label: "bgm.mp3", kind: "audio", reason: "error", src: "assets/bgm.mp3" },
+      ],
+    });
+    const host = mount(
+      <>
+        <AssetCard projectId="p1" asset="assets/hero.png" used onCopy={() => {}} copyFeedback={null} />
+        <AudioRow projectId="p1" asset="assets/bgm.mp3" used onCopy={() => {}} copyFeedback={null} />
+      </>,
+    );
+    expect(host.querySelectorAll('[data-testid="item-load-error"]')).toHaveLength(2);
+  });
+});

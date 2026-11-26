@@ -19,8 +19,24 @@ function notify(cloud: boolean): void {
 /** Synchronous result of shell detection or the legacy config probe. */
 export function getCachedCloudDisklessMode(): boolean {
   return cachedCloudMode ?? (typeof document !== "undefined" && Boolean(
-    isolatedPreviewOrigin() || document.head.querySelector('meta[name="openmotion-runtime"][content="cloud-diskless"]'),
+    isolatedPreviewOrigin()
+    || document.head.querySelector('meta[name="openmotion-runtime"][content="cloud-diskless"]')
+    || (typeof window !== "undefined"
+      && (window as { __OPENMOTION_OBSERVABILITY__?: { deploymentMode?: unknown } })
+        .__OPENMOTION_OBSERVABILITY__?.deploymentMode === "cloud-container"),
   ));
+}
+
+/**
+ * Resolve cloud-diskless mode synchronously when known, or await an already
+ * in-flight startup config probe (from `warmCloudDisklessMode()`) without
+ * initiating an unrequested fetch.
+ */
+export function resolvePendingCloudDisklessMode(): Promise<boolean> {
+  if (cachedCloudMode !== null) return Promise.resolve(cachedCloudMode);
+  if (getCachedCloudDisklessMode()) return Promise.resolve(true);
+  if (inflightDetection) return inflightDetection;
+  return Promise.resolve(false);
 }
 
 /** Explicitly mark cloud mode (used by tests or when a project response already confirmed cloud-diskless). */

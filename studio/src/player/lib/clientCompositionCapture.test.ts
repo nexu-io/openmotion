@@ -10,18 +10,23 @@ import {
   getCompositionCacheKeyRevision,
   getCompositionCacheRevision,
   getProgressiveCompositionCapture,
+  IDB_MAX_BYTES,
   peekCachedCompositionCapture,
   peekFallbackCompositionCapture,
   quantizeCompositionFrameCount,
+  readClientCompositionStripFromIdbForTest,
   retainCachedCompositionCapture,
   seedClientCompositionCaptureForTest,
+  seedClientCompositionSpriteForTest,
   selectPriorityCompositionPaths,
   setCachedProjectRevision,
   setClientCompositionCaptureCapabilityForTest,
+  setClientCompositionIdbMaxBytesForTest,
   subscribeCompositionCacheRevision,
   subscribeProgressiveCompositionCapture,
   updateCachedCompositionRevisions,
   withPreviewRedirectSafeFetch,
+  writeClientCompositionStripToIdbForTest,
 } from "./clientCompositionCapture";
 import { bindPreviewLease } from "./previewLease";
 import { ThumbnailScheduler, thumbnailScheduler } from "./thumbnailScheduler";
@@ -183,8 +188,8 @@ describe("clientCompositionCapture", () => {
     lease.release();
     expect(scheduler.getSnapshot(req).status).toBe("ready");
 
-    // Cache 65 additional distinct strips so scene-0 is evicted from memoryStripCache (max 64).
-    for (let i = 1; i <= 65; i += 1) {
+    // Cache 129 additional distinct strips so scene-0 is evicted from memoryStripCache (max 128).
+    for (let i = 1; i <= 129; i += 1) {
       seedClientCompositionCaptureForTest(
         {
           previewUrl: `/api/projects/proj-lru/preview/comp/compositions/scene-${i}.html`,
@@ -257,8 +262,8 @@ describe("clientCompositionCapture", () => {
     const releaseCover = retainCachedCompositionCapture(coverVal);
     const stripUrls = stripVal?.kind === "filmstrip" ? [...stripVal.urls] : [];
 
-    // Push 65 distinct entries to evict scene-0 from memoryStripCache.
-    for (let i = 1; i <= 65; i += 1) {
+    // Push 129 distinct entries to evict scene-0 from memoryStripCache (max 128).
+    for (let i = 1; i <= 129; i += 1) {
       seedClientCompositionCaptureForTest(
         {
           previewUrl: `/api/projects/proj-direct/preview/comp/compositions/scene-${i}.html`,
@@ -1662,5 +1667,340 @@ describe("clientCompositionCapture", () => {
     gatedLease.release();
     for (const lease of sidebarLeases) lease.release();
     thumbnailScheduler.invalidateProject(projectId);
+  });
+
+  it("evicts IndexedDB strips strictly by byte capacity (LRU) while keeping prior undo versions within budget", async () => {
+    expect(IDB_MAX_BYTES).toBe(128 * 1024 * 1024);
+
+    type StoredRec = { key: string; updatedAt: number; blobs: Blob[]; [k: string]: unknown };
+    const backing = new Map<string, StoredRec>();
+    const makeFakeDb = () => {
+      const storeNames = new Set<string>();
+      const db = {
+        objectStoreNames: {
+          contains: (name: string) => storeNames.has(name),
+        },
+        createObjectStore: (name: string) => {
+          storeNames.add(name);
+          return { createIndex: () => {} };
+        },
+        close: () => {},
+        transaction: () => {
+          const tx: {
+            objectStore: () => unknown;
+            oncomplete: (() => void) | null;
+            onerror: (() => void) | null;
+          } = {
+            oncomplete: null,
+            onerror: null,
+            objectStore: () => ({
+              get: (key: string) => {
+                const req: { result?: StoredRec; onsuccess: (() => void) | null; onerror: (() => void) | null } = {
+                  onsuccess: null,
+                  onerror: null,
+                };
+                queueMicrotask(() => {
+                  req.result = backing.get(key);
+                  req.onsuccess?.();
+                  tx.oncomplete?.();
+                });
+                return req;
+              },
+              put: (rec: StoredRec) => {
+                backing.set(rec.key, { ...rec });
+              },
+              delete: (key: string) => {
+                backing.delete(key);
+              },
+              index: () => ({
+                openCursor: () => {
+                  const req: { result: unknown; onsuccess: (() => void) | null; onerror: (() => void) | null } = {
+                    result: null,
+                    onsuccess: null,
+                    onerror: null,
+                  };
+                  const items = [...backing.values()].sort((a, b) => a.updatedAt - b.updatedAt);
+                  let idx = 0;
+                  const emitNext = () => {
+                    if (idx < items.length) {
+                      const current = items[idx]!;
+                      idx += 1;
+                      req.result = {
+                        primaryKey: current.key,
+                        value: current,
+                        delete: () => {
+                          backing.delete(current.key);
+                        },
+                        continue: () => queueMicrotask(emitNext),
+                      };
+                      req.onsuccess?.();
+                    } else {
+                      req.result = null;
+                      req.onsuccess?.();
+                      queueMicrotask(() => tx.oncomplete?.());
+                    }
+                  };
+                  queueMicrotask(emitNext);
+                  return req;
+                },
+              }),
+            }),
+          };
+          return tx;
+        },
+      };
+      return db;
+    };
+
+    const fakeDb = makeFakeDb();
+    vi.stubGlobal("indexedDB", {
+      open: () => {
+        const req: {
+          result: typeof fakeDb;
+          onupgradeneeded: (() => void) | null;
+          onsuccess: (() => void) | null;
+          onerror: (() => void) | null;
+        } = {
+          result: fakeDb,
+          onupgradeneeded: null,
+          onsuccess: null,
+          onerror: null,
+        };
+        queueMicrotask(() => {
+          req.onupgradeneeded?.();
+          req.onsuccess?.();
+        });
+        return req;
+      },
+    });
+
+    try {
+      setClientCompositionIdbMaxBytesForTest(120);
+
+      await writeClientCompositionStripToIdbForTest({
+        key: "strip-a-v1",
+        aspect: 16 / 9,
+        width: 160,
+        height: 90,
+        blobs: [new Blob(["x".repeat(20)]), new Blob(["y".repeat(20)])],
+        updatedAt: 1_000,
+      });
+      await writeClientCompositionStripToIdbForTest({
+        key: "strip-b-v1",
+        aspect: 16 / 9,
+        width: 160,
+        height: 90,
+        blobs: [new Blob(["z".repeat(40)])],
+        updatedAt: 2_000,
+      });
+      expect(await readClientCompositionStripFromIdbForTest("strip-a-v1")).toMatchObject({ bytes: 40 });
+      expect(await readClientCompositionStripFromIdbForTest("strip-b-v1")).toMatchObject({ bytes: 40 });
+
+      // Newer revision of clip-a keeps strip-a-v1 available for Undo while total stays <= 120B.
+      await writeClientCompositionStripToIdbForTest({
+        key: "strip-a-v2",
+        aspect: 16 / 9,
+        width: 160,
+        height: 90,
+        blobs: [new Blob(["m".repeat(20)]), new Blob(["n".repeat(20)])],
+        updatedAt: 3_000,
+      });
+      expect(await readClientCompositionStripFromIdbForTest("strip-a-v1")).toMatchObject({ bytes: 40 });
+      expect(await readClientCompositionStripFromIdbForTest("strip-a-v2")).toMatchObject({ bytes: 40 });
+      expect(await readClientCompositionStripFromIdbForTest("strip-b-v1")).toMatchObject({ bytes: 40 });
+
+      backing.get("strip-a-v1")!.updatedAt = 1_000;
+      backing.get("strip-b-v1")!.updatedAt = 2_000;
+      backing.get("strip-a-v2")!.updatedAt = 3_000;
+      await writeClientCompositionStripToIdbForTest({
+        key: "strip-c-v1",
+        aspect: 16 / 9,
+        width: 160,
+        height: 90,
+        blobs: [new Blob(["c".repeat(60)])],
+        updatedAt: 4_000,
+      });
+      expect(await readClientCompositionStripFromIdbForTest("strip-a-v1")).toBeNull();
+      expect(await readClientCompositionStripFromIdbForTest("strip-b-v1")).toBeNull();
+      expect(await readClientCompositionStripFromIdbForTest("strip-a-v2")).toMatchObject({ bytes: 40 });
+      expect(await readClientCompositionStripFromIdbForTest("strip-c-v1")).toMatchObject({ bytes: 60 });
+
+      // Oversized single entry (> 120B budget) is skipped without evicting existing valid cache.
+      await writeClientCompositionStripToIdbForTest({
+        key: "strip-huge",
+        aspect: 16 / 9,
+        width: 160,
+        height: 90,
+        blobs: [new Blob(["h".repeat(150)])],
+        updatedAt: 5_000,
+      });
+      expect(await readClientCompositionStripFromIdbForTest("strip-huge")).toBeNull();
+      expect(await readClientCompositionStripFromIdbForTest("strip-c-v1")).toMatchObject({ bytes: 60 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("persists single-blob sprite records in IDB, accounts for sprite bytes in LRU, and exposes multi-frame strips to sidebar hover via preferMultiFrame", async () => {
+    let urlSeq = 0;
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:test/sprite-${++urlSeq}`);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    // 1. Sprite entry shares 1 object URL across timeline & sidebar (preferMultiFrame and default cover).
+    const spriteInput = {
+      projectId: "proj-sprite-mem",
+      previewUrl: "/api/projects/proj-sprite-mem/preview/comp/compositions/hero.html",
+      contentRevision: 0,
+      frameCount: 8,
+    };
+    const spriteVal = seedClientCompositionSpriteForTest(
+      spriteInput,
+      new Blob(["sprite-sheet-bytes"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+    expect(spriteVal).toMatchObject({ kind: "sprite", url: "blob:test/sprite-1", frameCount: 8, cols: 8, rows: 1 });
+    expect(peekCachedCompositionCapture({ ...spriteInput, frameCount: 4 })).toBe(spriteVal);
+    expect(peekCachedCompositionCapture({ ...spriteInput, frameCount: 1 })).toBe(spriteVal);
+    expect(peekCachedCompositionCapture({ ...spriteInput, frameCount: 1, preferMultiFrame: true })).toBe(spriteVal);
+    expect(urlSeq).toBe(1);
+
+    // 2. Legacy multi-frame blobs[] filmstrip returns cover image by default, or full filmstrip when preferMultiFrame=true.
+    const stripInput = {
+      projectId: "proj-sprite-mem",
+      previewUrl: "/api/projects/proj-sprite-mem/preview/comp/compositions/legacy.html",
+      contentRevision: 0,
+      frameCount: 4,
+    };
+    const stripVal = seedClientCompositionCaptureForTest(stripInput, [
+      new Blob(["f0"]),
+      new Blob(["f1"]),
+      new Blob(["f2"]),
+      new Blob(["f3"]),
+    ]);
+    expect(stripVal.kind).toBe("filmstrip");
+    expect(peekCachedCompositionCapture({ ...stripInput, frameCount: 1 })?.kind).toBe("image");
+    expect(peekCachedCompositionCapture({ ...stripInput, frameCount: 1, preferMultiFrame: true })).toBe(stripVal);
+
+    // 3. Sprite IDB persistence counts sprite.blob.size in the byte budget alongside legacy blobs[] records.
+    type StoredRec = { key: string; updatedAt: number; [k: string]: unknown };
+    const backing = new Map<string, StoredRec>();
+    const makeFakeDb = () => {
+      const storeNames = new Set<string>();
+      return {
+        objectStoreNames: { contains: (name: string) => storeNames.has(name) },
+        createObjectStore: (name: string) => {
+          storeNames.add(name);
+          return { createIndex: () => {} };
+        },
+        close: () => {},
+        transaction: () => {
+          const tx: {
+            objectStore: () => unknown;
+            oncomplete: (() => void) | null;
+            onerror: (() => void) | null;
+          } = {
+            oncomplete: null,
+            onerror: null,
+            objectStore: () => ({
+              get: (key: string) => {
+                const req: { result?: StoredRec; onsuccess: (() => void) | null; onerror: (() => void) | null } = {
+                  onsuccess: null,
+                  onerror: null,
+                };
+                queueMicrotask(() => {
+                  req.result = backing.get(key);
+                  req.onsuccess?.();
+                  tx.oncomplete?.();
+                });
+                return req;
+              },
+              put: (val: StoredRec) => {
+                backing.set(val.key, val);
+              },
+              delete: (key: string) => {
+                backing.delete(key);
+              },
+              index: () => ({
+                openCursor: () => {
+                  const items = [...backing.values()].sort((a, b) => a.updatedAt - b.updatedAt);
+                  let idx = 0;
+                  const req: { result: unknown; onsuccess: (() => void) | null } = {
+                    result: null,
+                    onsuccess: null,
+                  };
+                  const step = () => {
+                    queueMicrotask(() => {
+                      if (idx >= items.length) {
+                        req.result = null;
+                        req.onsuccess?.();
+                        tx.oncomplete?.();
+                        return;
+                      }
+                      const cur = items[idx++]!;
+                      req.result = { primaryKey: cur.key, value: cur, continue: step };
+                      req.onsuccess?.();
+                    });
+                  };
+                  step();
+                  return req;
+                },
+              }),
+            }),
+          };
+          return tx;
+        },
+      };
+    };
+    const fakeDb = makeFakeDb();
+    vi.stubGlobal("indexedDB", {
+      open: () => {
+        const req: { result: unknown; onupgradeneeded: (() => void) | null; onsuccess: (() => void) | null } = {
+          result: fakeDb,
+          onupgradeneeded: null,
+          onsuccess: null,
+        };
+        queueMicrotask(() => {
+          req.onupgradeneeded?.();
+          req.onsuccess?.();
+        });
+        return req;
+      },
+    });
+    try {
+      setClientCompositionIdbMaxBytesForTest(100);
+      await writeClientCompositionStripToIdbForTest({
+        key: "legacy-rec",
+        aspect: 16 / 9,
+        width: 160,
+        height: 90,
+        blobs: [new Blob(["a".repeat(30)]), new Blob(["b".repeat(30)])],
+        updatedAt: 1_000,
+      });
+      await writeClientCompositionStripToIdbForTest({
+        key: "sprite-rec",
+        aspect: 16 / 9,
+        width: 160,
+        height: 90,
+        sprite: {
+          blob: new Blob(["s".repeat(50)], { type: "image/jpeg" }),
+          frameCount: 8,
+          cols: 8,
+          rows: 1,
+          frameWidth: 160,
+          frameHeight: 90,
+        },
+        updatedAt: 2_000,
+      });
+      // 60 + 50 = 110 > 100 -> oldest legacy-rec evicted, sprite-rec kept with exact 50B byte accounting.
+      expect(await readClientCompositionStripFromIdbForTest("legacy-rec")).toBeNull();
+      expect(await readClientCompositionStripFromIdbForTest("sprite-rec")).toMatchObject({
+        key: "sprite-rec",
+        bytes: 50,
+        blobsCount: 1,
+        spriteFrames: 8,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

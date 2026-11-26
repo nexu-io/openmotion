@@ -6,6 +6,7 @@ import {
   applySideMinimums,
   buildEditLayout,
   defaultSideWidths,
+  preferredSideWidths,
   sideMinimumWidth,
 } from "./dockLayout";
 import { mountBareDockview } from "./dockTestHarness";
@@ -31,6 +32,14 @@ describe("sideMinimumWidth", () => {
     [400, 120],
   ])("is %ipx wide -> sides shrink to %ipx at most", (viewport, expected) => {
     expect(sideMinimumWidth(viewport)).toBe(expected);
+  });
+});
+
+describe("preferredSideWidths", () => {
+  it("gives the left icon-navigation panel enough room for all 4 English tabs on desktop viewports (OPEND-5674)", () => {
+    const { left, right } = preferredSideWidths();
+    expect(left).toBeGreaterThanOrEqual(280);
+    expect(left + right + 360).toBeLessThanOrEqual(1280);
   });
 });
 

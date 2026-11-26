@@ -946,4 +946,24 @@ describe("what the live clip list says a clip plays", () => {
     const audio = parseTimelineFromDOM(doc, 37.3).find((entry) => entry.domId === "welcome-soundtrack");
     expect(audio?.src).toBe("assets/soundtrack.m4a");
   });
+
+  it("marks bare and wrapped canvas clips with containsCanvas while leaving external sub-compositions unmarked", () => {
+    const doc = makeDoc(`
+      <div data-composition-id="lark-magic-share" data-start="0" data-duration="36.6">
+        <div id="magic-world" data-hf-id="hf-z4ka" data-start="0" data-duration="36.6">
+          <canvas id="magic-canvas" width="1280" height="720"></canvas>
+        </div>
+        <canvas id="window-portal" data-hf-id="hf-734q" data-start="0" data-duration="36.6"></canvas>
+        <div id="sub-scene" data-composition-id="sub-scene" data-composition-src="compositions/sub.html" data-start="0" data-duration="10">
+          <canvas width="1280" height="720"></canvas>
+        </div>
+        <div id="plain-card" data-start="0" data-duration="5">Hello</div>
+      </div>
+    `);
+    const rows = parseTimelineFromDOM(doc, 36.6);
+    expect(rows.find((r) => r.domId === "magic-world")?.containsCanvas).toBe(true);
+    expect(rows.find((r) => r.domId === "window-portal")?.containsCanvas).toBe(true);
+    expect(rows.find((r) => r.domId === "sub-scene")?.containsCanvas).toBeUndefined();
+    expect(rows.find((r) => r.domId === "plain-card")?.containsCanvas).toBeUndefined();
+  });
 });

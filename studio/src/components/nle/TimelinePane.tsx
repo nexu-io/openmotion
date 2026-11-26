@@ -87,6 +87,9 @@ export function TimelinePane({
     handleNavigateComposition,
     updateCompositionStack,
     timelineSessionEpoch,
+    initialTimelineElements,
+    initialTimelineDuration,
+    hasCachedTimelineSnapshot,
   } = context;
 
   const isCurrentProject = usePlayerStore(state => state.timelineProjectId === projectId);
@@ -125,12 +128,15 @@ export function TimelinePane({
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1">
             {isCurrentProject && <Timeline
+              initialElements={initialTimelineElements}
+              initialDuration={initialTimelineDuration}
+              preferInitialSnapshot={Boolean(hasCachedTimelineSnapshot)}
               readOnly={timelineDisabled}
               onContentHeightChange={sizing.onContentHeightChange}
               sessionEpoch={timelineSessionEpoch}
               onSeek={seek}
               onDrillDown={handleDrillDown}
-              renderClipContent={timelineDisabled ? undefined : renderClipContent}
+              renderClipContent={timelineDisabled && !hasCachedTimelineSnapshot ? undefined : renderClipContent}
               onFileDrop={onFileDrop}
               onDeleteElement={onDeleteElement}
               onAssetDrop={onAssetDrop}

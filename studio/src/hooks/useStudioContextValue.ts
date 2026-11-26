@@ -35,8 +35,10 @@ interface StudioContextInput {
   compositionDimensions: { width: number; height: number } | null;
   /** Message from `usePreviewPersistence` when auto-save is paused. */
   domEditSaveQueuePaused: string | null;
-  /** True when an external edit to the open file is awaiting the user's decision. */
+  /** True when an external edit conflict to the open file is awaiting the user's decision. */
   externalFileConflict: boolean;
+  /** Specific write-blocking reason from the external-change coordinator (e.g. non-conflict save failure). */
+  externalFileBlockedReason?: string | null;
   waitForPendingDomEditSaves: () => Promise<void>;
   handlePreviewIframeRef: (iframe: HTMLIFrameElement | null) => void;
   refreshPreviewDocumentVersion: () => void;
@@ -58,11 +60,13 @@ export function buildStudioContextValue(input: StudioContextInput): StudioContex
     timelineElements: input.timelineElements,
     isPlaying: input.isPlaying,
     editHistory: input.editHistory,
-    // Conflict first: when both are true the conflict is the one the user has
-    // been asked to decide, and resolving it is what unblocks the queue.
-    writeBlockedReason: input.externalFileConflict
-      ? "an external change to this file is waiting to be resolved"
-      : input.domEditSaveQueuePaused,
+    // Conflict/coordinator block first: when both are set, resolving the blocked
+    // file state is what unblocks the save queue.
+    writeBlockedReason:
+      input.externalFileBlockedReason ??
+      (input.externalFileConflict
+        ? "an external change to this file is waiting to be resolved"
+        : input.domEditSaveQueuePaused),
     handleUndo: input.handleUndo,
     handleRedo: input.handleRedo,
     writeProjectFile: input.writeProjectFile,

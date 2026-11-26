@@ -6,8 +6,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { thumbnailScheduler } from "../../player/lib/thumbnailScheduler";
 import { TIMELINE_VIEWPORT_BUDGETS } from "../../player/lib/timelineViewportBudgets";
 import { CompositionThumbnail } from "../../player/components/CompositionThumbnail";
+import {
+  clearClientCompositionCaptureCacheForTest,
+  seedClientCompositionSpriteForTest,
+  setCachedProjectRevision,
+  setClientCompositionCaptureCapabilityForTest,
+  updateCachedCompositionRevisions,
+} from "../../player/lib/clientCompositionCapture";
+import { hasIndexSharedRenderContextChanged } from "../../../../shared/preview-impact";
+import { setCachedCloudDisklessMode } from "../../utils/cloudRuntime";
+import { clearCachedCompositionTimelinesForTest } from "../../player/lib/compositionTimelineCache";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { renderPosterForNextOpen } from "../nle/PreviewPoster";
+import { clearRememberedRootCoversForTest, CompositionsTab } from "./CompositionsTab";
+import { clearOpeningCoverFrameCacheForTest } from "./coverOpeningFrame";
 import { mountCompositionsTab } from "./compositionsTabTestUtils";
 
 class DecodingImage {
@@ -90,6 +102,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setCachedCloudDisklessMode(null);
+  setClientCompositionCaptureCapabilityForTest(null);
+  clearClientCompositionCaptureCacheForTest();
+  clearCachedCompositionTimelinesForTest();
+  clearRememberedRootCoversForTest();
+  clearOpeningCoverFrameCacheForTest();
+  usePlayerStore.setState({ elements: [] });
   Object.assign(globalThis, {
     fetch: real.fetch,
     Image: real.Image,
@@ -310,13 +329,128 @@ describe("composition card thumbnails", () => {
     }
   });
 
-  it("show a fallback when the render fails, and retry it at the next content revision", async () => {
+  it("show a fallback with bottom-right error reload badge when the render fails, and recover on click or next revision", async () => {
     const host = mount();
     renders[0]!.answer(500);
     await settle();
     expect(host.textContent).not.toContain("Preview unavailable");
     expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeTruthy();
-    await nextRevisionShows(host, "1", "blob:frame-1");
+
+    const reloadBtn = host.querySelector<HTMLButtonElement>('[data-testid="item-load-error"]');
+    expect(reloadBtn).not.toBeNull();
+
+    // Clicking reload retries immediately in place without waiting for a revision bump.
+    act(() => reloadBtn!.click());
+    expect(renders).toHaveLength(2);
+    renders[1]!.answer(200);
+    await settle();
+    expect(shown(host)).toBe("blob:frame-1");
+    act(() => host.querySelector("img")!.dispatchEvent(new Event("load")));
+    expect(host.querySelector('[data-testid="item-load-error"]')).toBeNull();
+    await nextRevisionShows(host, "1", "blob:frame-2");
+  });
+
+  it("never flashes back to the loading placeholder or remounts the cover image when a revision updates", async () => {
+    const host = mount();
+    renders[0]!.answer();
+    await settle();
+    const imgBefore = host.querySelector("img")!;
+    act(() => imgBefore.dispatchEvent(new Event("load")));
+    expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+    expect(imgBefore.className).toContain("opacity-100");
+
+    // Bump revision (simulating a timeline edit) and resolve the updated frame.
+    act(() => usePlayerStore.getState().bumpThumbnailRevisions(null));
+    expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+    expect(host.querySelector("img")).toBe(imgBefore);
+    expect(imgBefore.className).toContain("opacity-100");
+
+    renders.at(-1)!.answer();
+    await settle();
+    // Same DOM <img> updates in place without flashing opacity-0 or restoring the placeholder.
+    expect(host.querySelector("img")).toBe(imgBefore);
+    expect(imgBefore.getAttribute("src")).toBe("blob:frame-2");
+    expect(imgBefore.className).toContain("opacity-100");
+    expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+  });
+
+  it("reuses the first child composition's cover for the Root card so editing index.html does not re-render a Root cover", async () => {
+    const host = mountCompositionsTab({
+      compositions: ["index.html", "compositions/scene-1.html", "compositions/scene-2.html"],
+      masterCompositionPath: "index.html",
+    });
+    // Root card shares scene-1's thumbnail request — no separate request for index.html.
+    expect(renders.map((r) => r.url.pathname)).toEqual([
+      "/api/projects/demo/thumbnail/compositions/scene-1.html",
+      "/api/projects/demo/thumbnail/compositions/scene-2.html",
+    ]);
+    renders[0]!.answer();
+    renders[1]!.answer();
+    await settle();
+
+    const cards = [...host.querySelectorAll<HTMLElement>('[draggable="true"]')];
+    expect(cards[0]?.textContent).toContain("Root");
+    expect(cards[0]?.querySelector("img")?.getAttribute("src")).toBe("blob:frame-1");
+    expect(cards[1]?.querySelector("img")?.getAttribute("src")).toBe("blob:frame-1");
+
+    // Editing only index.html bumps index.html's revision without triggering a re-fetch for Root.
+    act(() => usePlayerStore.getState().bumpThumbnailRevisions(["index.html"]));
+    expect(renders).toHaveLength(2);
+  });
+
+  it("keeps the Root card pinned to the master timeline's earliest scene cover after clicking into another sub-composition", async () => {
+    // Master timeline starts with intro.html at t=0, while choice.html comes first alphabetically.
+    usePlayerStore.setState({
+      elements: [
+        { id: "c", tag: "div", start: 10, duration: 5, track: 0, compositionSrc: "compositions/choice.html" },
+        { id: "i", tag: "div", start: 0, duration: 5, track: 0, compositionSrc: "compositions/intro.html" },
+      ],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = {
+      projectId: "demo",
+      compositions: ["index.html", "compositions/choice.html", "compositions/intro.html"],
+      masterCompositionPath: "index.html",
+      onSelect: vi.fn(),
+    };
+    try {
+      act(() => {
+        root.render(<CompositionsTab {...props} activeComposition="index.html" />);
+      });
+      // First request is intro.html (shared by Root and intro), second is choice.html.
+      expect(renders.map((r) => r.url.pathname)).toEqual([
+        "/api/projects/demo/thumbnail/compositions/intro.html",
+        "/api/projects/demo/thumbnail/compositions/choice.html",
+      ]);
+      renders[0]!.answer();
+      renders[1]!.answer();
+      await settle();
+
+      const srcOf = (idx: number) =>
+        host.querySelectorAll<HTMLElement>('[draggable="true"]')[idx]?.querySelector("img")?.getAttribute("src");
+      expect(srcOf(0)).toBe("blob:frame-1"); // Root -> intro.html
+      expect(srcOf(1)).toBe("blob:frame-2"); // choice.html
+      expect(srcOf(2)).toBe("blob:frame-1"); // intro.html
+
+      // Clicking choice.html replaces playerStore.elements with choice's inner elements (no compositionSrc).
+      act(() => {
+        usePlayerStore.setState({
+          elements: [{ id: "choice-heading", tag: "h1", start: 0, duration: 4, track: 0 }],
+        });
+        root.render(<CompositionsTab {...props} activeComposition="compositions/choice.html" />);
+      });
+      await settle();
+
+      // Root card must STAY on intro.html's cover (blob:frame-1), never jumping to choice.html (blob:frame-2).
+      expect(srcOf(0)).toBe("blob:frame-1");
+      expect(srcOf(1)).toBe("blob:frame-2");
+      expect(srcOf(2)).toBe("blob:frame-1");
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
   });
 
   it("uses the same placeholder if the poster image fails, and recovers on a new revision", async () => {
@@ -330,5 +464,342 @@ describe("composition card thumbnails", () => {
     await nextRevisionShows(host, "1", "blob:frame-2");
     act(() => host.querySelector("img")!.dispatchEvent(new Event("load")));
     expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+  });
+
+  it("shows opening frame on sprite cover, plays without freezing on thumbnail entry, upgrades to live hover on dwell, scrubs on drag, and respects reduced motion", () => {
+    vi.useFakeTimers();
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    const previewUrl = "/api/projects/demo/preview/comp/compositions/headline.html";
+    seedClientCompositionSpriteForTest(
+      {
+        projectId: "demo",
+        previewUrl,
+        contentRevision: 0,
+        frameCount: 8,
+      },
+      new Blob(["sprite-jpeg"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+
+    const origMatchMedia = window.matchMedia;
+    let reducedMotion = false;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("prefers-reduced-motion") ? reducedMotion : false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+
+    try {
+      const host = mount();
+      // Static default: opening frame (index 0 of 8), no placeholder, no <img>, no network fetch.
+      expect(renders).toHaveLength(0);
+      expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+      expect(host.querySelector("img")).toBeNull();
+      const spriteEl = () => host.querySelector<HTMLElement>("[data-sprite-frame]");
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(spriteEl()?.getAttribute("data-sprite-url")).toBe("blob:frame-1");
+
+      const card = host.querySelector<HTMLElement>('[aria-label^="Open composition"]')!;
+      const thumbBox = spriteEl()!.parentElement!;
+      thumbBox.getBoundingClientRect = () => ({ left: 100, width: 80, top: 0, height: 45 }) as DOMRect;
+
+      // Hovering onto the thumbnail box anchors pointer without freezing playback.
+      act(() => {
+        card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 140 }));
+      });
+      act(() => vi.advanceTimersByTime(120));
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(host.querySelector('[data-testid="composition-hover-progress"]')).not.toBeNull();
+      expect(host.querySelector("iframe")).toBeNull();
+
+      // Hover dwell past 300ms upgrades to the real live preview iframe (matching actual preview)
+      // while Sprite playback continues underneath until the live frame reports loaded.
+      act(() => vi.advanceTimersByTime(360));
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("1");
+      expect(host.querySelector("iframe")?.getAttribute("src")).toBe(previewUrl);
+
+      // Deliberate horizontal scrub (>= 6px drag) switches immediately to instant sprite scrubbing.
+      act(() => {
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 175 }));
+      });
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("7");
+      expect(host.querySelector("iframe")).toBeNull();
+
+      // Pointer leave resets back to static opening frame (index 0), hides scrub bar, and unmounts iframe.
+      act(() => {
+        card.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      });
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(host.querySelector('[data-testid="composition-hover-progress"]')).toBeNull();
+      expect(host.querySelector("iframe")).toBeNull();
+
+      // With prefers-reduced-motion: reduce, hover neither auto-cycles nor mounts a live iframe,
+      // while deliberate pointer scrub still works.
+      reducedMotion = true;
+      act(() => {
+        card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+      });
+      act(() => vi.advanceTimersByTime(600));
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(host.querySelector("iframe")).toBeNull();
+      act(() => {
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 102 }));
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 112 }));
+      });
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("1");
+      expect(host.querySelector("iframe")).toBeNull();
+    } finally {
+      window.matchMedia = origMatchMedia;
+      vi.useRealTimers();
+    }
+  });
+
+  it("updates the Root card opening frame in 0ms when splitting/swapping clips on index.html and hovers using /preview", () => {
+    vi.useFakeTimers();
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    seedClientCompositionSpriteForTest(
+      {
+        projectId: "demo",
+        previewUrl: "/api/projects/demo/preview/comp/compositions/catalog-scene.html",
+        contentRevision: 0,
+        frameCount: 8,
+      },
+      new Blob(["catalog-sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+
+    // 1. Full unsplit clip on index.html -> both Root and catalog-scene show opening frame 0.
+    usePlayerStore.setState({
+      elements: [
+        {
+          id: "root",
+          tag: "div",
+          start: 0,
+          duration: 42.967,
+          playbackStart: 0,
+          track: 0,
+          compositionSrc: "compositions/catalog-scene.html",
+        },
+      ],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = {
+      projectId: "demo",
+      compositions: ["index.html", "compositions/catalog-scene.html"],
+      masterCompositionPath: "index.html",
+      onSelect: vi.fn(),
+    };
+    const frameOf = (idx: number) =>
+      host
+        .querySelectorAll<HTMLElement>('[draggable="true"]')
+        [idx]?.querySelector("[data-sprite-frame]")
+        ?.getAttribute("data-sprite-frame");
+    try {
+      act(() => {
+        root.render(<CompositionsTab {...props} activeComposition="index.html" />);
+      });
+      expect(frameOf(0)).toBe("0");
+      expect(frameOf(1)).toBe("0");
+
+      // 2. Split & swap: second half (playbackStart=9.267, dur=33.7) moved to start=0.13!
+      act(() => {
+        usePlayerStore.setState({
+          elements: [
+            {
+              id: "root",
+              tag: "div",
+              start: 33.83,
+              duration: 9.267,
+              playbackStart: 0,
+              track: 0,
+              compositionSrc: "compositions/catalog-scene.html",
+            },
+            {
+              id: "root-split",
+              tag: "div",
+              start: 0.13,
+              duration: 33.7,
+              playbackStart: 9.267,
+              track: 0,
+              compositionSrc: "compositions/catalog-scene.html",
+            },
+          ],
+        });
+      });
+      // Root card immediately updates to frame 1 (swapped opening window), while catalog-scene stays at 0.
+      expect(frameOf(0)).toBe("1");
+      expect(frameOf(1)).toBe("0");
+
+      // Hovering the Root card dwells into the live master /preview URL (not a single child scene).
+      const rootCard = host.querySelectorAll<HTMLElement>('[draggable="true"]')[0]!;
+      act(() => {
+        rootCard.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+      });
+      act(() => vi.advanceTimersByTime(320));
+      expect(rootCard.querySelector("iframe")?.getAttribute("src")).toBe("/api/projects/demo/preview");
+      act(() => {
+        rootCard.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      });
+      expect(rootCard.querySelector("iframe")).toBeNull();
+
+      // 3. Switching into catalog-scene.html preserves Root card's trimmed frame 1.
+      act(() => {
+        usePlayerStore.setState({
+          elements: [{ id: "inner", tag: "section", start: 0, duration: 42.967, track: 0 }],
+        });
+        root.render(<CompositionsTab {...props} activeComposition="compositions/catalog-scene.html" />);
+      });
+      expect(frameOf(0)).toBe("1");
+      expect(frameOf(1)).toBe("0");
+
+      // 4. Shared render context detector flags data-composition-variables edits without busting body-only edits.
+      const baseHtml =
+        '<html data-composition-variables=\'[{"id":"title","default":"Old"}]\'><head><title>T</title></head><body><div data-start="0"></div></body></html>';
+      const bodyEditHtml = baseHtml.replace('data-start="0"', 'data-start="5"');
+      const varEditHtml = baseHtml.replace('"Old"', '"New"');
+      expect(hasIndexSharedRenderContextChanged(baseHtml, bodyEditHtml)).toBe(false);
+      expect(hasIndexSharedRenderContextChanged(baseHtml, varEditHtml)).toBe(true);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      vi.useRealTimers();
+    }
+  });
+
+  it("debounces post-edit refresh on a sub-composition card, keeps the prior cover without flashing, and captures 4 frames at interaction priority", async () => {
+    vi.useFakeTimers();
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    setCachedProjectRevision("demo", "proj-rev-1", {
+      "compositions/headline.html": '"sha256:v1"|shared:head1:assets1',
+    });
+    const previewUrl = "/api/projects/demo/preview/comp/compositions/headline.html";
+    seedClientCompositionSpriteForTest(
+      { projectId: "demo", previewUrl, contentRevision: 0, frameCount: 8 },
+      new Blob(["old-sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+
+    const acquireSpy = vi.spyOn(thumbnailScheduler, "acquire");
+    // Answer remote filmstrip probe immediately with 204 miss so post-edit SnapDOM capture schedules.
+    globalThis.fetch = vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch;
+
+    try {
+      const host = mountCompositionsTab({
+        compositions: ["compositions/headline.html"],
+        activeComposition: "compositions/headline.html",
+      });
+      expect(host.querySelector("[data-sprite-frame]")?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(acquireSpy).not.toHaveBeenCalled();
+
+      // Simulate rapid edits to compositions/headline.html.
+      act(() => {
+        updateCachedCompositionRevisions("demo", { "compositions/headline.html": '"patch:edit-1"' });
+      });
+      act(() => vi.advanceTimersByTime(100));
+      act(() => {
+        updateCachedCompositionRevisions("demo", { "compositions/headline.html": '"patch:edit-2"' });
+      });
+      // Still debouncing: old sprite stays visible with 0 placeholder flash and 0 scheduler capture calls.
+      expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+      expect(host.querySelector("[data-sprite-frame]")?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(acquireSpy).not.toHaveBeenCalled();
+
+      // Advance past the 250ms debounce and flush the 204 miss promise.
+      await act(async () => {
+        vi.advanceTimersByTime(260);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const captureCall = acquireSpy.mock.calls.find(([req]) =>
+        req.key.includes("kind=client-comp-capture"),
+      );
+      expect(captureCall).toBeDefined();
+      expect(captureCall?.[0].key).toContain("frames=4");
+      expect(captureCall?.[0].priority).toBe("interaction");
+      expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
+    } finally {
+      acquireSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips hidden child clips when selecting the Root cover scene and computing its source window", () => {
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    setCachedProjectRevision("demo", "proj-rev-hidden", {
+      "index.html": '"sha256:root"|shared:head1:assets1',
+      "compositions/hidden-first.html": '"sha256:hf"|shared:head1:assets1',
+      "compositions/visible-next.html": '"sha256:vn"|shared:head1:assets1',
+    });
+
+    const hiddenUrl = "/api/projects/demo/preview/comp/compositions/hidden-first.html";
+    const visibleUrl = "/api/projects/demo/preview/comp/compositions/visible-next.html";
+    const hiddenSprite = seedClientCompositionSpriteForTest(
+      { projectId: "demo", previewUrl: hiddenUrl, contentRevision: 0, frameCount: 8 },
+      new Blob(["hidden-sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+    const visibleSprite = seedClientCompositionSpriteForTest(
+      { projectId: "demo", previewUrl: visibleUrl, contentRevision: 0, frameCount: 8 },
+      new Blob(["visible-sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+    expect(hiddenSprite.kind).toBe("sprite");
+    expect(visibleSprite.kind).toBe("sprite");
+
+    usePlayerStore.setState({
+      elements: [
+        {
+          id: "clip-hidden",
+          tag: "div",
+          start: 0,
+          duration: 5,
+          track: 0,
+          hidden: true,
+          compositionSrc: "compositions/hidden-first.html",
+        },
+        {
+          id: "clip-visible-hidden-dup",
+          tag: "div",
+          start: 2,
+          duration: 40,
+          track: 0,
+          hidden: true,
+          compositionSrc: "compositions/visible-next.html",
+        },
+        {
+          id: "clip-visible",
+          tag: "div",
+          start: 5,
+          duration: 5,
+          playbackStart: 5,
+          track: 0,
+          compositionSrc: "compositions/visible-next.html",
+        },
+      ],
+    });
+
+    const host = mountCompositionsTab({
+      compositions: ["index.html", "compositions/hidden-first.html", "compositions/visible-next.html"],
+      activeComposition: "index.html",
+      masterCompositionPath: "index.html",
+    });
+
+    const rootSpriteEl = host.querySelectorAll<HTMLElement>("[data-sprite-frame]")[0];
+    expect(rootSpriteEl).toBeTruthy();
+    // Root cover must pick visible-next.html (not hidden-first.html) and ignore the hidden 40s clip in maxSourceEnd
+    // (windowStartFraction = 5/10 = 0.5 -> frame 4; including the hidden 40s clip would give 5/40 = 0.125 -> frame 1).
+    expect(rootSpriteEl?.getAttribute("data-sprite-url")).toBe(
+      visibleSprite.kind === "sprite" ? visibleSprite.url : "",
+    );
+    expect(rootSpriteEl?.getAttribute("data-sprite-frame")).toBe("4");
   });
 });
