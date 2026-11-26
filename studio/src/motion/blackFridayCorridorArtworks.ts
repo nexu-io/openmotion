@@ -1,58 +1,46 @@
 import gptHeroHd from './model-hubs/gpt-image-2-6/hero.webp';
-import seedanceHeroHd from './model-hubs/seedance-2-5/hero.webp';
+import seedanceHeroHd from './model-hubs/seedance-2-5/hero.webp?no-inline';
+import glassSculptureHd from './scene-art/studio-glass-sculpture.avif';
 import lightShadowProductHd from './model-hubs/gpt-image-2-6/light-shadow-product.avif';
 import retroPrintPosterHd from './model-hubs/gpt-image-2-6/retro-print-poster.avif';
 import surreal3dPosterHd from './model-hubs/gpt-image-2-6/surreal-3d-poster.avif';
-import glassSculptureHd from './scene-art/studio-glass-sculpture.avif';
-import aiInfluencerArt from './scene-art/ai-influencer-marketing.webp';
-import ambientPianoArt from './scene-art/ambient-piano.webp';
-import babylonJsArt from './scene-art/babylon-js.webp';
-import bubbleFieldArt from './scene-art/bubble-field.webp';
-import colorPopPosterArt from './scene-art/color-pop-poster.webp';
-import footageToHandpaintedArt from './scene-art/footage-to-handpainted.webp';
-import komonaSunsetArt from './scene-art/komona-sunset.webp';
-import lunarShotStillArt from './scene-art/lunar-shot-still.webp';
-import premiumHaloArt from './scene-art/premium-halo.webp';
-import sofaRelightArt from './scene-art/sofa-relight.webp';
-import splashFloatProductArt from './scene-art/splash-float-product.webp';
-import talkingHeadArt from './scene-art/talking-head-recreation.webp';
-import { archivedSkillPoster } from './skillCoverMedia';
 
-const cdnSkillArtworks = [
-  'dark-premium-poster',
-  'aurora-gradient',
-  'liquid-glass-logo',
-  'quantum-particles',
-  'felt-stop-motion',
-  'relight-reveal',
-]
-  .map(name => archivedSkillPoster(name))
-  .filter((url): url is string => Boolean(url));
+declare const __STUDIO_PREVIEW_BASE__: string;
+declare const __MODEL_HUB_PREVIEW_HASHES__: Record<string, string>;
+
+const hubPosterUrl = (hash: string | undefined): string =>
+  hash ? `${__STUDIO_PREVIEW_BASE__}${hash}.webp` : '';
 
 /**
- * Compact curated pool of 24 lightweight AVIF/WebP artworks owned by OpenMotion
- * (same-origin bundled Studio posters + OpenMotion CDN skill covers under
- * `releases.open-design.ai`). Bundled assets sit first so foreground rings
- * paint immediately with zero third-party requests.
+ * Compact curated pool of 24 lightweight AVIF/WebP artworks sourced strictly from
+ * the GPT Image 2.0 (`gpt-image-2-6`) and Seedance 2.5 (`seedance-2-5`) multimodal
+ * hubs (bundled local hub covers + OpenMotion CDN showcase posters under
+ * `releases.open-design.ai`). Bundled hub covers sit first so foreground rings
+ * paint immediately while keeping `ExploreStudios` decoupled from `curatedCases.ts`.
  */
 export const BLACK_FRIDAY_CORRIDOR_ARTWORKS: readonly string[] = [
   gptHeroHd,
   seedanceHeroHd,
   glassSculptureHd,
-  komonaSunsetArt,
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-1.webp']),
   lightShadowProductHd,
-  aiInfluencerArt,
-  retroPrintPosterHd,
-  lunarShotStillArt,
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-2.webp']),
   surreal3dPosterHd,
-  babylonJsArt,
-  bubbleFieldArt,
-  colorPopPosterArt,
-  footageToHandpaintedArt,
-  premiumHaloArt,
-  sofaRelightArt,
-  splashFloatProductArt,
-  talkingHeadArt,
-  ambientPianoArt,
-  ...cdnSkillArtworks,
-];
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-3.webp']),
+  retroPrintPosterHd,
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-6.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-gi-2.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-7.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-gi-3.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-10.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-gi-4.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-14.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-gi-5.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-17.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-gi-8.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-20.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-gi-11.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-22.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-gi-15.webp']),
+  hubPosterUrl(__MODEL_HUB_PREVIEW_HASHES__['hub-sd-23.webp']),
+].filter(Boolean);

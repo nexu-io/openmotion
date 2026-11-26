@@ -33,6 +33,7 @@ vi.mock('../design/scenes/ExploreDesignSection', () => ({ ExploreDesignSection: 
 import { BLACK_FRIDAY_CORRIDOR_ARTWORKS } from './blackFridayCorridorArtworks';
 import { ExploreBlackFridaySpotlight } from './ExploreBlackFridaySpotlight';
 import { ExploreStudios } from './ExploreStudios';
+import { findModelHub } from './modelHubs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -134,10 +135,21 @@ it('removes the Black Friday hero and restores the previous Explore layout right
   expect(container.querySelector('h1.om-explore-title')).not.toBeNull();
 });
 
-it('keeps the Black Friday 3D corridor artwork deck bounded to OpenMotion-owned WebP/AVIF covers and lazy-loads deeper rings', () => {
+it('keeps the Black Friday 3D corridor artwork deck bounded to GPT Image 2.0 & Seedance 2.5 hub covers and lazy-loads deeper rings', () => {
+  const gptHub = findModelHub('gpt-image-2-6')!;
+  const seedanceHub = findModelHub('seedance-2-5')!;
+  const allowedHubCovers = new Set([
+    gptHub.poster,
+    seedanceHub.poster,
+    ...(gptHub.cases ?? []).map(item => item.poster),
+    ...(seedanceHub.cases ?? []).map(item => item.poster),
+  ]);
+
   expect(BLACK_FRIDAY_CORRIDOR_ARTWORKS.length).toBeGreaterThanOrEqual(18);
   expect(BLACK_FRIDAY_CORRIDOR_ARTWORKS.length).toBeLessThanOrEqual(24);
+  expect(new Set(BLACK_FRIDAY_CORRIDOR_ARTWORKS).size).toBe(BLACK_FRIDAY_CORRIDOR_ARTWORKS.length);
   for (const src of BLACK_FRIDAY_CORRIDOR_ARTWORKS) {
+    expect(allowedHubCovers.has(src), `corridor artwork must belong to gpt-image-2-6 or seedance-2-5 hub: ${src}`).toBe(true);
     expect(src).not.toMatch(/\.png(?:\?|$)/i);
     expect(src).not.toContain('higgsfield.ai');
     expect(src).not.toContain('/api/app-image');
