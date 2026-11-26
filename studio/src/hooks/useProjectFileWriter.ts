@@ -14,7 +14,7 @@ import {
 } from "../utils/studioSaveDiagnostics";
 import { studioExpectedFileVersion, studioWriteHeaders } from "../utils/studioFileVersion";
 import { studioApiFetch } from "../utils/studioApiFetch";
-import { extractIndexHeadMarkup } from "../../../shared/preview-impact";
+import { hasIndexSharedRenderContextChanged } from "../../../shared/preview-impact";
 import { trackStudioProjectSave } from "../utils/studioSaveState";
 import { updateCachedCompositionRevisions } from "../player/lib/clientCompositionCapture";
 
@@ -92,7 +92,7 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
         if (latest && saved !== latest.version) return;
         if (saved) fileVersions.set(path, saved);
         updateCachedCompositionRevisions(projectId, result.versions, before !== undefined && path === 'index.html' &&
-          extractIndexHeadMarkup(before) !== extractIndexHeadMarkup(content) ? {indexHeadChanged: true} : undefined);
+          hasIndexSharedRenderContextChanged(before, content) ? {indexHeadChanged: true} : undefined);
         if ('divergent' in result && Array.isArray(result.divergent) && result.divergent.length) return result.divergent[0];
         if (latest && latest.content !== content) onSavedContent?.(projectId, path, latest.content, content);
         else onSavedContent?.(projectId, path, content);
@@ -110,7 +110,7 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
         if (saved) {
           fileVersions.set(path, saved.versions[path]);
           const indexHeadChanged =
-            path === "index.html" && extractIndexHeadMarkup(before) !== extractIndexHeadMarkup(content);
+            path === "index.html" && hasIndexSharedRenderContextChanged(before, content);
           updateCachedCompositionRevisions(
             projectId,
             saved.versions,
@@ -180,7 +180,7 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
               const indexHeadChanged =
                 path === "index.html" &&
                 source != null &&
-                extractIndexHeadMarkup(source.content) !== extractIndexHeadMarkup(content);
+                hasIndexSharedRenderContextChanged(source.content, content);
               updateCachedCompositionRevisions(
                 writeProjectId,
                 { [path]: currentVersion },
@@ -209,7 +209,7 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
           const indexHeadChanged =
             path === "index.html" &&
             source != null &&
-            extractIndexHeadMarkup(source.content) !== extractIndexHeadMarkup(content);
+            hasIndexSharedRenderContextChanged(source.content, content);
           updateCachedCompositionRevisions(
             writeProjectId,
             { [path]: version },

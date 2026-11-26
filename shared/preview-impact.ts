@@ -60,6 +60,29 @@ export function extractIndexHeadMarkup(indexHtml: string | null | undefined): st
   return /<head[^>]*>([\s\S]*?)<\/head>/i.exec(indexHtml)?.[1] ?? '';
 }
 
+/** Extract the root `data-composition-variables` attribute value from `index.html` (empty string when absent). */
+export function extractIndexCompositionVariables(indexHtml: string | null | undefined): string {
+  if (!indexHtml) return '';
+  const htmlTag = /<html\b[^>]*>/i.exec(indexHtml)?.[0] ?? '';
+  const match = /\bdata-composition-variables\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(htmlTag);
+  return match?.[1] ?? match?.[2] ?? '';
+}
+
+/**
+ * True when an `index.html` edit modified shared render context (`<head>` styles/scripts/fonts
+ * or root `data-composition-variables`) that affects child compositions, ignoring pure `<body>`
+ * timeline clip moves/trims/splits.
+ */
+export function hasIndexSharedRenderContextChanged(
+  before: string | null | undefined,
+  after: string | null | undefined,
+): boolean {
+  return (
+    extractIndexHeadMarkup(before) !== extractIndexHeadMarkup(after) ||
+    extractIndexCompositionVariables(before) !== extractIndexCompositionVariables(after)
+  );
+}
+
 export interface PreviewImpact {
   affectsPreview: boolean;
   affectedCompositions: string[];
