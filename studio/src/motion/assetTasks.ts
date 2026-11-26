@@ -10,6 +10,16 @@ export interface AssetTask {
 export const isActiveAssetTask = (task: AssetTask) => ['queued', 'running'].includes(task.state);
 const taskPriority = (task: AssetTask) => isActiveAssetTask(task) ? 1 : 0;
 
+export function hasSavedGeneration(job: GenerationJob): job is GenerationJob & { libraryAssets: NonNullable<GenerationJob['libraryAssets']> } {
+  return job.state === 'completed' && !job.savePending && Boolean(job.libraryAssets?.length);
+}
+
+export function matchesGenerationQuery(job: GenerationJob, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  return !needle || [job.library?.title, job.prompt, job.model.id, job.model.modelId, job.model.label]
+    .some(value => value?.toLowerCase().includes(needle));
+}
+
 /** A view over persisted generation jobs, never a second execution or history store. */
 export function assetTasks(jobs: GenerationJob[]): AssetTask[] {
   const tasks: AssetTask[] = [];

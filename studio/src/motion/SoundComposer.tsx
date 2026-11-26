@@ -182,9 +182,10 @@ export function SoundComposer({
   const handleParamChange = (model: Model, value: ParameterDraft) => {
     setParameterDrafts(current => ({ ...current, [model.id]: value }));
     try {
-      setDraft(current => ({ ...current, model: model.id, parameters: requestParameters(value, model, false) }));
+      const parsed = requestParameters(value, model, false);
+      setDraft(current => ({ ...current, model: model.id, parameters: parsed }));
     } catch {
-      /* Retain invalid JSON in the local editor until corrected. */
+      /* Retain incomplete parameters in the local editor until corrected. */
     }
   };
 

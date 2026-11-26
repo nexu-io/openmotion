@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { styleHistoryLabel } from './styleHistory';
 import { historyEntryLabel } from './historyMessages';
+import { systemMessage } from './systemMessages';
 import { languages, translate } from './messages';
 
 const zh = (message: string, values?: Record<string, string | number>) => translate('zh-CN', message, values);
@@ -15,6 +16,18 @@ it('describes the overall opacity multiplier without exposing its filter impleme
   const label = styleHistoryLabel('Title', { '--hf-layer-opacity': '0.47', filter: 'blur(2px) opacity(var(--hf-layer-opacity))' });
   expect(historyEntryLabel(label, zh)).toBe('Title · 不透明度: 47%');
   expect(historyEntryLabel(styleHistoryLabel('Title', { opacity: '0' }), zh)).toBe('Title · 不透明度: 0%');
+});
+
+it('describes the applied, undone and redone opacity in Chinese for stored style labels', () => {
+  const label = 'Edit layer style: ["avatar_3",[["opacity","78%"]]]';
+  expect(systemMessage('Set layer opacity to 78%', zh)).toBe('已将图层不透明度设为 78%');
+  expect(systemMessage(label, zh)).toBe('已将图层不透明度设为 78%');
+  for (const separator of [' ', ': ']) {
+    expect(systemMessage(`Undid${separator}${label}`, zh)).toBe('已撤销将图层不透明度设为 78% 的操作');
+    expect(systemMessage(`Redid${separator}${label}`, zh)).toBe('已重做将图层不透明度设为 78% 的操作');
+  }
+  expect(systemMessage('Edit layer style: ["avatar_3",', zh)).toBe('已更新图层样式');
+  expect(systemMessage(`Undid: ${styleHistoryLabel('avatar_3', { color: 'red', opacity: '0.5' })}`, zh)).toBe('已撤销图层样式更改');
 });
 
 it('localizes properties in all locales while preserving punctuation in authored names', () => {

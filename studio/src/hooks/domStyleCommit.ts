@@ -2,7 +2,8 @@ import type { PatchOperation } from "../utils/sourcePatcher";
 import { createPreviewAdapter } from "../player/lib/previewAdapter";
 import { isolatedSourceVersion } from "../components/editor/isolatedSourceTarget";
 import { styleEditKind, withEditKind } from "../motion/editorTracking";
-import { styleHistoryLabel } from "../i18n/styleHistory";
+import { opacityPercent, styleHistoryLabel } from "../i18n/styleHistory";
+import { LAYER_OPACITY_PROPERTY } from "../components/editor/layerOpacity";
 import {
   cssPropertyName,
   isImageBackgroundValue,
@@ -113,19 +114,24 @@ export async function commitDomStyles(
         if (importedFont) injectPreviewImportedFont(doc, importedFont);
       }
     },
-    persist: () =>
-      {
-        const label = styleHistoryLabel(selection.textContent || selection.label || selection.id || selection.tagName, Object.fromEntries(entries.map(([property, value]) => [property, normalizeDomEditStyleValue(property, value)])));
-        // The label only pairs this commit with its history entry in memory; the reported value is the kind.
-        return withEditKind(label, styleEditKind(entries.map(([property]) => property)), () =>
-          persistDomEditOperations(selection, operations, {
-            label,
-            // Inline styles are already live, so a reload would only blank the preview.
-            skipRefresh: true,
-            importedFont: importedFont ?? undefined,
-          }),
-        );
-      },
+    persist: async () => {
+      const label = styleHistoryLabel(selection.textContent || selection.label || selection.id || selection.tagName,
+        Object.fromEntries(entries.map(([property, value]) => [property, normalizeDomEditStyleValue(property, value)])));
+      const result = await withEditKind(label, styleEditKind(entries.map(([property]) => property)), () =>
+        persistDomEditOperations(selection, operations, {
+          label,
+          // Inline styles are already live, so a reload would only blank the preview.
+          skipRefresh: true,
+          importedFont: importedFont ?? undefined,
+        }),
+      );
+      const opacity = owned.find(({ property }) => property === 'opacity' || property === LAYER_OPACITY_PROPERTY);
+      if (result?.changed && opacity?.isLatest()) {
+        const percent = opacityPercent(styles[opacity.property]);
+        if (percent) showToast(`Set layer opacity to ${percent}`, 'info');
+      }
+      return result;
+    },
     shouldRevert: ownsAny,
     revert: () => {
       // ponytail: background-image fit styles are not reverted here.

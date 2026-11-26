@@ -31,11 +31,6 @@ export interface CloudWorkspaceSummary {
   externalWorkspaceId?: string | null;
 }
 
-function workspaceRoleLabel(role: CloudWorkspaceSummary['role']) {
-  // AMR members receive the editor role for Motion permission checks.
-  return role === 'editor' ? 'member' : role;
-}
-
 export interface CloudAccountSummary extends AccountSummary {
   userId?: string;
   authMode?: 'oidc' | 'dev';
@@ -543,7 +538,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                 {account.activeWorkspace && (
                   <div className="om-settings-tags">
                     <span className="om-badge" data-active="true">{account.activeWorkspace.name}</span>
-                    <span className="om-badge">{workspaceRoleLabel(account.activeWorkspace.role)}</span>
+                    <span className="om-badge">{t(account.activeWorkspace.role)}</span>
                   </div>
                 )}
               </div>
@@ -566,13 +561,13 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                     <Select
                       label={t('Switch workspace')}
                       value={activeWorkspace.id}
-                      options={workspaces.map(ws => ({ value: ws.id, label: ws.name, description: `${ws.slug} · ${workspaceRoleLabel(ws.role)}` }))}
+                      options={workspaces.map(ws => ({ value: ws.id, label: ws.name, description: `${ws.slug} · ${t(ws.role)}` }))}
                       disabled={switchingWorkspace}
                       onCommit={switchWorkspace}
                     />
                   ) : <strong className="wrap-anywhere">{activeWorkspace.name}</strong>}
                   <span className="om-muted wrap-anywhere" aria-live="polite">
-                    {switchingWorkspace ? t('Switching…') : `${activeWorkspace.slug} · ${workspaceRoleLabel(activeWorkspace.role)}`}
+                    {switchingWorkspace ? t('Switching…') : `${activeWorkspace.slug} · ${t(activeWorkspace.role)}`}
                   </span>
                 </div>
               </div>

@@ -1,11 +1,13 @@
 import { historyFailureMessage } from "./editorErrors";
 import type { Translate } from './I18n';
 import { historyEntryLabel } from './historyMessages';
+import { formatStyleToast } from './styleHistory';
 import { assetUploadMessage, parseAssetUploadMessage } from './assetUploadMessages';
 
 // Only known system messages are interpreted. Captured names, paths and server
 // details are passed through as values, never translated as interface labels.
 const TEMPLATES = [
+  'Set layer opacity to {value}',
   'Estimated loudness: {lufs} ({change}).',
   'Estimated loudness: {lufs} ({change}); gain limit prevents reaching target.',
   'Estimated loudness: {lufs} ({change}); peak protection prevents reaching target.',
@@ -87,12 +89,14 @@ export function systemMessage(message: string, t: Translate): string {
   if (restore) return t(restore[1] === 'Cannot stage historical file'
     ? 'Could not prepare historical files for restoration: {files}. Your current project is unchanged.'
     : 'Historical files are missing, unreadable or damaged: {files}. This version was not restored. Your current project is unchanged.', { files: restore[2] });
-  const plainHistory = /^(Undid|Redid) (.+)$/s.exec(message);
-  if (plainHistory) return t(plainHistory[1] === 'Undid' ? 'Undid {label}' : 'Redid {label}', { label: historyEntryLabel(plainHistory[2], t) });
-  const history = /^(Undid|Redid): (.+)$/s.exec(message);
-  if (history) return t(history[1] === 'Undid' ? 'Undid: {label}' : 'Redid: {label}', {
-    label: historyEntryLabel(history[2], t),
-  });
+  const history = /^(Undid|Redid)(:?) (.+)$/s.exec(message);
+  if (history) {
+    const [, verb, colon, label] = history;
+    return formatStyleToast(label, verb === 'Undid' ? 'undo' : 'redo', t)
+      ?? t(`${verb}${colon} {label}`, { label: historyEntryLabel(label, t) });
+  }
+  const style = formatStyleToast(message, 'apply', t);
+  if (style) return style;
   const failed = /^(Undo|Redo) failed: (.*)$/s.exec(message);
   if (failed) return t('{action} failed: {message}', { action: t(failed[1]), message: historyFailureMessage(failed[2], t) });
   const conflict = /^Can't (undo|redo): (.*) changed since that edit\.$/s.exec(message);

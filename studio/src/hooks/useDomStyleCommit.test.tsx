@@ -13,7 +13,7 @@ vi.mock("../utils/studioTelemetry", () => ({ trackStudioEvent: vi.fn() }));
 const SOURCE = '<div id="card" style="color: red">Card</div>';
 
 /** Each patch answers with the next status in `failures` (none left: success). */
-function stubServer(failures: number[] = []) {
+function stubServer(failures: number[] = [], changed = true) {
   const patches: unknown[] = [];
   vi.stubGlobal(
     "fetch",
@@ -28,7 +28,7 @@ function stubServer(failures: number[] = []) {
         if (status) return new Response(JSON.stringify({ error: "refused" }), { status });
         return json({
           ok: true,
-          changed: true,
+          changed,
           matched: true,
           content: "<div>saved</div>",
           path: "index.html",
@@ -93,6 +93,17 @@ describe("useDomStyleCommit, from the package entry", () => {
     expect((patches[0] as { operations: unknown[] }).operations).toHaveLength(2);
     expect(recordEdit).toHaveBeenCalledTimes(1);
     expect(historyEntryLabel(recordEdit.mock.calls[0]![0].label, message => message)).toBe("Card · Color: blue / Font size: 40px");
+    unmount();
+  });
+
+  it.each([true, false])('reports the opacity setting only after a changed save (changed=%s)', async changed => {
+    stubServer([], changed);
+    const showToast = vi.fn();
+    const { element, hook, unmount } = renderHost({ showToast });
+    const result = await hook().commitStyle(makeSelection('card', element), { opacity: '0.78' });
+    expect(result.ok).toBe(true);
+    if (changed) expect(showToast).toHaveBeenCalledWith('Set layer opacity to 78%', 'info');
+    else expect(showToast).not.toHaveBeenCalled();
     unmount();
   });
 

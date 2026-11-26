@@ -635,6 +635,43 @@ describe('AssetLibraryService: Presigned Tickets, Confirm Ownership, URL Import 
 });
 
 describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, Export Snapshots & SSE', () => {
+  it('filters by the current audio version and persisted generation mode before counting and paging', async () => {
+    const date = new Date();
+    const assetRows = ['music', 'narration', 'vivi', 'rachel', 'upload'].map(id => ({
+      id, name: id, modality: 'audio', createdAt: date, updatedAt: date, currentVersionId: `${id}-v1`,
+    }));
+    const version = (assetId: string, model: string | null, generationMode: string | null) => ({
+      assetId, id: `${assetId}-v1`, model, generationMode, source: model ? 'generated' : 'upload', createdAt: date,
+    });
+    const versions = [
+      version('music', 'opendesign:elevenlabs-music-v2', 'text-to-audio'),
+      version('narration', 'opendesign:opaque-model', 'text-to-speech'),
+      version('vivi', 'opendesign:byteplus-tts-2', null),
+      version('rachel', 'opendesign:elevenlabs-v3', null),
+      version('upload', null, null),
+      { ...version('music', 'opendesign:elevenlabs-v3', null), id: 'music-v2' },
+    ];
+    const { db } = createScriptedDb({ selectQueue: [assetRows, versions, assetRows, versions, assetRows, versions] });
+    const assetService = new AssetLibraryService({ db, storage: new MemoryStorage(), queues: { enqueueMediaIngest: async () => ({}) as never } });
+    const app = createAssetRoutes({ assetService, getAuth: () => authFor() });
+    const list = async (query: string) => {
+      const response = await app.request(`http://localhost/?modality=audio&${query}`);
+      assert.equal(response.status, 200);
+      return await response.json() as Awaited<ReturnType<AssetLibraryService['listAssets']>>;
+    };
+    const speech = await list('audioKind=speech&limit=1');
+    assert.equal(speech.total, 3);
+    assert.equal(speech.nextOffset, 1);
+    assert.deepEqual(speech.assets.map(asset => asset.id), ['narration']);
+    assert.equal(speech.assets[0].versions[0].audioKind, 'speech');
+    const next = await list('audioKind=speech&offset=1');
+    assert.deepEqual(next.assets.map(asset => asset.id), ['vivi', 'rachel']);
+    assert.equal(next.nextOffset, null);
+    const music = await list('audioKind=music');
+    assert.deepEqual(music.assets.map(asset => asset.id), ['music']);
+    assert.equal((await app.request('http://localhost/?audioKind=unknown')).status, 400);
+  });
+
   it('answers HEAD directly from PG metadata (no S3 redirect) and GET with 302 + Cache-Control/Vary headers', async () => {
     const storage = new MemoryStorage();
     const thumbKey = thumbnailKey(WID_A, SHA_A, 'w320');

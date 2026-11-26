@@ -217,7 +217,10 @@ export function useEditHistoryActions({
           forceReloadSdkSession?.();
         }
         await syncHistoryPreviewAfterApply(restore);
-        showToast(result.label, "info");
+        // Snapshot steps return the original edit label. Older histories include the verb.
+        const message = /^(Undid|Redid):? /.test(result.label) ? result.label
+          : `${direction === "undo" ? "Undid" : "Redid"}: ${result.label}`;
+        showToast(message, "info");
       }
     },
     [

@@ -403,7 +403,10 @@ describe('SoundStudioWorkspace', () => {
       onCancelJob,
       onNotify,
       onCreated,
-      updateState: async (next: { assets?: LibraryAsset[]; jobs?: GenerationJob[] }) => {
+      updateState: async (next: { assets?: LibraryAsset[]; jobs?: GenerationJob[]; query?: string; source?: string; page?: number }) => {
+        if (next.query !== undefined) currentBrowser.query = next.query;
+        if (next.source !== undefined) currentBrowser.source = next.source;
+        if (next.page !== undefined) currentBrowser.page = next.page;
         if (next.assets !== undefined) {
           currentBrowser = {
             ...currentBrowser,
@@ -831,7 +834,7 @@ describe('SoundStudioWorkspace', () => {
     expect(getDraft().prompt).toBe('Welcome to OpenMotion Studio.');
 
     // Parent pushes the accepted running job into the unified stream.
-    await updateState({ jobs: [runningJob] });
+    await updateState({ jobs: [runningJob], query: '', source: 'all', page: 0 });
     const genRow = host.querySelector('.om-sound-generating-row')!;
     expect(genRow).not.toBeNull();
     expect(genRow.querySelector('.om-sound-row-spinner')).not.toBeNull();
@@ -845,16 +848,19 @@ describe('SoundStudioWorkspace', () => {
     await act(async () => { cancelBtn.click(); });
     expect(onCancelJob).toHaveBeenCalledWith(runningJob);
 
-    // Job finishes before library list refreshes -> row remains in place (no blank gap), Cancel hides.
+    // Completion without a saved output still shows a saving row, with Cancel hidden.
     const completedJob: GenerationJob = {
       ...runningJob,
       state: 'completed',
       updatedAt: now + 2000,
       libraryAssets: [{ assetId: 'speech-new', versionId: 'v1' }],
     };
-    await updateState({ jobs: [completedJob] });
+    await updateState({ jobs: [{ ...completedJob, libraryAssets: [] }] });
     expect(host.querySelector('.om-sound-generating-row')).not.toBeNull();
     expect([...host.querySelectorAll<HTMLButtonElement>('.om-sound-generating-row button')].some(b => b.textContent === 'Cancel')).toBe(false);
+    await updateState({ jobs: [completedJob], query: 'missing', assets: [] });
+    expect(host.querySelector('.om-sound-generating-row')).toBeNull();
+    expect(host.textContent).toContain('No matching assets');
 
     // Library refreshes with saved track -> generating row disappears cleanly (0 duplicates) and playable row shows New badge.
     const newAsset = makeAsset(
@@ -867,7 +873,7 @@ describe('SoundStudioWorkspace', () => {
         parameters: { voice: '21m00Tcm4TlvDq8ikWAM' },
       },
     );
-    await updateState({ jobs: [completedJob], assets: [newAsset] });
+    await updateState({ jobs: [completedJob], assets: [newAsset], query: '' });
     expect(host.querySelector('.om-sound-generating-row')).toBeNull();
     const rows = host.querySelectorAll('.om-sound-track-row');
     expect(rows).toHaveLength(1);
@@ -920,7 +926,10 @@ describe('SoundStudioWorkspace', () => {
       error: 'Provider rate limit exceeded',
       updatedAt: now + 3000,
     };
-    await updateState({ jobs: [oldFailedJob, failedJob] });
+    await updateState({ jobs: [oldFailedJob, failedJob], assets: [], query: 'unrelated' });
+    expect(host.querySelector('.om-sound-failed-row')).toBeNull();
+    expect(host.textContent).toContain('No matching assets');
+    await updateState({ query: 'THUNDER' });
 
     expect(host.querySelector('.om-sound-generating-row')).toBeNull();
     const failedRow = host.querySelector('.om-sound-failed-row')!;

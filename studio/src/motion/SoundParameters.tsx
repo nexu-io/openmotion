@@ -8,7 +8,7 @@ import { Select } from '../components/ui/Select';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { requestParameters, type ParameterDraft } from './GenerationParameters';
+import { durationUnitsPerSecond, requestParameters, type ParameterDraft } from './GenerationParameters';
 import { DURATION_PRESETS, SFX_DURATION_PRESETS, SPEED_PRESETS, parseVoiceChoice, voiceCharacterDetail } from './soundPresets';
 import type { SoundLiveTabId } from './soundTabs';
 import { voicePreviewTrackId, type VoicePreviewController } from './voicePreviews';
@@ -285,7 +285,7 @@ export function SoundParameters({
 
   const renderDurationField = (field: GenerationOption) => {
     const current = valueOf(field);
-    const unit = field.key === 'music_length_ms' ? 1000 : 1;
+    const unit = durationUnitsPerSecond(field);
     const currentNum = typeof current === 'number' ? current / unit : undefined;
     const presets = tabId === 'sfx' || field.key === 'duration_seconds' ? SFX_DURATION_PRESETS : DURATION_PRESETS;
     return (
@@ -334,6 +334,11 @@ export function SoundParameters({
               placeholder="--"
               value={currentNum ?? ''}
               onChange={event => setField(field, event.target.value === '' ? undefined : Number(event.target.value) * unit)}
+              onBlur={() => {
+                if (typeof current !== 'number') return;
+                const bounded = Math.min(field.max ?? Infinity, Math.max(field.min ?? unit, current));
+                if (bounded !== current) setField(field, bounded);
+              }}
             />
             <span className="om-eyebrow" aria-hidden="true">s</span>
           </label>

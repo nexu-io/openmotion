@@ -2,14 +2,15 @@ import { Button } from 'open-design-ui/button';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { scenesForStudio, studioIconTone, type StudioDestination, type StudioScene } from './creativeStudios';
+import { scenesForStudio, studioIconTone, type StudioDestination } from './creativeStudios';
+import type { SoundLiveTabId } from './soundTabs';
 import { studioExamples } from './sceneShowcase';
 import './skills.css';
 import './sceneDiscovery.css';
 
 /** Sound Studio home with the technique-studio layout: the intro banner, then the template grid. */
 export function AudioStudioLanding({ destination, active, onPrompt, onCreate }: {
-  destination: StudioDestination; active: boolean; onPrompt: (prompt: string, scene: StudioScene['id']) => void; onCreate: () => void;
+  destination: StudioDestination; active: boolean; onPrompt: (prompt: string, tab: SoundLiveTabId) => void; onCreate: () => void;
 }) {
   const { t } = useI18n();
   const { studio } = destination;
@@ -58,7 +59,7 @@ export function AudioStudioLanding({ destination, active, onPrompt, onCreate }: 
           </div>
           <div className="om-audio-card-prompt">
             <p className="om-muted"><span>{t('Audio prompt')}</span>{t(item.prompt)}</p>
-            <Button variant="ghost" className="om-button h-auto" onClick={() => onPrompt(t(item.prompt), item.scene.id)}><RemixIcon name="add-line" size={15} />{t('Use prompt')}</Button>
+            <Button variant="ghost" className="om-button h-auto" onClick={() => onPrompt(t(item.prompt), item.kind === 'Sound effect' ? 'sfx' : item.scene.id === 'speech' ? 'speech' : 'music')}><RemixIcon name="add-line" size={15} />{t('Use prompt')}</Button>
           </div>
         </article>)}
       </div>

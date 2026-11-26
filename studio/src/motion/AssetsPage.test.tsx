@@ -751,6 +751,8 @@ it('transitions completed placeholders in place without duplicating assets and l
   const baseImpl = vi.mocked(assetRequest).getMockImplementation()!;
   vi.mocked(assetRequest).mockImplementation(async args => {
     if (args.action === 'jobs') return { jobs: structuredClone(polledJobs) };
+    if (args.action === 'list' && args.query) return { assets: [], total: 0, nextOffset: null };
+    if (args.action === 'list' && args.sort === 'oldest') return { assets: [records.get('B'), records.get('A')], total: 2, nextOffset: null };
     return baseImpl(args);
   });
   await act(async () => root.render(<AssetsPage active studio={studio} />)); await flush();
@@ -781,6 +783,36 @@ it('transitions completed placeholders in place without duplicating assets and l
   await act(async () => { vi.advanceTimersByTime(10); }); await flush();
   expect(container.querySelectorAll('.om-placeholder-stage')).toHaveLength(1);
   expect(container.querySelectorAll('[aria-label="Picture A"]')).toHaveLength(1);
+  await click('Sort');
+  const oldest = [...document.querySelectorAll<HTMLElement>('[role=menuitemradio]')].find(node => node.textContent === 'Oldest first')!;
+  await act(async () => oldest.click()); await flush();
+  expect([...container.querySelectorAll('.om-gen-open')].map(node => node.getAttribute('aria-label'))).toEqual(['Picture B', 'Picture A']);
+
+  await click('Search assets');
+  const input = container.querySelector<HTMLInputElement>('input[type=search]')!;
+  const search = async (value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(180)); await flush();
+  };
+  await search('unrelated');
+  expect(container.querySelector('.om-gen-count')?.textContent).toBe('0 assets');
+  expect(container.querySelector('.om-asset-empty')?.textContent).toContain('No matching assets');
+  await search('NEON');
+  expect(container.querySelector('.om-gen-count')?.textContent).toBe('1 assets');
+  expect(container.querySelectorAll('.om-gen-card-pending[data-state="failed"]')).toHaveLength(1);
+  await act(async () => lastComposerOnCreated?.({ ...jobFailed, id: 'job-stopped', state: 'cancelled', prompt: 'Stopped portrait' }));
+  await flush();
+  await search('portrait');
+  expect(container.querySelectorAll('.om-gen-card-pending')).toHaveLength(1);
+  expect(container.querySelector('.om-gen-card-pending')?.getAttribute('data-state')).toBe('cancelled');
+  await search('unrelated');
+  expect(container.querySelector('.om-gen-count')?.textContent).toBe('0 assets');
+  await search('portrait');
+  await click('Dismiss');
+  await search('');
   // Reuse prompt refills the left composer draft; Dismiss removes the failed placeholder tile.
   await act(async () => { button('Reuse prompt')!.click(); }); await flush();
   expect(studio.remember.mock.lastCall?.[0].prompt).toBe('Neon alley rain scene');
@@ -819,7 +851,7 @@ it.each([
   const lightbox = container.querySelector('.om-gen-lightbox')!;
   expect(lightbox.querySelector('img')?.getAttribute('src')).toBe(url);
   expect(lightbox.textContent).toContain(prompt);
-  expect(lightbox.querySelector('a[download]')?.getAttribute('href')).toBe(url);
+  expect(lightbox.querySelector('a[download]')?.getAttribute('href')).toBe(`${url}?download=1`);
 
   await click('Asset details');
   const details = container.querySelector('.om-asset-workspace')!;
@@ -1018,11 +1050,13 @@ it('renders justified equal-height Generations flows for both Image and Video wi
   expect(videoCards[0].textContent).toContain('5s');
   expect(videoCards[0].textContent).toContain('720p');
   expect(videoCards[0].textContent).not.toContain('account:doubao-seedance-2-5-260628');
+  expect(videoCards[0].querySelector('a[download]')?.getAttribute('href')).toBe(`${assetMediaUrl(clipA.id, clipA.currentVersionId)}?download=1`);
   // Clicking the vertical video opens the Cinema Lightbox with controls intact.
   await act(async () => { videoCards[0].querySelector<HTMLButtonElement>('.om-gen-open')!.click(); });
   const videoLightbox = container.querySelector('[role="dialog"].om-gen-lightbox')!;
   expect(videoLightbox).not.toBeNull();
   expect(videoLightbox.querySelector('video.om-gen-lightbox-video')).not.toBeNull();
+  expect(videoLightbox.querySelector('a[download]')?.getAttribute('href')).toBe(`${assetMediaUrl(clipA.id, clipA.currentVersionId)}?download=1`);
   expect(videoLightbox.textContent).toContain('Slow dolly across studio table');
 });
 

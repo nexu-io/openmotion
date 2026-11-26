@@ -126,7 +126,7 @@ it('switches once through the workspace dropdown and updates the active workspac
 
   const [other, active] = await workspaceOptions(trigger);
   expect(other.textContent).toContain('Studio B');
-  expect(other.textContent).toContain('studio-b · member');
+  expect(other.textContent).toContain('studio-b · editor');
   expect(active.getAttribute('aria-selected')).toBe('true');
   await act(async () => active.click());
   expect(hooks.request.mock.calls.some(([path]) => path === 'account/workspaces/switch')).toBe(false);
@@ -151,8 +151,24 @@ it('switches once through the workspace dropdown and updates the active workspac
   expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'motion:account-changed' }));
   expect(trigger.disabled).toBe(false);
   expect(trigger.textContent).toBe('Studio B');
-  expect(section.textContent).toContain('studio-b · member');
+  expect(section.textContent).toContain('studio-b · editor');
   expect(document.querySelector('.hf-toast-viewport [role="status"]')?.textContent).toBe('Workspace switched');
+});
+
+it('shows each workspace role in Chinese in the badge, current workspace and menu', async () => {
+  const workspaces = [studioA, studioB,
+    { id: 'ws-3', slug: 'studio-c', name: 'Studio C', role: 'admin' as const },
+    { id: 'ws-4', slug: 'studio-d', name: 'Studio D', role: 'viewer' as const },
+  ];
+  const page = await open({ ...cookieAccount, activeWorkspace: studioB, workspaces }, 'zh-CN');
+  expect(page.querySelector('.om-settings-tags .om-badge:last-child')?.textContent).toBe('编辑者');
+  const section = page.querySelector('section[aria-label="工作空间"]')!;
+  expect(section.textContent).toContain('studio-b · 编辑者');
+  const options = await workspaceOptions(section.querySelector('[role="combobox"]')!);
+  expect(options.map(option => option.textContent)).toEqual([
+    'Studio Astudio-a · 所有者', 'Studio Bstudio-b · 编辑者',
+    'Studio Cstudio-c · 管理员', 'Studio Dstudio-d · 查看者',
+  ]);
 });
 
 it('keeps the current workspace and enables another choice after a rejected switch', async () => {

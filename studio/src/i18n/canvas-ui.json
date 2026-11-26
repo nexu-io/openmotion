@@ -1,5 +1,11 @@
 {
   "zh-CN": {
+    "Set layer opacity to {value}": "已将图层不透明度设为 {value}",
+    "Undid the layer opacity change to {value}": "已撤销将图层不透明度设为 {value} 的操作",
+    "Redid the layer opacity change to {value}": "已重做将图层不透明度设为 {value} 的操作",
+    "Updated layer style": "已更新图层样式",
+    "Undid the layer style change": "已撤销图层样式更改",
+    "Redid the layer style change": "已重做图层样式更改",
     "This canvas edit was not saved. Try again when the preview is ready.": "这次画布编辑未保存，请在预览就绪后重试。",
     "Content fit": "内容适配",
     "Letterbox": "留边",
@@ -11,6 +17,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "读取当前工程及其 revision/version，保持现有内容。先调用 openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). 随后重新读取版本身份，再调用 openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). 每次操作使用稳定的 requestId 和最新 expectedRevision、expectedVersionId；尊重轨道锁定，冲突后重读。打开已保存预览并检查画幅和 C1 轨道。无需模型，不生成文稿或编造字幕。"
   },
   "ja": {
+    "Set layer opacity to {value}": "レイヤーの不透明度を {value} に設定しました",
+    "Undid the layer opacity change to {value}": "レイヤーの不透明度を {value} にする変更を取り消しました",
+    "Redid the layer opacity change to {value}": "レイヤーの不透明度を {value} にする変更をやり直しました",
+    "Updated layer style": "レイヤースタイルを更新しました",
+    "Undid the layer style change": "レイヤースタイルの変更を取り消しました",
+    "Redid the layer style change": "レイヤースタイルの変更をやり直しました",
     "This canvas edit was not saved. Try again when the preview is ready.": "キャンバスの編集を保存できませんでした。プレビューの準備ができたら、もう一度お試しください。",
     "Content fit": "コンテンツの合わせ方",
     "Letterbox": "余白を付ける",
@@ -22,6 +34,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "現在のプロジェクトと revision/version を読み、内容を保持します。最初に呼び出す操作： openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). 版情報を読み直してから呼び出す操作： openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). 操作ごとに固定の requestId と最新の expectedRevision、expectedVersionId を使用します。ロックを尊重し、競合後は再読込します。保存済みプレビューで画面比率と C1 を確認します。モデル不要で、文稿や架空の字幕は生成しません。"
   },
   "ko": {
+    "Set layer opacity to {value}": "레이어 불투명도를 {value}로 설정했습니다",
+    "Undid the layer opacity change to {value}": "레이어 불투명도를 {value}로 설정한 작업을 취소했습니다",
+    "Redid the layer opacity change to {value}": "레이어 불투명도를 {value}로 설정한 작업을 다시 실행했습니다",
+    "Updated layer style": "레이어 스타일을 변경했습니다",
+    "Undid the layer style change": "레이어 스타일 변경을 취소했습니다",
+    "Redid the layer style change": "레이어 스타일 변경을 다시 실행했습니다",
     "This canvas edit was not saved. Try again when the preview is ready.": "캔버스 편집을 저장하지 못했습니다. 미리보기가 준비되면 다시 시도하세요.",
     "Content fit": "콘텐츠 맞춤",
     "Letterbox": "여백 유지",
@@ -33,6 +51,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "현재 프로젝트와 revision/version을 읽고 내용을 유지하세요. 먼저 호출: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). 버전 정보를 다시 읽은 뒤 호출: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). 각 작업에 고정 requestId와 최신 expectedRevision, expectedVersionId를 사용하세요. 잠금을 존중하고 충돌 후 다시 읽으세요. 저장된 미리보기에서 화면 비율과 C1을 확인하세요. 모델이 필요 없으며 대본이나 가짜 자막을 생성하지 않습니다."
   },
   "de": {
+    "Set layer opacity to {value}": "Ebenendeckkraft auf {value} gesetzt",
+    "Undid the layer opacity change to {value}": "Änderung der Ebenendeckkraft auf {value} rückgängig gemacht",
+    "Redid the layer opacity change to {value}": "Änderung der Ebenendeckkraft auf {value} wiederholt",
+    "Updated layer style": "Ebenenstil aktualisiert",
+    "Undid the layer style change": "Änderung des Ebenenstils rückgängig gemacht",
+    "Redid the layer style change": "Änderung des Ebenenstils wiederholt",
     "This canvas edit was not saved. Try again when the preview is ready.": "Diese Änderung wurde nicht gespeichert. Versuche es erneut, sobald die Vorschau bereit ist.",
     "Content fit": "Inhalt anpassen",
     "Letterbox": "Mit Rändern",
@@ -44,6 +68,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Lies das aktuelle Projekt und revision/version, behalte den Inhalt. Zuerst aufrufen: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Lies die Versionsdaten erneut, dann aufrufen: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Pro Vorgang stabile requestId und aktuelle expectedRevision/expectedVersionId verwenden. Sperren beachten, bei Konflikten neu lesen. Gespeicherte Vorschau, Bildformat und C1 prüfen. Kein Modell, kein Transkript und keine erfundenen Untertitel."
   },
   "fr": {
+    "Set layer opacity to {value}": "Opacité du calque réglée sur {value}",
+    "Undid the layer opacity change to {value}": "Réglage de l’opacité du calque sur {value} annulé",
+    "Redid the layer opacity change to {value}": "Réglage de l’opacité du calque sur {value} rétabli",
+    "Updated layer style": "Style du calque mis à jour",
+    "Undid the layer style change": "Modification du style du calque annulée",
+    "Redid the layer style change": "Modification du style du calque rétablie",
     "This canvas edit was not saved. Try again when the preview is ready.": "La modification n’a pas été enregistrée. Réessayez une fois l’aperçu prêt.",
     "Content fit": "Ajustement du contenu",
     "Letterbox": "Avec bandes",
@@ -55,6 +85,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Lisez le projet actuel et revision/version, en préservant le contenu. Appelez d’abord : openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Relisez les identifiants de version, puis appelez : openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Utilisez un requestId stable par opération et les valeurs actuelles expectedRevision/expectedVersionId. Respectez les verrouillages, relisez après conflit. Vérifiez le format et C1 dans l’aperçu enregistré. Aucun modèle, transcription ou sous-titre inventé."
   },
   "ru": {
+    "Set layer opacity to {value}": "Непрозрачность слоя установлена на {value}",
+    "Undid the layer opacity change to {value}": "Отменена установка непрозрачности слоя на {value}",
+    "Redid the layer opacity change to {value}": "Повторно установлена непрозрачность слоя {value}",
+    "Updated layer style": "Стиль слоя обновлён",
+    "Undid the layer style change": "Изменение стиля слоя отменено",
+    "Redid the layer style change": "Изменение стиля слоя повторено",
     "This canvas edit was not saved. Try again when the preview is ready.": "Изменение на холсте не сохранено. Повторите попытку, когда предпросмотр будет готов.",
     "Content fit": "Размещение содержимого",
     "Letterbox": "С полями",
@@ -66,6 +102,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Прочитайте текущий проект и revision/version, сохраняя содержимое. Сначала вызовите: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Повторно прочитайте версии, затем вызовите: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Используйте стабильный requestId для каждой операции и актуальные expectedRevision/expectedVersionId. Учитывайте блокировки, перечитывайте после конфликта. Проверьте кадр и C1 в сохранённом предпросмотре. Модель не нужна; не создавайте выдуманный текст."
   },
   "es": {
+    "Set layer opacity to {value}": "Se estableció la opacidad de la capa en {value}",
+    "Undid the layer opacity change to {value}": "Se deshizo el cambio de opacidad de la capa a {value}",
+    "Redid the layer opacity change to {value}": "Se rehízo el cambio de opacidad de la capa a {value}",
+    "Updated layer style": "Se actualizó el estilo de la capa",
+    "Undid the layer style change": "Se deshizo el cambio de estilo de la capa",
+    "Redid the layer style change": "Se rehízo el cambio de estilo de la capa",
     "This canvas edit was not saved. Try again when the preview is ready.": "No se ha guardado este cambio en el lienzo. Inténtalo de nuevo cuando la vista previa esté lista.",
     "Content fit": "Ajuste del contenido",
     "Letterbox": "Con bandas",
@@ -77,6 +119,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Lee el proyecto actual y revision/version, preservando el contenido. Primero llama: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Vuelve a leer los identificadores de versión y llama: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Usa un requestId estable por operación y expectedRevision/expectedVersionId actuales. Respeta bloqueos y relee tras conflictos. Comprueba el formato y C1 en la vista previa guardada. Sin modelo, transcripción ni subtítulos inventados."
   },
   "pt-BR": {
+    "Set layer opacity to {value}": "Opacidade da camada definida como {value}",
+    "Undid the layer opacity change to {value}": "O ajuste da opacidade da camada para {value} foi desfeito",
+    "Redid the layer opacity change to {value}": "O ajuste da opacidade da camada para {value} foi refeito",
+    "Updated layer style": "Estilo da camada atualizado",
+    "Undid the layer style change": "Alteração do estilo da camada desfeita",
+    "Redid the layer style change": "Alteração do estilo da camada refeita",
     "This canvas edit was not saved. Try again when the preview is ready.": "Esta edição da tela não foi salva. Tente novamente quando a prévia estiver pronta.",
     "Content fit": "Ajuste do conteúdo",
     "Letterbox": "Com faixas",
@@ -88,6 +136,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Leia o projeto atual e revision/version, preservando o conteúdo. Primeiro chame: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Leia novamente as versões e chame: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use um requestId estável por operação e expectedRevision/expectedVersionId atuais. Respeite bloqueios e releia após conflitos. Confira o formato e C1 na prévia salva. Sem modelo, transcrição ou legendas inventadas."
   },
   "it": {
+    "Set layer opacity to {value}": "Opacità del livello impostata su {value}",
+    "Undid the layer opacity change to {value}": "Modifica dell’opacità del livello a {value} annullata",
+    "Redid the layer opacity change to {value}": "Modifica dell’opacità del livello a {value} ripetuta",
+    "Updated layer style": "Stile del livello aggiornato",
+    "Undid the layer style change": "Modifica dello stile del livello annullata",
+    "Redid the layer style change": "Modifica dello stile del livello ripetuta",
     "This canvas edit was not saved. Try again when the preview is ready.": "La modifica all’area di lavoro non è stata salvata. Riprova quando l’anteprima è pronta.",
     "Content fit": "Adattamento contenuto",
     "Letterbox": "Con bande",
@@ -99,6 +153,12 @@
     "Read this project and its current revision/version. Use openmotion_edit_project with canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"} to change the canvas. Then reread the revision/version and enable captions with openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Use a stable requestId for each operation. Preserve content, respect locked tracks and stop to reread after conflicts. Open the saved preview and verify the canvas and C1 track. This needs no model and creates no transcript or invented captions.": "Leggi il progetto attuale e revision/version, preservando i contenuti. Prima chiama: openmotion_edit_project(canvas={compositionPath:\"index.html\",ratio:\"9:16\",fit:\"contain\"}). Rileggi le versioni, poi chiama: openmotion_assets_use(action=transcript, transcript.command=caption_toggle, visible=true, compositionPath=\"index.html\"). Usa un requestId stabile per operazione e expectedRevision/expectedVersionId aggiornati. Rispetta i blocchi e rileggi dopo conflitti. Controlla formato e C1 nella preview salvata. Nessun modello, trascrizione o sottotitolo inventato."
   },
   "tr": {
+    "Set layer opacity to {value}": "Katman opaklığı {value} olarak ayarlandı",
+    "Undid the layer opacity change to {value}": "Katman opaklığını {value} olarak ayarlama işlemi geri alındı",
+    "Redid the layer opacity change to {value}": "Katman opaklığını {value} olarak ayarlama işlemi yinelendi",
+    "Updated layer style": "Katman stili güncellendi",
+    "Undid the layer style change": "Katman stili değişikliği geri alındı",
+    "Redid the layer style change": "Katman stili değişikliği yinelendi",
     "This canvas edit was not saved. Try again when the preview is ready.": "Tuvaldeki bu değişiklik kaydedilmedi. Önizleme hazır olduğunda yeniden deneyin.",
     "Content fit": "İçeriği sığdır",
     "Letterbox": "Kenar boşluğu",

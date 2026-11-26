@@ -38,6 +38,7 @@ import {
 } from '../../packages/observability/config.ts';
 import { commitProjectEdit } from '../services/project-edit.ts';
 import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
+import type { AudioKind } from '../../shared/audio-kind.ts';
 import {
   buildCloudIntegrationInfo,
   integrationConfig,
@@ -1880,6 +1881,7 @@ function createMcpDomainPorts(deps: {
         if (action === 'list') {
           const list = await deps.assets.listAssets(auth, {
             modality: typeof args.modality === 'string' ? (args.modality as 'image' | 'video' | 'audio') : undefined,
+            audioKind: args.audioKind as AudioKind | undefined,
             source: typeof args.source === 'string' ? (args.source as 'upload' | 'generated') : undefined,
             query: typeof args.query === 'string' ? args.query : undefined,
             sort:

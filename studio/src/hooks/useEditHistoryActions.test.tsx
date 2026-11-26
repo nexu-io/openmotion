@@ -400,6 +400,13 @@ describe("useEditHistoryActions", () => {
     expect(deps.showToast).toHaveBeenCalledWith("Redid: Split clip", "info");
   });
 
+  it.each([['undo', 'Undid'], ['redo', 'Redid']] as const)('identifies %s when cloud history returns a bare style label', async (direction, verb) => {
+    const label = 'Edit layer style: ["avatar_3",[["opacity","78%"]]]';
+    const { deps, actions } = mount({ ok: true, label });
+    await act(() => actions[direction]());
+    expect(deps.showToast).toHaveBeenCalledWith(`${verb}: ${label}`, 'info');
+  });
+
   it("briefly explains a late undo conflict without exposing file paths", async () => {
     const { deps, actions } = mount({
       ok: false,

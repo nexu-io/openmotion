@@ -470,6 +470,70 @@ it('filters OpenDesign image quick controls to the edits profile envelope when a
   expect(editResOptions).not.toContain('1K');
 });
 
+it('submits the displayed Nano Banana 2 Lite profile after reset, ratio selection, and explicit JSON', async () => {
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const square = { aspect_ratio: '1:1', resolution: '1K' };
+  const wide = { aspect_ratio: '16:9', resolution: '1K' };
+  const image: Model = { ...cloudImage, id: 'opendesign:nano-banana-2-lite', modelId: 'nano-banana-2-lite',
+    nativeOptions: { profiles: { generations: { profiles: [square, wide], default: square } } } };
+  image.generationOptions = generationOptions(image);
+  loadGateway.mockResolvedValue(cloudState([image]));
+  generate.mockResolvedValue({ job: { id: 'image-job' } });
+  const draft: AssetDraft = { modality: 'image', model: image.id, prompt: 'Green plane', references: [] };
+  await act(async () => root.render(<AssetComposer {...props} draft={draft} />));
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  const click = async (button: HTMLElement) => { await act(async () => button.click()); };
+  const summary = container.querySelector<HTMLButtonElement>('.om-generation-summary')!;
+  await click(summary);
+  await click([...document.querySelectorAll('button')].find(button => button.textContent === 'Reset')!);
+  expect(summary.textContent).toContain('1:1 · 1K');
+  await click(submit());
+  expect(generate.mock.lastCall?.[0].parameters).toEqual(square);
+  if (!document.querySelector('.om-generation-popover')) await click(summary);
+  await click([...document.querySelectorAll<HTMLButtonElement>('.om-generation-ratios button')].find(button => button.textContent === '16:9')!);
+  await click(submit());
+  expect(generate.mock.lastCall?.[0].parameters).toEqual(wide);
+  if (!document.querySelector('.om-generation-popover')) await click(summary);
+  await click(document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Resolution"]')!);
+  await click([...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent === '1K')!);
+  await click(submit());
+  expect(generate.mock.lastCall?.[0].parameters).toEqual(wide);
+  const explicit = { output: wide, seed: 11 };
+  await act(async () => root.render(<AssetComposer key="restored" {...props} draft={{ ...draft, parameters: explicit }} />));
+  await click(submit());
+  expect(generate.mock.lastCall?.[0].parameters).toEqual(explicit);
+  expect(generate).toHaveBeenCalledTimes(4);
+});
+
+it('displays Eleven Music duration in seconds and submits the provider value in milliseconds', async () => {
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const music: Model = { ...cloudImage, id: 'opendesign:elevenlabs-music-v2', modelId: 'elevenlabs-music-v2', modality: 'audio', mode: 'text-to-audio' };
+  music.generationOptions = generationOptions(music);
+  loadGateway.mockResolvedValue(cloudState([music]));
+  generate.mockResolvedValue({ job: { id: 'music-job' } });
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'audio', model: music.id, prompt: 'Piano', references: [], parameters: { music_length_ms: 4000 } }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+  const durationInput = () => document.querySelector<HTMLInputElement>('[type="number"][aria-label="Duration (seconds)"]');
+  const input = durationInput()!;
+  expect([input.min, input.max, input.step, input.value]).toEqual(['3', '600', '1', '4']);
+  const setSeconds = async (seconds: string) => {
+    if (!durationInput()) await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+    await act(async () => {
+      const field = durationInput()!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, seconds);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  await setSeconds('2');
+  await act(async () => submit.click());
+  expect(generate).not.toHaveBeenCalled();
+  expect(props.onError).toHaveBeenCalledWith(expect.stringContaining('Duration'));
+  await setSeconds('5');
+  await act(async () => submit.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ parameters: { music_length_ms: 5000 } }));
+});
+
 it('clears draft parameters when switching models so stale parameters do not leak across models', async () => {
   const { generationOptions } = await import('../../../shared/generation-options');
   const profiledBase: Model = {

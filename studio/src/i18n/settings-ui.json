@@ -1,5 +1,9 @@
 {
   "zh-CN": {
+    "owner": "所有者",
+    "admin": "管理员",
+    "editor": "编辑者",
+    "viewer": "查看者",
     "Account": "账户",
     "Account menu": "账户菜单",
     "Subscription & usage": "订阅与用量",
@@ -521,6 +525,10 @@
     "Restart to update ({version})": "重启以更新（{version}）"
   },
   "ja": {
+    "owner": "所有者",
+    "admin": "管理者",
+    "editor": "編集者",
+    "viewer": "閲覧者",
     "Local Agents": "ローカル Agent",
     "Default Agent & models": "既定の Agent とモデル",
     "Default Agent": "既定の Agent",
@@ -806,6 +814,10 @@
     "Restart to update ({version})": "再起動して更新（{version}）"
   },
   "ko": {
+    "owner": "소유자",
+    "admin": "관리자",
+    "editor": "편집자",
+    "viewer": "열람자",
     "What's new": "새로운 소식",
     "Feedback": "피드백",
     "Not saved": "저장되지 않음",
@@ -986,6 +998,10 @@
     "Restart to update ({version})": "재시작하여 업데이트 ({version})"
   },
   "de": {
+    "owner": "Inhaber",
+    "admin": "Administrator",
+    "editor": "Bearbeiter",
+    "viewer": "Betrachter",
     "What's new": "Neuigkeiten",
     "Feedback": "Feedback",
     "Not saved": "Nicht gespeichert",
@@ -1166,6 +1182,10 @@
     "Restart to update ({version})": "Zum Aktualisieren neu starten ({version})"
   },
   "fr": {
+    "owner": "Propriétaire",
+    "admin": "Administrateur",
+    "editor": "Éditeur",
+    "viewer": "Lecteur",
     "What's new": "Nouveautés",
     "Feedback": "Commentaires",
     "Not saved": "Non enregistré",
@@ -1346,6 +1366,10 @@
     "Restart to update ({version})": "Redémarrer pour mettre à jour ({version})"
   },
   "ru": {
+    "owner": "Владелец",
+    "admin": "Администратор",
+    "editor": "Редактор",
+    "viewer": "Наблюдатель",
     "What's new": "Что нового",
     "Feedback": "Обратная связь",
     "Not saved": "Не сохранено",
@@ -1526,6 +1550,10 @@
     "Restart to update ({version})": "Перезапустить для обновления ({version})"
   },
   "es": {
+    "owner": "Propietario",
+    "admin": "Administrador",
+    "editor": "Editor",
+    "viewer": "Lector",
     "What's new": "Novedades",
     "Feedback": "Comentarios",
     "Not saved": "Sin guardar",
@@ -1706,6 +1734,10 @@
     "Restart to update ({version})": "Reiniciar para actualizar ({version})"
   },
   "pt-BR": {
+    "owner": "Proprietário",
+    "admin": "Administrador",
+    "editor": "Editor",
+    "viewer": "Leitor",
     "What's new": "Novidades",
     "Feedback": "Feedback",
     "Not saved": "Não salvo",
@@ -1886,6 +1918,10 @@
     "Restart to update ({version})": "Reiniciar para atualizar ({version})"
   },
   "it": {
+    "owner": "Proprietario",
+    "admin": "Amministratore",
+    "editor": "Editor",
+    "viewer": "Lettore",
     "What's new": "Novità",
     "Feedback": "Feedback",
     "Not saved": "Non salvato",
@@ -2066,6 +2102,10 @@
     "Restart to update ({version})": "Riavvia per aggiornare ({version})"
   },
   "tr": {
+    "owner": "Sahip",
+    "admin": "Yönetici",
+    "editor": "Düzenleyici",
+    "viewer": "Görüntüleyici",
     "What's new": "Yenilikler",
     "Feedback": "Geri bildirim",
     "Not saved": "Kaydedilmedi",

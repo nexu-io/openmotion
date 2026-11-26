@@ -74,6 +74,7 @@ export function createAssetRoutes(deps: AssetRoutesDeps): Hono {
     const query = c.req.query();
     const listInput: AssetListInput = {
       ...(query.modality ? { modality: query.modality as AssetModality } : {}),
+      ...(query.audioKind !== undefined ? { audioKind: query.audioKind as AssetListInput['audioKind'] } : {}),
       ...(query.source ? { source: query.source as 'upload' | 'generated' } : {}),
       ...(query.query !== undefined ? { query: query.query } : {}),
       ...(query.trash !== undefined ? { trash: query.trash === 'true' || query.trash === '1' } : {}),

@@ -13,6 +13,7 @@ import { VideoFrameThumbnail } from '../components/ui/VideoFrameThumbnail';
 import { MediaDurationBadge } from '../components/sidebar/MediaDurationBadge';
 import { AssetHoverVideo } from './AssetHoverVideo';
 import { AssetGenerationPlaceholder } from './AssetGenerationPlaceholder';
+import { hasSavedGeneration } from './assetTasks';
 import { GallerySearchField } from './GalleryFilters';
 import type { useAssetBrowser } from './AssetBrowser';
 import { buildLoginUrl } from './AccountSettings';
@@ -30,8 +31,8 @@ import {
 type FeedDensity = 'compact' | 'comfortable' | 'large';
 
 type StreamItem =
-  | { kind: 'job'; key: string; job: GenerationJob; asset?: LibraryAsset; timestamp: number }
-  | { kind: 'asset'; key: string; asset: LibraryAsset; timestamp: number };
+  | { kind: 'job'; key: string; job: GenerationJob; timestamp: number }
+  | { kind: 'asset'; key: string; asset: LibraryAsset; timestamp: number; jobId?: string };
 
 const SKELETON_ASPECTS = [1, 1.77, 0.56, 1.33, 1, 0.75];
 
@@ -132,7 +133,7 @@ function GenerationLightbox({
                 {t(zoomed ? 'Fit to screen' : 'Zoom 100%')}
               </Button>
             )}
-            <a ref={downloadRef} className="om-button" href={src} download={version.filename || asset.name} onClick={() => onDownload?.()}>
+            <a ref={downloadRef} className="om-button" href={`${src}?download=1`} download={version.filename || asset.name} onClick={() => onDownload?.()}>
               <RemixIcon name="download-2-line" size={15} />
               {t('Download')}
             </a>
@@ -288,12 +289,9 @@ export function MediaGenerationHistory({
     const newlyRevealed: string[] = [];
     for (const job of visibleJobs) {
       const working = job.state === 'queued' || job.state === 'running';
-      const output = job.libraryAssets?.[0];
-      const resolved = job.state === 'completed' && output ? assetsById.get(output.assetId) : undefined;
-      if (working || (job.state === 'completed' && !resolved)) {
+      if (working || (job.state === 'completed' && !hasSavedGeneration(job))) {
         previouslyWorkingJobs.current.add(job.id);
-      } else if (resolved && previouslyWorkingJobs.current.has(job.id)) {
-        previouslyWorkingJobs.current.delete(job.id);
+      } else if (hasSavedGeneration(job) && previouslyWorkingJobs.current.delete(job.id)) {
         newlyRevealed.push(job.id);
       }
     }
@@ -303,61 +301,45 @@ export function MediaGenerationHistory({
       for (const id of newlyRevealed) next.add(id);
       return next;
     });
+  }, [visibleJobs]);
+
+  useEffect(() => {
+    if (!revealingJobIds.size) return;
     const timer = window.setTimeout(() => {
-      setRevealingJobIds(prev => {
-        const next = new Set(prev);
-        for (const id of newlyRevealed) next.delete(id);
-        return next;
-      });
+      setRevealingJobIds(new Set());
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [visibleJobs, assetsById]);
+  }, [revealingJobIds]);
 
-  // Build unified stream: session jobs stay on `job:id`, deduplicating their resolved asset from the library list.
-  const { groups, orderedAssets, activeCount, totalVisibleCount } = useMemo(() => {
-    const claimedAssetIds = new Set<string>();
-    const jobItems: StreamItem[] = visibleJobs.map(job => {
-      const output = job.libraryAssets?.[0];
-      const resolved = job.state === 'completed' && output ? assetsById.get(output.assetId) : undefined;
-      if (resolved) claimedAssetIds.add(resolved.id);
-      return { kind: 'job', key: `job:${job.id}`, job, asset: resolved, timestamp: job.createdAt };
-    });
+  const { groups, activeCount, totalVisibleCount } = useMemo(() => {
+    const items: StreamItem[] = [];
+    const completedByVersion = new Map<string, string>();
+    let activeCount = 0;
+    for (const job of visibleJobs) {
+      if (hasSavedGeneration(job)) {
+        const primary = job.libraryAssets[0];
+        completedByVersion.set(`${primary.assetId}/${primary.versionId}`, job.id);
+      } else {
+        items.push({ kind: 'job', key: `job:${job.id}`, job, timestamp: job.createdAt });
+        if (job.state === 'queued' || job.state === 'running') activeCount++;
+      }
+    }
+    const totalVisibleCount = (data?.total ?? 0) + items.length;
+    for (const asset of assets) {
+      const jobId = completedByVersion.get(`${asset.id}/${asset.currentVersionId}`);
+      items.push({ kind: 'asset', key: jobId ? `job:${jobId}` : `asset:${asset.id}`, asset, jobId, timestamp: asset.updatedAt || asset.createdAt });
+    }
 
-    const assetItems: StreamItem[] = assets
-      .filter(asset => !claimedAssetIds.has(asset.id))
-      .map(asset => ({
-        kind: 'asset',
-        key: `asset:${asset.id}`,
-        asset,
-        timestamp: asset.updatedAt || asset.createdAt,
-      }));
-
-    // Keep lightbox navigation order matching visual order.
-    const ordered: LibraryAsset[] = [];
-    for (const item of jobItems) if (item.kind === 'job' && item.asset) ordered.push(item.asset);
-    for (const item of assetItems) if (item.kind === 'asset') ordered.push(item.asset);
-
-    // Group by Day: active/session items lead the first group (or today's group); finished assets group by dayKey.
-    const dayMap = new Map<string, StreamItem[]>();
-    const pushToDay = (key: string, item: StreamItem) => {
-      const list = dayMap.get(key);
-      if (list) list.push(item);
-      else dayMap.set(key, [item]);
-    };
-
-    const today = dayKey(Date.now());
-    for (const item of jobItems) pushToDay(today, item);
-    for (const item of assetItems) pushToDay(dayKey(item.timestamp), item);
-
-    const grouped = [...dayMap.entries()].map(([key, items]) => ({ key, items }));
-    const running = visibleJobs.filter(job => job.state === 'queued' || job.state === 'running').length;
-    const totalCount = (data?.total ?? 0) + visibleJobs.filter(job => {
-      const out = job.libraryAssets?.[0];
-      return !(job.state === 'completed' && out && assetsById.has(out.assetId));
-    }).length;
-
-    return { groups: grouped, orderedAssets: ordered, activeCount: running, totalVisibleCount: totalCount };
-  }, [visibleJobs, assets, assetsById, data?.total]);
+    // Group adjacent rows only. Reuniting nonadjacent days would reorder the server results.
+    const groups: { day: string; items: StreamItem[] }[] = [];
+    for (const item of items) {
+      const day = sort === 'name' ? '' : dayKey(item.timestamp);
+      const previous = groups.at(-1);
+      if (previous && previous.day === day) previous.items.push(item);
+      else groups.push({ day, items: [item] });
+    }
+    return { groups, activeCount, totalVisibleCount };
+  }, [visibleJobs, assets, data?.total, sort]);
 
   const hasJobs = visibleJobs.length > 0;
   const hasItems = groups.some(group => group.items.length > 0);
@@ -474,7 +456,7 @@ export function MediaGenerationHistory({
               </Tooltip>
             )}
             <Tooltip label={t('Download')} wrap>
-              <a className="om-gen-icon-pill" href={src} download={version.filename || asset.name} aria-label={t('Download')} onClick={() => onDownload?.()}>
+              <a className="om-gen-icon-pill" href={`${src}?download=1`} download={version.filename || asset.name} aria-label={t('Download')} onClick={() => onDownload?.()}>
                 <RemixIcon name="download-2-line" size={14} />
               </a>
             </Tooltip>
@@ -539,10 +521,7 @@ export function MediaGenerationHistory({
   let assignedFirstActive = false;
 
   const renderJobCard = (item: Extract<StreamItem, { kind: 'job' }>) => {
-    const { job, asset, key } = item;
-    if (asset) {
-      return renderAssetCard(asset, key, revealingJobIds.has(job.id));
-    }
+    const { job, key } = item;
     const refAsset = job.library?.references?.[0] ? assetsById.get(job.library.references[0].assetId) : undefined;
     const refVersion = refAsset ? assetVersion(refAsset, job.library?.references?.[0].versionId) : undefined;
     const fallbackRatio = refVersion?.width && refVersion?.height ? refVersion.width / refVersion.height : undefined;
@@ -603,7 +582,7 @@ export function MediaGenerationHistory({
     >
       {lightboxAssetId && (
         <GenerationLightbox
-          assets={orderedAssets}
+          assets={assets}
           activeId={lightboxAssetId}
           models={models}
           onSelectId={setLightboxAssetId}
@@ -746,15 +725,15 @@ export function MediaGenerationHistory({
           </div>
         ) : (
           <div className="om-gen-stream">
-            {groups.map(group => (
-              <section key={group.key} className="om-gen-day-group" aria-label={formatDayHeading(group.key, t, locale)}>
-                {(groups.length > 1 || assets.length > 0) && (
-                  <h3 className="om-gen-day-heading om-eyebrow">{formatDayHeading(group.key, t, locale)}</h3>
+            {groups.map((group, index) => (
+              <section key={`${group.day}:${index}`} className="om-gen-day-group" aria-label={group.day ? formatDayHeading(group.day, t, locale) : undefined}>
+                {group.day && (groups.length > 1 || assets.length > 0) && (
+                  <h3 className="om-gen-day-heading om-eyebrow">{formatDayHeading(group.day, t, locale)}</h3>
                 )}
                 <div className="om-gen-flow">
                   {group.items.map(item => item.kind === 'job'
                     ? renderJobCard(item)
-                    : renderAssetCard(item.asset, item.key))}
+                    : renderAssetCard(item.asset, item.key, Boolean(item.jobId && revealingJobIds.has(item.jobId))))}
                 </div>
               </section>
             ))}

@@ -4,6 +4,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { assetMediaUrl, assetVersion, type AssetVersion, type LibraryAsset } from '../../../shared/asset-library';
 import { classifyAudioKind, type AudioKind } from '../../../shared/audio-kind';
+import { hasSavedGeneration, matchesGenerationQuery } from './assetTasks';
 import { resumableJob, type GenerationJob, type Model } from '../../../shared/gateway';
 import { generationOptions } from '../../../shared/generation-options';
 import { formatDuration } from '../components/sidebar/assetHelpers';
@@ -567,33 +568,24 @@ export function SoundStudioWorkspace({
   );
   const decodedWaveforms = useAudioWaveforms(waveformInputs, 128);
 
-  const savedAssetIds = useMemo(
-    () => new Set(allAssetTracks.map(item => item.asset?.id).filter((id): id is string => Boolean(id))),
-    [allAssetTracks],
-  );
-
   const filteredAssetTracks = useMemo(() => {
     if (typeFilter === 'all' || hasServerAudioKind) return allAssetTracks;
     return allAssetTracks.filter(track => classifyAudioTrackTab(track.version?.model, models, track.version?.source, track.version?.audioKind) === typeFilter);
   }, [allAssetTracks, typeFilter, hasServerAudioKind, models]);
 
-  // Unified stream jobs: in-progress, save-pending and resumable jobs always appear;
-  // completed jobs seamlessly yield to their saved library track row without duplicates;
-  // failed/cancelled session jobs stay inline until dismissed.
   const streamJobs = useMemo(() => {
+    if (browser.page !== 0 || browser.source === 'upload') return [];
     const sessionSet = new Set(sessionJobIds);
     return jobs.filter(job => {
-      if (job.modality !== 'audio') return false;
+      if (job.modality !== 'audio' || hasSavedGeneration(job)) return false;
       if (dismissedJobIds.has(job.id)) return false;
+      if (!matchesGenerationQuery(job, browser.query)) return false;
+      if (typeFilter !== 'all' && classifyAudioKind(job.model.id, job.model.mode, 'generated', `${job.model.modelId} ${job.model.label}`) !== typeFilter) return false;
       if (job.state === 'queued' || job.state === 'running') return true;
       if (job.savePending || resumableJob(job)) return true;
-      if (job.state === 'completed') {
-        const assetId = job.libraryAssets?.[0]?.assetId;
-        return sessionSet.has(job.id) && (!assetId || !savedAssetIds.has(assetId));
-      }
       return sessionSet.has(job.id);
     });
-  }, [jobs, sessionJobIds, dismissedJobIds, savedAssetIds]);
+  }, [jobs, sessionJobIds, dismissedJobIds, browser.page, browser.source, browser.query, typeFilter]);
 
   const streamEntries = useMemo<StreamEntry[]>(() => {
     const jobEntries: StreamEntry[] = streamJobs.map(job => ({
@@ -605,7 +597,7 @@ export function SoundStudioWorkspace({
     const trackEntries: StreamEntry[] = filteredAssetTracks.map(track => ({
       kind: 'track',
       id: track.id,
-      createdAt: track.version?.createdAt ?? track.asset?.updatedAt ?? 0,
+      createdAt: track.asset?.updatedAt ?? 0,
       track,
     }));
     if (browser.sort === 'name') return [...jobEntries, ...trackEntries];

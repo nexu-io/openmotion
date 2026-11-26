@@ -3,7 +3,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { Slider } from 'open-design-ui/slider';
 import { useId, useState } from 'react';
 import { modelReferenceLimit, type Model } from '../../../shared/gateway';
-import { compatibleImageResolutions, generationOptions, resolveGenerationParameters, usesInputImageRatio, videoAudioAlwaysOn, type GenerationOption } from '../../../shared/generation-options';
+import { compatibleImageResolutions, generationOptions, resolveGenerationParameters, usesInputImageRatio, validateGenerationOptions, videoAudioAlwaysOn, type GenerationOption } from '../../../shared/generation-options';
 import { cn } from '../components/ui/cn';
 import { FieldTrigger } from '../components/ui/FormField';
 import { Popover } from '../components/ui/Popover';
@@ -14,6 +14,32 @@ import { useI18n } from '../i18n/I18n';
 
 export type ParameterDraft = { values: Record<string, unknown>; advanced: string };
 export const emptyParameters: ParameterDraft = { values: {}, advanced: '{}' };
+
+export const durationUnitsPerSecond = (field: GenerationOption) => field.key === 'music_length_ms' ? 1000 : 1;
+
+function defaultProfileResolution(allowed: string[], preferred: unknown) {
+  return typeof preferred === 'string' && allowed.includes(preferred) ? preferred : allowed[0];
+}
+
+/** Fill the visible output profile before validation. Explicit output and size use separate provider contracts. */
+function applyImageProfileDefaults(model: Model, parameters: Record<string, unknown>, hasInputImage: boolean) {
+  if (model.modality !== 'image' || !['opendesign', 'account'].includes(model.provider)) return;
+  const effective = { ...model.defaults, ...parameters };
+  if (effective.output !== undefined || effective.size !== undefined) return;
+  const isEdit = hasInputImage || (Array.isArray(effective.images) && effective.images.length > 0);
+  const fields = ((isEdit ? generationOptions(model, true) : undefined) ?? model.generationOptions ?? generationOptions(model))?.fields;
+  const ratioField = fields?.find(field => field.key === 'aspect_ratio');
+  const resolutionField = fields?.find(field => field.key === 'resolution');
+  if (!ratioField || !resolutionField) return;
+  const ratio = effective.aspect_ratio ?? ratioField.default;
+  const allowed = compatibleImageResolutions(model, ratio, isEdit);
+  // A resolution-only JSON request may target a different ratio. Let the catalogue resolve that pair.
+  if (parameters.aspect_ratio === undefined && typeof parameters.resolution === 'string' && allowed && !allowed.includes(parameters.resolution)) return;
+  if (ratio !== undefined) parameters.aspect_ratio = ratio;
+  const preferredResolution = effective.resolution ?? resolutionField.default;
+  const resolution = allowed ? defaultProfileResolution(allowed, preferredResolution) : preferredResolution;
+  if (resolution !== undefined) parameters.resolution ??= resolution;
+}
 
 export function durationTicks(min: number, max: number): number[] {
   if (max <= min) return [min];
@@ -53,7 +79,14 @@ export function requestParameters(draft: ParameterDraft, model?: Model, hasInput
   if (model && parameterInputImageRatio(model, draft, hasInputImage)) delete values.ratio;
   // Quick controls override advanced JSON, which in turn overrides Studio-level fallback defaults.
   const parameters = { ...defaultValues, ...extra, ...values };
-  if (model) resolveGenerationParameters(model, parameters, hasInputImage);
+  if (!model) return parameters;
+  applyImageProfileDefaults(model, parameters, hasInputImage);
+  const resolved = resolveGenerationParameters(model, parameters, hasInputImage);
+  if (resolved.music_length_ms !== undefined && model.modality === 'audio') validateGenerationOptions(model, resolved);
+  if (model.modality === 'image' && (parameters.aspect_ratio !== undefined || parameters.resolution !== undefined)
+    && resolved.aspect_ratio !== undefined && resolved.resolution !== undefined) {
+    return { ...parameters, aspect_ratio: resolved.aspect_ratio, resolution: resolved.resolution };
+  }
   return parameters;
 }
 export function parameterInputImageRatio(model: Model, draft: ParameterDraft, hasInputImage: boolean): boolean {
@@ -180,14 +213,14 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
   const activeAspectRatio = draft.values.aspect_ratio ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default;
   const allowedResolutions = compatibleImageResolutions(model, activeAspectRatio, hasInputImage);
   const effectiveDefault = (field: GenerationOption) => {
-    if (defaultValues && defaultValues[field.key] !== undefined) return defaultValues[field.key];
+    const preferred = model.defaults?.[field.key] ?? defaultValues?.[field.key] ?? field.default;
     if (field.key === 'resolution' && allowedResolutions) {
       if (!allowedResolutions.length) return undefined;
-      return typeof field.default === 'string' && allowedResolutions.includes(field.default) ? field.default : allowedResolutions[0];
+      return defaultProfileResolution(allowedResolutions, preferred);
     }
-    return field.default;
+    return preferred;
   };
-  const value = (field: GenerationOption) => draft.values[field.key] ?? extra[field.key] ?? model.defaults?.[field.key] ?? effectiveDefault(field);
+  const value = (field: GenerationOption) => draft.values[field.key] ?? extra[field.key] ?? effectiveDefault(field);
   const choicesFor = (field: GenerationOption) => {
     const choices = field.choices ?? [];
     if (field.key !== 'resolution' || !allowedResolutions) return choices;
@@ -199,7 +232,7 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
     if (v === undefined) return t('Auto');
     if (typeof v === 'object') return t('Custom');
     if (typeof v === 'boolean') return t(v ? 'On' : 'Off');
-    if (field.key === 'duration' && typeof v === 'number' && v > 0) return `${v}s`;
+    if ((field.key === 'duration' || field.key === 'music_length_ms') && typeof v === 'number' && v > 0) return `${v / durationUnitsPerSecond(field)}s`;
     return t(option?.label ?? String(v));
   };
   const set = (field: GenerationOption, value: unknown) => {
@@ -288,6 +321,20 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
       }))]} />;
   };
   const settingsLabel = t('Generation settings');
+  const renderNumberField = (field: GenerationOption) => {
+    const unit = durationUnitsPerSecond(field);
+    const current = value(field);
+    const min = field.min === undefined ? undefined : field.min / unit;
+    const max = field.max === undefined ? undefined : field.max / unit;
+    const step = field.step === undefined ? undefined : field.step / unit;
+    return <div className="om-generation-number">
+      <label className="om-field"><input id={`generation-${field.key}`} aria-label={t(field.label)} type="number"
+        min={min} max={max} step={step} placeholder={t('Auto')} value={typeof current === 'number' ? current / unit : ''}
+        onChange={e => set(field, e.target.value === '' ? undefined : Number(e.target.value) * unit)} /></label>
+      {min !== undefined && max !== undefined && <Slider label={t(field.label)} min={min} max={max} step={step}
+        value={typeof current === 'number' ? current / unit : min} onCommit={next => set(field, next * unit)} />}
+    </div>;
+  };
   const settingsSummary = compactSummary ? t('Advanced parameters') : summary || (boxed ? t('Model parameters') : settingsLabel);
   const settingsTrigger = boxed ? <FieldTrigger className="om-picker-trigger om-generation-summary"
     aria-labelledby={settingsLabelId} aria-describedby={settingsSummaryId}>
@@ -425,7 +472,7 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
             : <>
                 {field.kind === 'choice' && (field.presentation === 'ratio' ? renderRatioTiles(field) : isVideo && field.key === 'resolution' && (field.choices?.length ?? 0) <= 4 ? renderChoicePills(field) : fieldSelect(field))}
                 {field.kind === 'boolean' && <button className="om-switch" role="switch" aria-label={t(field.label)} aria-checked={Boolean(value(field))} onClick={() => set(field, !value(field))}><span /></button>}
-                {field.kind === 'number' && <div className="om-generation-number"><label className="om-field"><input id={`generation-${field.key}`} aria-label={t(field.label)} type="number" min={field.min} max={field.max} step={field.step} placeholder={t('Auto')} value={typeof value(field) === 'number' ? value(field) as number : ''} onChange={e => set(field, e.target.value === '' ? undefined : Number(e.target.value))} /></label>{field.min !== undefined && field.max !== undefined && <Slider label={t(field.label)} min={field.min} max={field.max} step={field.step} value={Number(value(field) ?? field.min)} onCommit={v => set(field, v)} />}</div>}
+                {field.kind === 'number' && renderNumberField(field)}
                 {field.kind === 'text' && <label className="om-field"><input id={`generation-${field.key}`} aria-label={t(field.label)} value={String(value(field) ?? '')} onChange={e => set(field, e.target.value || undefined)} /></label>}
               </>}
         </div>)}</div>}

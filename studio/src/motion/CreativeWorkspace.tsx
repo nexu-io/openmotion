@@ -18,7 +18,7 @@ import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import { mediaEditorDestination, mediaLabels, sceneFeature, scenesForStudio, studioIconTone, studioDestination, studioDraftKey, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { DesignSceneTabs, type DesignTabId } from '../design/scenes/DesignSceneTabs';
 import { SoundSceneTabs } from './SoundSceneTabs';
-import { findSoundTab, isSfxModel, type SoundTabId } from './soundTabs';
+import { findSoundTab, isSfxModel, type SoundLiveTabId, type SoundTabId } from './soundTabs';
 import { readPersistedStudioDrafts, savePersistedStudioDraft } from './authRecoveryStore';
 
 export type StudioCreation = {
@@ -34,7 +34,7 @@ export type StudioCreation = {
   reuseInScene?: (sceneId: StudioScene['id'], draft: AssetDraft, model?: string | null) => void;
   chooseModel: (model: string) => void;
   /** Opens the scene's generation page, optionally with a prompt already filled in. */
-  openCreate?: (prompt?: string, scene?: StudioScene['id']) => void;
+  openCreate?: (prompt?: string, tab?: SoundLiveTabId) => void;
 };
 
 export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavigate, onOpenStudio, breadcrumb, onBackToExplore, onExplore, onCollection, onOpenBrandKit, onSelectDesignScene, hasProject, active, drafts, cinemaTemplate }: {
@@ -89,16 +89,16 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     onNavigate(next);
   };
   const pinned = catalog.catalog?.models.find(model => model.id === destination.model);
-  const openCreate = destination.home ? (prompt?: string, sceneId?: StudioScene['id']) => {
-    const target = scenesForStudio(studio).find(item => item.id === (sceneId ?? scene.id)) ?? scene;
-    const next: StudioDestination = { ...studioDestination(studio, target.id, destination.model), mediaTab: true };
+  const openCreate = destination.home ? (prompt?: string, targetTab: SoundLiveTabId = scene.id === 'speech' ? 'speech' : 'music') => {
+    const next = mediaEditorDestination(findSoundTab(targetTab)!.backingScene, prompt === undefined ? destination.model : null);
     if (prompt !== undefined) {
-      const targetTab = target.id === 'speech' ? 'speech' : 'music';
       const key = `sound/${targetTab}`;
-      const previous = drafts.current.get(key);
-      drafts.current.set(key, { ...previous, modality: next.scene.modality, prompt, references: previous?.references ?? [] });
+      const previous = drafts.current.get(key) ?? readPersistedStudioDrafts<AssetDraft>()[key];
+      const draft: AssetDraft = { ...previous, modality: 'audio', prompt, references: previous?.references ?? [] };
+      drafts.current.set(key, draft);
+      savePersistedStudioDraft(key, draft);
     }
-    onNavigate(next, null);
+    onNavigate(next, targetTab === 'sfx' ? targetTab : null);
   } : undefined;
   const selectSoundTab = isSoundStudio ? (tabId: SoundTabId, nextDraft?: AssetDraft, model?: string | null) => {
     const tabDef = findSoundTab(tabId);
@@ -158,6 +158,10 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     </header>
     </>}
     <AssetsPage key={isSoundStudio ? `sound/${visit}${destination.home ? ':home' : ''}` : draftKey + visit} active={active} hasProject={hasProject} studio={{ destination, catalog, guestPreview, draftKey, soundTab: activeSoundTab, selectSoundTab, useAsFirstFrame, reuseInScene, initialDraft,
-      remember: (draft, options) => { drafts.current.set(draftKey, draft); if (options?.persist !== false) savePersistedStudioDraft(draftKey, draft); }, chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
+      remember: (draft, options) => {
+        if (destination.home) return;
+        drafts.current.set(draftKey, draft);
+        if (options?.persist !== false) savePersistedStudioDraft(draftKey, draft);
+      }, chooseModel: model => onNavigate({ ...destination, model }, activeSoundTab === 'music' || activeSoundTab === 'speech' ? null : activeSoundTab), openCreate }} />
   </div>;
 }

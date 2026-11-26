@@ -15,7 +15,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { Tooltip } from '../components/ui/Tooltip';
 import { GameAssetsGrid, GameAssetsRow, useMyGames } from './game/GameAssetsSection';
 import { AssetTaskMenu } from './AssetTaskHistory';
-import { assetTasks, mergeAssetJobs, type AssetTask } from './assetTasks';
+import { assetTasks, hasSavedGeneration, matchesGenerationQuery, mergeAssetJobs, type AssetTask } from './assetTasks';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
 import { AssetGenerationPlaceholder } from './AssetGenerationPlaceholder';
 import { MediaGenerationHistory } from './MediaGenerationHistory';
@@ -422,7 +422,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const savedVersions = useMemo(() => {
     const keys = new Set<string>();
     for (const asset of browser.data?.assets ?? []) {
-      for (const item of asset.versions) keys.add(`${asset.id}/${item.id}`);
+      keys.add(`${asset.id}/${asset.currentVersionId}`);
     }
     return keys;
   }, [browser.data?.assets]);
@@ -433,15 +433,12 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     return jobs.filter(job => {
       if (dismissedJobIds.has(job.id)) return false;
       if (studioModality ? job.modality !== studioModality : (kind !== 'all' && job.modality !== kind)) return false;
+      if (hasSavedGeneration(job)) {
+        return keepCompletedInPlace && sessionSet.has(job.id) && job.libraryAssets.some(output => savedVersions.has(`${output.assetId}/${output.versionId}`));
+      }
+      if (browser.source === 'upload' || !matchesGenerationQuery(job, browser.query)) return false;
       if (job.state === 'queued' || job.state === 'running') return true;
       if (job.savePending || resumableJob(job)) return true;
-      if (job.state === 'completed') {
-        if (!sessionSet.has(job.id)) return false;
-        if (keepCompletedInPlace) return true;
-        const outputs = job.libraryAssets;
-        if (!outputs?.length) return true;
-        return !outputs.every(output => savedVersions.has(`${output.assetId}/${output.versionId}`));
-      }
       return sessionSet.has(job.id);
     }).sort((a, b) => {
       const aWorking = a.state === 'queued' || a.state === 'running';
@@ -449,16 +446,13 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       if (aWorking !== bWorking) return aWorking ? -1 : 1;
       return b.createdAt - a.createdAt;
     });
-  }, [jobs, studioModality, studio, kind, sessionJobIds, dismissedJobIds, savedVersions]);
+  }, [jobs, studioModality, studio, kind, sessionJobIds, dismissedJobIds, savedVersions, browser.query, browser.source]);
   const activePlaceholderCount = useMemo(
     () => placeholderJobs.filter(job => job.state === 'queued' || job.state === 'running').length,
     [placeholderJobs],
   );
   const dismissJob = useCallback((jobId: string) => setDismissedJobIds(prev => new Set(prev).add(jobId)), []);
-  const hasVisiblePendingJob = useMemo(
-    () => placeholderJobs.some(job => job.state !== 'completed' || !(job.libraryAssets?.length && job.libraryAssets.every(output => savedVersions.has(`${output.assetId}/${output.versionId}`)))),
-    [placeholderJobs, savedVersions],
-  );
+  const hasVisiblePendingJob = placeholderJobs.some(job => !hasSavedGeneration(job));
   const showLibraryPlaceholders = hasVisiblePendingJob && (!studio || !guide);
   const leadingPlaceholderTiles = showLibraryPlaceholders && browser.page === 0
     ? placeholderJobs.map(job => (

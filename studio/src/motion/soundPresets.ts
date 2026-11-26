@@ -143,35 +143,35 @@ export const DURATION_PRESETS = [15, 30, 60] as const;
 export const SFX_DURATION_PRESETS = [2, 5, 10] as const;
 export const SPEED_PRESETS = [0.8, 1, 1.2] as const;
 
-/** Normalize a phrase for idempotent prompt-tag detection across locales. */
-function normalizeSegment(value: string): string {
-  return value.trim().toLowerCase();
+/** Match the whole tag, including punctuation inside a translated phrase. */
+function findPromptTag(prompt: string, tagText: string) {
+  const tag = tagText.trim();
+  if (!tag) return null;
+  const literal = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const boundary = '[,，、;；.!?。！？\\n]';
+  return new RegExp(`(^|${boundary})([ \\t]*)${literal}(?=[ \\t]*(?:$|${boundary}))`, 'i').exec(prompt);
 }
 
 export function hasPromptTag(prompt: string, tagText: string): boolean {
-  const needle = normalizeSegment(tagText);
-  if (!needle) return false;
-  return prompt
-    .split(/[,，、;\n]+/)
-    .map(normalizeSegment)
-    .some(segment => segment === needle || segment.includes(needle));
+  return Boolean(findPromptTag(prompt, tagText));
 }
 
 export function togglePromptTag(prompt: string, tagText: string, cjkSeparator = false): string {
   const cleanTag = tagText.trim();
   if (!cleanTag) return prompt;
-  const trimmed = prompt.trim();
-  if (!trimmed) return cleanTag;
-  const needle = normalizeSegment(cleanTag);
-  const parts = trimmed.split(/[,，、;]+/).map(part => part.trim()).filter(Boolean);
-  const existingIndex = parts.findIndex(part => normalizeSegment(part) === needle);
-  const joiner = cjkSeparator ? '，' : ', ';
-  if (existingIndex >= 0) {
-    parts.splice(existingIndex, 1);
-    return parts.join(joiner);
+  const match = findPromptTag(prompt, cleanTag);
+  if (match) {
+    const after = prompt.slice(match.index + match[0].length);
+    if (!match[1]) return after.replace(/^[ \t]*[,，、;；][ \t]*/, '');
+    const before = prompt.slice(0, match.index);
+    if (/^[,，、]$/.test(match[1])) return before + after;
+    const nextTag = after.match(/^[ \t]*[,，、][ \t]*/);
+    return before + match[1] + (nextTag ? match[2] + after.slice(nextTag[0].length) : after);
   }
+  const trimmed = prompt.trimEnd();
+  if (!trimmed) return cleanTag;
   const hasTrailingPunctuation = /[,.!?;，。！？；、]$/.test(trimmed);
-  return hasTrailingPunctuation ? `${trimmed} ${cleanTag}` : `${trimmed}${joiner}${cleanTag}`;
+  return trimmed + (hasTrailingPunctuation ? ' ' : cjkSeparator ? '，' : ', ') + cleanTag;
 }
 
 /** Estimate natural narration length in seconds for mixed CJK and Latin scripts, adjusted for speech speed. */

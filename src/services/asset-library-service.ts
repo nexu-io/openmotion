@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { brandWebsite, publicBrandAddress } from '../../gateway/brand-network.ts';
 import { MAX_ASSET_BYTES } from '../../shared/asset-limits.ts';
 import type { AssetListInput, AssetReference, AssetVersion, LibraryAsset } from '../../shared/asset-library.ts';
+import { classifyAudioKind, isAudioKind } from '../../shared/audio-kind.ts';
 import {
   computeProjectRevision,
   isSha256Hex,
@@ -297,11 +298,14 @@ export function validatePublicImportUrl(raw: unknown): string {
   return normalized;
 }
 
-function toAssetVersionDto(row: typeof assetVersions.$inferSelect): AssetVersion {
+type LibraryVersionRow = typeof assetVersions.$inferSelect & { generationMode: string | null };
+
+function toAssetVersionDto(row: LibraryVersionRow, modality: AssetModality): AssetVersion {
   return {
     id: row.id,
     createdAt: row.createdAt.getTime(),
     source: row.source,
+    ...(modality === 'audio' ? { audioKind: classifyAudioKind(row.model ?? undefined, row.generationMode ?? undefined, row.source) } : {}),
     filename: row.filename,
     ...(row.displayName ? { name: row.displayName } : {}),
     mimeType: row.mimeType,
@@ -324,7 +328,7 @@ function toAssetVersionDto(row: typeof assetVersions.$inferSelect): AssetVersion
 
 function toLibraryAssetDto(
   assetRow: typeof assets.$inferSelect,
-  versionRows: readonly (typeof assetVersions.$inferSelect)[],
+  versionRows: readonly LibraryVersionRow[],
 ): LibraryAsset {
   const sortedVersions = [...versionRows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   const currentVersionId = assetRow.currentVersionId ?? sortedVersions.at(-1)?.id ?? '';
@@ -335,7 +339,7 @@ function toLibraryAssetDto(
     createdAt: assetRow.createdAt.getTime(),
     updatedAt: assetRow.updatedAt.getTime(),
     currentVersionId,
-    versions: sortedVersions.map(toAssetVersionDto),
+    versions: sortedVersions.map(row => toAssetVersionDto(row, assetRow.modality)),
     ...(assetRow.trashedAt ? { trashedAt: assetRow.trashedAt.getTime() } : {}),
   };
 }
@@ -1541,6 +1545,16 @@ export class AssetLibraryService {
     };
   }
 
+  private loadLibraryVersions(workspaceId: string, assetIds: string[]) {
+    return this.db.select({
+      ...getTableColumns(assetVersions),
+      generationMode: sql<string | null>`${jobs.inputPayload} ->> 'mode'`,
+    })
+      .from(assetVersions)
+      .leftJoin(jobs, and(eq(jobs.id, assetVersions.jobId), eq(jobs.workspaceId, assetVersions.workspaceId)))
+      .where(and(eq(assetVersions.workspaceId, workspaceId), inArray(assetVersions.assetId, assetIds)));
+  }
+
   /** List workspace assets with filtering, search, sorting, and pagination. */
   async listAssets(
     ctx: AuthContext,
@@ -1557,6 +1571,9 @@ export class AssetLibraryService {
     if (input.source && input.source !== 'upload' && input.source !== 'generated') {
       throw new CloudError('INVALID_ARGUMENT', 'Invalid source filter', { status: 400 });
     }
+    if (input.audioKind !== undefined && !isAudioKind(input.audioKind)) {
+      throw new CloudError('INVALID_ARGUMENT', 'Invalid audio kind filter', { status: 400 });
+    }
     if (input.sort && !['newest', 'oldest', 'name'].includes(input.sort)) {
       throw new CloudError('INVALID_ARGUMENT', 'Invalid sort order', { status: 400 });
     }
@@ -1571,6 +1588,7 @@ export class AssetLibraryService {
     if (input.modality) {
       conditions.push(eq(assets.modality, input.modality));
     }
+    if (input.audioKind) conditions.push(eq(assets.modality, 'audio'));
 
     const orderBy =
       input.sort === 'name'
@@ -1590,12 +1608,9 @@ export class AssetLibraryService {
     }
 
     const assetIds = assetRows.map((row) => row.id);
-    const versionRows = await this.db
-      .select()
-      .from(assetVersions)
-      .where(and(eq(assetVersions.workspaceId, ctx.workspaceId), inArray(assetVersions.assetId, assetIds)));
+    const versionRows = await this.loadLibraryVersions(ctx.workspaceId, assetIds);
 
-    const versionsByAsset = new Map<string, (typeof assetVersions.$inferSelect)[]>();
+    const versionsByAsset = new Map<string, LibraryVersionRow[]>();
     for (const row of versionRows) {
       const bucket = versionsByAsset.get(row.assetId) ?? [];
       bucket.push(row);
@@ -1606,9 +1621,10 @@ export class AssetLibraryService {
     const filtered = assetRows
       .map((row) => toLibraryAssetDto(row, versionsByAsset.get(row.id) ?? []))
       .filter((asset) => {
-        if (input.source) {
+        if (input.source || input.audioKind) {
           const current = asset.versions.find((v) => v.id === asset.currentVersionId) ?? asset.versions.at(-1);
-          if (!current || current.source !== input.source) return false;
+          if (input.source && current?.source !== input.source) return false;
+          if (input.audioKind && current?.audioKind !== input.audioKind) return false;
         }
         if (needle) {
           const haystack = `${asset.name} ${asset.versions.map((v) => `${v.prompt ?? ''} ${v.model ?? ''}`).join(' ')}`.toLowerCase();
@@ -1644,10 +1660,7 @@ export class AssetLibraryService {
       throw new CloudError('ASSET_NOT_FOUND', 'Asset not found', { status: 404 });
     }
 
-    const versionRows = await this.db
-      .select()
-      .from(assetVersions)
-      .where(and(eq(assetVersions.assetId, assetId), eq(assetVersions.workspaceId, ctx.workspaceId)));
+    const versionRows = await this.loadLibraryVersions(ctx.workspaceId, [assetId]);
 
     const asset = toLibraryAssetDto(assetRows[0], versionRows);
     if (!versionId) {
