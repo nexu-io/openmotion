@@ -272,3 +272,27 @@ it('resumes again when a later sign-in in the same page re-saves the same intent
   expect(api.createdProjects()).toEqual([CREATED]);
   expect(readAuthPendingDraft()).toBeNull();
 });
+
+it('treats dismissing the guest sign-in prompt as cancel, so a later sign-in creates nothing', async () => {
+  history.replaceState(null, '', '/explore?template=custom-agents');
+  stubGuestApi();
+  await mountApp();
+
+  const entry = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Open and edit'));
+  await act(async () => entry!.click());
+  await settle();
+  expect(readAuthPendingDraft()).toMatchObject({ action: 'use_template', autoResume: true });
+  const close = document.querySelector<HTMLButtonElement>('.om-epm-close');
+  expect(close).not.toBeNull();
+  await act(async () => close!.click());
+  await settle();
+  expect(assign).not.toHaveBeenCalled();
+  expect(readAuthPendingDraft()).toBeNull();
+
+  // Later the user signs in from the top bar and lands on the same page.
+  const api = await returnFromLogin('/explore?template=custom-agents');
+  await settle(() => false, 600);
+  expect(api.calls.filter(call => call.method === 'POST' && /\/motion-api\/(sessions|projects)/.test(call.path))).toEqual([]);
+  expect(api.createdProjects()).toEqual([]);
+  expect(location.pathname + location.search).toBe('/explore?template=custom-agents');
+});

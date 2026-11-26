@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
+import { cancelAuthPendingIntent } from './authRecoveryStore';
 import {
   consumeExternalCheckoutPending,
   entitlementAttributionFields,
@@ -86,7 +87,11 @@ export function EntitlementModalHost() {
         entryId={request.entryId}
         attribution={request.attribution}
         returnTo={request.returnTo}
-        onClose={() => setRequest(null)}
+        onClose={() => {
+          // Dismissing the guest sign-in prompt cancels the login intent saved by the click.
+          if (request.mode === 'guest') cancelAuthPendingIntent();
+          setRequest(null);
+        }}
       />
     </Suspense>
   );

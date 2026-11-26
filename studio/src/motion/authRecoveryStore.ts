@@ -172,23 +172,29 @@ export function consumeAuthCancelledFromUrl(): boolean {
   } catch {
     // Ignore history API restrictions in embedded frames.
   }
-  const existing = readAuthPendingDraft();
-  if (existing) {
-    // Cancelling login must never auto-submit or auto-create a project,
-    // while keeping user-entered drafts intact.
-    if (existing.instruction?.trim() || existing.homeDraftSnapshot?.trim()) {
-      const preserved: AuthPendingDraft = { ...existing, autoResume: false };
-      try {
-        window.sessionStorage.setItem(AUTH_PENDING_DRAFT_KEY, JSON.stringify(preserved));
-      } catch {
-        // Ignore storage failures.
-      }
-      notifyAuthPendingDraftChanged();
-    } else {
-      clearAuthPendingDraft();
-    }
-  }
+  cancelAuthPendingIntent();
   return true;
+}
+
+/**
+ * The user declined to sign in (cancelled the OIDC page or dismissed the sign-in prompt).
+ * A later, unrelated sign-in must never auto-submit or auto-create a project, while
+ * user-entered drafts stay available for a manual resume.
+ */
+export function cancelAuthPendingIntent(): void {
+  const existing = readAuthPendingDraft();
+  if (!existing) return;
+  if (existing.instruction?.trim() || existing.homeDraftSnapshot?.trim()) {
+    const preserved: AuthPendingDraft = { ...existing, autoResume: false };
+    try {
+      window.sessionStorage.setItem(AUTH_PENDING_DRAFT_KEY, JSON.stringify(preserved));
+    } catch {
+      // Ignore storage failures.
+    }
+    notifyAuthPendingDraftChanged();
+  } else {
+    clearAuthPendingDraft();
+  }
 }
 
 export function currentReturnToPath(): string {
