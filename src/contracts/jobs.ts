@@ -220,6 +220,7 @@ export const exportRenderPayloadSchema = z.object({
   userId: z.string().min(1).max(256).optional(),
   workId: uuidSchema.optional(),
   exportRoute: z.enum(['mcp', 'studio']).optional(),
+  telemetryOptOut: z.boolean().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
   expected: z
     .object({

@@ -1030,8 +1030,9 @@ export async function processExportRenderJob(
   let failureStage = 'hydrating';
   let failureCode = 'EXPORT_HYDRATION_FAILED';
   let uploadedOutputKey: string | null = null;
-  let actorUserId: string | undefined = payload.userId;
-  let effectiveWorkId: string | undefined = payload.workId;
+  let telemetryOptOut = payload.telemetryOptOut === true;
+  let actorUserId: string | undefined = telemetryOptOut ? undefined : payload.userId;
+  let effectiveWorkId: string | undefined = telemetryOptOut ? undefined : payload.workId;
   let exportRoute: 'mcp' | 'studio' = payload.exportRoute ?? 'studio';
   let telemetryEmitted = false;
 
@@ -1043,7 +1044,7 @@ export async function processExportRenderJob(
     failureStage?: string;
     errorCode?: string;
   }): Promise<void> => {
-    if (telemetryEmitted || !deps.cloudTracking?.isEnabled()) return;
+    if (telemetryEmitted || telemetryOptOut || !deps.cloudTracking?.isEnabled()) return;
     telemetryEmitted = true;
     deps.cloudTracking.trackExportResult({
       jobId,
@@ -1184,11 +1185,17 @@ export async function processExportRenderJob(
     claimed = true;
     const claimedRow = claimedRows[0];
     const claimedInput = (claimedRow.inputPayload ?? {}) as Record<string, unknown>;
-    if (!actorUserId && typeof claimedInput.userId === 'string') {
-      actorUserId = claimedInput.userId;
-    }
-    if (!effectiveWorkId && claimedRow.workId) {
-      effectiveWorkId = claimedRow.workId;
+    if (claimedInput.telemetryOptOut === true) {
+      telemetryOptOut = true;
+      actorUserId = undefined;
+      effectiveWorkId = undefined;
+    } else if (!telemetryOptOut) {
+      if (!actorUserId && typeof claimedInput.userId === 'string') {
+        actorUserId = claimedInput.userId;
+      }
+      if (!effectiveWorkId && claimedRow.workId) {
+        effectiveWorkId = claimedRow.workId;
+      }
     }
     if (!payload.exportRoute && claimedInput.exportRoute === 'mcp') {
       exportRoute = 'mcp';

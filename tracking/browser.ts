@@ -13,16 +13,18 @@ export function createBrowserTracking<const R extends Registry>(options: {
   const context = new URLSearchParams(window.location.search).get('tracking_context');
   if (context && /^[0-9a-f-]{36}$/i.test(context)) endpoint.searchParams.set('context', context);
   const tracking = createTracker({ ...options, entrypoint: 'studio', send: async (events, signal) => {
+    if (signal.aborted) return 'drop';
     try {
       const rawDeviceId = options.getDeviceId?.();
       const deviceId = typeof rawDeviceId === 'string' && rawDeviceId.trim() ? rawDeviceId.trim() : undefined;
       const response = await fetch(endpoint, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(deviceId ? { events, device_id: deviceId } : { events }), keepalive: true, signal: AbortSignal.any([signal, AbortSignal.timeout(1000)]) });
+      if (signal.aborted) return 'drop';
       if (!response.ok) return response.status >= 500 || response.status === 429 ? 'retry' : 'drop';
       const receipt = await response.json() as { enabled?: boolean };
       if (receipt.enabled === false) tracking.setEnabled(false);
       return 'accepted';
-    } catch { return 'retry'; }
+    } catch { return signal.aborted ? 'drop' : 'retry'; }
   } });
   return tracking;
 }

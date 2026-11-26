@@ -60,6 +60,7 @@ const MAX_TAG_LENGTH = 128;
 
 let activeConfig: BrowserTracertConfig | null = null;
 let activeClient: TracertClientLike | null = null;
+let identityResetListener: (() => void) | null = null;
 let loadPromise: Promise<boolean> | null = null;
 let customLoader: TracertSdkLoader | null = null;
 let enabled = false;
@@ -218,6 +219,7 @@ function applyIdentityToClient(client: TracertClientLike, identity: TrackingUser
         lastUserContextKey = '';
       }
       if (hadAuthenticatedIdentity) {
+        identityResetListener?.();
         client.clearContext('user');
         client.reset();
         rotateBrowserTrackingDeviceId(readPersistedSdkDeviceId(client));
@@ -511,6 +513,10 @@ export async function flushTracert(timeoutMs = 2000): Promise<void> {
   } catch {
     // Flush is best effort.
   }
+}
+
+export function setTracertIdentityResetListener(listener: (() => void) | null): void {
+  identityResetListener = listener;
 }
 
 export function isTracertConfigured(): boolean {

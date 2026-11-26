@@ -23,6 +23,7 @@ import {
   resetTracertForTests,
   resetTracertIdentity,
   setTracertEnabled,
+  setTracertIdentityResetListener,
   syncTracertIdentity,
   type TrackingUserIdentity,
 } from './tracertClient.ts';
@@ -37,14 +38,19 @@ const tracking = createBrowserTracking({
   getDeviceId: () => getBrowserTrackingDeviceId(),
 });
 
+// If Tracert clears a persisted authenticated identity discovered from storage
+// after reload, discard any pre-hydration queued PostHog events before device_id rotates.
+setTracertIdentityResetListener(() => {
+  tracking.reset();
+});
+
 let initialization: Promise<void> | undefined;
 let configuration: 'uninitialized' | 'loading' | 'ready' | 'disabled' | 'unavailable' = 'uninitialized';
 let controller: AbortController | undefined;
 let retryAt = 0;
 let posthogEnabled = true;
 let allowlistEnabled = false;
-let lastSyncedSignedIn = false;
-const tracertOnlySeen = new Set<string>();
+let lastSyncedIdentityKey: string | null = null;
 
 function applyRuntimeConfig(runtimeConfig: BrowserTrackingRuntimeConfig): void {
   posthogEnabled = runtimeConfig.posthogEnabled;
@@ -130,12 +136,6 @@ export async function trackMotion<E extends StudioEvent>(event: E, properties: E
     return status;
   }
 
-  if (tracertOnlySeen.has(eventId)) return 'duplicate' as const;
-  tracertOnlySeen.add(eventId);
-  if (tracertOnlySeen.size > 2048) {
-    const oldest = tracertOnlySeen.values().next().value;
-    if (oldest !== undefined) tracertOnlySeen.delete(oldest);
-  }
   captureTracertEvent(event, properties as Record<string, unknown>, { eventId, occurredAt });
   return 'queued' as const;
 }
@@ -179,12 +179,29 @@ export function setMotionTrackingEnabled(enabled: boolean) {
   configuration = enabled ? 'ready' : 'disabled';
 }
 
+function identityKeyFor(identity: TrackingUserIdentity): string | null {
+  if (!identity.signedIn) return null;
+  const trimmed = typeof identity.userId === 'string' ? identity.userId.trim() : '';
+  return trimmed || '__signed_in__';
+}
+
 export function syncMotionTrackingIdentity(identity: TrackingUserIdentity) {
   if (configuration === 'uninitialized' && navigator.doNotTrack !== '1') {
     hydrateInjectedConfigIfPresent();
   }
-  const signedOutAfterSignIn = !identity.signedIn && lastSyncedSignedIn;
-  lastSyncedSignedIn = identity.signedIn;
+  const nextIdentityKey = identityKeyFor(identity);
+  const signedOutAfterSignIn = nextIdentityKey === null && lastSyncedIdentityKey !== null;
+  const switchedAccount =
+    nextIdentityKey !== null &&
+    lastSyncedIdentityKey !== null &&
+    nextIdentityKey !== lastSyncedIdentityKey;
+  lastSyncedIdentityKey = nextIdentityKey;
+
+  if (signedOutAfterSignIn || switchedAccount) {
+    // Discard pending browser batches and abort in-flight retries before
+    // identity or device_id changes so queued events never cross accounts.
+    tracking.reset();
+  }
   syncTracertIdentity(identity);
   if (signedOutAfterSignIn && !isTracertEnabled()) {
     rotateBrowserTrackingDeviceId();
@@ -192,7 +209,8 @@ export function syncMotionTrackingIdentity(identity: TrackingUserIdentity) {
 }
 
 export function resetMotionTrackingIdentity() {
-  lastSyncedSignedIn = false;
+  lastSyncedIdentityKey = null;
+  tracking.reset();
   resetTracertIdentity();
 }
 
@@ -204,8 +222,8 @@ export function resetMotionTrackingForTests() {
   retryAt = 0;
   posthogEnabled = true;
   allowlistEnabled = false;
-  lastSyncedSignedIn = false;
-  tracertOnlySeen.clear();
+  lastSyncedIdentityKey = null;
+  tracking.reset();
   tracking.setEnabled(false);
   resetTracertForTests();
   resetBrowserTrackingDeviceIdForTests();

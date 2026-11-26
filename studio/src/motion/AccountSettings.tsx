@@ -1,7 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import * as tracking from './pageTracking';
-import { resetTracertIdentity } from './tracertClient';
+import { resetMotionTrackingIdentity } from './tracking';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import type { AccountSummary } from '../../../shared/provider-directory';
@@ -415,7 +415,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       if (!response.ok) throw new Error(t('Could not sign out'));
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
-      resetTracertIdentity();
+      resetMotionTrackingIdentity();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));

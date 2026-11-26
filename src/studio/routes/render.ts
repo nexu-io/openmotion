@@ -327,8 +327,9 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       }
     }
 
+    const telemetryOptOut = body.telemetryOptOut === true;
     let workId: string | null = null;
-    if (body.telemetryOptOut !== true && deps.workRounds) {
+    if (!telemetryOptOut && deps.workRounds) {
       const latest = await deps.workRounds.latestGenerated(auth, project.id).catch(() => null);
       workId = latest?.id ?? null;
     }
@@ -367,7 +368,7 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
             outputName: filename,
             format,
             compositionPath: compositionPath ?? 'index.html',
-            userId: actorUserId,
+            ...(telemetryOptOut ? { telemetryOptOut: true } : { userId: actorUserId }),
             exportRoute: 'studio',
             ...(variables ? { variables } : {}),
             settings,
@@ -407,8 +408,12 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           outputName: filename,
           format,
           phase1: true,
-          userId: actorUserId,
-          ...(workId ? { workId } : {}),
+          ...(telemetryOptOut
+            ? { telemetryOptOut: true }
+            : {
+                userId: actorUserId,
+                ...(workId ? { workId } : {}),
+              }),
           exportRoute: 'studio',
           settings,
         });
@@ -431,7 +436,7 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       }
     }
 
-    if (body.telemetryOptOut !== true) {
+    if (!telemetryOptOut) {
       deps.cloudTracking?.trackTaskAccepted({
         taskId: jobId,
         taskType: 'export',

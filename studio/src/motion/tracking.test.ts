@@ -347,3 +347,74 @@ it('strictly enforces the shared cloud allowlist across BOTH PostHog and Tracert
 
   tracking.resetMotionTrackingForTests();
 });
+
+it('discards unflushed browser events and cancels in-flight retries across sign-out and account switch boundaries', async () => {
+  const delivered: Array<{ events: Array<{ event: string; properties: Record<string, unknown> }>; device_id?: string }> = [];
+  let releaseInFlight: (() => void) | null = null;
+  let postCall = 0;
+
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'POST' && init.body) {
+      postCall += 1;
+      const parsed = JSON.parse(String(init.body)) as {
+        events: Array<{ event: string; properties: Record<string, unknown> }>;
+        device_id?: string;
+      };
+      if (postCall === 1) {
+        // Hold Alice's in-flight request until an identity transition aborts it.
+        await new Promise<void>((resolve, reject) => {
+          releaseInFlight = resolve;
+          init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        });
+      }
+      delivered.push(parsed);
+      return Response.json({ ok: true, accepted: true });
+    }
+    return Response.json({
+      enabled: true,
+      posthogEnabled: true,
+      allowlistEnabled: true,
+      locked: true,
+      reason: 'cloud',
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+
+  const tracking = await import('./tracking');
+  await tracking.initializeTracking();
+
+  // 1. Alice signs in and queues an event without flushing.
+  tracking.syncMotionTrackingIdentity({ signedIn: true, userId: 'amr_alice', workspaceId: 'ws_alice' });
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  expect(tracking.getMotionTrackingStatus().pending).toBe(1);
+
+  // Alice signs out before flush: her queued event MUST be discarded rather than
+  // flushed later under the rotated device_id or Bob's session cookie.
+  tracking.resetMotionTrackingIdentity();
+  expect(tracking.getMotionTrackingStatus().pending).toBe(0);
+  expect(await tracking.flushMotionTracking()).toBe('empty');
+  expect(delivered).toHaveLength(0);
+
+  // 2. Alice signs in again, starts an in-flight flush, and account switches to Bob mid-flight.
+  tracking.syncMotionTrackingIdentity({ signedIn: true, userId: 'amr_alice', workspaceId: 'ws_alice' });
+  expect(await tracking.trackMotion('ui_click', { page_name: 'home', area: 'workspace', element: 'open_project' })).toBe('queued');
+  const aliceFlush = tracking.flushMotionTracking();
+  await Promise.resolve();
+
+  tracking.syncMotionTrackingIdentity({ signedIn: true, userId: 'amr_bob', workspaceId: 'ws_bob' });
+  releaseInFlight?.();
+  expect(await aliceFlush).toBe('drop');
+  expect(tracking.getMotionTrackingStatus().pending).toBe(0);
+
+  // Flushing after the switch does NOT retry Alice's aborted event.
+  expect(await tracking.flushMotionTracking()).toBe('empty');
+  expect(delivered).toHaveLength(0);
+
+  // Bob's own event flushes cleanly.
+  expect(await tracking.trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'export' })).toBe('queued');
+  expect(await tracking.flushMotionTracking()).toBe('accepted');
+  expect(delivered).toHaveLength(1);
+  expect(delivered[0].events.map((ev) => ev.properties.element)).toEqual(['export']);
+
+  tracking.resetMotionTrackingForTests();
+});
