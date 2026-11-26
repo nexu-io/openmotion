@@ -169,6 +169,7 @@ export function EntitlementPromoModal({
                       <div className="om-epm-giftbar">
                         <div className="om-epm-gm">
                           <b>{t('Sign in for starter trial credits')}</b>
+                          <span>{t('Create your first game, website, or motion video in one prompt')}</span>
                         </div>
                         <div className="om-epm-fan">
                           <img src={mediaUrl('graphic-1.webp')} alt="" />

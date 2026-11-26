@@ -477,6 +477,13 @@
 /* Responsive layout for narrow viewports (e.g. 375px mobile) and 200% browser zoom:
    hide side reels, switch to a single scrollable column, and preserve readable typography
    and tappable CTA hit targets without scaling via CSS zoom. */
+@media (max-height: 860px) {
+  .om-epm-main {
+    overflow-y: auto;
+    max-height: calc(100dvh - 32px - var(--om-desktop-safe-top, 0px));
+  }
+}
+
 @media (max-width: 960px), (max-height: 680px) {
   .om-epm-mask {
     padding: calc(12px + var(--om-desktop-safe-top, 0px)) 12px 12px;
@@ -492,6 +499,8 @@
     display: none;
   }
   .om-epm-main {
+    overflow-y: visible;
+    max-height: none;
     padding: 28px 22px 24px;
   }
 }
