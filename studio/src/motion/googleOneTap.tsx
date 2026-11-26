@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { normalizeDesktopHandoffPlanTier } from '../../../shared/desktop-auth-handoff';
 import { isDesktopApp } from '../utils/platformHost';
 import type { CloudAccountSummary } from './AccountSettings';
 import { clearPrivateSwrCache } from './swrCache';
@@ -48,8 +49,6 @@ export type RegisteredLoginErrorCode =
   | 'AUTH_UNAVAILABLE'
   | 'ONE_TAP_UNAVAILABLE'
   | 'UNKNOWN';
-
-type OneTapPlanTier = 'free' | 'go' | 'plus' | 'pro' | 'max' | 'unknown';
 
 export interface GooglePromptMomentNotification {
   isDisplayed?: () => boolean;
@@ -117,21 +116,6 @@ function sanitizeTelemetryCode(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
   const trimmed = raw.trim();
   return CODE_RE.test(trimmed) ? trimmed : undefined;
-}
-
-function normalizePlanTier(raw: unknown): OneTapPlanTier {
-  if (typeof raw !== 'string') return 'unknown';
-  const normalized = raw.trim().toLowerCase();
-  if (
-    normalized === 'free' ||
-    normalized === 'go' ||
-    normalized === 'plus' ||
-    normalized === 'pro' ||
-    normalized === 'max'
-  ) {
-    return normalized;
-  }
-  return 'unknown';
 }
 
 function normalizeLoginErrorCode(raw: unknown): RegisteredLoginErrorCode {
@@ -972,7 +956,7 @@ export function useMotionGoogleOneTap({
                 surface: 'motion_web',
                 attempt_id: attemptId,
                 is_new_user: Boolean(data.isNewUser),
-                plan_tier: normalizePlanTier(data.planTier),
+                plan_tier: normalizeDesktopHandoffPlanTier(data.planTier),
                 post_login_action: 'in_place',
                 ...(safeRef ? { ref: safeRef } : {}),
                 ...(safeUtmSource ? { utm_source: safeUtmSource } : {}),
