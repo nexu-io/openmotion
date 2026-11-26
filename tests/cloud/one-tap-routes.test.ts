@@ -99,6 +99,19 @@ function createRecordingCloudTracking(): {
   };
 }
 
+const UPGRADE_NOTICE_CSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'";
+
+/** Upgrade notice pages use the shared design system and may only load its same-origin stylesheet. */
+function assertDesignSystemNotice(res: Response, html: string): void {
+  assert.equal(res.headers.get('content-security-policy'), UPGRADE_NOTICE_CSP);
+  assert.match(res.headers.get('content-type') ?? '', /^text\/html/);
+  assert.match(html, /<html lang="en" data-motion-ui>/);
+  assert.doesNotMatch(html, /data-theme=/, 'notices follow the system light/dark preference');
+  assert.match(html, /<link rel="stylesheet" href="\/design-system\/ui\.css" \/>/);
+  assert.match(html, /<a class="ui-button ui-button--primary" href="/);
+  assert.doesNotMatch(html, /#[0-9a-f]{3,8}\b/i, 'notice appearance comes from design-system roles');
+}
+
 describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
   // CI exports OPENMOTION_TELEMETRY=0; these cases exercise enabled telemetry,
   // so isolate them from the runner's opt-out variables.
@@ -2080,7 +2093,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.equal(reloadAfterSwitch.headers.get('location'), null);
 
       const retryHtml = await dbErrRes.text();
-      const hrefMatch = retryHtml.match(/href="([^"]+)"/);
+      const hrefMatch = retryHtml.match(/<a class="ui-button ui-button--primary" href="([^"]+)"/);
       assert.ok(hrefMatch?.[1], '503 page must render a bound Retry link');
       const generatedRetryUrl = hrefMatch[1].replaceAll('&amp;', '&');
       assert.match(generatedRetryUrl, /requireAuth=1/);
@@ -2111,7 +2124,9 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
       });
       assert.equal(activeOutage503.status, 503);
-      const activeRetryHref = (await activeOutage503.text()).match(/href="([^"]+)"/)![1].replaceAll('&amp;', '&');
+      const activeRetryHref = (await activeOutage503.text())
+        .match(/<a class="ui-button ui-button--primary" href="([^"]+)"/)![1]
+        .replaceAll('&amp;', '&');
       const activeRecoveredRes = await appProofRace.request(activeRetryHref, {
         headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
       });
@@ -2229,8 +2244,44 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     assert.match(browserStillNoProof.headers.get('content-type') ?? '', /^text\/html/);
     const noticeHtml = await browserStillNoProof.text();
     assert.match(noticeHtml, /Sign in required to continue/);
+    assertDesignSystemNotice(browserStillNoProof, noticeHtml);
+    assert.match(noticeHtml, /<a class="ui-button" href="\/">Back to Studio<\/a>/);
     assert.match(noticeHtml, /href="\/auth\/login\?/);
     assert.doesNotMatch(noticeHtml, /Unable to verify billing handoff/);
+
+    //    d) The notice stylesheet, its imports and fonts are served from the same origin the notice CSP allows.
+    const { app: apiApp } = createApiApp({
+      config,
+      db: {} as never,
+      storage: {} as never,
+      queues: {} as never,
+      eventBus: {} as never,
+      authStore: store,
+      authCache: cache,
+      amrIdentity,
+      disableWelcomeBootstrap: true,
+    });
+    const uiCss = await apiApp.request('/design-system/ui.css');
+    assert.equal(uiCss.status, 200);
+    assert.match(uiCss.headers.get('content-type') ?? '', /^text\/css/);
+    const imports = [...(await uiCss.text()).matchAll(/@import url\('\.\/([^']+)'\)/g)].map((m) => m[1]);
+    assert.ok(imports.includes('tokens.css') && imports.includes('fonts.css'));
+    const fontFiles: string[] = [];
+    for (const file of imports) {
+      const res = await apiApp.request(`/design-system/${file}`);
+      assert.equal(res.status, 200, file);
+      if (file === 'fonts.css') {
+        fontFiles.push(...[...(await res.text()).matchAll(/url\('\.\/([^']+)'\)/g)].map((m) => m[1]));
+      } else {
+        await res.body?.cancel();
+      }
+    }
+    assert.ok(fontFiles.length > 0);
+    for (const file of fontFiles) {
+      const res = await apiApp.request(`/design-system/${file}`);
+      assert.equal(res.status, 200, file);
+      await res.body?.cancel();
+    }
 
     // 2. Browser navigations hitting expired/missing session or ACCOUNT_MISMATCH get navigable responses (never raw JSON).
     const browserMissingSession = await app.request('/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1', {

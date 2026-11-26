@@ -248,6 +248,14 @@ function escapeHtmlText(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+/** Same-origin design-system entry for upgrade notice pages; its `@font-face` fonts load from the same origin. */
+const UPGRADE_NOTICE_STYLESHEET_PATH = '/design-system/ui.css';
+/**
+ * Notice pages render no script, image or frame; they may only load the design-system stylesheet and
+ * its fonts from this origin, plus the page-local layout `<style>`.
+ */
+const UPGRADE_NOTICE_CSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'";
+
 function renderUpgradeHandoffNoticeHtml(options: {
   title: string;
   heading: string;
@@ -259,22 +267,23 @@ function renderUpgradeHandoffNoticeHtml(options: {
 }): string {
   const secondaryAction =
     options.secondaryHref && options.secondaryLabel
-      ? `<a class="secondary" href="${escapeHtmlText(options.secondaryHref)}">${escapeHtmlText(options.secondaryLabel)}</a>`
+      ? `<a class="ui-button" href="${escapeHtmlText(options.secondaryHref)}">${escapeHtmlText(options.secondaryLabel)}</a>`
       : '';
+  // Appearance comes from the shared design system (same-origin `/design-system/ui.css`); without a
+  // data-theme attribute it follows the system light/dark preference. Local rules are layout only.
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-motion-ui>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${escapeHtmlText(options.title)}</title>
+    <link rel="stylesheet" href="${UPGRADE_NOTICE_STYLESHEET_PATH}" />
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 24px; background: #191a1b; color: #f7f8f5; }
-      main { max-width: 440px; padding: 28px 32px; border-radius: 12px; background: #202123; border: 1px solid #484b4d; text-align: center; }
-      h1 { margin: 0 0 10px; font-size: 18px; }
-      p { margin: 0 0 18px; font-size: 14px; line-height: 1.5; color: #c0c4bd; }
-      .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-      a { display: inline-block; padding: 8px 16px; border-radius: 8px; background: #f7f8f5; color: #191a1b; text-decoration: none; font-weight: 600; font-size: 14px; }
-      a.secondary { background: transparent; color: #f7f8f5; border: 1px solid #484b4d; }
+      body { display: grid; place-items: center; min-height: 100vh; min-height: 100dvh; padding: var(--motion-space-24) var(--motion-space-16); background: var(--motion-shell); }
+      main { width: 100%; max-width: 440px; padding: var(--motion-space-28) var(--motion-space-32); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-lg); background: var(--motion-raised); box-shadow: var(--motion-shadow-md); text-align: center; }
+      h1 { margin-bottom: var(--motion-space-10); color: var(--motion-strong); font-size: var(--motion-text-heading); font-weight: var(--motion-weight-semibold); }
+      p { margin-bottom: var(--motion-space-20); color: var(--motion-muted); }
+      .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--motion-space-8); }
     </style>
   </head>
   <body>
@@ -282,7 +291,7 @@ function renderUpgradeHandoffNoticeHtml(options: {
       <h1>${escapeHtmlText(options.heading)}</h1>
       <p>${escapeHtmlText(options.message)}</p>
       <div class="actions">
-        <a href="${escapeHtmlText(options.primaryHref)}">${escapeHtmlText(options.primaryLabel)}</a>
+        <a class="ui-button ui-button--primary" href="${escapeHtmlText(options.primaryHref)}">${escapeHtmlText(options.primaryLabel)}</a>
         ${secondaryAction}
       </div>
     </main>
@@ -1249,7 +1258,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             'content-type': 'text/html; charset=utf-8',
             'cache-control': 'no-store',
             pragma: 'no-cache',
-            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+            'content-security-policy': UPGRADE_NOTICE_CSP,
             'x-content-type-options': 'nosniff',
           },
         });
