@@ -2813,7 +2813,6 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   const attributeBrowserTrackingBatch = (
     payload: unknown,
     attestedAppUserIds: ReadonlySet<string>,
-    sessionAppUserId: string | null,
   ): unknown[] => {
     const items = Array.isArray(payload)
       ? payload
@@ -2841,8 +2840,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         }
         continue;
       }
-      // Events queued without an app_user_id (e.g. guest pre-login One Tap prompts) stay guest events.
-      if (!isOneTapEvent && sessionAppUserId) event.app_user_id = sessionAppUserId;
+      // Events queued without an app_user_id stay guest events, exactly as before One Tap attribution.
       attributed.push(event);
     }
     return attributed;
@@ -2927,7 +2925,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       }
     }
     const acceptedCount = cloudTracking.acceptBrowserBatch(
-      attributeBrowserTrackingBatch(body, attestedAppUserIds, sessionAppUserId),
+      attributeBrowserTrackingBatch(body, attestedAppUserIds),
     );
     if (sessionAppUserId && !previouslyAttested.has(sessionAppUserId)) {
       const attCookie = serializeTrackingAttestationCookie(

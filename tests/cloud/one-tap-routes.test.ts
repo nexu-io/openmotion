@@ -866,13 +866,14 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     }
     assert.equal(fetchCalls, 0, 'Must never call public OPENDESIGN_API_URL when dedicated One Tap S2S config is incomplete');
 
-    // Verify K8s manifests explicitly wire non-empty internal URL and non-optional token/URL refs
+    // Verify K8s manifests wire the dedicated internal URL and token. The refs are optional so clusters
+    // without One Tap still start; the API above already fails closed when either value is missing.
     const configmap = await readFile(path.resolve('deploy/k8s/configmap.yaml'), 'utf8');
     const deployment = await readFile(path.resolve('deploy/k8s/api-deployment.yaml'), 'utf8');
     assert.match(configmap, /OPENDESIGN_ONE_TAP_INTERNAL_URL:\s*"https?:\/\/[^"]+"/);
     assert.match(
       deployment,
-      /- name: OPENDESIGN_ONE_TAP_INTERNAL_URL\s+valueFrom:\s+configMapKeyRef:\s+name: openmotion-config\s+key: OPENDESIGN_ONE_TAP_INTERNAL_URL\s+- name: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN\s+valueFrom:\s+secretKeyRef:\s+name: openmotion-secrets\s+key: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN\s+- name:/,
+      /- name: OPENDESIGN_ONE_TAP_INTERNAL_URL\s+valueFrom:\s+configMapKeyRef:\s+name: openmotion-config\s+key: OPENDESIGN_ONE_TAP_INTERNAL_URL\s+optional: true\s+- name: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN\s+valueFrom:\s+secretKeyRef:\s+name: openmotion-secrets\s+key: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN\s+optional: true\s+- name:/,
     );
   });
 
@@ -1457,11 +1458,10 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.equal(htmlRes.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups');
       assert.notEqual(htmlRes.headers.get('cross-origin-opener-policy'), 'same-origin');
 
+      // The API owns these document headers; the Ingress must not add snippets (rejected by default
+      // ingress-nginx admission) or override COOP with same-origin.
       const ingressYaml = await readFile(path.resolve('deploy/k8s/ingress.yaml'), 'utf8');
-      assert.match(ingressYaml, /accounts\.google\.com\/gsi/);
-      assert.match(ingressYaml, /http:\/\/127\.0\.0\.1:\*/);
-      assert.match(ingressYaml, /identity-credentials-get=\(self "https:\/\/accounts\.google\.com"\)/);
-      assert.match(ingressYaml, /Cross-Origin-Opener-Policy:\s*same-origin-allow-popups/);
+      assert.doesNotMatch(ingressYaml, /configuration-snippet/);
       assert.doesNotMatch(ingressYaml, /Cross-Origin-Opener-Policy:\s*same-origin["';\s]*$/m);
 
       // K8s ConfigMap & NetworkPolicy alignment for internal AMR One Tap service (port 18080)
