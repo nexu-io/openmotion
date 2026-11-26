@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { I18nProvider, type Locale } from '../i18n/I18n';
-import { AccountSettings, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
+import { AccountSettings, buildLoginUrl, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
+import { getBrowserTrackingDeviceId, resetBrowserTrackingDeviceIdForTests } from './trackingDeviceId';
 import { getPrivateSwrIdentity } from './swrCache';
 import { notifyProvidersChanged } from './useProviderDirectory';
 
@@ -442,4 +443,19 @@ it('hides the Model gateway button when openProviders is omitted', async () => {
   await act(async () => root!.render(<I18nProvider initialLocale="en"><AccountSettings /></I18nProvider>));
   expect(container.textContent).toContain('Unified model gateway');
   expect(findButton(container, 'Model gateway')).toBeUndefined();
+});
+
+it('attaches the browser tracking device_id to buildLoginUrl for OIDC sign-in attribution', () => {
+  resetBrowserTrackingDeviceIdForTests();
+  const deviceId = getBrowserTrackingDeviceId();
+  const url = new URL(buildLoginUrl('/studio', { hookId: 'bf_banner', entryId: '11111111-1111-4111-8111-111111111111' }), 'https://cloud.example.test');
+  expect(url.pathname).toBe('/auth/login');
+  expect(url.searchParams.get('returnTo')).toBe('/studio');
+  expect(url.searchParams.get('hook_id')).toBe('bf_banner');
+  expect(url.searchParams.get('entry_id')).toBe('11111111-1111-4111-8111-111111111111');
+  expect(url.searchParams.get('device_id')).toBe(deviceId);
+
+  const plainUrl = new URL(buildLoginUrl('/'), 'https://cloud.example.test');
+  expect(plainUrl.searchParams.get('device_id')).toBe(deviceId);
+  resetBrowserTrackingDeviceIdForTests();
 });
