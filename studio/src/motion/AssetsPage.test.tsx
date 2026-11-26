@@ -9,6 +9,7 @@ import type { AssetDraft } from './AssetComposer';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
 import { assetMediaUrl, type LibraryAsset } from '../../../shared/asset-library';
+import { resetVideoFrameThumbnailLoaderForTests } from '../components/ui/videoFrameThumbnailLoader';
 import type { GameCard } from '../../../shared/game-contract';
 import { gameApi } from './game/gameCatalog';
 
@@ -51,6 +52,7 @@ let pendingRead: ReturnType<typeof deferred<{ asset: LibraryAsset }>> | undefine
 let pendingList: ReturnType<typeof deferred<{ assets: LibraryAsset[]; total: number; nextOffset: null }>> | undefined;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
+  resetVideoFrameThumbnailLoaderForTests();
   vi.useFakeTimers(); vi.clearAllMocks(); pendingWrite = undefined; pendingRead = undefined; pendingList = undefined;
   records = new Map(['A', 'B'].map(id => [id, fixture(id)]));
   vi.mocked(assetRequest).mockImplementation(async args => {
@@ -236,7 +238,7 @@ it('extracts a gallery video cover from the current immutable version using the 
 
   await render();
   expect(videos).toHaveLength(1);
-  expect(videos[0].getAttribute('src')).toBe('/motion-api/assets/video/versions/video-v1/file');
+  expect(videos[0].getAttribute('src')).toBe('/motion-api/assets/video/versions/video-v1/file?frame=1');
   await act(async () => videos[0].dispatchEvent(new Event('loadedmetadata')));
   expect(videos[0].currentTime).toBe(2);
   await act(async () => videos[0].dispatchEvent(new Event('seeked')));

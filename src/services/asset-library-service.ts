@@ -1923,24 +1923,40 @@ export class AssetLibraryService {
     };
   }
 
-  /** Mint a short-lived Presigned GET URL for an asset version (`302` download or inline media). */
+  /** Mint a short-lived Presigned GET URL for an asset version (`302` download, inline media, or CORS video frame extraction). */
   async presignAssetVersionGet(
     ctx: AuthContext,
     reference: AssetReference,
-    options: { download?: boolean; allowTrash?: boolean; expiresInSec?: number } = {},
+    options: {
+      download?: boolean;
+      frame?: boolean;
+      bypassCacheWindow?: boolean;
+      allowTrash?: boolean;
+      expiresInSec?: number;
+    } = {},
   ): Promise<PresignedAssetUrlResult> {
     const metadata = await this.getAssetVersionMetadata(ctx, reference, {
       allowTrash: options.allowTrash ?? true,
     });
     const expiresInSec = options.expiresInSec ?? this.presignGetTtlSec;
+    const isVideoFrame = Boolean(options.frame && !options.download && metadata.mimeType.startsWith('video/'));
+    // Use bare RFC 6266 `inline` (without filename) for CORS video frame extraction (`?frame=1`)
+    // so its presigned S3 URL has a distinct browser HTTP cache key from:
+    // - non-CORS inline `<video>` playback (`inline; filename="..."`),
+    // - downloads (`attachment; filename="..."`), and
+    // - project preview routes (`preview.ts`), which omit ResponseContentDisposition altogether.
     const disposition = options.download
       ? `attachment; filename="${contentDispositionFilename(metadata.filename)}"`
-      : `inline; filename="${contentDispositionFilename(metadata.filename)}"`;
+      : isVideoFrame
+        ? 'inline'
+        : `inline; filename="${contentDispositionFilename(metadata.filename)}"`;
+    const bypassCacheWindow = isVideoFrame && Boolean(options.bypassCacheWindow);
 
     const url = await this.storage.presignGet(metadata.s3Key, {
       expiresInSec,
       responseContentType: metadata.mimeType,
       responseContentDisposition: disposition,
+      ...(bypassCacheWindow ? { cacheWindowSec: 0 } : {}),
     });
     return { url, metadata, expiresInSec };
   }

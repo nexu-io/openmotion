@@ -39,7 +39,7 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
     const items = templatesInCollection(catalog ?? firstPage?.items ?? [], collection);
     return industry ? templatesInCollection(items, industryCollection(industry)) : items;
   }, [catalog, firstPage, collection, industry, topBrands]);
-  const count = catalog ? matches.length : firstPage?.total;
+  const count = catalog ? matches.length : firstPage?.catalogReady === false ? undefined : firstPage?.total;
   const visible = matches.slice(0, limit);
   const playing = useTemplatePlayback(root, visible.map(item => item.id).join('|'), active, true, priority, true);
   const hasMore = visible.length < matches.length;

@@ -82,8 +82,8 @@ describe('@openmotion/observability/browser', () => {
       '/api/projects/p/preview/assets/soundtrack.m4a?original=1',
       '/api/projects/p/sprite-sheet/0/video.mp4', '/api/projects/p/thumbnail?time=1',
       '/api/projects/p/image-thumbnail/assets/image.webp', '/api/projects/p/renders/file/export.mp4',
-      '/motion-api/assets/a/versions/v/file', '/motion-api/assets/a/versions/v/thumbnail',
-      '/motion-api/project-archives/a/file', '/motion-api/exports/j/view', '/api/render/j/download',
+      '/motion-api/assets/a/versions/v/file', '/motion-api/assets/a/versions/v/file?frame=1', '/motion-api/assets/a/versions/v/thumbnail',
+      '/motion-api/project-archives/a/file', '/motion-api/exports/j/view', '/api/render/j/view?frame=1', '/api/render/j/download',
       '/api/templates/t/poster', '/motion-api/templates/t/source/assets/font.woff2', '/api/template-source/t/logo.svg',
       'https://storage.example.test/catalog/blobs/b',
     ]) expect(propagates(path), path).toBe(false);

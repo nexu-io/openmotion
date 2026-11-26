@@ -9,6 +9,7 @@ import type { Logger } from '../infra/logger.ts';
 import {
   normalizeCatalogAssetPath,
   type CatalogHead,
+  type CatalogListResult,
   type CatalogPort,
   type ResolvedCatalogAsset,
 } from '../services/catalog-service.ts';
@@ -191,6 +192,13 @@ function buildPublicJsonResponse(payload: unknown, ifNoneMatch?: string | null):
   });
 }
 
+function buildCatalogListResponse(page: CatalogListResult & { templates?: CatalogListResult['items'] }, ifNoneMatch?: string): Response {
+  if (page.catalogReady === false) {
+    return Response.json(page, { headers: { 'Cache-Control': 'no-store', Vary: CATALOG_PUBLIC_VARY } });
+  }
+  return buildPublicJsonResponse(page, ifNoneMatch);
+}
+
 function buildHeadResponse(head: CatalogHead): Response {
   if ('kind' in head) return buildAssetResponse(head);
   const headers = new Headers({
@@ -297,7 +305,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono<CatalogRouteE
       locale,
       kind,
     });
-    return buildPublicJsonResponse({ templates: page.items, ...page }, c.req.header('if-none-match'));
+    return buildCatalogListResponse({ templates: page.items, ...page }, c.req.header('if-none-match'));
   });
 
   // 2. Paginated / searchable catalog (Studio & web /api/template-catalog)
@@ -321,7 +329,7 @@ export function createCatalogRoutes(deps: CatalogRoutesDeps): Hono<CatalogRouteE
       locale,
       kind,
     });
-    return buildPublicJsonResponse(page, c.req.header('if-none-match'));
+    return buildCatalogListResponse(page, c.req.header('if-none-match'));
   });
 
   // 3. Poster GET & HEAD

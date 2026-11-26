@@ -266,16 +266,19 @@ export function createAssetRoutes(deps: AssetRoutesDeps): Hono {
     }
 
     const download = c.req.query('download') !== undefined && c.req.query('download') !== '0' && c.req.query('download') !== 'false';
+    const frame = !download && c.req.query('frame') !== undefined && c.req.query('frame') !== '0' && c.req.query('frame') !== 'false';
+    const retry = frame && /^[1-9]\d*$/.test(c.req.query('retry') ?? '');
     const presigned = await assetService.presignAssetVersionGet(
       auth,
       { assetId, versionId },
-      { download, allowTrash: true },
+      { download, frame, bypassCacheWindow: retry, allowTrash: true },
     );
+    const isVideoFrameRetry = retry && presigned.metadata.mimeType.startsWith('video/');
     return new Response(null, {
       status: 302,
       headers: {
         Location: presigned.url,
-        'Cache-Control': 'private, max-age=60',
+        'Cache-Control': isVideoFrameRetry ? 'no-store' : 'private, max-age=60',
         Vary: 'Origin, Cookie',
         ETag: presigned.metadata.etag,
       },

@@ -26,7 +26,7 @@ export type GalleryTemplate = {
 };
 export type SocialPlatform = 'X' | 'Instagram' | 'YouTube' | 'TikTok';
 export type TemplateSocial = { platform: SocialPlatform; views: number; sourceUrl: string; syncedAt: string; metadataUrl: string };
-export type TemplatePage = { items: GalleryTemplate[]; total: number; entryTotal: number; catalogTotal: number; galleryTotal?: number; catalogVersion?: string; warning?: string; offset: number; next: number | null };
+export type TemplatePage = { items: GalleryTemplate[]; total: number; entryTotal: number; catalogTotal: number; galleryTotal?: number; catalogVersion?: string; catalogReady?: boolean; warning?: string; offset: number; next: number | null };
 export const featuredTemplateIds = [
   'hf-moment-M945', 'hf-moment-M953', 'hf-reference-aroll-careerwithriya',
   'hf-moment-M1023', 'hf-moment-M1000', 'hf-moment-M990',

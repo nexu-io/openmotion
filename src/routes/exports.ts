@@ -194,12 +194,27 @@ export function createExportRoutes(deps: ExportRoutesDeps): Hono {
         },
       });
     }
-    const presigned = await exportService.presignExportFile(auth, meta.jobId, { disposition: 'attachment' });
+    const isDownload =
+      c.req.query('download') !== undefined &&
+      c.req.query('download') !== '0' &&
+      c.req.query('download') !== 'false';
+    const isFrame =
+      !isDownload &&
+      meta.mimeType.startsWith('video/') &&
+      c.req.query('frame') !== undefined &&
+      c.req.query('frame') !== '0' &&
+      c.req.query('frame') !== 'false';
+    const isRetry = isFrame && /^[1-9]\d*$/.test(c.req.query('retry') ?? '');
+    const presigned = await exportService.presignExportFile(auth, meta.jobId, {
+      disposition: isFrame ? 'inline' : 'attachment',
+      frame: isFrame,
+      bypassCacheWindow: isRetry,
+    });
     return new Response(null, {
       status: 302,
       headers: {
         Location: presigned.url,
-        'Cache-Control': 'private, max-age=60',
+        'Cache-Control': isRetry ? 'no-store' : 'private, max-age=60',
         Vary: 'Origin, Cookie',
         ETag: meta.etag,
       },
@@ -393,14 +408,19 @@ export function createExportRoutes(deps: ExportRoutesDeps): Hono {
         },
       });
     }
+    const isFrame = c.req.query('frame') !== undefined && c.req.query('frame') !== '0' && c.req.query('frame') !== 'false';
+    const isRetry = isFrame && /^[1-9]\d*$/.test(c.req.query('retry') ?? '');
     const presigned = await exportService.presignExportFile(auth, jobId, {
       disposition: 'inline',
+      frame: isFrame,
+      bypassCacheWindow: isRetry,
     });
+    const isVideoFrameRetry = isRetry && presigned.metadata.mimeType.startsWith('video/');
     return new Response(null, {
       status: 302,
       headers: {
         Location: presigned.url,
-        'Cache-Control': 'private, max-age=60',
+        'Cache-Control': isVideoFrameRetry ? 'no-store' : 'private, max-age=60',
         Vary: 'Origin, Cookie',
         ETag: presigned.metadata.etag,
       },
