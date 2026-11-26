@@ -667,3 +667,10 @@ it("detaches the retired iframe load listener when a shadow preview is promoted"
   });
   expect(removeSpy).toHaveBeenCalledWith("load", expect.any(Function));
 });
+
+it("focuses the isolated canvas overlay on pointerdown so timeline focus yields to canvas hotkeys", () => {
+  expect(canvas.tabIndex).toBe(-1);
+  const focus = vi.spyOn(canvas, "focus");
+  pointer("pointerdown", 60);
+  expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+});

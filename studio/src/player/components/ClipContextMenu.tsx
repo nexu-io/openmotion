@@ -288,7 +288,7 @@ export const ClipContextMenu = memo(function ClipContextMenu({
           }}
         >
           <span>{t("Delete")}</span>
-          <span className="text-neutral-500 text-[10px] ml-3">⌫</span>
+          <span className="text-neutral-500 text-[10px] ml-3">{keyHint("deleteSelectedAlt", keys)}</span>
         </button>
         {tools && <ClipMenuLinkItems part="delete" element={element} onClose={onClose} />}
       </div>

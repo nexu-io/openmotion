@@ -8,6 +8,7 @@ import { useElementLifecycleOps } from "../../hooks/useElementLifecycleOps";
 import { makeLifecycleOpsParams } from "../../hooks/elementLifecycleOpsTestUtils";
 import type { DomEditPatchBatch } from "../../hooks/domEditCommitTypes";
 import { CanvasContextMenu } from "./CanvasContextMenu";
+import { setStudioKeys } from "../../player/components/studioShortcuts";
 import type { ZOrderAction, ZOrderPatch } from "./canvasContextMenuZOrder";
 import type { DomEditSelection } from "./domEditing";
 
@@ -22,6 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setStudioKeys(null);
   act(() => root?.unmount());
   root = null;
   document.body.innerHTML = "";
@@ -134,7 +136,19 @@ describe("CanvasContextMenu — handler gating", () => {
 
     expect(zOrderButtons()).toHaveLength(0);
     expect(hasDeleteItem()).toBe(true);
+    expect(menuButtons()[0]?.textContent).toBe("Delete⌫");
     expect(document.body.querySelector(".border-t")).toBeNull();
+  });
+
+  it("updates the Delete shortcut hint when deleteSelectedAlt is remapped", () => {
+    setStudioKeys({ deleteSelectedAlt: "shift+x" });
+    const el = document.createElement("div");
+    el.id = "target";
+    document.body.append(el);
+
+    renderMenu({ selection: makeSelection("Target", el), onDelete: vi.fn() });
+
+    expect(menuButtons()[0]?.textContent).toBe("Delete⇧X");
   });
 });
 

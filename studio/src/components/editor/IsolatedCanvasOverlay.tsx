@@ -198,6 +198,7 @@ export function IsolatedCanvasOverlay() {
   function begin(event: PointerEvent<HTMLDivElement>) {
     const iframe = previewIframeRef.current;
     if (!iframe || drag.current || event.button !== 0 || !event.isPrimary) return;
+    if (!text.editing) event.currentTarget.focus({ preventScroll: true });
     const adapter = projectPreviewAdapter(iframe, projectId);
     if (!adapter) return;
     const frame = iframe.getBoundingClientRect();
@@ -209,6 +210,7 @@ export function IsolatedCanvasOverlay() {
     const corner = handle?.dataset.resizeCorner as Corner | undefined;
     const target = (corner || !insideFrame) ? visibleDraft?.target ?? selected : undefined;
     if (!insideFrame && (writeBlockedReason || !target || !hit.closest("[data-isolated-selection]"))) return;
+    if (target) usePlayerStore.getState().setSelectionOrigin("canvas");
     // The whole handle is clickable, even where it straddles the frame edge.
     const x = corner && box ? box.x + (corner.endsWith("e") ? box.width : 0) : (startX - frame.left) / frame.width;
     const y = corner && box ? box.y + (corner.startsWith("s") ? box.height : 0) : (startY - frame.top) / frame.height;
@@ -247,6 +249,7 @@ export function IsolatedCanvasOverlay() {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
         active.target = pick.target;
+        if (pick.target) usePlayerStore.getState().setSelectionOrigin("canvas");
         if (active.optimistic && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
           active.scope = { frame: iframe, paths: [pick.target.sourceFile] };
           if (active.hold) scopeStudioManualEditGesture(iframe, active.hold, active.scope.paths);
@@ -384,7 +387,7 @@ export function IsolatedCanvasOverlay() {
   }
 
   if (!select) return null;
-  return <div className="absolute inset-0 z-10 touch-none pointer-events-auto" aria-label={t("Composition canvas")}
+  return <div className="absolute inset-0 z-10 touch-none pointer-events-auto outline-hidden" tabIndex={-1} aria-label={t("Composition canvas")}
     style={text.editing ? { pointerEvents: "none" } : undefined} onDoubleClick={text.open}
     onContextMenu={event => {
       event.preventDefault();

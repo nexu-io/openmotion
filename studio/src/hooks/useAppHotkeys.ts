@@ -8,7 +8,12 @@ import {
   applyCaptionModelToIframe,
   isCaptionPreviewVisible,
 } from "../captions/components/CaptionOverlayUtils";
-import { type HotkeyCallbacks, dispatchModifierKey, dispatchPlainKey } from "./appHotkeysDispatch";
+import {
+  type HotkeyCallbacks,
+  dispatchModifierKey,
+  dispatchPlainKey,
+  timelineOwnsSelectionOrKey,
+} from "./appHotkeysDispatch";
 import {
   useEditHistoryActions,
   type EditHistoryHandle,
@@ -79,6 +84,7 @@ interface UseAppHotkeysParams {
   handleLinkEdit?: LinkShortcutCallbacks["handleLinkEdit"];
   handleTimelineElementDeleteOnly?: LinkShortcutCallbacks["handleTimelineElementDeleteOnly"];
   disableRazorTool?: boolean;
+  disableKeyframeReset?: boolean;
   handleSplitAtPlayhead?: (splitTime: number) => Promise<void>;
   handleTimelineElementSplit: (element: TimelineElement, splitTime: number) => Promise<void>;
   handleDomEditElementDelete: (
@@ -129,6 +135,7 @@ export function useAppHotkeys({
   handleTimelineElementSplit,
   handleSplitAtPlayhead,
   disableRazorTool,
+  disableKeyframeReset,
   handleDomEditElementDelete,
   domEditSelectionRef,
   editHistory,
@@ -212,6 +219,7 @@ export function useAppHotkeys({
     handleTimelineElementSplit,
     handleSplitAtPlayhead,
     disableRazorTool,
+    disableKeyframeReset,
     handleDomEditElementDelete,
     handleUndo,
     handleRedo,
@@ -233,7 +241,10 @@ export function useAppHotkeys({
 
   const handleAppKeyDown = useCallback((event: KeyboardEvent) => {
     const player = usePlayerStore.getState();
-    if (!projectId || player.timelineProjectId !== projectId || !player.timelineReady || player.editorInputLocked) return;
+    const timelineSurfaceReady =
+      player.timelineReady ||
+      (Boolean(player.authoredTimelinePath) && timelineOwnsSelectionOrKey(event));
+    if (!projectId || player.timelineProjectId !== projectId || !timelineSurfaceReady || player.editorInputLocked) return;
     const cb = cbRef.current;
     const key = event.key.toLowerCase();
     if (document.fullscreenElement?.matches('[data-studio-fullscreen-target]')) {

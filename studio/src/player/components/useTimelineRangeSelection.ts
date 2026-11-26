@@ -46,17 +46,18 @@ interface MarqueeDragState {
   /** Pre-drag selection, restored on Escape-cancel. */
   baseIds: Set<string>;
   basePrimary: string | null;
+  baseOrigin: "timeline" | "canvas" | null;
   /** Union new hits with baseIds (shift/cmd/ctrl at pointerdown). */
   additive: boolean;
   /** True once the pointer travelled past the click threshold. */
   active: boolean;
 }
 
-function snapshotSelection(): { ids: Set<string>; primary: string | null } {
+function snapshotSelection() {
   const s = usePlayerStore.getState();
   const ids = new Set(s.selectedElementIds);
   if (s.selectedElementId) ids.add(s.selectedElementId);
-  return { ids, primary: s.selectedElementId };
+  return { ids, primary: s.selectedElementId, origin: s.selectionOrigin };
 }
 
 function toMarqueeClips(elements: TimelineElement[]): MarqueeClipInput[] {
@@ -102,6 +103,7 @@ function commitMarqueeSelection(
   // must be written after it or the marquee selection would be wiped every frame.
   store.setSelectedElementId(primaryId ?? (additive ? marquee.basePrimary : null));
   store.setSelectedElementIds(ids);
+  store.setSelectionOrigin(ids.size > 0 ? "timeline" : null);
 }
 
 function canStartPointerGesture(
@@ -309,6 +311,7 @@ export function useTimelineRangeSelection({
       originY: point.y,
       baseIds: base.ids,
       basePrimary: base.primary,
+      baseOrigin: base.origin,
       additive,
       active: false,
     };
@@ -323,6 +326,8 @@ export function useTimelineRangeSelection({
       }
       if ((e.target as HTMLElement).closest("[data-clip]")) return;
       e.preventDefault?.();
+      // Pull focus into the timeline viewport because preventDefault suppresses native focus.
+      (e.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true });
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       activePointerIdRef.current = e.pointerId;
       gestureEpochRef.current = sessionEpochRef.current;
@@ -516,6 +521,7 @@ export function useTimelineRangeSelection({
         const store = usePlayerStore.getState();
         store.setSelectedElementId(marquee.basePrimary);
         store.setSelectedElementIds(marquee.baseIds);
+        store.setSelectionOrigin(marquee.baseOrigin);
       }
       if (updateUi) {
         setMarqueeRect(null);

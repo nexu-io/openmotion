@@ -63,9 +63,12 @@ afterEach(() => {
   usePlayerStore.getState().clearAutomationSelection();
   usePlayerStore.setState({
     elements: [],
+    authoredTimelinePath: null,
     selectedElementId: null,
     selectedElementIds: new Set<string>(),
+    selectionOrigin: null,
     selectedKeyframes: new Set<string>(),
+    keyframeCache: new Map(),
   });
 });
 
@@ -290,20 +293,161 @@ describe("dispatchPlainKey — Delete arbitration", () => {
     expect(e.defaultPrevented).toBe(false);
   });
 
-  it("leaves keyframe reset alone when an automation range is active", () => {
-    // Backspace's reset-keyframes branch sits below the guard, so it has to be
-    // covered too — otherwise Backspace wiped every keyframe on the clip.
+  it("leaves clip delete and keyframe reset alone when an automation range is active", () => {
     selectBgm();
     usePlayerStore.setState({
       keyframeCache: new Map([["bgm", { targets: [], version: 0 }]]),
     });
     selectRange();
     const cb = callbacks();
+    const backspace = press("Backspace");
+    dispatchPlainKey(backspace, "backspace", cb);
+    const shiftBackspace = new KeyboardEvent("keydown", {
+      key: "Backspace",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    dispatchPlainKey(shiftBackspace, "backspace", cb);
+    expect(cb.onResetKeyframes).not.toHaveBeenCalled();
+    expect(cb.handleTimelineElementsDelete).not.toHaveBeenCalled();
+    expect(backspace.defaultPrevented).toBe(false);
+    expect(shiftBackspace.defaultPrevented).toBe(false);
+  });
+
+  it("deletes a selected clip on Backspace even when it has keyframes", () => {
+    selectBgm();
+    usePlayerStore.setState({
+      keyframeCache: new Map([["bgm", { targets: [], version: 0 }]]),
+      selectionOrigin: "timeline",
+    });
+    const cb = callbacks();
     const e = press("Backspace");
     dispatchPlainKey(e, "backspace", cb);
     expect(cb.onResetKeyframes).not.toHaveBeenCalled();
+    expect(cb.handleTimelineElementsDelete).toHaveBeenCalledTimes(1);
+    expect(cb.handleTimelineElementsDelete).toHaveBeenCalledWith([bgmElement]);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("resets keyframes on Shift+Backspace only for a single editable clip and honors remapping", () => {
+    const second = { ...bgmElement, id: "sfx", key: "sfx", track: 1 };
+    usePlayerStore.setState({
+      elements: [bgmElement, second],
+      selectedElementId: "bgm",
+      selectedElementIds: new Set(["bgm"]),
+      keyframeCache: new Map([["bgm", { targets: [], version: 0 }]]),
+    });
+    const shiftBackspace = () =>
+      new KeyboardEvent("keydown", {
+        key: "Backspace",
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+
+    // Disabled in MVP mode or read-only preview.
+    const disabledCb = callbacks({ disableKeyframeReset: true });
+    dispatchPlainKey(shiftBackspace(), "backspace", disabledCb);
+    expect(disabledCb.onResetKeyframes).not.toHaveBeenCalled();
+
+    const readOnlyCb = callbacks({ readOnlyPreview: true });
+    dispatchPlainKey(shiftBackspace(), "backspace", readOnlyCb);
+    expect(readOnlyCb.onResetKeyframes).not.toHaveBeenCalled();
+
+    // Multi-selection never wipes keyframes on Shift+Backspace.
+    usePlayerStore.setState({ selectedElementIds: new Set(["bgm", "sfx"]) });
+    const multiCb = callbacks();
+    dispatchPlainKey(shiftBackspace(), "backspace", multiCb);
+    expect(multiCb.onResetKeyframes).not.toHaveBeenCalled();
+    expect(multiCb.handleTimelineElementsDelete).not.toHaveBeenCalled();
+
+    // Single selection resets keyframes without deleting the clip.
+    usePlayerStore.setState({ selectedElementIds: new Set(["bgm"]) });
+    const cb = callbacks();
+    const e = shiftBackspace();
+    dispatchPlainKey(e, "backspace", cb);
+    expect(cb.onResetKeyframes).toHaveBeenCalledTimes(1);
     expect(cb.handleTimelineElementsDelete).not.toHaveBeenCalled();
-    expect(e.defaultPrevented).toBe(false);
+    expect(e.defaultPrevented).toBe(true);
+
+    // Host remapping moves resetKeyframes cleanly.
+    setStudioKeys({ resetKeyframes: "alt+r" });
+    const remappedCb = callbacks();
+    dispatchPlainKey(shiftBackspace(), "backspace", remappedCb);
+    expect(remappedCb.onResetKeyframes).not.toHaveBeenCalled();
+    const altR = new KeyboardEvent("keydown", {
+      key: "r",
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    dispatchPlainKey(altR, "r", remappedCb);
+    expect(remappedCb.onResetKeyframes).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["Backspace", "Delete"] as const)(
+    "deletes all timeline-selected clips on %s when selectionOrigin is timeline even if focus is outside the timeline and preview mirrored a primary element",
+    (key) => {
+      const clips = ["a", "b", "c"].map((id) => ({ ...bgmElement, id, key: id }));
+      usePlayerStore.setState({
+        elements: clips,
+        selectedElementId: "a",
+        selectedElementIds: new Set(["a", "b", "c"]),
+        selectionOrigin: "timeline",
+      });
+      const domSelection = { selector: "#a", selectorIndex: 0, sourceFile: "index.html" };
+      const cb = callbacks();
+      cb.domEditSelectionRef = { current: domSelection } as typeof cb.domEditSelectionRef;
+
+      const e = press(key);
+      dispatchPlainKey(e, key.toLowerCase(), cb);
+
+      expect(cb.handleTimelineElementsDelete).toHaveBeenCalledTimes(1);
+      const [passed] = cb.handleTimelineElementsDelete.mock.calls[0] as [typeof clips];
+      expect(passed.map((c) => c.key)).toEqual(["a", "b", "c"]);
+      expect(cb.handleDomEditElementDelete).not.toHaveBeenCalled();
+      expect(e.defaultPrevented).toBe(true);
+    },
+  );
+
+  it("falls back to domEditSelection when selectionOrigin is timeline but selected id is an expanded child absent from flat elements", () => {
+    usePlayerStore.setState({
+      elements: [bgmElement],
+      selectedElementId: "scene.html#child",
+      selectedElementIds: new Set(["scene.html#child"]),
+      selectionOrigin: "timeline",
+    });
+    const domSelection = { selector: "#child", selectorIndex: 0, sourceFile: "scene.html" };
+    const cb = callbacks();
+    cb.domEditSelectionRef = { current: domSelection } as typeof cb.domEditSelectionRef;
+
+    const e = press("Backspace");
+    dispatchPlainKey(e, "backspace", cb);
+
+    expect(cb.handleDomEditElementDelete).toHaveBeenCalledWith(domSelection, { expandGroup: true });
+    expect(cb.handleTimelineElementsDelete).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it("still deletes via canvas when selectionOrigin is canvas and focus is outside the timeline", () => {
+    const clips = ["a", "b"].map((id) => ({ ...bgmElement, id, key: id }));
+    usePlayerStore.setState({
+      elements: clips,
+      selectedElementId: "a",
+      selectedElementIds: new Set(["a", "b"]),
+      selectionOrigin: "canvas",
+    });
+    const domSelection = { selector: ".title", selectorIndex: 0, sourceFile: "index.html" };
+    const cb = callbacks();
+    cb.domEditSelectionRef = { current: domSelection } as typeof cb.domEditSelectionRef;
+
+    const e = press("Backspace");
+    dispatchPlainKey(e, "backspace", cb);
+
+    expect(cb.handleDomEditElementDelete).toHaveBeenCalledWith(domSelection, { expandGroup: true });
+    expect(cb.handleTimelineElementsDelete).not.toHaveBeenCalled();
+    expect(e.defaultPrevented).toBe(true);
   });
 
   it("still lets a keyframe selection win over an automation range", () => {
@@ -313,8 +457,8 @@ describe("dispatchPlainKey — Delete arbitration", () => {
     selectRange();
     usePlayerStore.setState({ selectedKeyframes: new Set(["bgm:opacity:0"]) });
     const cb = callbacks();
-    const e = press("Delete");
-    dispatchPlainKey(e, "delete", cb);
+    const e = press("Backspace");
+    dispatchPlainKey(e, "backspace", cb);
     expect(cb.onDeleteSelectedKeyframes).toHaveBeenCalledTimes(1);
     expect(cb.handleTimelineElementsDelete).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(true);
@@ -495,6 +639,24 @@ describe("hotkeys with the preview read-only", () => {
     timeline.dataset.studioTimeline = "true";
     Object.defineProperty(event, "target", { value: timeline });
     dispatchModifierKey(event, "v", cb);
+    expect(cb.handlePaste).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps timeline delete and paste when selectionOrigin is timeline even with focus outside the timeline", () => {
+    usePlayerStore.setState({
+      elements: [bgmElement],
+      selectedElementId: "bgm",
+      selectedElementIds: new Set(["bgm"]),
+      selectionOrigin: "timeline",
+    });
+    const cb = callbacks({ readOnlyPreview: true });
+    cb.domEditSelectionRef.current = { id: "card" } as DomEditSelection;
+
+    dispatchPlainKey(press("Backspace"), "backspace", cb);
+    expect(cb.handleTimelineElementsDelete).toHaveBeenCalledWith([bgmElement]);
+    expect(cb.handleDomEditElementDelete).not.toHaveBeenCalled();
+
+    dispatchModifierKey(chord("v"), "v", cb);
     expect(cb.handlePaste).toHaveBeenCalledTimes(1);
   });
 

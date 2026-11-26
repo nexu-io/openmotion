@@ -57,7 +57,7 @@ export const DEFAULT_STUDIO_KEYS = {
   deleteLinkedAlt: "alt+Delete",
   deleteSelected: "Delete",
   deleteSelectedAlt: "Backspace",
-  resetKeyframes: "Backspace",
+  resetKeyframes: "shift+Backspace",
   nudgeLeft: "ArrowLeft",
   nudgeRight: "ArrowRight",
   nudgeUp: "ArrowUp",
@@ -89,7 +89,6 @@ const SHARED_BY_DESIGN: ReadonlyArray<readonly [StudioKeyAction, StudioKeyAction
   ["frameForwardTen", "nudgeRightTen"],
   ["nudgeUp", "pickupUp"],
   ["nudgeDown", "pickupDown"],
-  ["deleteSelectedAlt", "resetKeyframes"],
 ];
 
 let current: StudioKeys = DEFAULT_STUDIO_KEYS;

@@ -16,6 +16,7 @@ export function createTimelineResetState() {
     authoredTimelinePath: null,
     pendingAssetDrops: [] as PendingAssetDrop[],
     selectedElementId: null,
+    selectionOrigin: null as "timeline" | "canvas" | null,
     zEditVersion: 0,
     inPoint: null,
     outPoint: null,

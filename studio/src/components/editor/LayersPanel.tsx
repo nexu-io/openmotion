@@ -242,6 +242,7 @@ const LocalLayersPanel = memo(function LocalLayersPanel({ host }: { host: Layers
         }
       }
       trackStudioClick("layers", "locate_layer");
+      usePlayerStore.getState().setSelectionOrigin("canvas");
       applyDomSelection(selection, { revealPanel: false });
       // Force-reveal AFTER the seek's runtime visibility sync has had a beat:
       // a clip made active by the seek shows naturally and needs no override,

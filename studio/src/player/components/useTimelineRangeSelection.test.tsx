@@ -142,14 +142,19 @@ describe("useTimelineRangeSelection", () => {
 
   it("ignores another pointer and restores the pre-drag selection on cancellation", () => {
     usePlayerStore.getState().setSelectedElementId("base");
+    usePlayerStore.getState().setSelectionOrigin("canvas");
     const view = renderHarness();
+    const focus = vi.spyOn(view.scroll, "focus");
     dragMarquee(view);
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(usePlayerStore.getState().selectionOrigin).toBe("timeline");
     act(() => view.api.handlePointerUp(pointer(view.scroll, 8, 400, OFFSCREEN_ROW_Y)));
     expectSelectedIds("first", "offscreen");
 
     act(() => view.api.handlePointerCancel(pointer(view.scroll, 7, 400, OFFSCREEN_ROW_Y)));
     expect(usePlayerStore.getState().selectedElementId).toBe("base");
     expectSelectedIds("base");
+    expect(usePlayerStore.getState().selectionOrigin).toBe("canvas");
     unmountHarness(view);
   });
 

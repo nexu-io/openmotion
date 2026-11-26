@@ -300,6 +300,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
   });
   const appHotkeys = useAppHotkeys({
     disableRazorTool: mvpEditor,
+    disableKeyframeReset: mvpEditor,
     projectId,
     handleTimelineElementsDelete: timelineEditing.handleTimelineElementsDelete,
     handleLinkEdit: timelineEditing.handleLinkEdit,

@@ -122,6 +122,66 @@ describe("preview iframe hotkey forwarding", () => {
     expect(domDelete).toHaveBeenCalledTimes(1);
   });
 
+  it("allows timeline-owned Backspace deletion once authoredTimelinePath is loaded even before timelineReady", () => {
+    const timelineDelete = vi.fn(async () => undefined);
+    const clip = { id: "clip-1", key: "clip-1", tag: "video", start: 0, duration: 4, track: 0 };
+    function AuthoredHarness() {
+      const selectionRef = useRef<DomEditSelection | null>(selection());
+      const hotkeys = useAppHotkeys({
+        projectId: "current",
+        handleTimelineElementsDelete: timelineDelete,
+        handleTimelineElementSplit: vi.fn(async () => undefined),
+        handleDomEditElementDelete: domDelete,
+        domEditSelectionRef: selectionRef,
+        clearDomSelectionRef: useRef<() => void>(() => undefined),
+        editHistory: {
+          projectWide: true,
+          canUndo: true,
+          canRedo: true,
+          undo: historyUndo,
+          redo: historyRedo,
+          state: { undo: [], redo: [] },
+        },
+        readOptionalProjectFile: vi.fn(async () => ""),
+        readProjectFile: vi.fn(async () => ""),
+        writeProjectFile: vi.fn(async () => undefined),
+        showToast: vi.fn(),
+        syncHistoryPreviewAfterApply: vi.fn(async () => undefined),
+        settlePendingEdits: settle,
+        handleCopy: vi.fn(() => false),
+        handlePaste: vi.fn(() => false),
+        handleCut: vi.fn(() => false),
+        onResetKeyframes: vi.fn(() => false),
+        onDeleteSelectedKeyframes: vi.fn(),
+        onAfterUndoRedo: vi.fn(),
+      } as unknown as Parameters<typeof useAppHotkeys>[0]);
+      sync = hotkeys.syncPreviewHotkeys;
+      return null;
+    }
+
+    root = mountReactHarness(<AuthoredHarness />);
+    usePlayerStore.setState({
+      timelineReady: false,
+      authoredTimelinePath: "timeline.json",
+      elements: [clip],
+      selectedElementId: "clip-1",
+      selectedElementIds: new Set(["clip-1"]),
+      selectionOrigin: "canvas",
+    });
+
+    // Canvas-owned Delete stays blocked until timelineReady flips true.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));
+    expect(domDelete).not.toHaveBeenCalled();
+    expect(timelineDelete).not.toHaveBeenCalled();
+
+    // Timeline-owned Backspace works as soon as authoredTimelinePath makes the timeline interactive.
+    usePlayerStore.getState().setSelectionOrigin("timeline");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+    expect(timelineDelete).toHaveBeenCalledTimes(1);
+    expect(timelineDelete).toHaveBeenCalledWith([clip]);
+    expect(domDelete).not.toHaveBeenCalled();
+  });
+
   function mountWithPreview(): Window & typeof globalThis {
     root = mountReactHarness(<Harness />);
     const iframe = document.createElement("iframe");

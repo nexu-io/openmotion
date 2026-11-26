@@ -64,3 +64,54 @@ describe("hand-editing a multi-selection", () => {
     expect(blockedClipRef.current).toBeNull();
   });
 });
+
+describe("clip click focus and selection origin", () => {
+  it("focuses the clicked clip and marks the timeline as selection origin", () => {
+    const store = usePlayerStore.getState();
+    store.setElements(clips);
+    store.setSelectionOrigin("canvas");
+    const focus = vi.fn();
+    const setSelectedElementId = vi.fn((id: string | null) =>
+      usePlayerStore.getState().setSelectedElementId(id),
+    );
+    const deps = {
+      pps: 100,
+      blockedClipRef: { current: null },
+      suppressClickRef: { current: false },
+      scrollRef: { current: null },
+      setShowPopover: vi.fn(),
+      setRangeSelection: vi.fn(),
+      setResizingClip: vi.fn(),
+      setDraggedClip: vi.fn(),
+      setSelectedElementId,
+      onSelectElement: vi.fn(),
+    } as unknown as ClipGestureDeps;
+    const handlers = createClipGestureHandlers(clips[0], clips[0].id, clips[0], capabilities, deps);
+
+    handlers.onClick({
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      stopPropagation: vi.fn(),
+      currentTarget: { focus },
+    } as unknown as React.MouseEvent);
+
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(usePlayerStore.getState().selectionOrigin).toBe("timeline");
+    expect(usePlayerStore.getState().selectedElementId).toBe(clips[0].id);
+
+    // Additive toggle off clears selectionOrigin when nothing remains selected.
+    handlers.onClick({
+      shiftKey: true,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      stopPropagation: vi.fn(),
+      currentTarget: { focus },
+    } as unknown as React.MouseEvent);
+
+    expect(usePlayerStore.getState().selectedElementIds.size).toBe(0);
+    expect(usePlayerStore.getState().selectionOrigin).toBeNull();
+  });
+});
