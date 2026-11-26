@@ -10,6 +10,7 @@ import { AssetUploadError } from './assetUploadError';
 import { templateSearchBrief, validReferenceLink } from './templateSearch';
 import * as tracking from './templateLibraryTracking';
 import type { ListContext } from './templateLibraryTracking';
+import { copyTextToClipboard } from '../utils/clipboard';
 import styles from './TemplateLibraryDialog.module.css';
 
 type Mode = 'reference' | 'describe';
@@ -123,7 +124,8 @@ export function TemplateSearchRecovery(props: RequestCallbacks & (SearchRecovery
     const sourceKind = mode === 'reference' ? source : 'description';
     tracking.reportRecoveryAction('copy_brief', actionContext, entry, sourceKind);
     try {
-      await navigator.clipboard.writeText(brief); setManual(null);
+      if (!(await copyTextToClipboard(brief))) throw new Error('Clipboard copy failed');
+      setManual(null);
       tracking.reportSearchHandoff(sourceKind, attemptId, 'clipboard_written', actionContext, entry);
       showToast(t('Request copied. Paste the request in your chat and send it.'), 'info');
     } catch {

@@ -10,6 +10,7 @@ import { useI18n } from "../i18n/I18n";
 import { RemixIcon } from "../icons/RemixIcons";
 import { Skeleton } from "../components/ui/Skeleton";
 import { ProgressBar } from "../../../packages/design-system/react/ProgressBar";
+import { copyTextToClipboard } from "../utils/clipboard";
 import { useToast } from "../hooks/useToast";
 import { StudioToastViewport } from "../components/StudioToastViewport";
 import { TemplateGalleryCard } from "./TemplateGalleryCard";
@@ -253,8 +254,11 @@ export function BrandKitPage({
     if (!selected) return;
     const attempt = tracking.newTrackingId(), view = detailView.current;
     tracking.reportBrandDetailClick(selected, "copy_instruction", view, { copy_attempt_id: attempt });
-    void navigator.clipboard.writeText(brandKitInstruction(selected)).then(
-      () => { notify("Style-only instruction copied"); tracking.reportBrandCopyResult(selected, "clipboard_written", attempt, view); },
+    void copyTextToClipboard(brandKitInstruction(selected)).then(
+      (ok) => {
+        if (ok) { notify("Style-only instruction copied"); tracking.reportBrandCopyResult(selected, "clipboard_written", attempt, view); }
+        else { notify("Could not copy the instruction", true); tracking.reportBrandCopyResult(selected, "failed", attempt, view); }
+      },
       () => { notify("Could not copy the instruction", true); tracking.reportBrandCopyResult(selected, "failed", attempt, view); },
     );
   }, [notify, selected]);

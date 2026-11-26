@@ -42,7 +42,8 @@ import { TemplateReferenceDialog, TemplateSearchRecovery } from './TemplateSearc
 import { useTemplateSearchContext } from './useTemplateSearchContext';
 import * as tracking from './templateLibraryTracking';
 import type { DetailView, FilterAction, FilterGroup, Placement, Sort } from './templateLibraryTracking';
-import { hasDismissedLocalAgentHandoff, TemplateCopiedHandoffCard, TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress } from './TemplateHandoffInfo';
+import { hasDismissedLocalAgentHandoff, TemplateAiMediaPrepStrip, TemplateCopiedHandoffCard, TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress } from './TemplateHandoffInfo';
+import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { TemplateDetailReview, TemplateProductionNotes, TemplateGuideReview, TemplateReviewSpecs } from './TemplateDetailReview';
 import { templateHandoffEnabled, templateHandoffPrompt, preparedTemplateProjects, pendingTemplateProjects, rememberTemplateRequest, forgetTemplateRequest, TemplatePreparationBlockedError, findPreparedTemplate, type PreparedTemplateProject } from './templateHandoff';
@@ -94,6 +95,7 @@ function DetailScroll({ enabled, container, children }: { enabled: boolean; cont
 
 export function TemplateLibraryDialog(props: Props) {
   const { t, locale } = useI18n();
+  const chrome = useOptionalWorkspaceChrome();
   const cloudWeb = useCloudWebMode();
   const { account } = useAccountSummary({ eager: cloudWeb });
   const { detailOnly = false, initialTemplate } = props;
@@ -640,8 +642,11 @@ export function TemplateLibraryDialog(props: Props) {
       if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
       if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) {
         setManualCopy('');
-        if (cloudWeb && !hasDismissedLocalAgentHandoff()) {
+        if (!hasDismissedLocalAgentHandoff()) {
           setCopiedHandoff(true);
+          if (!cloudWeb) {
+            showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info');
+          }
         } else {
           showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info');
         }
@@ -879,12 +884,13 @@ export function TemplateLibraryDialog(props: Props) {
               </Popover>}
             </header>{(manualCopy ? <textarea className={styles.manualCopy} readOnly rows={8} value={manualCopy} aria-label={t('Content to copy')} onFocus={event => event.currentTarget.select()} /> : prompt ? <p className={promptExpanded ? styles.fullInstruction : styles.shortInstruction}>{prompt}</p> : promptError ? <div className={styles.promptFailure} role="status">{t('Could not load the instruction.')}<Button variant="plain" onClick={() => retryPrompt(value => value + 1)}>{t('Retry')}</Button></div> : <div className={styles.promptSkeleton} role="status" aria-label={t('Loading instruction…')}>{[100, 94, 100, 86, 62].map((width, index) => <Skeleton key={index} style={{ width: `${width}%`, height: 10 }} />)}</div>)}<Button variant="plain" disabled={!prompt} className={`om-text-link ${styles.expandInstruction}`} data-quiet aria-expanded={promptExpanded} onClick={() => { tracking.reportInstructionExpanded(preview, !promptExpanded, detailView.current); setPromptExpanded(!promptExpanded); }}>{t(promptExpanded ? 'Show less' : 'Show instruction')}<MotionIcon name="chevron-down" size={14} /></Button></section>
             {!handoffPreview && <div className={styles.actions}>
-              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
+              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t(cloudWeb ? 'Open and edit in cloud' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
               <div className={styles.recreateActions}>
-                <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
+                <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
                 <Tooltip withinDialog wrap label={t('Recreate and submit')}><IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} onClick={() => void copy(true)} aria-label={t('Recreate and submit')} icon={<MotionIcon name="git-branch" size={17} />} /></Tooltip>
               </div>
-              {copiedHandoff && <TemplateCopiedHandoffCard onDismiss={() => setCopiedHandoff(false)} />}
+              {copiedHandoff && <TemplateCopiedHandoffCard mode={cloudWeb ? 'cloud' : 'local'} onOpenConnections={chrome ? () => { closeDetail(); chrome.openConnections('home_composer'); } : undefined} onDismiss={() => setCopiedHandoff(false)} />}
+              {chrome && <TemplateAiMediaPrepStrip pageName="studio" templateId={preview.id} onGenerate={() => { closeDetail(); chrome.openAssets(); }} />}
             </div>}
             {!handoffPreview && <div className={styles.resourceLinks}>
               {!handoffPreview && <a className={`om-text-link ${styles.repositoryLink}`} data-quiet href={templateRepositoryUrl(preview)} target="_blank" rel="noreferrer" onClick={() => tracking.reportDetailLink(preview, 'view_repository', detailView.current)}><GithubLogo size={16} weight="fill" aria-hidden="true" />{t('View on GitHub')}</a>}
@@ -905,15 +911,16 @@ export function TemplateLibraryDialog(props: Props) {
             {handoffPreview && <TemplateProductionNotes template={preview} onGuide={() => { tracking.reportDetailAction(preview, 'view_guide', detailView.current); setGuideOpen(true); }} />}
           </div>
           {handoffPreview && <div ref={reviewFooter} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
-              {copiedHandoff && <TemplateCopiedHandoffCard onDismiss={() => setCopiedHandoff(false)} />}
+              {copiedHandoff && <TemplateCopiedHandoffCard mode={cloudWeb ? 'cloud' : 'local'} onOpenConnections={chrome ? () => { closeDetail(); chrome.openConnections('home_composer'); } : undefined} onDismiss={() => setCopiedHandoff(false)} />}
               <div className={styles.handoffActions}>
-                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
+                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : cloudWeb ? 'Open and edit in cloud' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
                 <div className={styles.recreateActions}>
                   <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>
                     <IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} aria-label={t('Copy contribution brief')} onClick={() => void copy(true)} icon={<MotionIcon name="git-branch" size={17} />} />
                   </Tooltip>
                 </div>
+                {chrome && <TemplateAiMediaPrepStrip pageName="studio" templateId={preview.id} onGenerate={() => { closeDetail(); chrome.openAssets(); }} />}
               </div>
               <TemplateOpenRecovery progress={projectProgress[preview.id]} onRetry={() => { tracking.reportDetailAction(preview, 'retry_template_project', detailView.current); void prepareProject(preview); }} onCheck={() => void checkProject(preview)} onOpen={() => { tracking.reportDetailAction(preview, 'open_prepared_project', detailView.current); const result = projectProgress[preview.id]?.result; if (result) void revealProject(preview, result); }} />
           </div>}

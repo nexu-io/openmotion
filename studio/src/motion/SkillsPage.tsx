@@ -21,6 +21,9 @@ import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
 import { isStreamableHttpTransport, setupGuideUrl, type IntegrationInfo } from '../../../shared/integration';
 import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
+import { copyTextToClipboard } from '../utils/clipboard';
+import { hasDismissedLocalAgentHandoff, TemplateAiMediaPrepStrip, TemplateCopiedHandoffCard } from './TemplateHandoffInfo';
+import { useCloudWebMode } from './entitlementModalBus';
 import { AssetPicker } from './AssetBrowser';
 import { Popover } from '../components/ui/Popover';
 import { Tooltip } from '../components/ui/Tooltip';
@@ -149,23 +152,29 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
   const shortcut = selected ? skillShortcut({ ...selected, title: displayName(selected), example: t(selected.example) }, parameters, locale, installUrl, cloudMcp) : '';
   const latest = useRef({ instruction: prompt, command: shortcut }); latest.current = { instruction: prompt, command: shortcut };
   const open = (skill: MotionSkill, position: number) => { if (!selected) captureLayout(); tracking.reportSkillCardOpened(skill, position, searchId.current); onSkillChange(skill.id); };
+  const [copiedHandoff, setCopiedHandoff] = useState(false);
+  const cloudWeb = useCloudWebMode();
   // A failed copy keeps its exact text for manual copying only until the brief changes; then show the live text again.
   useEffect(() => { setManualCopy(null); }, [prompt, shortcut]);
   // The brief belongs to one skill; any route change (card, history, link) starts a fresh brief.
-  useEffect(() => { setPicking(false); setParameters((skillId && briefs?.get(skillId)) || studioDefaults); setManualCopy(null); setCommandOpen(false); }, [skillId, studioDefaults, briefs]);
+  useEffect(() => { setPicking(false); setParameters((skillId && briefs?.get(skillId)) || studioDefaults); setManualCopy(null); setCopiedHandoff(false); setCommandOpen(false); }, [skillId, studioDefaults, briefs]);
   async function copy(surface: 'instruction' | 'command' = 'instruction') {
     if (!selected) return;
     const text = surface === 'command' ? shortcut : prompt, attempt = tracking.newTrackingId(), brief = parameters, view = detailView.current;
     if (surface === 'command') tracking.reportSkillCommandCopyClicked(selected, view, attempt);
     else tracking.reportSkillDetailClick(selected, 'copy_instruction', view, attempt);
     try {
-      await navigator.clipboard.writeText(text); setManualCopy(null); toast.showToast(t('Copied. Paste into your Agent.'), 'info');
+      if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
+      setManualCopy(null);
+      if (!hasDismissedLocalAgentHandoff()) setCopiedHandoff(true);
+      toast.showToast(t('Copied. Paste into your Agent.'), 'info');
       tracking.reportSkillCopyResult(selected, surface, 'clipboard_written', attempt, brief, view);
     }
     catch {
       // A late failure for a brief that has since changed must not restore stale text.
       if (latest.current[surface] !== text) return;
       tracking.reportSkillCopyResult(selected, surface, 'manual_fallback_shown', attempt, brief, view);
+      setCopiedHandoff(false);
       setManualCopy({ text, surface }); toast.showToast(t(surface === 'command' ? 'Copy failed. Select and copy the command below.' : 'Copy failed. Select and copy the instruction below.'), 'error', 'feedback');
     }
   }
@@ -249,6 +258,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
         : selected.cover.source}</p>}
       </div>
       <footer className="om-skill-footer">
+        {copiedHandoff && <TemplateCopiedHandoffCard mode={cloudWeb ? 'cloud' : 'local'} kind="skill" onOpenConnections={chrome ? () => chrome.openConnections('home_composer') : undefined} onDismiss={() => setCopiedHandoff(false)} />}
         {studio && !comingSoon && onCreate && (recording
           ? <p className="om-muted">{t('Use the Agent brief to work with this recording. Clip generation accepts a still image as its first frame.')}</p>
           : <Button variant="ghost" className="om-button h-auto" data-primary onClick={startShot}><RemixIcon name="film-line" size={16} />{t('Create a shot from this brief')}</Button>)}
@@ -262,6 +272,10 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
             <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => void copy('command')}><RemixIcon name="file-copy-line" size={16} />{t('Copy command')}</Button>
           </Popover>
         </div>
+        {(chrome || onCreate) && <TemplateAiMediaPrepStrip pageName="skills" skillId={selected.id} onGenerate={() => {
+          if (onCreate) { onCreate(mediaEditorDestination('text-to-image')); return; }
+          chrome?.openAssets();
+        }} />}
       </footer>
       </> : null}</RetainedDetailContent>
     </Collapsible.Panel>

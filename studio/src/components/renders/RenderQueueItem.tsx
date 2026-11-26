@@ -15,6 +15,19 @@ import { redactDiagnostic } from "../../../../scripts/diagnostic-redaction.mjs";
 import { useToast } from "../../hooks/useToast";
 import { StudioToastViewport } from "../StudioToastViewport";
 import { beginStudioIo } from "../../telemetry/ioRecovery";
+import { useOptionalWorkspaceChrome } from "../../motion/WorkspaceChromeContext";
+import { newCampaignEntryId } from "../../motion/campaignAttribution";
+import { copyTextToClipboard } from "../../utils/clipboard";
+
+const EXPORT_UPSELL_DISMISSED_KEY = 'openmotion.export-upsell.dismissed';
+function isExportUpsellDismissed(): boolean {
+  try { return typeof localStorage !== 'undefined' && localStorage.getItem(EXPORT_UPSELL_DISMISSED_KEY) === '1'; }
+  catch { return false; }
+}
+function dismissExportUpsell(): void {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(EXPORT_UPSELL_DISMISSED_KEY, '1'); }
+  catch { /* ignore storage errors */ }
+}
 
 interface RenderQueueItemProps {
   job: RenderJob;
@@ -57,6 +70,10 @@ export const RenderQueueItem = memo(function RenderQueueItem({
   checking = false,
 }: RenderQueueItemProps) {
   const { t } = useI18n();
+  const chrome = useOptionalWorkspaceChrome();
+  const [upsellDismissed, setUpsellDismissed] = useState(isExportUpsellDismissed);
+  const upsellEntryIdRef = useRef<string>(newCampaignEntryId());
+  const upsellTrackedRef = useRef(false);
   const [hovered, setHovered] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -179,8 +196,10 @@ export const RenderQueueItem = memo(function RenderQueueItem({
   };
 
   const copyDiagnostic = async () => {
-    try { await navigator.clipboard.writeText(diagnostic); toast.showToast('Copied!', 'info', 'feedback'); }
-    catch {
+    try {
+      if (!(await copyTextToClipboard(diagnostic))) throw new Error('Clipboard copy failed');
+      toast.showToast('Copied!', 'info', 'feedback');
+    } catch {
       setShowDiagnostic(true);
       toast.showToast('Copy failed. Select the details to copy them.', 'error', 'feedback');
     }
@@ -191,6 +210,19 @@ export const RenderQueueItem = memo(function RenderQueueItem({
   const isRendering = job.status === "rendering";
   const awaitingResult = job.status === 'unknown' || job.status === 'cancelling';
   const canAccessFile = isComplete && fileAccess !== 'unavailable' && fileAccess !== 'unknown' && !checkingFile;
+
+  useEffect(() => {
+    if (!isComplete || !canAccessFile || upsellDismissed || !chrome || upsellTrackedRef.current) return;
+    if (typeof window === 'undefined') return;
+    upsellTrackedRef.current = true;
+    void import('../../motion/tracking').then(({ trackMotion }) => trackMotion('surface_view', {
+      page_name: 'studio',
+      area: 'entitlement_gate',
+      element: 'banner',
+      hook_id: 'export_done_upsell',
+      entry_id: upsellEntryIdRef.current,
+    }));
+  }, [isComplete, canAccessFile, upsellDismissed, chrome]);
 
   return (
     <div
@@ -371,6 +403,36 @@ export const RenderQueueItem = memo(function RenderQueueItem({
         <p className="text-step-11 text-text-4">{t(checkingFile ? 'Checking file…' : fileAccess === 'unavailable' ? 'Export completed. The original file is currently unavailable; the record is kept.' : 'Export completed. File access could not be confirmed.')}</p>
         <Button size="sm" variant="secondary" disabled={checkingFile} onClick={() => void handleRecheckFile()}>{t(checkingFile ? 'Checking file…' : 'Recheck file')}</Button>
       </div>}
+      {isComplete && canAccessFile && !upsellDismissed && chrome && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-input px-2.5 py-1.5 text-step-11 text-text-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{t('Make it ready to publish:')}</span>
+            <Button size="sm" variant="ghost" onClick={() => {
+              const entryId = upsellEntryIdRef.current;
+              upsellEntryIdRef.current = newCampaignEntryId();
+              if (typeof window !== 'undefined') {
+                void import('../../motion/tracking').then(({ trackMotion }) => trackMotion('ui_click', {
+                  page_name: 'studio', area: 'entitlement_gate', element: 'open_assets',
+                  hook_id: 'export_done_upsell', entry_id: entryId, modality: 'audio',
+                }));
+              }
+              chrome.openAssets();
+            }}>{t('AI voiceover / BGM')}</Button>
+            <Button size="sm" variant="ghost" onClick={() => {
+              const entryId = upsellEntryIdRef.current;
+              upsellEntryIdRef.current = newCampaignEntryId();
+              if (typeof window !== 'undefined') {
+                void import('../../motion/tracking').then(({ trackMotion }) => trackMotion('ui_click', {
+                  page_name: 'studio', area: 'entitlement_gate', element: 'open_assets',
+                  hook_id: 'export_done_upsell', entry_id: entryId, modality: 'image',
+                }));
+              }
+              chrome.openAssets();
+            }}>{t('AI cover / clips')}</Button>
+          </div>
+          <IconButton size="sm" variant="plain" aria-label={t('Dismiss')} onClick={() => { dismissExportUpsell(); setUpsellDismissed(true); }} icon={<RemixIcon name="close-line" size={14} />} />
+        </div>
+      )}
       {job.status === "failed" && job.error && <div className="mt-2"><ErrorNotice key={job.error} message={job.error} diagnostic={diagnostic} context="export" compact /></div>}
       <StudioToastViewport {...toast} />
     </div>

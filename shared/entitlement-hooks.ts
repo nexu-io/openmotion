@@ -17,6 +17,9 @@ export const ENTITLEMENT_HOOK_IDS = [
   'studio_res_gate',
   'failure_card_topup',
   'mcp_oauth',
+  'template_prep_ai_media',
+  'export_done_upsell',
+  'mcp_media_upgrade',
 ] as const;
 
 export type EntitlementHookId = (typeof ENTITLEMENT_HOOK_IDS)[number];

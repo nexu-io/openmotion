@@ -10,6 +10,7 @@ import { findTechniqueStudio } from '../../../shared/studio-catalog';
 import { brand, designSystemAsset } from '../../../packages/design-system/index.js';
 import { Tabs, TabsIndicator, TabsList, Tab } from '../components/ui/Tabs';
 import { StudioToastViewport } from '../components/StudioToastViewport';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -240,7 +241,7 @@ export function McpConnectionPage({
   async function copy(text: string, report: CopyReport, successMessage = t('Copied to clipboard')) {
     const extra = { setup: setupMode, capability: report.capability, template: report.template, includesSetup: report.includesSetup };
     try {
-      await navigator.clipboard.writeText(text);
+      if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
       toast.showToast(successMessage, 'info', 'feedback');
       tracking.reportMcpCopyResult(report.kind, 'clipboard_written', clientKey, extra);
       return true;
@@ -288,7 +289,7 @@ export function McpConnectionPage({
     }
     setManualScenario(null);
     try {
-      await navigator.clipboard.writeText(instruction);
+      if (!(await copyTextToClipboard(instruction))) throw new Error('Clipboard copy failed');
       toast.showToast(t('Copied. Paste into your Agent.'), 'info', 'feedback');
       tracking.reportMcpCopyResult('capability_example', 'clipboard_written', clientKey, {
         capability: item.id,

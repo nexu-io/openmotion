@@ -243,6 +243,8 @@
 .copiedHandoffFooter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--motion-space-6); font-size: var(--motion-text-xs); color: var(--motion-muted); }
 .copiedHandoffFooter a, .copiedHandoffFooter button { display: inline-flex; align-items: center; gap: var(--motion-space-4); font-size: var(--motion-text-xs); }
 .copiedHandoffDivider { color: var(--motion-muted); opacity: 0.5; }
+.aiPrepStrip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--motion-space-8); padding: var(--motion-space-8) var(--motion-space-12); border-radius: var(--motion-radius-md); background: var(--motion-panel); font-size: var(--motion-text-xs); color: var(--motion-muted); }
+.aiPrepStrip button { display: inline-flex; align-items: center; gap: var(--motion-space-4); font-size: var(--motion-text-xs); font-weight: var(--motion-weight-medium); }
 
 /* The local review changes detail only; shared gallery and player styles remain intact. */
 .library .reviewDetail { inset: var(--motion-space-16); width: calc(100% - var(--motion-space-32)); height: calc(100dvh - var(--motion-space-32)); border-radius: var(--motion-radius-xl); overflow-y: auto; overscroll-behavior: contain; }

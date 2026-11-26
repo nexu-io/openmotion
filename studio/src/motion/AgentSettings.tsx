@@ -10,6 +10,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { Select } from '../components/ui/Select';
 import { Menu, MenuRadioGroup, MenuRadioItem } from '../components/ui/Menu';
 import { useToast } from '../hooks/useToast';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { ProviderAvatar, ModelAvatar, SettingsDialog, SettingsError, SettingsLoading } from './settingsPrimitives';
 import { gatewayRequest } from './gatewayClient';
@@ -84,7 +85,12 @@ export function AgentLaunchDialog({ choice, agent, action, onClose }: { choice: 
   const [plan, setPlan] = useState<AgentLaunch | null>(null), [failed, setFailed] = useState(false), [busy, setBusy] = useState(false), [attempt, setAttempt] = useState(0);
   const body = { ...choice, action }, scope = projectScope();
   useEffect(() => { let active = true; setFailed(false); void gatewayRequest<AgentLaunch>(`settings/agents/${choice.agent}/prepare${scope}`, 'POST', body).then(value => { if (active) setPlan(value); }).catch(() => { if (active) setFailed(true); }); return () => { active = false; }; }, [attempt]);
-  async function copy(value: string) { try { await navigator.clipboard.writeText(value); toast.showToast(t('Copied to clipboard'), 'info'); } catch { toast.showToast(t('Could not copy. Select and copy the text manually.'), 'error'); } }
+  async function copy(value: string) {
+    try {
+      if (!(await copyTextToClipboard(value))) throw new Error('Clipboard copy failed');
+      toast.showToast(t('Copied to clipboard'), 'info');
+    } catch { toast.showToast(t('Could not copy. Select and copy the text manually.'), 'error'); }
+  }
   async function open() { setBusy(true); try { await gatewayRequest(`settings/agents/${choice.agent}/open${scope}`, 'POST', body); tracking.reportAgentSetting(choice.agent, 'open_terminal', 'success'); toast.showToast(t('Terminal opened. Continue in your Agent, then check its status here.'), 'info'); } catch (error) { tracking.reportAgentSetting(choice.agent, 'open_terminal', 'failure'); toast.showToast(error instanceof Error ? error.message : t('Could not open Agent'), 'error'); } finally { setBusy(false); } }
   return <SettingsDialog title={`${agent.label} · ${t(action === 'login' ? 'Sign in' : 'Use in this project')}`} onClose={onClose}><div className="om-agent-connection">{failed ? <SettingsError retry={() => setAttempt(value => value + 1)} /> : !plan ? <SettingsLoading /> : <>
     <p className="om-muted">{t(action === 'login' ? agent.loginHint || 'Complete sign-in in the terminal, then return here and check again.' : 'Open your Agent in this project and paste the connection instruction. Your selected model is included.')}</p><pre className="om-code-block">{plan.command}</pre><div className="om-settings-actions"><Button variant="ghost" className="om-button h-auto" data-primary disabled={busy} onClick={() => void open()}>{t('Open terminal')}</Button><Button variant="ghost" className="om-button h-auto" onClick={() => void copy(plan.command)}>{t('Copy command')}</Button></div>
