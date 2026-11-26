@@ -169,7 +169,6 @@ export function EntitlementPromoModal({
                       <div className="om-epm-giftbar">
                         <div className="om-epm-gm">
                           <b>{t('Sign in for starter trial credits')}</b>
-                          <span>{t('Try image generation right away (about 5 images)')}</span>
                         </div>
                         <div className="om-epm-fan">
                           <img src={mediaUrl('graphic-1.webp')} alt="" />
