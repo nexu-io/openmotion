@@ -831,7 +831,9 @@ it.each([
     await act(async () => button('Copy for local Agent').click());
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(title));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(location.origin + '/install.md'));
-    expect(host.querySelector('[aria-label="Copied — next step in your local Agent"]')?.textContent).toContain('30s plugin install guide');
+    const handoffCard = host.querySelector('[aria-label="Copied — next step in your local Agent"]');
+    expect(handoffCard?.textContent).toContain('30s plugin install guide');
+    expect(handoffCard?.querySelector('a')?.getAttribute('href')).toBe(location.origin + '/install.md');
     expect(request.mock.calls.some(([url]) => url.endsWith('/integration'))).toBe(false);
   } finally { runtime.remove(); }
 });

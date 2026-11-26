@@ -638,7 +638,14 @@ export function TemplateLibraryDialog(props: Props) {
     if (template) tracking.reportUseClicked(template, submit ? 'recreate_submit' : 'recreate', view, attemptId);
     try {
       if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
-      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(''); if (cloudWeb && !hasDismissedLocalAgentHandoff()) setCopiedHandoff(true); showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info'); }
+      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) {
+        setManualCopy('');
+        if (cloudWeb && !hasDismissedLocalAgentHandoff()) {
+          setCopiedHandoff(true);
+        } else {
+          showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info');
+        }
+      }
       if (template) tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view);
     } catch {
       if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(text); setCopiedHandoff(false); setPromptExpanded(true); showToast(handoffPreview ? t('Copy failed. Select the instruction in this section to copy manually, or try again.') : 'Copy failed. Select and copy the instruction below.', 'error', 'feedback'); }

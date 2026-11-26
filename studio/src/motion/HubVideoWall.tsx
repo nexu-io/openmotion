@@ -211,8 +211,12 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title, tra
     const text = submit ? templateSubmissionPrompt(prompt, locale) : prompt;
     try {
       if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
-      setManualCopy(''); if (cloudWeb && !hasDismissedLocalAgentHandoff()) setCopiedHandoff(true);
-      showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
+      setManualCopy('');
+      if (cloudWeb && !hasDismissedLocalAgentHandoff()) {
+        setCopiedHandoff(true);
+      } else {
+        showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
+      }
     } catch { setManualCopy(text); setCopiedHandoff(false); setExpanded(true); showToast(t('Copy failed. Select the instruction in this section to copy manually, or try again.'), 'error', 'feedback'); }
   }
   const copyColor = (color: string) => {
