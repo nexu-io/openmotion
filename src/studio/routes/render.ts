@@ -804,13 +804,23 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       return c.body(null, 200);
     }
 
+    const isFrame =
+      action === 'view' &&
+      artifact.contentType.startsWith('video/') &&
+      c.req.query('frame') !== undefined &&
+      c.req.query('frame') !== '0' &&
+      c.req.query('frame') !== 'false';
+    const isRetry = isFrame && /^[1-9]\d*$/.test(c.req.query('retry') ?? '');
     const url = await deps.storage.presignGet(artifact.s3Key, {
       expiresInSec: 300,
       responseContentType: artifact.contentType,
-      responseContentDisposition: buildContentDisposition(
-        action === 'download' ? 'attachment' : 'inline',
-        artifact.filename,
-      ),
+      responseContentDisposition: isFrame
+        ? 'inline'
+        : buildContentDisposition(
+            action === 'download' ? 'attachment' : 'inline',
+            artifact.filename,
+          ),
+      ...(isRetry ? { cacheWindowSec: 0 } : {}),
     });
 
     return new Response(null, {
@@ -819,6 +829,7 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
         Location: url,
         ...(artifact.sha256 ? { ETag: formatVersionFromSha256(artifact.sha256) } : {}),
         ...PRESIGNED_REDIRECT_HEADERS,
+        ...(isRetry ? { 'Cache-Control': 'no-store' } : {}),
       },
     });
   });
@@ -867,19 +878,30 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       return c.body(null, 200);
     }
 
+    const isFrame =
+      !isDownload &&
+      artifact.contentType.startsWith('video/') &&
+      c.req.query('frame') !== undefined &&
+      c.req.query('frame') !== '0' &&
+      c.req.query('frame') !== 'false';
+    const isRetry = isFrame && /^[1-9]\d*$/.test(c.req.query('retry') ?? '');
     const url = await deps.storage.presignGet(artifact.s3Key, {
       expiresInSec: 300,
       responseContentType: artifact.contentType,
-      responseContentDisposition: buildContentDisposition(
-        isDownload ? 'attachment' : 'inline',
-        artifact.filename,
-      ),
+      responseContentDisposition: isFrame
+        ? 'inline'
+        : buildContentDisposition(
+            isDownload ? 'attachment' : 'inline',
+            artifact.filename,
+          ),
+      ...(isRetry ? { cacheWindowSec: 0 } : {}),
     });
     return new Response(null, {
       status: 302,
       headers: {
         Location: url,
         ...PRESIGNED_REDIRECT_HEADERS,
+        ...(isRetry ? { 'Cache-Control': 'no-store' } : {}),
       },
     });
   });

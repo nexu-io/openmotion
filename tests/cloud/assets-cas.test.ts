@@ -65,7 +65,7 @@ function authFor(overrides: Partial<AuthContext> = {}): AuthContext {
 class MemoryStorage implements StoragePort {
   readonly objects = new Map<string, { bytes: Buffer; contentType: string }>();
   readonly presignedPuts: Array<{ key: string; contentType: string; contentLength?: number }> = [];
-  readonly presignedGets: Array<{ key: string; disposition?: string }> = [];
+  readonly presignedGets: Array<{ key: string; disposition?: string; cacheWindowSec?: number }> = [];
 
   async putObject(
     key: string,
@@ -142,13 +142,18 @@ class MemoryStorage implements StoragePort {
 
   async presignGet(
     key: string,
-    options: { responseContentDisposition?: string; responseContentType?: string } = {},
+    options: { responseContentDisposition?: string; responseContentType?: string; cacheWindowSec?: number } = {},
   ): Promise<string> {
-    this.presignedGets.push({ key, disposition: options.responseContentDisposition });
+    this.presignedGets.push({
+      key,
+      disposition: options.responseContentDisposition,
+      cacheWindowSec: options.cacheWindowSec,
+    });
     const disp = options.responseContentDisposition
       ? `&response-content-disposition=${encodeURIComponent(options.responseContentDisposition)}`
       : '';
-    return `https://s3.example.test/openmotion/${encodeURI(key)}?X-Amz-Signature=get-mock${disp}`;
+    const windowPart = options.cacheWindowSec !== undefined ? `&window=${options.cacheWindowSec}` : '';
+    return `https://s3.example.test/openmotion/${encodeURI(key)}?X-Amz-Signature=get-mock${disp}${windowPart}`;
   }
 
   readonly multiparts = new Map<
@@ -689,8 +694,29 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
       blobMetadata: { width: 1920, height: 1080 },
     };
 
+    const videoMetaRow = {
+      assetTrashed: false,
+      versionId: VID_A,
+      assetId: AID_A,
+      filename: 'clip.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: 98_765,
+      sha256: SHA_A,
+      blobMetadata: { width: 1280, height: 720 },
+    };
+
     const { db } = createScriptedDb({
-      selectQueue: [[versionMetaRow], [versionMetaRow], [versionMetaRow]],
+      selectQueue: [
+        [versionMetaRow],
+        [versionMetaRow],
+        [versionMetaRow],
+        [versionMetaRow],
+        [videoMetaRow],
+        [videoMetaRow],
+        [videoMetaRow],
+        [videoMetaRow],
+        [versionMetaRow],
+      ],
     });
     const assetService = new AssetLibraryService({
       db,
@@ -719,6 +745,46 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     assert.match(getRes.headers.get('location') ?? '', /^https:\/\/s3\.example\.test\/openmotion\/workspaces\//);
     assert.equal(storage.presignedGets.at(-1)?.key, workspaceBlobKey(WID_A, SHA_A));
     assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^attachment; filename="hero\.png"/);
+
+    // Non-video assets ignore `?frame=1` and keep their normal inline filename disposition.
+    const imageInlineRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file`);
+    assert.equal(imageInlineRes.status, 302);
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^inline; filename="hero\.png"/);
+
+    const imageFrameRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?frame=1&retry=1`);
+    assert.equal(imageFrameRes.status, 302);
+    assert.equal(imageFrameRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^inline; filename="hero\.png"/);
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+
+    // Video assets: inline playback (`inline; filename="..."`) vs CORS frame extraction (`?frame=1`
+    // -> bare RFC 6266 `inline`) mint distinct S3 presigned URLs, and neither collides with
+    // `preview.ts` (which omits responseContentDisposition altogether).
+    const videoInlineRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file`);
+    assert.equal(videoInlineRes.status, 302);
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^inline; filename="clip\.mp4"/);
+
+    const videoFrameRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?frame=1`);
+    assert.equal(videoFrameRes.status, 302);
+    assert.equal(videoFrameRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.equal(videoFrameRes.headers.get('vary'), 'Origin, Cookie');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+    assert.notEqual(videoFrameRes.headers.get('location'), videoInlineRes.headers.get('location'));
+
+    // Explicit `?frame=1&retry=1` escapes the 1-hour signing window and disables 302 caching.
+    const videoRetryRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?frame=1&retry=1`);
+    assert.equal(videoRetryRes.status, 302);
+    assert.equal(videoRetryRes.headers.get('cache-control'), 'no-store');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, 0);
+    assert.notEqual(videoRetryRes.headers.get('location'), videoFrameRes.headers.get('location'));
+
+    // Explicit `?download=1` still takes precedence over `?frame=1`.
+    const downloadFrameRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?download=1&frame=1`);
+    assert.equal(downloadFrameRes.status, 302);
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^attachment; filename="clip\.mp4"/);
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
 
     // Thumbnail GET returns 302 pointing to thumbnailKey.
     const thumbRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/thumbnail`);
