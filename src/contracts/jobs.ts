@@ -303,3 +303,12 @@ export type BlobGcJobName = keyof typeof blobGcJobSchemas;
 export type BlobGcPayloadMap = {
   [K in BlobGcJobName]: z.infer<(typeof blobGcJobSchemas)[K]>;
 };
+
+export interface ExportLintFinding {
+  code: string;
+  message: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  fixHint?: string;
+}

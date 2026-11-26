@@ -897,6 +897,7 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
             projectId: PID_A,
             versionId: VID_A,
             revision: REV_1,
+            exportRoute: 'mcp',
             outputName: 'broken.mp4',
             format: 'mp4',
             phase1: true,
@@ -905,6 +906,10 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
       );
       assert.equal(storage.objects.has(exportKey(WID_A, JID_FAIL, 'broken.mp4')), false);
       assert.ok(failUpdates.some((u) => u.state === 'failed' && u.errorCode === 'EXPORT_RENDER_FAILED'));
+      const failed = failUpdates.find(update => update.state === 'failed');
+      const diagnostics = failed?.resultJson as { lintFindings: Array<{ code: string; file?: string }> };
+      assert.match(String(failed?.errorMessage), /Chromium crashed/);
+      assert.ok(diagnostics.lintFindings.some(item => item.code === 'root_missing_dimensions' && item.file === 'index.html'), JSON.stringify(diagnostics));
       await assert.rejects(() => access(path.join(tmpBase, `om-render-${JID_FAIL}`)));
 
       // 3. Cancellation path (om:cancel:{jobId} aborts active render & wipes /tmp).

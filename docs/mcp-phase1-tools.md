@@ -207,6 +207,8 @@ A project inventory can include `localEditCli.url` and its SHA-256 digest. The m
 
 ### openmotion_export_request
 
+After an MCP renderer exits unsuccessfully, the worker inspects the hydrated source with native lint before cleanup. The failed job retains its original error and may include `lintFindings` with code, message, relative file, location and fix hint. An empty list means the diagnostic found no errors. The host Agent correlates findings with the render failure, edits only a confirmed cause against the latest revision/version, and retries the corrected version once. See [failure recovery](../skills/openmotion-production/references/verification.md#recover-a-failed-mcp-render).
+
 默认 action=request，必填 projectId、requestId、expectedRevision、versionId，可选 audio=required/silent/optional。仅允许导出当前经双重校验的版本；先恢复历史版本，再导出它。局部文件冻结成私有快照，外部 URL 仍是外部依赖。
 
 返回原 job（id/projectId/versionId/revision/expected/state/stage 等）和自动技术校验说明。用 openmotion_get_project 的 exportJobId 追踪。只输出 MP4；自动执行 lint、原生 render、FFprobe 规格、视频/音频全解码和代表时间点 seek。检查失败返回 failed，不把渲染退出0当成功。队列一期同数据目录只允许一个待执行/运行中的导出。

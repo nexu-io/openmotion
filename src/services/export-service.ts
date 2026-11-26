@@ -12,7 +12,7 @@ import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError, revisionConflict } from '../contracts/errors.ts';
 import type { JobCancelEvent, JobProgressEvent, ProjectEvent } from '../contracts/events.ts';
-import type { JobState } from '../contracts/jobs.ts';
+import type { ExportLintFinding, JobState } from '../contracts/jobs.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import { freezeProjectSnapshot } from './project-snapshot.ts';
 import type { Database } from '../db/client.ts';
@@ -78,6 +78,7 @@ export interface ExportJobRecord {
   durationMs?: number;
   audioLoweredDb?: number;
   verification?: Record<string, unknown>;
+  lintFindings?: ExportLintFinding[];
   errorCode: string | null;
   errorMessage: string | null;
   createdAt: string;
@@ -176,6 +177,7 @@ function toExportJobRecord(row: typeof jobs.$inferSelect): ExportJobRecord {
     ...(result.verification && typeof result.verification === 'object'
       ? { verification: result.verification as Record<string, unknown> }
       : {}),
+    ...(row.state === 'failed' && Array.isArray(result.lintFindings) && { lintFindings: result.lintFindings }),
     errorCode: row.errorCode ?? null,
     errorMessage: row.errorMessage ?? null,
     createdAt: row.createdAt.toISOString(),

@@ -117,3 +117,9 @@ Distinguish “preview prepared,” “export pending,” “MP4 exported” and
 Creation/edit delivery also completes the [editable preview handoff](native.md#editable-preview-handoff). Recheck any outstanding display failure before the final reply and report it separately from export success; hidden-tab playback and `markDeliverable()` do not establish visible editor delivery. Export-only requests do not require opening the editor.
 
 Workflow sources: [rari](https://x.com/0xwhrrari/status/2105643919119696297), [Movez](https://x.com/0xMovez/status/2104216919033192746), [jmori](https://x.com/0xjmori/status/2111793914206171234). Their production principles are adapted to this repository's capabilities; their example tools, code and performance claims are not assumed to be installed or verified here.
+
+### Recover a failed MCP render
+
+Read the failed export job and match its projectId, revision, versionId and compositionPath to the requested work. `lintFindings`, when present, contains errors found by inspecting the render snapshot after the renderer exited. Compare the original `errorMessage`, the reported file and its authored source before making an edit. A finding alone does not establish the cause of a renderer crash. For historical jobs or unavailable diagnostics, use the original error.
+
+Read the latest project and affected files. If the cause still applies and the intended correction is unambiguous, call `openmotion_edit_project` with the current `expectedRevision` and `expectedVersionId`. On a conflict, read again and re-evaluate. Preserve concurrent edits, media, timing and the requested creative intent. Ask for missing media or a creative decision when necessary. After saving, retry once with the new version and revision, a fresh stable requestId, and the same project, work round, composition and export options. Poll that job and verify the output. If the same failure recurs, report the remaining rule codes and locations.

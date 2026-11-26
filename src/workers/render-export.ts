@@ -36,7 +36,7 @@ import { projectPath } from '../../shared/project-validation.ts';
 import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { JobProgressEvent, ProjectEvent, RenderWorkerHealth } from '../contracts/events.ts';
-import type { RenderExportJobName, RenderExportPayloadMap } from '../contracts/jobs.ts';
+import type { ExportLintFinding, RenderExportJobName, RenderExportPayloadMap } from '../contracts/jobs.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import type { Database } from '../db/client.ts';
 import { asUpdate } from '../db/helpers.ts';
@@ -51,6 +51,7 @@ import {
 } from '../infra/storage.ts';
 import { resolveBlobStorageKey } from '../services/project-files-service.ts';
 import type { BlobScope } from '../contracts/storage.ts';
+import { diagnoseFailedRender } from './export-lint-diagnostics.ts';
 import { mimeTypeForExportFormat } from '../services/export-service.ts';
 import {
   assertRenderSubprocessEnvClean,
@@ -1027,6 +1028,7 @@ export async function processExportRenderJob(
   const startedMs = Date.now();
   let unsubscribeCancel: (() => Promise<void>) | null = null;
   let claimed = false;
+  let lintFindings: ExportLintFinding[] | undefined;
   let failureStage = 'hydrating';
   let failureCode = 'EXPORT_HYDRATION_FAILED';
   let uploadedOutputKey: string | null = null;
@@ -1401,6 +1403,15 @@ export async function processExportRenderJob(
     await deps.storage.putObject(logKey, logBytes, 'text/plain; charset=utf-8', logBytes.byteLength).catch(() => {});
 
     if (renderResult.code !== 0) {
+      if (exportRoute === 'mcp' && !abortController.signal.aborted) {
+        try {
+          lintFindings = await diagnoseFailedRender(runtimeRoot, projectDir, compositionPath, {
+            env: renderEnv, timeoutMs: 30_000, signal: abortController.signal,
+          });
+        } catch {
+          deps.logger.warn('Post-failure lint diagnostics unavailable', { jobId });
+        }
+      }
       throw new Error(
         `Hyperframes render exited with code ${renderResult.code}: ${(renderResult.stderr || renderResult.stdout).slice(-1800)}`,
       );
@@ -1582,6 +1593,7 @@ export async function processExportRenderJob(
                 state: 'failed',
                 stage: 'failed',
                 failureStage,
+                ...(lintFindings && { resultJson: { lintFindings } }),
                 errorCode: failureCode,
                 errorMessage,
                 terminalAt: failNow,
