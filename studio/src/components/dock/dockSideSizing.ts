@@ -26,6 +26,8 @@ export function fitPreviewFirstSides(width: number, preview: number, preferred: 
   };
 }
 
+const LEGACY_DEFAULT_SIDE_WIDTHS = { left: 200, right: 230 } as const;
+
 /** Read saved column sizes before Dockview scales its tree to the initial host box. */
 export function savedSideWidths(layout: SerializedDockview | undefined): Partial<SideWidths> {
   const result: Partial<SideWidths> = {};
@@ -42,5 +44,14 @@ export function savedSideWidths(layout: SerializedDockview | undefined): Partial
     }
   };
   visit(layout.grid.root, layout.grid.orientation === "HORIZONTAL");
+  // Migrate persisted layouts that only recorded the legacy 200/230 default pair
+  // so existing projects adopt the widened left rail without overriding custom widths.
+  if (
+    result.left !== undefined
+    && Math.abs(result.left - LEGACY_DEFAULT_SIDE_WIDTHS.left) <= 1
+    && (result.right === undefined || Math.abs(result.right - LEGACY_DEFAULT_SIDE_WIDTHS.right) <= 1)
+  ) {
+    delete result.left;
+  }
   return result;
 }

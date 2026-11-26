@@ -1106,6 +1106,25 @@ it("keeps preferred side widths across a compressed-layout save and reload", asy
   expect(dockApi!.getPanel("design")!.group.width).toBe(330);
 });
 
+it("migrates legacy 200/230 saved layout to the widened 288px left rail at 1280 (OPEND-5674)", async () => {
+  const width = 1280;
+  mount("legacy-default-reload", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, dockWidth: () => width });
+  await act(async () => {
+    resizeDock(dockApi!, width);
+    dockApi!.getPanel("compositions")!.group.api.setSize({ width: 200 });
+    dockApi!.getPanel("design")!.group.api.setSize({ width: 230 });
+    await Promise.resolve();
+  });
+  act(() => vi.advanceTimersByTime(400));
+  expect(readStudioUiPreferences(undefined, "legacy-default-reload").dockLayout).toBeDefined();
+  act(() => root?.unmount());
+
+  mount("legacy-default-reload", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, dockWidth: () => width });
+  act(() => resizeDock(dockApi!, width));
+  expect(dockApi!.getPanel("compositions")!.group.width).toBe(288);
+  expect(dockApi!.getPanel("design")!.group.width).toBe(230);
+});
+
 it.each(["compositions", "design"] as const)("shrinks the single open %s side before preview", (id) => {
   let width = 1400;
   mount("one-side", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, dockWidth: () => width });
