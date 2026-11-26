@@ -215,30 +215,86 @@ function resolveSafeUpgradeTargetPath(
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-function renderUpgradeHandoffUnavailableHtml(retryPath: string): string {
-  const safeRetryHref = retryPath.replace(/"/g, '&quot;');
+function resolveFallbackUpgradeRedirectUrl(targetPath: string, config: AppConfig): string | null {
+  try {
+    const parsedTarget = new URL(targetPath, 'https://example.invalid');
+    const isPublicPricing = isPublicPricingTargetPath(targetPath);
+    const baseSource = isPublicPricing
+      ? (config.OPENDESIGN_PRICING_URL ?? config.OPENDESIGN_CONSOLE_URL)
+      : config.OPENDESIGN_CONSOLE_URL;
+    const baseUrl = new URL(baseSource);
+    const pathname = parsedTarget.pathname === '/plans' ? '/pricing' : parsedTarget.pathname;
+    const basePrefix = isPublicPricing ? '' : baseUrl.pathname.replace(/\/+$/, '');
+    const resolvedPathname =
+      basePrefix && !pathname.startsWith(`${basePrefix}/`) && pathname !== basePrefix
+        ? `${basePrefix}${pathname}`
+        : pathname;
+    const dest = new URL(`${resolvedPathname}${parsedTarget.search}`, baseUrl.origin);
+    return isSafeUpgradeHandoffUrl(dest.toString(), config) ? dest.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function escapeHtmlText(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderUpgradeHandoffNoticeHtml(options: {
+  title: string;
+  heading: string;
+  message: string;
+  primaryHref: string;
+  primaryLabel: string;
+  secondaryHref?: string;
+  secondaryLabel?: string;
+}): string {
+  const secondaryAction =
+    options.secondaryHref && options.secondaryLabel
+      ? `<a class="secondary" href="${escapeHtmlText(options.secondaryHref)}">${escapeHtmlText(options.secondaryLabel)}</a>`
+      : '';
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpenDesign Account Verification Required</title>
+    <title>${escapeHtmlText(options.title)}</title>
     <style>
       body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 24px; background: #191a1b; color: #f7f8f5; }
       main { max-width: 440px; padding: 28px 32px; border-radius: 12px; background: #202123; border: 1px solid #484b4d; text-align: center; }
       h1 { margin: 0 0 10px; font-size: 18px; }
       p { margin: 0 0 18px; font-size: 14px; line-height: 1.5; color: #c0c4bd; }
+      .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
       a { display: inline-block; padding: 8px 16px; border-radius: 8px; background: #f7f8f5; color: #191a1b; text-decoration: none; font-weight: 600; font-size: 14px; }
+      a.secondary { background: transparent; color: #f7f8f5; border: 1px solid #484b4d; }
     </style>
   </head>
   <body>
     <main>
-      <h1>Unable to verify billing handoff</h1>
-      <p>We could not bind your current OpenDesign account for checkout. To avoid billing the wrong account, please retry in a moment.</p>
-      <a href="${safeRetryHref}">Retry</a>
+      <h1>${escapeHtmlText(options.heading)}</h1>
+      <p>${escapeHtmlText(options.message)}</p>
+      <div class="actions">
+        <a href="${escapeHtmlText(options.primaryHref)}">${escapeHtmlText(options.primaryLabel)}</a>
+        ${secondaryAction}
+      </div>
     </main>
   </body>
 </html>`;
+}
+
+function renderUpgradeHandoffUnavailableHtml(retryPath: string): string {
+  return renderUpgradeHandoffNoticeHtml({
+    title: 'OpenDesign Account Verification Required',
+    heading: 'Unable to verify billing handoff',
+    message: 'We could not bind your current OpenDesign account for checkout. To avoid billing the wrong account, please retry in a moment.',
+    primaryHref: retryPath,
+    primaryLabel: 'Retry',
+  });
 }
 
 function appendOneTapSuppressHint(rawUrl: string): string {
@@ -1090,6 +1146,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       }
 
+      const acceptHeader = (c.req.header('accept') ?? '').toLowerCase();
+      const prefersHtml = acceptHeader.includes('text/html') && !acceptHeader.includes('application/json');
       const attributionParams = extractUpgradeAttributionParams(c.req.url);
       const targetPath = resolveSafeUpgradeTargetPath(c.req.query('targetPath'), attributionParams);
       const parsedReqUrl = new URL(c.req.url);
@@ -1103,6 +1161,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       const cookies = parseCookies(c.req.header('cookie'));
       const rawSession = cookies[SESSION_COOKIE_NAME];
       const isUnavailableView = c.req.query('unavailable') === '1';
+      const isReauthReturn = c.req.query('reauth') === '1';
       const signUpgradeSessionBinding = (sessionToken: string): string =>
         createHmac('sha256', trackingAttestationSecret)
           .update(`upgrade-retry:${sha256Hex(sessionToken)}`)
@@ -1130,6 +1189,105 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         }
         return `${retryUrl.pathname}${retryUrl.search}`;
       };
+      const buildReauthReturnToPath = (options?: { markReauth?: boolean }): string => {
+        const reauthUrl = new URL(parsedReqUrl.toString());
+        reauthUrl.searchParams.set('requireAuth', '1');
+        reauthUrl.searchParams.delete('expectedSession');
+        reauthUrl.searchParams.delete('expectedAppUserId');
+        reauthUrl.searchParams.delete('unavailable');
+        if (options?.markReauth) {
+          reauthUrl.searchParams.set('reauth', '1');
+        } else {
+          reauthUrl.searchParams.delete('reauth');
+        }
+        return `${reauthUrl.pathname}${reauthUrl.search}`;
+      };
+      const buildLoginHref = (options?: { promptLogin?: boolean; switchAccount?: boolean; markReauth?: boolean }): string => {
+        const params = new URLSearchParams();
+        if (options?.switchAccount) {
+          params.set('switch', '1');
+        } else if (options?.promptLogin) {
+          params.set('prompt', 'login');
+        }
+        params.set('returnTo', buildReauthReturnToPath({ markReauth: options?.markReauth }));
+        return `/auth/login?${params.toString()}`;
+      };
+      const htmlNoticeResponse = (status: 401 | 403 | 409 | 503, html: string) =>
+        new Response(html, {
+          status,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+            pragma: 'no-cache',
+            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+            'x-content-type-options': 'nosniff',
+          },
+        });
+      const authRequiredResponse = (code: 'UNAUTHORIZED' | 'REAUTH_REQUIRED', errorMessage: string, options?: { promptLogin?: boolean; markReauth?: boolean }) => {
+        const loginHref = buildLoginHref({
+          promptLogin: options?.promptLogin,
+          markReauth: options?.markReauth,
+        });
+        if (prefersHtml) {
+          if (deps.oidc && !(options?.markReauth && isReauthReturn)) {
+            return c.redirect(loginHref, 302);
+          }
+          return htmlNoticeResponse(
+            401,
+            renderUpgradeHandoffNoticeHtml({
+              title: 'Sign in to OpenDesign',
+              heading: 'Sign in required to continue',
+              message: errorMessage,
+              primaryHref: loginHref,
+              primaryLabel: 'Sign in',
+              secondaryHref: '/',
+              secondaryLabel: 'Back to Studio',
+            }),
+          );
+        }
+        return c.json(
+          {
+            code,
+            error: errorMessage,
+            ...(code === 'REAUTH_REQUIRED' ? { loginUrl: loginHref } : {}),
+          },
+          401,
+        );
+      };
+      const forbiddenResponse = (errorMessage: string) => {
+        if (prefersHtml) {
+          return htmlNoticeResponse(
+            403,
+            renderUpgradeHandoffNoticeHtml({
+              title: 'OpenDesign Account Verification Required',
+              heading: 'Account session is no longer active',
+              message: errorMessage,
+              primaryHref: buildLoginHref({ switchAccount: true }),
+              primaryLabel: 'Sign in again',
+              secondaryHref: '/',
+              secondaryLabel: 'Back to Studio',
+            }),
+          );
+        }
+        return c.json({ code: 'FORBIDDEN', error: errorMessage }, 403);
+      };
+      const accountMismatchResponse = (errorMessage: string) => {
+        if (prefersHtml) {
+          return htmlNoticeResponse(
+            409,
+            renderUpgradeHandoffNoticeHtml({
+              title: 'OpenDesign Account Changed',
+              heading: 'Signed-in account changed',
+              message: errorMessage,
+              primaryHref: '/',
+              primaryLabel: 'Back to Studio',
+              secondaryHref: buildLoginHref({ switchAccount: true }),
+              secondaryLabel: 'Switch account',
+            }),
+          );
+        }
+        return c.json({ code: 'ACCOUNT_MISMATCH', error: errorMessage }, 409);
+      };
       const unavailableResponse = (boundAppUserId?: string | null) => {
         // Before displaying a 503 page on an unbound URL, navigate the browser via same-origin
         // 303 to the session-bound URL so reloading the 503 page FOREVER preserves requireAuth +
@@ -1139,28 +1297,16 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           return c.redirect(boundUnavailablePath, 303);
         }
         const boundRetryPath = buildBoundRetryPath(boundAppUserId, { unavailable: false });
-        return new Response(renderUpgradeHandoffUnavailableHtml(boundRetryPath), {
-          status: 503,
-          headers: {
-            'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'no-store',
-            pragma: 'no-cache',
-            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
-            'x-content-type-options': 'nosniff',
-          },
-        });
+        return htmlNoticeResponse(503, renderUpgradeHandoffUnavailableHtml(boundRetryPath));
       };
 
       if (!rawSession) {
         // Bound retries/reloads (requireAuth=1, expectedSession, or expectedAppUserId)
         // MUST NEVER fall back to unbound guest Pricing when the session cookie disappears.
         if (requireAuth) {
-          return c.json(
-            {
-              code: 'UNAUTHORIZED',
-              error: 'Your session is no longer present. Please sign in again before upgrading.',
-            },
-            401,
+          return authRequiredResponse(
+            'UNAUTHORIZED',
+            'Your session is no longer present. Please sign in again before upgrading.',
           );
         }
         // Only genuine guests (no om_session cookie and not a bound retry) requesting public
@@ -1169,12 +1315,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         if (guestPricingUrl) {
           return c.redirect(guestPricingUrl, 302);
         }
-        return c.json(
-          {
-            code: 'UNAUTHORIZED',
-            error: 'Authentication is required for this upgrade handoff target.',
-          },
-          401,
+        return authRequiredResponse(
+          'UNAUTHORIZED',
+          'Authentication is required for this upgrade handoff target.',
         );
       }
 
@@ -1184,12 +1327,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         expectedSessionParam &&
         !timingSafeStringEqual(expectedSessionParam, signUpgradeSessionBinding(rawSession))
       ) {
-        return c.json(
-          {
-            code: 'ACCOUNT_MISMATCH',
-            error: 'Your signed-in session changed before retrying upgrade. Please reopen Pricing from the active account.',
-          },
-          409,
+        return accountMismatchResponse(
+          'Your signed-in session changed before retrying upgrade. Please reopen Pricing from the active account.',
         );
       }
 
@@ -1211,61 +1350,105 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           // A presented om_session cookie that is expired or revoked MUST fail closed
           // instead of falling through to unbound guest Pricing where a different AMR
           // browser account could be billed.
-          return c.json(
-            {
-              code: 'UNAUTHORIZED',
-              error: 'Your session has expired. Please sign in again before upgrading.',
-            },
-            401,
+          return authRequiredResponse(
+            'UNAUTHORIZED',
+            'Your session has expired. Please sign in again before upgrading.',
           );
         }
         const enriched = await amrIdentity.verifyAndEnrichAuthContext(deps.store, resolved.auth);
         authUserId = enriched.authUserId ?? null;
         appUserId = enriched.appUserId ?? null;
         if (expectedAppUserIdParam && appUserId !== expectedAppUserIdParam) {
-          return c.json(
-            {
-              code: 'ACCOUNT_MISMATCH',
-              error: 'Your signed-in account changed before retrying upgrade. Please reopen Pricing from the active account.',
-            },
-            409,
+          return accountMismatchResponse(
+            'Your signed-in account changed before retrying upgrade. Please reopen Pricing from the active account.',
           );
         }
       } catch (error) {
         // NEVER downgrade a session-bearing upgrade request to unbound guest Pricing on
         // upstream 401/403 or on any DB/Redis/503 error.
         if (isCloudError(error) && (error.status === 401 || error.status === 403)) {
-          return c.json(
-            {
-              code: error.status === 403 ? 'FORBIDDEN' : 'UNAUTHORIZED',
-              error: 'Your session is no longer active. Please sign in again before upgrading.',
-            },
-            error.status === 403 ? 403 : 401,
+          if (error.status === 403) {
+            return forbiddenResponse('Your session is no longer active. Please sign in again before upgrading.');
+          }
+          return authRequiredResponse(
+            'UNAUTHORIZED',
+            'Your session is no longer active. Please sign in again before upgrading.',
           );
         }
         return unavailableResponse(appUserId);
       }
 
-      if (authUserId && appUserId && rawSession) {
-        try {
-          const sessionProof = await readSessionProof(sha256Hex(rawSession));
-          if (sessionProof) {
-            const ticket = await amrIdentity.createOneTapHandoffTicket({
-              authUserId,
-              appUserId,
-              sessionProof,
-              targetPath,
-            });
-            if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
-              return c.redirect(ticket.handoffUrl, 302);
-            }
-          }
-        } catch {
-          // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
+      if (!authUserId || !appUserId) {
+        return authRequiredResponse(
+          'REAUTH_REQUIRED',
+          'Your current session needs a fresh sign-in before opening billing so we can verify your OpenDesign account.',
+          { promptLogin: true, markReauth: true },
+        );
+      }
+
+      let sessionProof: string | null = null;
+      try {
+        sessionProof = await readSessionProof(sha256Hex(rawSession));
+      } catch {
+        return unavailableResponse(appUserId);
+      }
+
+      if (!sessionProof) {
+        // Terminal for this session: legacy sessions created before this rollout or OIDC logins
+        // without motion_session_proof cannot recover by retrying the same session cookie.
+        return authRequiredResponse(
+          'REAUTH_REQUIRED',
+          'Your current session needs a fresh sign-in before opening billing so we can verify your OpenDesign account.',
+          { promptLogin: true, markReauth: true },
+        );
+      }
+
+      try {
+        const ticket = await amrIdentity.createOneTapHandoffTicket({
+          authUserId,
+          appUserId,
+          sessionProof,
+          targetPath,
+        });
+        if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
+          return c.redirect(ticket.handoffUrl, 302);
         }
+      } catch {
+        // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
       }
 
       return unavailableResponse(appUserId);
+    });
+  } else {
+    // Fallback when AMR identity handoff is not configured (e.g. standalone OIDC without AMR client
+    // or dev mode) so browser Pricing/Manage-subscription links never land on a 404.
+    app.get('/auth/upgrade-handoff', (c) => {
+      c.header('Cache-Control', 'no-store');
+      c.header('Pragma', 'no-cache');
+
+      if (c.req.header('authorization')) {
+        return c.json(
+          {
+            code: 'FORBIDDEN',
+            error: 'Upgrade handoff requires an interactive browser cookie session.',
+          },
+          403,
+        );
+      }
+
+      const attributionParams = extractUpgradeAttributionParams(c.req.url);
+      const targetPath = resolveSafeUpgradeTargetPath(c.req.query('targetPath'), attributionParams);
+      const fallbackUrl = resolveFallbackUpgradeRedirectUrl(targetPath, deps.config);
+      if (fallbackUrl) {
+        return c.redirect(fallbackUrl, 302);
+      }
+      return c.json(
+        {
+          code: 'SERVICE_UNAVAILABLE',
+          error: 'Upgrade handoff target is not configured.',
+        },
+        503,
+      );
     });
   }
 

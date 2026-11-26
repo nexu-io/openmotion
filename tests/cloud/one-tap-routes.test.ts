@@ -2002,4 +2002,360 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       await rm(tmpRoot, { recursive: true, force: true });
     }
   });
+
+  it('gives sessions without a stored proof a terminal recovery path, returns navigable HTML for browser upgrade failures, and falls back when AMR identity is absent', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    const projected = await store.projectAmrUserAndWorkspace({
+      oidcSub: 'ba_usr_noproof',
+      appUserId: 'usr_app_noproof',
+      email: 'noproof@open-design.ai',
+      displayName: 'Legacy User',
+      avatarUrl: null,
+      externalWorkspaceId: 'ws_amr_noproof',
+      workspaceName: 'Legacy Workspace',
+      role: 'owner',
+    });
+
+    // Session created without any stored om:amr:session-proof:<hash> entry (legacy session / OIDC login omitting proof).
+    const legacySession = await createBrowserSession(store, {
+      userId: projected.user.id,
+      workspaceId: projected.workspace.id,
+    });
+
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_noproof`)) {
+          return Response.json({
+            active: true,
+            status: 'active',
+            authUserId: 'ba_usr_noproof',
+            appUserId: 'usr_app_noproof',
+            email: 'noproof@open-design.ai',
+            name: 'Legacy User',
+            image: null,
+            workspace: {
+              workspaceId: 'ws_amr_noproof',
+              workspaceName: 'Legacy Workspace',
+              workspaceType: 'personal',
+              workspaceMemberId: 'wm_noproof',
+              role: 'owner',
+            },
+          });
+        }
+        return new Response('unexpected', { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const fakeOidc = {
+      startLogin: async () => ({
+        authorizationUrl: 'https://idp.open-design.test/authorize',
+        txCookieValue: 'tx',
+      }),
+    } as unknown as OidcService;
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, amrIdentity, oidc: fakeOidc }));
+
+    // 1. Missing stored proof MUST NOT enter a 303 -> 503 retry loop.
+    //    a) Programmatic caller gets terminal 401 REAUTH_REQUIRED JSON with loginUrl.
+    const apiNoProof = await app.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` },
+    });
+    assert.equal(apiNoProof.status, 401);
+    assert.equal(apiNoProof.headers.get('location'), null);
+    const apiNoProofBody = (await apiNoProof.json()) as { code?: string; loginUrl?: string };
+    assert.equal(apiNoProofBody.code, 'REAUTH_REQUIRED');
+    assert.match(apiNoProofBody.loginUrl ?? '', /^\/auth\/login\?prompt=login&returnTo=/);
+
+    //    b) Browser HTML navigation redirects once to /auth/login?prompt=login&returnTo=...&reauth=1
+    const browserNoProof = await app.request('/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1', {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}`,
+      },
+    });
+    assert.equal(browserNoProof.status, 302);
+    const reauthLocation = browserNoProof.headers.get('location')!;
+    assert.match(reauthLocation, /^\/auth\/login\?prompt=login&returnTo=/);
+    const reauthReturnTo = new URL(reauthLocation, PUBLIC_ORIGIN).searchParams.get('returnTo')!;
+    assert.match(reauthReturnTo, /reauth=1/);
+    assert.doesNotMatch(reauthReturnTo, /unavailable=1/);
+    assert.doesNotMatch(reauthReturnTo, /expectedSession=/);
+
+    //    c) If reauth=1 returns and proof is STILL absent (IdP omits claim), render terminal 401 HTML notice (no loop, no 503, no guest Pricing).
+    const browserStillNoProof = await app.request(reauthReturnTo, {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}`,
+      },
+    });
+    assert.equal(browserStillNoProof.status, 401);
+    assert.equal(browserStillNoProof.headers.get('location'), null);
+    assert.match(browserStillNoProof.headers.get('content-type') ?? '', /^text\/html/);
+    const noticeHtml = await browserStillNoProof.text();
+    assert.match(noticeHtml, /Sign in required to continue/);
+    assert.match(noticeHtml, /href="\/auth\/login\?/);
+    assert.doesNotMatch(noticeHtml, /Unable to verify billing handoff/);
+
+    // 2. Browser navigations hitting expired/missing session or ACCOUNT_MISMATCH get navigable responses (never raw JSON).
+    const browserMissingSession = await app.request('/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1', {
+      headers: { Accept: 'text/html' },
+    });
+    assert.equal(browserMissingSession.status, 302);
+    assert.match(browserMissingSession.headers.get('location')!, /^\/auth\/login\?returnTo=/);
+
+    const browserMismatch = await app.request(
+      '/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1&expectedAppUserId=usr_other',
+      {
+        headers: {
+          Accept: 'text/html',
+          Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}`,
+        },
+      },
+    );
+    assert.equal(browserMismatch.status, 409);
+    assert.match(browserMismatch.headers.get('content-type') ?? '', /^text\/html/);
+    assert.match(await browserMismatch.text(), /Signed-in account changed/);
+
+    // 3. OIDC deployment WITHOUT optional AMR identity client mounts fallback /auth/upgrade-handoff (no 404)
+    //    and reports upgradeHandoffEnabled: false in /motion-api/account/summary.
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-no-amr-handoff-'));
+    try {
+      const { createApiApp } = await import('../../src/entrypoints/api.ts');
+      const noAmrConfig = makeConfig({
+        OPENDESIGN_INTERNAL_API_TOKEN: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_URL: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: undefined,
+      });
+      const { app: noAmrApp } = createApiApp({
+        config: noAmrConfig,
+        db: {} as never,
+        storage: {} as never,
+        queues: {} as never,
+        eventBus: {} as never,
+        authStore: store,
+        authCache: cache,
+        disableWelcomeBootstrap: true,
+        runtimeRoot: tmpRoot,
+      });
+
+      const summaryRes = await noAmrApp.request('/motion-api/account/summary', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` },
+      });
+      assert.equal(summaryRes.status, 200);
+      const summaryBody = (await summaryRes.json()) as { upgradeHandoffEnabled?: boolean };
+      assert.equal(summaryBody.upgradeHandoffEnabled, false);
+
+      const fallbackPricing = await noAmrApp.request(
+        '/auth/upgrade-handoff?targetPath=%2Fpricing&od_origin=openmotion&od_entry_id=no-amr-1',
+      );
+      assert.equal(fallbackPricing.status, 302);
+      assert.equal(
+        fallbackPricing.headers.get('location'),
+        'https://open-design.ai/pricing?od_origin=openmotion&od_entry_id=no-amr-1',
+      );
+
+      const fallbackDashboard = await noAmrApp.request(
+        '/auth/upgrade-handoff?targetPath=%2Fdashboard&billing=plan&od_origin=openmotion',
+      );
+      assert.equal(fallbackDashboard.status, 302);
+      assert.equal(
+        fallbackDashboard.headers.get('location'),
+        'https://open-design.ai/cloud/dashboard?billing=plan&od_origin=openmotion',
+      );
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('allows configured HTTP object store and blob iframes in Studio CSP, enforces unified privacy preferences, and throttles tracking ingest', async () => {
+    const { buildStudioDocumentSecurityHeaders, createApiApp } = await import('../../src/entrypoints/api.ts');
+
+    // 1. Studio CSP allows configured HTTP object store (default Compose http://127.0.0.1:9000) and blob: iframes
+    const composeHeaders = buildStudioDocumentSecurityHeaders({
+      storagePublicOrigin: 'http://127.0.0.1:9000',
+    });
+    const csp = composeHeaders['Content-Security-Policy']!;
+    assert.match(csp, /frame-src[^;]*\bblob:/);
+    assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
+    assert.match(csp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+    assert.match(csp, /media-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+    assert.match(csp, /connect-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+    assert.match(csp, /font-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+
+    // Invalid/injected storage origins are safely ignored
+    const injectedHeaders = buildStudioDocumentSecurityHeaders({
+      storagePublicOrigin: "http://127.0.0.1:9000; script-src 'unsafe-eval'",
+    });
+    assert.doesNotMatch(injectedHeaders['Content-Security-Policy']!, /unsafe-eval/);
+
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-csp-privacy-rl-'));
+    try {
+      await mkdir(path.join(tmpRoot, 'studio', 'build'), { recursive: true });
+      await writeFile(path.join(tmpRoot, 'studio', 'build', 'index.html'), '<!doctype html><html><head></head><body>ok</body></html>');
+
+      const config = makeConfig({
+        S3_PUBLIC_ENDPOINT: 'http://127.0.0.1:9000',
+        TRUST_PROXY_HOPS: '1',
+        OPENDESIGN_INTERNAL_API_TOKEN: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_URL: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: undefined,
+      });
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const projected = await store.projectAmrUserAndWorkspace({
+        oidcSub: 'ba_usr_privacy',
+        appUserId: 'usr_app_privacy',
+        email: 'privacy@open-design.ai',
+        displayName: 'Privacy User',
+        avatarUrl: null,
+        externalWorkspaceId: 'ws_amr_privacy',
+        workspaceName: 'Privacy Workspace',
+        role: 'owner',
+      });
+      const session = await createBrowserSession(store, {
+        userId: projected.user.id,
+        workspaceId: projected.workspace.id,
+      });
+
+      const delivered: Array<{ event: string; entrypoint: string }> = [];
+      const { app } = createApiApp({
+        config,
+        db: {} as never,
+        storage: {} as never,
+        queues: {} as never,
+        eventBus: {} as never,
+        authStore: store,
+        authCache: cache,
+        disableWelcomeBootstrap: true,
+        runtimeRoot: tmpRoot,
+        trackingRateLimitPerMin: 4,
+        onTrackingEvents: (events) => {
+          for (const e of events) delivered.push({ event: e.event, entrypoint: e.entrypoint });
+        },
+      });
+
+      // Served SPA document carries the Compose HTTP object store and blob: frame-src
+      const indexRes = await app.request('/');
+      assert.equal(indexRes.status, 200);
+      const servedCsp = indexRes.headers.get('content-security-policy')!;
+      assert.match(servedCsp, /frame-src[^;]*\bblob:/);
+      assert.match(servedCsp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+      assert.match(servedCsp, /media-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+
+      // 2. Unified privacy preference: enabled & unlocked by default when collector is active,
+      //    and toggling off disables config, preferences, AND ingestion (even when deviceIdConsented=true).
+      const prefBefore = await app.request('/motion-api/tracking/preferences', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+      });
+      assert.equal(prefBefore.status, 200);
+      assert.deepEqual(await prefBefore.json(), { enabled: true, preference: true, locked: false, reason: null });
+
+      const optOutRes = await app.request('/motion-api/tracking/preferences', {
+        method: 'PUT',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${SESSION_COOKIE_NAME}=${session.token}`,
+        },
+        body: JSON.stringify({ enabled: false }),
+      });
+      assert.equal(optOutRes.status, 200);
+      assert.deepEqual(await optOutRes.json(), { enabled: false, preference: false, locked: false, reason: null });
+      const prefCookie = extractCookieValue(optOutRes.headers.getSetCookie(), 'om_tracking_pref');
+      assert.equal(prefCookie, '0');
+
+      const cfgAfterOptOut = await app.request('/motion-api/tracking', {
+        headers: {
+          Cookie: `${SESSION_COOKIE_NAME}=${session.token}; om_metrics_consent=granted; om_tracking_pref=0`,
+        },
+      });
+      assert.equal(cfgAfterOptOut.status, 200);
+      assert.deepEqual(await cfgAfterOptOut.json(), {
+        enabled: false,
+        locked: false,
+        mode: 'cloud',
+        deviceIdConsented: true,
+      });
+
+      const makeEvent = (entrypoint: 'studio' | 'mcp' = 'studio') => ({
+        event: 'onetap_prompt_attempt',
+        event_id: crypto.randomUUID(),
+        occurred_at: new Date().toISOString(),
+        entrypoint,
+        device_timezone: 'UTC',
+        utc_offset_minutes: 0,
+        properties: { surface: 'motion_web', attempt_id: 'att-1', device_type: 'desktop', suppressed: false },
+      });
+
+      // Signed-in opt-out drops events instead of forwarding to PostHog
+      const optedOutPost = await app.request('/motion-api/tracking', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.10',
+          Cookie: `${SESSION_COOKIE_NAME}=${session.token}; om_tracking_pref=0`,
+        },
+        body: JSON.stringify({ events: [makeEvent('studio')] }),
+      });
+      assert.equal(optedOutPost.status, 202);
+      assert.deepEqual(await optedOutPost.json(), { ok: true, accepted: false, enabled: false, count: 0 });
+      assert.equal(delivered.length, 0);
+
+      // 3. Guest events with non-studio entrypoint are rejected; studio entrypoint is accepted;
+      //    and per-IP rate limit blocks bursts with 429 + Retry-After.
+      const guestMcpRes = await app.request('/motion-api/tracking', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.20',
+        },
+        body: JSON.stringify({ events: [makeEvent('mcp')] }),
+      });
+      assert.equal(guestMcpRes.status, 202);
+      assert.deepEqual(await guestMcpRes.json(), { ok: true, accepted: false, enabled: true, count: 0 });
+      assert.equal(delivered.length, 0);
+
+      for (let i = 0; i < 3; i++) {
+        const okGuestRes = await app.request('/motion-api/tracking', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'content-type': 'application/json',
+            'x-forwarded-for': '203.0.113.20',
+          },
+          body: JSON.stringify({ events: [makeEvent('studio')] }),
+        });
+        assert.equal(okGuestRes.status, 202);
+      }
+      assert.equal(delivered.length, 3);
+
+      // 5th request from same IP within the 1-minute window (limit=4) MUST be throttled with 429
+      const throttledRes = await app.request('/motion-api/tracking', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          'x-forwarded-for': '203.0.113.20',
+        },
+        body: JSON.stringify({ events: [makeEvent('studio')] }),
+      });
+      assert.equal(throttledRes.status, 429);
+      assert.ok(Number(throttledRes.headers.get('retry-after')) >= 1);
+      assert.equal(delivered.length, 3);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
 });

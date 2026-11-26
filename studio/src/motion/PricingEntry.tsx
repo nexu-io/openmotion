@@ -40,11 +40,14 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
   const gradientId = useId();
   // Each click is its own Pricing entry: its id is on the link and on the click event, then replaced.
   const [entryId, setEntryId] = useState(newCampaignEntryId);
-  // In browser cloud mode (non-desktop, non-dev), ALWAYS route Pricing clicks through same-origin
-  // /auth/upgrade-handoff so the server authoritatively inspects the live om_session cookie at click
-  // time (avoiding stale guest-probe bypasses if another tab signed in) and safely redirects true
-  // guests to public Pricing.
-  const useUpgradeHandoff = !isDesktopApp() && account?.authMode !== 'dev';
+  // In browser cloud mode (non-desktop, non-dev, when server upgrade handoff is enabled), route
+  // Pricing clicks through same-origin /auth/upgrade-handoff so the server authoritatively inspects
+  // the live om_session cookie at click time (avoiding stale guest-probe bypasses if another tab
+  // signed in) and safely redirects true guests to public Pricing.
+  const useUpgradeHandoff =
+    !isDesktopApp() &&
+    account?.authMode !== 'dev' &&
+    account?.upgradeHandoffEnabled !== false;
   const signedInBinding =
     account?.state === 'signed-in'
       ? { requireAuth: true, expectedAppUserId: account.appUserId ?? null }

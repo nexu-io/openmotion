@@ -378,3 +378,24 @@ it('supports minimal read-only PAT preset via ?preset=readonly#tokens and displa
     window.history.replaceState(null, '', originalHref);
   }
 });
+
+it('falls back to direct console dashboard links when server reports upgradeHandoffEnabled=false', async () => {
+  const page = await open(
+    {
+      authenticated: true,
+      authMode: 'oidc',
+      authMethod: 'session_cookie',
+      upgradeHandoffEnabled: false,
+      user: { id: 'u1', appUserId: 'usr_app_1', email: 'ada@example.test', displayName: 'Ada' },
+      billing: { plan: 'free', mediaEntitlement: 'not-included', balanceUsd: 0 },
+    },
+    'en',
+    'subscription',
+  );
+  const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
+  const upgradeUrl = new URL(upgrade.href);
+  expect(upgradeUrl.origin + upgradeUrl.pathname).toBe('https://open-design.ai/cloud/dashboard');
+  expect(upgradeUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  const manageUrl = new URL(manage.href);
+  expect(manageUrl.origin + manageUrl.pathname).toBe('https://open-design.ai/cloud/dashboard');
+});

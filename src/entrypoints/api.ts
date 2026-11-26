@@ -163,25 +163,43 @@ export function resolveApiCorsAllowedOrigins(
   );
 }
 
+function normalizeCspOrigin(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed || /[\s;,"'\x00-\x1f\x7f]/.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Main-document security headers required by Google Identity Services (GIS) One Tap + FedCM.
  * Enforces GIS script/style/frame/connect allowances, `identity-credentials-get` Permissions-Policy,
  * and `Cross-Origin-Opener-Policy: same-origin-allow-popups` (never `same-origin`).
  */
 export function buildStudioDocumentSecurityHeaders(
-  options: { previewOrigin?: string | null } = {},
+  options: { previewOrigin?: string | null; storagePublicOrigin?: string | null } = {},
 ): Record<string, string> {
-  const preview = options.previewOrigin?.trim() || '';
-  const frameSrc = ["'self'", 'https://accounts.google.com/gsi/', ...(preview ? [preview] : [])].join(' ');
-  const connectSrc = [
+  const preview = normalizeCspOrigin(options.previewOrigin) ?? '';
+  const storageOrigin = normalizeCspOrigin(options.storagePublicOrigin) ?? '';
+  const uniqueSources = (sources: string[]) => [...new Set(sources.filter(Boolean))].join(' ');
+  const frameSrc = uniqueSources(["'self'", 'blob:', 'https://accounts.google.com/gsi/', preview]);
+  const connectSrc = uniqueSources([
     "'self'",
     'https://accounts.google.com/gsi/',
     'http://127.0.0.1:*',
     'http://localhost:*',
     'https:',
     'wss:',
-    ...(preview ? [preview] : []),
-  ].join(' ');
+    preview,
+    storageOrigin,
+  ]);
+  const imgSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const mediaSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const fontSrc = uniqueSources(["'self'", 'data:', 'https:', storageOrigin]);
   return {
     'Content-Security-Policy': [
       "default-src 'self'",
@@ -189,9 +207,9 @@ export function buildStudioDocumentSecurityHeaders(
       "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
       `frame-src ${frameSrc}`,
       `connect-src ${connectSrc}`,
-      "img-src 'self' data: blob: https:",
-      "media-src 'self' data: blob: https:",
-      "font-src 'self' data: https:",
+      `img-src ${imgSrc}`,
+      `media-src ${mediaSrc}`,
+      `font-src ${fontSrc}`,
       "worker-src 'self' blob:",
       "base-uri 'self'",
       "form-action 'self'",
@@ -434,6 +452,7 @@ export interface CreateApiAppDeps {
   readonly hotTextCache?: HotTextCachePort;
   readonly rateLimiter?: RateLimiter;
   readonly onTrackingEvents?: (events: readonly PendingEvent[]) => void | Promise<void>;
+  readonly trackingRateLimitPerMin?: number;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
   readonly oidc?: OidcService;
@@ -2664,13 +2683,156 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   const trackingCookieSecure = isHttpsOrigin(config.APP_PUBLIC_ORIGIN);
 
   const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
+  const TRACKING_PREF_COOKIE_NAME = 'om_tracking_pref';
+  const TRACKING_PREF_TTL_SEC = 31_536_000;
+  const localTrackingPrefs = new Map<string, boolean>();
+  const localTrackingRateBuckets = new Map<string, { count: number; resetAt: number }>();
 
-  app.get('/motion-api/tracking', (c) => {
+  const isTelemetryEnvDisabled = (): boolean => {
+    const envVal = process.env.OPENMOTION_TELEMETRY?.trim().toLowerCase() ?? '';
+    return ['0', 'false', 'off'].includes(envVal) || process.env.DO_NOT_TRACK === '1';
+  };
+
+  const trackingPrefCacheKey = (userId: string) => `om:tracking:pref:${userId}`;
+
+  const readStoredUserTrackingPreference = async (userId: string): Promise<boolean | null> => {
+    if (authDeps.cache) {
+      try {
+        const cached = await authDeps.cache.get(trackingPrefCacheKey(userId));
+        if (cached === '1') return true;
+        if (cached === '0') return false;
+      } catch {
+        // Fall back to in-memory / cookie preference if cache read fails transiently.
+      }
+    }
+    const local = localTrackingPrefs.get(userId);
+    return typeof local === 'boolean' ? local : null;
+  };
+
+  const writeStoredUserTrackingPreference = async (userId: string, enabled: boolean): Promise<void> => {
+    localTrackingPrefs.set(userId, enabled);
+    if (authDeps.cache) {
+      try {
+        await authDeps.cache.set(trackingPrefCacheKey(userId), enabled ? '1' : '0', TRACKING_PREF_TTL_SEC);
+      } catch {
+        // Cookie still persists browser preference when cache is transiently unavailable.
+      }
+    }
+  };
+
+  const resolveEffectiveTrackingPreference = async (
+    cookies: Record<string, string>,
+    userId: string | null,
+  ): Promise<{
+    enabled: boolean;
+    preference: boolean;
+    locked: boolean;
+    reason: 'environment' | null;
+  }> => {
+    if (!deps.onTrackingEvents || isTelemetryEnvDisabled()) {
+      return {
+        enabled: false,
+        preference: false,
+        locked: true,
+        reason: 'environment',
+      };
+    }
+    let preference: boolean | null = null;
+    if (userId) {
+      preference = await readStoredUserTrackingPreference(userId);
+    }
+    if (preference === null) {
+      const cookieVal = cookies[TRACKING_PREF_COOKIE_NAME];
+      if (cookieVal === '0') preference = false;
+      else if (cookieVal === '1') preference = true;
+    }
+    const effective = preference ?? true;
+    return {
+      enabled: effective,
+      preference: effective,
+      locked: false,
+      reason: null,
+    };
+  };
+
+  const extractTrackingClientIp = (c: Context): string =>
+    (config.TRUST_PROXY_HOPS > 0 ? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() : undefined) ||
+    c.req.header('x-real-ip')?.trim() ||
+    'local';
+
+  const checkTrackingRateLimit = async (
+    scope: 'ingest' | 'consent' | 'config',
+    clientIp: string,
+    limit: number,
+  ): Promise<{ allowed: boolean; retryAfterSec: number }> => {
+    const windowMs = 60_000;
+    const ipHash = createHash('sha256').update(clientIp.trim() || 'local').digest('hex').slice(0, 32);
+    const bucketKey = `tracking:${scope}:${ipHash}`;
+    if (deps.rateLimiter) {
+      try {
+        const result = await deps.rateLimiter.consume(bucketKey, limit, windowMs, 1);
+        return { allowed: result.allowed, retryAfterSec: Math.max(1, result.retryAfterSec) };
+      } catch {
+        // Fall through to local sliding window limiter if Redis is transiently unreachable.
+      }
+    }
+    const now = Date.now();
+    if (localTrackingRateBuckets.size > 10_000) {
+      for (const [k, v] of localTrackingRateBuckets.entries()) {
+        if (v.resetAt <= now) localTrackingRateBuckets.delete(k);
+      }
+    }
+    const existing = localTrackingRateBuckets.get(bucketKey);
+    if (!existing || now >= existing.resetAt) {
+      localTrackingRateBuckets.set(bucketKey, { count: 1, resetAt: now + windowMs });
+      return { allowed: true, retryAfterSec: 0 };
+    }
+    if (existing.count >= limit) {
+      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)) };
+    }
+    existing.count += 1;
+    return { allowed: true, retryAfterSec: 0 };
+  };
+
+  const trackingIngestLimitPerMin = deps.trackingRateLimitPerMin ?? 60;
+  const trackingConsentLimitPerMin = Math.max(1, Math.min(30, trackingIngestLimitPerMin));
+  const trackingConfigLimitPerMin = Math.max(trackingIngestLimitPerMin, 120);
+
+  app.get('/motion-api/tracking', async (c) => {
+    const rl = await checkTrackingRateLimit('config', extractTrackingClientIp(c), trackingConfigLimitPerMin);
+    if (!rl.allowed) {
+      c.header('Retry-After', String(rl.retryAfterSec));
+      return c.json({ code: 'RATE_LIMITED', error: 'Too many tracking requests' }, 429);
+    }
     const cookies = parseCookies(c.req.header('cookie'));
     const deviceIdConsented = cookies[METRICS_CONSENT_COOKIE_NAME] === 'granted';
-    return c.json({ enabled: true, locked: false, mode: 'cloud', deviceIdConsented });
+    let resolvedUserId: string | null = null;
+    const rawSession = cookies[SESSION_COOKIE_NAME];
+    if (rawSession) {
+      try {
+        const resolved = await resolveBrowserSession(authDeps.store, rawSession, {
+          authMode: config.AUTH_MODE,
+          cache: authDeps.cache,
+        });
+        resolvedUserId = resolved?.auth.userId ?? null;
+      } catch {
+        // Treat invalid/expired session as guest when reading tracking config.
+      }
+    }
+    const pref = await resolveEffectiveTrackingPreference(cookies, resolvedUserId);
+    return c.json({
+      enabled: pref.enabled,
+      locked: pref.locked,
+      mode: 'cloud',
+      deviceIdConsented,
+    });
   });
   app.post('/motion-api/tracking/consent', async (c) => {
+    const rl = await checkTrackingRateLimit('consent', extractTrackingClientIp(c), trackingConsentLimitPerMin);
+    if (!rl.allowed) {
+      c.header('Retry-After', String(rl.retryAfterSec));
+      return c.json({ code: 'RATE_LIMITED', error: 'Too many tracking requests' }, 429);
+    }
     if (!verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
       return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
     }
@@ -2692,6 +2854,11 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     return c.json({ ok: true, deviceIdConsented: consented });
   });
   app.post('/motion-api/tracking', async (c) => {
+    const rl = await checkTrackingRateLimit('ingest', extractTrackingClientIp(c), trackingIngestLimitPerMin);
+    if (!rl.allowed) {
+      c.header('Retry-After', String(rl.retryAfterSec));
+      return c.json({ code: 'RATE_LIMITED', error: 'Too many tracking requests' }, 429);
+    }
     const cookies = parseCookies(c.req.header('cookie'));
     const rawSession = cookies[SESSION_COOKIE_NAME];
     const rawTrackAtt = cookies[TRACKING_ATTESTATION_COOKIE_NAME];
@@ -2716,6 +2883,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     }
 
     const attestedAppUserIds = verifyTrackingAttestationCookie(rawTrackAtt, trackingAttestationSecret);
+    let resolvedUserId: string | null = null;
     let resolvedAppUserId: string | null = null;
     let isAuthenticated = false;
     if (rawSession) {
@@ -2726,6 +2894,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         });
         if (resolved) {
           isAuthenticated = true;
+          resolvedUserId = resolved.auth.userId;
           const auth =
             config.AUTH_MODE === 'oidc' && authDeps.amrIdentity
               ? await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth)
@@ -2742,10 +2911,17 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       isAuthenticated = true;
     }
 
+    const effectivePref = await resolveEffectiveTrackingPreference(cookies, resolvedUserId);
+    if (!effectivePref.enabled) {
+      return c.json({ ok: true, accepted: false, enabled: false, count: 0 }, 202);
+    }
+
     const acceptedEvents: PendingEvent[] = [];
     for (const candidate of rawBody.events) {
       if (!validPending(studioEvents, candidate)) continue;
-      const isGuestEvent = GUEST_ALLOWED_TRACKING_EVENTS.has(candidate.event);
+      // Unauthenticated guests may only submit registered One Tap events from the Studio entrypoint.
+      const isGuestEvent =
+        GUEST_ALLOWED_TRACKING_EVENTS.has(candidate.event) && candidate.entrypoint === 'studio';
       const claimedAppUserId =
         typeof candidate.app_user_id === 'string' && candidate.app_user_id.trim()
           ? candidate.app_user_id.trim()
@@ -2821,21 +2997,49 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
 
     return c.json({ ok: true, accepted: acceptedEvents.length > 0, enabled: true, count: acceptedEvents.length }, 202);
   });
-  const trackingPreferencesPayload = {
-    enabled: false,
-    preference: false,
-    locked: true,
-    reason: 'environment' as const,
+  const handleGetTrackingPreferences = async (c: Context<AuthEnv>) => {
+    const auth = getAuthContext(c);
+    const cookies = parseCookies(c.req.header('cookie'));
+    const pref = await resolveEffectiveTrackingPreference(cookies, auth.userId);
+    return c.json(pref);
   };
-  app.get('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
-  });
-  app.put('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
-  });
-  app.post('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
-  });
+  const handleUpdateTrackingPreferences = async (c: Context<AuthEnv>) => {
+    const auth = getAuthContext(c);
+    const cookies = parseCookies(c.req.header('cookie'));
+    const current = await resolveEffectiveTrackingPreference(cookies, auth.userId);
+    if (current.locked) {
+      return c.json(current);
+    }
+    let enabled: boolean;
+    try {
+      const parsed = (await c.req.json()) as { enabled?: unknown };
+      if (typeof parsed?.enabled !== 'boolean') {
+        return c.json({ code: 'INVALID_ARGUMENT', error: 'enabled must be a boolean' }, 400);
+      }
+      enabled = parsed.enabled;
+    } catch {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
+    }
+    await writeStoredUserTrackingPreference(auth.userId, enabled);
+    const prefCookieParts = [
+      `${TRACKING_PREF_COOKIE_NAME}=${enabled ? '1' : '0'}`,
+      'HttpOnly',
+      'Path=/',
+      'SameSite=Lax',
+      `Max-Age=${TRACKING_PREF_TTL_SEC}`,
+    ];
+    if (trackingCookieSecure) prefCookieParts.push('Secure');
+    c.header('Set-Cookie', prefCookieParts.join('; '));
+    return c.json({
+      enabled,
+      preference: enabled,
+      locked: false,
+      reason: null,
+    });
+  };
+  app.get('/motion-api/tracking/preferences', authMiddleware, handleGetTrackingPreferences);
+  app.put('/motion-api/tracking/preferences', authMiddleware, handleUpdateTrackingPreferences);
+  app.post('/motion-api/tracking/preferences', authMiddleware, handleUpdateTrackingPreferences);
   app.post('/motion-api/diagnostics', authMiddleware, (c) => {
     return c.json({ ok: true, mode: 'cloud-container', version: VERSION });
   });
@@ -2982,7 +3186,16 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.route('/motion-api/assets', createAssetRoutes({ assetService: assets }));
   app.route('/motion-api', createExportRoutes({ exportService: exportsService }));
   app.route('/motion-api/models', createModelRoutes({ gateway, authStore, mediaJobs }));
-  app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway, cache: authCache }));
+  app.route(
+    '/motion-api/account',
+    createAccountRoutes({
+      config,
+      authStore,
+      gateway,
+      cache: authCache,
+      upgradeHandoffEnabled: Boolean(config.AUTH_MODE === 'oidc' && authDeps.amrIdentity),
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // 8. Explicit P2 Deferred Routes (`501 FEATURE_DEFERRED_P2`)
@@ -3270,6 +3483,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
       const documentSecurityHeaders = buildStudioDocumentSecurityHeaders({
         previewOrigin: previewHostIsolationEnabled && previewOriginUrl ? previewOriginUrl.origin : null,
+        storagePublicOrigin: normalizeCspOrigin(config.S3_PUBLIC_ENDPOINT ?? config.S3_ENDPOINT),
       });
       if (c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {

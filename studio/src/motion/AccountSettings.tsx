@@ -35,6 +35,7 @@ export interface CloudAccountSummary extends AccountSummary {
   appUserId?: string | null;
   authMode?: 'oidc' | 'dev';
   authMethod?: 'session_cookie' | 'pat' | 'oauth_bearer' | 'oidc_jwt' | 'dev_bypass';
+  upgradeHandoffEnabled?: boolean;
   activeWorkspace?: CloudWorkspaceSummary | null;
   workspaces?: CloudWorkspaceSummary[];
   mediaEntitlement?: 'included' | 'not-included' | 'unknown';
@@ -71,6 +72,7 @@ interface CloudSummaryApiResponse {
   authenticated?: boolean;
   authMode?: 'oidc' | 'dev';
   authMethod?: CloudAccountSummary['authMethod'];
+  upgradeHandoffEnabled?: boolean;
   consoleUrl?: string;
   user?: {
     id?: string;
@@ -149,7 +151,12 @@ function isReadOnlyTokenScopes(scopes: readonly string[]): boolean {
 function subscriptionUrl(
   consoleUrl: string,
   entrySource = 'openmotion_manage_subscription',
-  options?: { useUpgradeHandoff?: boolean; targetPath?: string },
+  options?: {
+    useUpgradeHandoff?: boolean;
+    targetPath?: string;
+    requireAuth?: boolean;
+    expectedAppUserId?: string | null;
+  },
 ) {
   const params = new URLSearchParams({
     billing: 'plan',
@@ -166,6 +173,12 @@ function subscriptionUrl(
     const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
     if (options.targetPath) {
       handoff.searchParams.set('targetPath', options.targetPath);
+    }
+    if (options.requireAuth) {
+      handoff.searchParams.set('requireAuth', '1');
+      if (options.expectedAppUserId) {
+        handoff.searchParams.set('expectedAppUserId', options.expectedAppUserId);
+      }
     }
     for (const [key, value] of params.entries()) {
       handoff.searchParams.set(key, value);
@@ -199,6 +212,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
       errorCode: raw.errorCode,
       authMode: raw.authMode,
       authMethod: raw.authMethod,
+      upgradeHandoffEnabled: raw.upgradeHandoffEnabled,
       activeWorkspace: raw.activeWorkspace,
       workspaces: raw.workspaces,
       modelGateway: raw.modelGateway,
@@ -222,6 +236,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
     billingUnavailable: raw.billing?.unavailable,
     authMode: raw.authMode ?? 'oidc',
     authMethod: raw.authMethod,
+    upgradeHandoffEnabled: raw.upgradeHandoffEnabled,
     activeWorkspace: raw.activeWorkspace ?? null,
     workspaces: Array.isArray(raw.workspaces) ? raw.workspaces : [],
     mediaEntitlement: raw.billing?.mediaEntitlement,
@@ -344,11 +359,18 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
 
   function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
     const consoleUrl = state.account!.consoleUrl;
-    const useUpgradeHandoff = Boolean(signedIn && account?.authMode === 'oidc' && !isDesktopApp());
+    const useUpgradeHandoff = Boolean(
+      signedIn &&
+      account?.authMode === 'oidc' &&
+      account?.upgradeHandoffEnabled !== false &&
+      !isDesktopApp(),
+    );
     const buildUrl = () =>
       subscriptionUrl(consoleUrl, source, {
         useUpgradeHandoff,
         targetPath: '/dashboard',
+        requireAuth: signedIn,
+        expectedAppUserId: account?.appUserId ?? null,
       });
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
       const targetUrl = buildUrl();

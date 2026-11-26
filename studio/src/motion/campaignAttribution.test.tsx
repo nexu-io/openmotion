@@ -257,3 +257,18 @@ it('repeats a 24-hour countdown daily and expires after 2026-12-04 23:59:59 +08:
   await act(async () => { vi.advanceTimersByTime(1000); });
   expect(onExpire).toHaveBeenCalledOnce();
 });
+
+it('uses direct public Pricing URL when server reports upgradeHandoffEnabled=false in OIDC mode', () => {
+  accountSummaryHook.account = {
+    state: 'signed-in',
+    authMode: 'oidc',
+    upgradeHandoffEnabled: false,
+    appUserId: 'usr_app_1',
+    consoleUrl: 'https://open-design.ai/cloud',
+  };
+  render(<PricingEntry trackingPage="studio" />);
+  const link = container.querySelector<HTMLAnchorElement>('a')!;
+  const url = new URL(link.href);
+  expect(url.origin).toBe('https://open-design.ai');
+  expect(url.pathname).toBe('/zh/pricing/');
+});
