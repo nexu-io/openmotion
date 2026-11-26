@@ -2915,15 +2915,17 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
           cache: authDeps.cache,
         });
         if (resolved) {
-          const auth =
-            config.AUTH_MODE === 'oidc' && authDeps.amrIdentity
-              ? await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth)
-              : resolved.auth;
-          sessionAppUserId = auth.appUserId ?? null;
+          // The membership row already carries the projected AMR app user id; only sessions that
+          // predate that projection need an AMR lookup.
+          sessionAppUserId = resolved.auth.appUserId ?? null;
+          if (!sessionAppUserId && config.AUTH_MODE === 'oidc' && authDeps.amrIdentity) {
+            const enriched = await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth);
+            sessionAppUserId = enriched.appUserId ?? null;
+          }
           if (sessionAppUserId) attestedAppUserIds.add(sessionAppUserId);
         }
       } catch {
-        // Treat an invalid or expired session cookie as a guest for telemetry attribution.
+        // Treat an invalid or expired session cookie, or a failed AMR fallback, as a guest for telemetry attribution.
       }
     }
     const acceptedCount = cloudTracking.acceptBrowserBatch(

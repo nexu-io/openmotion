@@ -1495,6 +1495,116 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     }
   });
 
+  it('attributes signed-in tracking from the session membership and only falls back to AMR when it has no app user id', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+    const projected = await store.projectAmrUserAndWorkspace({
+      oidcSub: 'ba_usr_track',
+      appUserId: 'usr_app_track',
+      email: 'track@open-design.ai',
+      displayName: 'Track User',
+      avatarUrl: null,
+      externalWorkspaceId: 'ws_amr_track',
+      workspaceName: 'Track Workspace',
+      role: 'owner',
+    });
+    const projectedSession = await createBrowserSession(store, {
+      userId: projected.user.id,
+      workspaceId: projected.workspace.id,
+    });
+    // A session whose membership predates the AMR app-user projection.
+    const legacy = store.seedWorkspace({ role: 'owner', displayName: 'Legacy Track User' });
+    const legacySession = await createBrowserSession(store, {
+      userId: legacy.user.id,
+      workspaceId: legacy.workspace.id,
+    });
+
+    let amrFetches = 0;
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async () => {
+        amrFetches += 1;
+        return new Response('unexpected', { status: 500 });
+      }) as typeof fetch,
+    });
+    let enrichCalls = 0;
+    let enrichMode: 'resolve' | 'fail' = 'resolve';
+    amrIdentity.verifyAndEnrichAuthContext = async (_store, auth) => {
+      enrichCalls += 1;
+      if (enrichMode === 'fail') throw new Error('AMR identity lookup failed');
+      return { ...auth, appUserId: 'usr_app_legacy' };
+    };
+
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-track-identity-'));
+    try {
+      const cloudTracking = createRecordingCloudTracking();
+      const { app } = createApiApp({
+        config,
+        db: {} as never,
+        storage: {} as never,
+        queues: {} as never,
+        eventBus: {} as never,
+        authStore: store,
+        authCache: cache,
+        amrIdentity,
+        disableWelcomeBootstrap: true,
+        runtimeRoot: tmpRoot,
+        cloudTracking: cloudTracking.handle,
+      });
+      const postBatch = (sessionToken: string, appUserId: string) =>
+        app.request('/motion-api/tracking', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'sec-fetch-site': 'same-origin',
+            'content-type': 'application/json',
+            Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}`,
+          },
+          body: JSON.stringify({
+            events: [{
+              event: 'ui_click',
+              event_id: crypto.randomUUID(),
+              occurred_at: new Date().toISOString(),
+              entrypoint: 'studio',
+              device_timezone: 'UTC',
+              utc_offset_minutes: 0,
+              properties: { page_name: 'studio', area: 'workspace', element: 'new_creation' },
+              app_user_id: appUserId,
+            }],
+          }),
+        });
+
+      // 1. The session membership already carries the AMR app user id: no AMR lookup.
+      const projectedRes = await postBatch(projectedSession.token, 'usr_app_track');
+      assert.equal(projectedRes.status, 202);
+      assert.equal(enrichCalls, 0);
+      assert.equal(amrFetches, 0);
+      assert.equal(cloudTracking.batches.at(-1)![0].app_user_id, 'usr_app_track');
+      assert.ok(extractCookieValue(projectedRes.headers.getSetCookie(), TRACKING_ATTESTATION_COOKIE_NAME));
+
+      // 2. A membership without an app user id falls back to AMR enrichment once.
+      const legacyRes = await postBatch(legacySession.token, 'usr_app_legacy');
+      assert.equal(legacyRes.status, 202);
+      assert.equal(enrichCalls, 1);
+      assert.equal(cloudTracking.batches.at(-1)![0].app_user_id, 'usr_app_legacy');
+
+      // 3. A failed fallback keeps guest attribution: the unattested id is dropped and no attestation is issued.
+      enrichMode = 'fail';
+      const failedRes = await postBatch(legacySession.token, 'usr_app_legacy');
+      assert.equal(failedRes.status, 202);
+      assert.equal(enrichCalls, 2);
+      assert.deepEqual(cloudTracking.batches.at(-1), []);
+      assert.equal(extractCookieValue(failedRes.headers.getSetCookie(), TRACKING_ATTESTATION_COOKIE_NAME), null);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
   it('preserves event utm_source in the PostHog payload and revokes session if logout races createSession commit', async () => {
     const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-onetap-r3-'));
     try {
