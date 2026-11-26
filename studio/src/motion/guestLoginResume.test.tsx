@@ -11,7 +11,7 @@ import { MotionApp } from './MotionApp';
 
 vi.mock('./MotionProjectEditor', () => ({ preloadMotionProjectEditor: vi.fn() }));
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: { projectId: string } }) => <div data-viewer-project={artifact.projectId} /> }));
-vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
+vi.mock('./tracking', () => ({ trackMotion: vi.fn(), isBrowserTrackingSuppressed: () => false }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
