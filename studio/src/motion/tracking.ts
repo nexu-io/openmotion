@@ -10,8 +10,19 @@ import {
 
 export { getMotionTrackingUserId, setMotionTrackingUserId };
 
-const tracking = createBrowserTracking({ registry: studioEvents, endpoint: '/motion-api/tracking', enabled: false,
-  isEnabled: () => navigator.doNotTrack !== '1', getAppUserId: getMotionTrackingUserId });
+// Created on first use so importing this module (e.g. through AccountSettings -> googleOneTap) stays
+// side-effect free outside a browser; nothing can be pending before the first use.
+let browserTracking: ReturnType<typeof createBrowserTracking<typeof studioEvents>> | undefined;
+function getTracking() {
+  if (!browserTracking) {
+    const created = createBrowserTracking({ registry: studioEvents, endpoint: '/motion-api/tracking', enabled: false,
+      isEnabled: () => navigator.doNotTrack !== '1', getAppUserId: getMotionTrackingUserId });
+    browserTracking = created;
+    window.addEventListener('pagehide', () => { void created.flush(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void created.flush(); });
+  }
+  return browserTracking;
+}
 let initialization: Promise<void> | undefined;
 let configuration: 'uninitialized' | 'loading' | 'ready' | 'disabled' | 'unavailable' = 'uninitialized';
 let controller: AbortController | undefined;
@@ -41,7 +52,7 @@ export function initializeTracking() {
         const config: unknown = await response.json();
         if (!config || typeof config !== 'object' || !('enabled' in config) || typeof config.enabled !== 'boolean') throw new Error('INVALID_CONFIG');
         if (request.signal.aborted) return;
-        tracking.setEnabled(config.enabled);
+        getTracking().setEnabled(config.enabled);
         // Server availability (`config.enabled`) is NEVER user consent for device-ID transmission.
         // Reflect the explicit `deviceIdConsented` boolean returned by /motion-api/tracking.
         explicitDeviceIdConsented =
@@ -62,23 +73,21 @@ export function initializeTracking() {
 export async function trackMotion<E extends StudioEvent>(event: E, properties: EventFields<typeof studioEvents[E]>) {
   await initializeTracking();
   if (configuration === 'unavailable' && navigator.doNotTrack !== '1') return 'config_unavailable' as const;
-  return tracking.track(event, properties);
+  return getTracking().track(event, properties);
 }
 export function getMotionTrackingStatus() {
-  return { configuration, enabled: tracking.enabled(), pending: tracking.pending(), retryAfterMs: Math.max(0, retryAt - Date.now()) };
+  return { configuration, enabled: getTracking().enabled(), pending: getTracking().pending(), retryAfterMs: Math.max(0, retryAt - Date.now()) };
 }
-export function flushMotionTracking() { return tracking.flush(); }
+export function flushMotionTracking() { return getTracking().flush(); }
 export function setMotionTrackingEnabled(enabled: boolean) {
   controller?.abort(); retryAt = 0;
-  tracking.setEnabled(enabled);
+  getTracking().setEnabled(enabled);
   // Usage-data sharing preference is independent of explicit device-ID consent (`om_metrics_consent`).
   setMotionTrackingConsented(enabled && explicitDeviceIdConsented);
   configuration = enabled ? 'ready' : 'disabled';
 }
 export function setMotionDeviceIdConsented(consented: boolean) {
   explicitDeviceIdConsented = consented;
-  setMotionTrackingConsented(consented && tracking.enabled());
+  setMotionTrackingConsented(consented && getTracking().enabled());
 }
 
-window.addEventListener('pagehide', () => { void tracking.flush(); });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void tracking.flush(); });
