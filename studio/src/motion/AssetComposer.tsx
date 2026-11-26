@@ -3,6 +3,7 @@ import * as tracking from './pageTracking';
 import { Tooltip } from "../components/ui/Tooltip";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type Dispatch, type DragEvent, type SetStateAction } from 'react';
 import { assetMediaUrl, type AssetReference, type LibraryAsset } from '../../../shared/asset-library';
+import { MAX_GENERATION_PROMPT_LENGTH } from '../../../shared/asset-limits';
 import { modelReferenceLimit, type GenerationJob } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { CreationModelPicker, GenerationModelPickers } from './GenerationModelPickers';
@@ -21,8 +22,8 @@ import { useMediaCatalog } from './useMediaCatalog';
 import type { StudioCreation } from './CreativeWorkspace';
 import { studioExamples } from './sceneShowcase';
 import { isFeatureScene, needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
-import { imageFeaturePrompt, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
-import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
+import { imageFeaturePrompt, imageFeaturePromptPrefix, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
+import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, videoFeaturePromptPrefix, videoFeatures } from '../../../shared/video-features';
 import { FieldTextarea } from '../components/ui/FormField';
 import { Select } from '../components/ui/Select';
 import { attachableReferenceLimit, creationModels } from './creationModels';
@@ -44,7 +45,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   onUploadFiles?: (files: File[], source?: 'drop' | 'paste') => void; uploadingReferences?: boolean;
   onCreated: (job: GenerationJob) => void; onResume?: (job: GenerationJob) => Promise<void>; onError: (message: string) => void; onInfo?: (message: string) => void; onClose: () => void;
 }) {
-  const { t } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
+  const { t, formatNumber } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
   const scene = studio?.destination.scene;
   const imageWorkspace = studio?.destination.studio.id === 'design' && scene?.modality === 'image';
   const videoLanding = Boolean(studio?.destination.landing && scene?.modality === 'video');
@@ -237,7 +238,19 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const inputImageRatio = selected && parameterInputImageRatio(selected, parameters, draft.references.length > 0);
   const kind = creationKinds.find(k => k.id === draft.modality)!;
   const latest = jobs.find(job => job.id === taskId);
-  const promptReady = Boolean(draft.prompt.trim() || featureRule?.promptOptional);
+  const prefix = feature ? imageFeaturePromptPrefix(feature, draft.relight)
+    : videoFeature ? videoFeaturePromptPrefix(videoFeature, draft.videoChoices) : '';
+  const promptLimit = MAX_GENERATION_PROMPT_LENGTH - prefix.length;
+  const composedPrompt = (feature
+    ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
+    : videoFeature
+      ? videoFeaturePrompt(videoFeature, draft.prompt, draft.videoChoices)
+      : draft.prompt
+  ).trim();
+  const trimmedPromptLength = draft.prompt.trim().length;
+  const promptExcess = Math.max(0, composedPrompt.length - MAX_GENERATION_PROMPT_LENGTH);
+  const promptTooLong = promptExcess > 0;
+  const promptReady = !promptTooLong && Boolean(trimmedPromptLength || featureRule?.promptOptional);
   const submit = async () => {
     if (!selected || !promptReady || busy || uploadingReferences || invalidReferences) return; setBusy(true);
     const studioContext = studio ? { studio: studio.destination.studio.id, scene: studio.destination.scene.id, model: selected.id } : undefined;
@@ -253,9 +266,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
       : undefined;
     try {
       const parsed = requestParameters(parameters, selected, draft.references.length > 0, studioDefaultValues(selected));
-      const prompt = feature ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
-        : videoFeature ? videoFeaturePrompt(videoFeature, draft.prompt, draft.videoChoices)
-        : draft.prompt;
+      const prompt = composedPrompt;
       const submittedParameters = { ...parsed, ...featureRule?.parameters };
       const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt, model: selected.id, mode: selected.mode, parameters: submittedParameters,
         ...(draft.target ? { assetId: draft.target.asset.id, parentVersionId: draft.target.versionId } : {}), references: draft.references.map(r => r.reference) });
@@ -277,10 +288,27 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const modelHeading = <div className="om-creation-row"><span className="om-eyebrow">{t('Generation model')}</span>{providerSettingsButton}</div>;
   const studioModelHeading = <span className="om-eyebrow">{t('Generation model')}</span>;
   const speechPrompt = scene?.id === 'speech' || selected?.mode === 'text-to-speech';
+  const promptCountId = `${promptId}-count`;
+  const promptErrorId = `${promptId}-error`;
+  const promptCount = <span id={promptCountId} className="om-eyebrow" data-invalid={promptTooLong || undefined}>{formatNumber(trimmedPromptLength)} / {formatNumber(promptLimit)}</span>;
+  const promptError = (
+    <small id={promptErrorId} className="om-field-error" role={promptTooLong ? 'alert' : undefined}>
+      {promptTooLong
+        ? (promptExcess === 1
+          ? t('Remove 1 character to stay within the {limit}-character limit.', { limit: formatNumber(promptLimit) })
+          : t('Remove {count} characters to stay within the {limit}-character limit.', { count: formatNumber(promptExcess), limit: formatNumber(promptLimit) }))
+        : null}
+    </small>
+  );
+  const promptDescribedBy = [
+    !imageWorkspace || featureMode ? promptCountId : undefined,
+    promptTooLong ? promptErrorId : undefined,
+  ].filter(Boolean).join(' ') || undefined;
   const promptInput: ComponentProps<'textarea'> = {
     id: promptId,
-    maxLength: 20000,
     'aria-label': imageWorkspace ? undefined : t('Asset prompt'),
+    'aria-describedby': promptDescribedBy,
+    'aria-invalid': promptTooLong || undefined,
     placeholder: t(featureRule?.promptOptional ? 'Optional: add anything the model should know.' : scene?.hint ?? (speechPrompt ? 'Write the words you want spoken.' : kind.hint)),
     value: draft.prompt,
     onChange: event => {
@@ -293,14 +321,17 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     <div className="om-field" data-form-field="intrinsic" data-prompt-applied={promptHighlight}>
       <FieldTextarea ref={promptRef} {...promptInput} appearance="embedded" className="om-image-prompt" />
     </div>
+    {featureMode && promptCount}
+    {promptError}
   </div> : <div className="om-creation-prompt" data-prompt-applied={promptHighlight}>
     <label className="om-eyebrow" htmlFor={promptId}><RemixIcon name="pen-nib-line" size={14} />{t(speechPrompt ? 'Speech text' : 'Your idea')}</label>
     <textarea ref={promptRef} {...promptInput} />
     {!scene && (maximumReferences > 0 || draft.references.length > 0) && references}
     <div className="om-creation-prompt-footer">
       <span className="om-eyebrow">{t(draft.references.length ? 'References stay linked to their versions' : 'Start with a few words. Make it your own.')}</span>
-      <span className="om-eyebrow">{draft.prompt.length.toLocaleString()} / 20k</span>
+      {promptCount}
     </div>
+    {promptError}
   </div>;
 
   const cloudWeb = useCloudWebMode();

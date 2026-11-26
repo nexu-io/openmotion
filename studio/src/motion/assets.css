@@ -105,6 +105,7 @@
 .om-generation-picker { display: grid; grid-template-rows: 1fr auto; align-items: center; gap: var(--motion-space-4); min-width: 0; }
 .om-creation-model { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); container: model-controls / inline-size; gap: var(--motion-space-4); }
 .om-creation-prompt > textarea, .om-image-prompt { min-height: 112px; max-height: 240px; }
+.om-eyebrow[data-invalid="true"] { color: var(--motion-danger); }
 .om-creation-chat-input > textarea { min-height: 56px; max-height: 140px; }
 .om-creation-ideas { display: flex; flex-wrap: wrap; gap: var(--motion-space-8); margin-top: calc(var(--motion-space-8) * -1); }
 .om-creation-options > label { margin-top: var(--motion-space-12); }

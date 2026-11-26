@@ -1,3 +1,4 @@
+import { buildTimelineAssetId } from '@hyperframes/core/timeline-asset-id';
 import { parseHTMLContent } from '@hyperframes/core/compiler/html-document';
 import {
   EXCLUDED_TAGS,
@@ -120,10 +121,18 @@ export function pasteTimelineClips(
     // DOM-only root text may have no authored window yet. Materialize all
     // three attributes instead of replacing only attributes that already exist.
     const copy = domParser(deduped).body.firstElementChild;
-    if (!copy) continue;
+    if (!copy || copy.localName === 'title' || EXCLUDED_TAGS.has(copy.localName)) {
+      throw new Error('Cannot paste this item as a timeline clip.');
+    }
+    // A split keeps the left half's original identity, which may be only an hf-id.
+    // Studio selects the inserted row by DOM id across timeline/preview refreshes.
+    if (!copy.id) {
+      copy.id = buildTimelineAssetId(copy.getAttribute('data-hf-id') || 'clip', existingIds);
+      existingIds.push(copy.id);
+    }
     copy.classList.add('clip');
-    copy.setAttribute('data-start', String(Math.round(newStart * 100) / 100));
-    copy.setAttribute('data-duration', String(Math.round(clip.duration * 100) / 100));
+    copy.setAttribute('data-start', String(Math.round(newStart * 1000) / 1000));
+    copy.setAttribute('data-duration', String(Math.round(clip.duration * 1000) / 1000));
     copy.setAttribute('data-track-index', String(newTrack));
     const opened =
       clips.length === 1
@@ -139,8 +148,7 @@ export function pasteTimelineClips(
       result = carryLook(result, renamedIds(reminted, deduped), newStart - authoredStart);
     }
 
-    const id = copy.id;
-    if (id) ids.push(id);
+    ids.push(copy.id);
   }
   return { content: result, ids, requiredEnd };
 }

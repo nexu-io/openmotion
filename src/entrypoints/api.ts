@@ -18,9 +18,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { serve, type ServerType } from '@hono/node-server';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { routePath } from 'hono/route';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Redis } from 'ioredis';
 import {
@@ -44,6 +45,7 @@ import {
 } from '../../shared/integration.ts';
 import { loadLibrarySkills, skillNextStep } from '../../shared/library-skill-catalog.ts';
 import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts';
+import { MAX_GENERATION_PROMPT_LENGTH } from '../../shared/asset-limits.ts';
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
@@ -571,6 +573,7 @@ function createCloudMediaJobsPort(deps: {
       remoteId: row.remoteId ?? null,
       remoteTerminal: Boolean(row.remoteTerminal),
       savePending: row.savePending,
+      ...(row.failureStage ? { failureStage: row.failureStage } : {}),
       requestId: row.requestId ?? null,
       ...(row.resultJson ? { result } : {}),
       ...(typeof result.assetId === 'string' ? { assetId: result.assetId } : {}),
@@ -596,8 +599,8 @@ function createCloudMediaJobsPort(deps: {
       });
     }
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
-    if (!prompt || prompt.length > 20_000) {
-      throw new CloudError('INVALID_ARGUMENT', 'prompt must contain 1-20000 characters', {
+    if (!prompt || prompt.length > MAX_GENERATION_PROMPT_LENGTH) {
+      throw new CloudError('INVALID_ARGUMENT', `prompt must contain 1-${MAX_GENERATION_PROMPT_LENGTH} characters`, {
         status: 400,
         applied: false,
       });
@@ -886,40 +889,68 @@ function createCloudMediaJobsPort(deps: {
     if (!isUuid(jobId)) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }
-    const [existing] = await deps.db
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const [existing] = await deps.db
+        .select()
+        .from(jobs)
+        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.kind, 'media_generate')))
+        .limit(1);
+      if (!existing) {
+        throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
+      }
+      if (existing.projectId && auth.authMethod === 'oauth_bearer') {
+        await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
+      }
+      if (['completed', 'failed', 'cancelled'].includes(existing.state)) {
+        return { job: serializeJob(existing) };
+      }
+      if (existing.state === 'cancelling') {
+        await deps.eventBus.publish(cancelChannel(jobId), {
+          jobId,
+          workspaceId: auth.workspaceId,
+          requestedAt: Date.now(),
+        });
+        return { job: serializeJob(existing) };
+      }
+      const nextState = existing.state === 'queued' ? 'cancelled' : 'cancelling';
+      const [updated] = await deps.db
+        .update(jobs)
+        .set(
+          asUpdate(jobs, {
+            state: nextState,
+            stage: nextState,
+            ...(nextState === 'cancelled' ? { savePending: false, terminalAt: sql`now()` } : {}),
+            updatedAt: sql`now()`,
+          }),
+        )
+        .where(
+          and(
+            eq(jobs.workspaceId, auth.workspaceId),
+            eq(jobs.id, jobId),
+            eq(jobs.kind, 'media_generate'),
+            eq(jobs.state, existing.state),
+          ),
+        )
+        .returning();
+
+      if (updated) {
+        await deps.eventBus.publish(cancelChannel(jobId), {
+          jobId,
+          workspaceId: auth.workspaceId,
+          requestedAt: Date.now(),
+        });
+        return { job: serializeJob(updated) };
+      }
+    }
+    const [latest] = await deps.db
       .select()
       .from(jobs)
       .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.kind, 'media_generate')))
       .limit(1);
-    if (!existing) {
+    if (!latest) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }
-    if (existing.projectId && auth.authMethod === 'oauth_bearer') {
-      await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
-    }
-    if (['completed', 'failed', 'cancelled'].includes(existing.state)) {
-      return { job: serializeJob(existing) };
-    }
-    const nextState = existing.state === 'queued' ? 'cancelled' : 'cancelling';
-    const [updated] = await deps.db
-      .update(jobs)
-      .set(
-        asUpdate(jobs, {
-          state: nextState,
-          stage: nextState,
-          ...(nextState === 'cancelled' ? { terminalAt: sql`now()` } : {}),
-          updatedAt: sql`now()`,
-        }),
-      )
-      .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId)))
-      .returning();
-
-    await deps.eventBus.publish(cancelChannel(jobId), {
-      jobId,
-      workspaceId: auth.workspaceId,
-      requestedAt: Date.now(),
-    });
-    return { job: serializeJob(updated ?? existing) };
+    return { job: serializeJob(latest) };
   };
 
   const resumeJob = async (
@@ -942,7 +973,7 @@ function createCloudMediaJobsPort(deps: {
     if (existing.projectId && auth.authMethod === 'oauth_bearer') {
       await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
     }
-    if (!existing.remoteId || existing.remoteTerminal || existing.state !== 'failed') {
+    if (!existing.remoteId || existing.remoteTerminal || existing.savePending || existing.state !== 'failed') {
       throw new CloudError(
         'INVALID_ARGUMENT',
         'Only failed media jobs with an active upstream remoteId can be resumed without re-submitting.',
@@ -956,6 +987,7 @@ function createCloudMediaJobsPort(deps: {
         asUpdate(jobs, {
           state: 'queued',
           stage: 'resuming',
+          failureStage: null,
           errorCode: null,
           errorMessage: null,
           terminalAt: null,
@@ -978,7 +1010,22 @@ function createCloudMediaJobsPort(deps: {
     return { job: serializeJob(updated ?? existing) };
   };
 
-  const retrySaveJob = async (auth: AuthContext, jobId: string): Promise<Record<string, unknown>> => {
+  const retrySaveJob = async (
+    auth: AuthContext,
+    jobId: string,
+    requestId: string,
+  ): Promise<Record<string, unknown>> => {
+    try {
+      validateStableRequestId(requestId);
+    } catch {
+      throw new CloudError(
+        'INVALID_ARGUMENT',
+        requestId.trim().length === 0
+          ? 'requestId is required for retry_save'
+          : 'Valid stable requestId is required for retry_save',
+        { status: 400, applied: false },
+      );
+    }
     if (!isUuid(jobId)) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }
@@ -993,18 +1040,126 @@ function createCloudMediaJobsPort(deps: {
     if (existing.projectId && auth.authMethod === 'oauth_bearer') {
       await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
     }
-    if (!existing.savePending) {
+    const readRetrySaveRequestId = (row: typeof jobs.$inferSelect): string | null => {
+      const result = row.resultJson;
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        const value = (result as Record<string, unknown>).retrySaveRequestId;
+        if (typeof value === 'string' && value.length > 0) return value;
+      }
+      return null;
+    };
+    const buildRetrySaveQueueJobId = (row: typeof jobs.$inferSelect): string =>
+      `${jobId}__retry_save__${row.claimToken ?? 'init'}__${requestId}`;
+
+    if (
+      existing.state === 'queued' &&
+      existing.stage === 'saving' &&
+      existing.savePending &&
+      existing.remoteId &&
+      readRetrySaveRequestId(existing) === requestId
+    ) {
+      await deps.queues.enqueueMediaGenerate(
+        'retry_save_generation',
+        { jobId, workspaceId: auth.workspaceId },
+        { jobId: buildRetrySaveQueueJobId(existing) },
+      );
+      return { job: serializeJob(existing) };
+    }
+    if (!existing.savePending || !existing.remoteId || existing.state !== 'failed') {
       throw new CloudError('INVALID_ARGUMENT', 'Media job does not have a pending save to retry.', {
         status: 409,
         applied: false,
       });
     }
-    await deps.queues.enqueueMediaGenerate(
-      'retry_save_generation',
-      { jobId, workspaceId: auth.workspaceId },
-      { jobId: `${jobId}__retry_save__${Date.now()}` },
-    );
-    return { job: serializeJob(existing) };
+    const existingResultJson =
+      existing.resultJson && typeof existing.resultJson === 'object' && !Array.isArray(existing.resultJson)
+        ? (existing.resultJson as Record<string, unknown>)
+        : {};
+    const [updated] = await deps.db
+      .update(jobs)
+      .set(
+        asUpdate(jobs, {
+          state: 'queued',
+          stage: 'saving',
+          failureStage: null,
+          errorCode: null,
+          errorMessage: null,
+          resultJson: { ...existingResultJson, retrySaveRequestId: requestId },
+          terminalAt: null,
+          updatedAt: sql`now()`,
+        }),
+      )
+      .where(
+        and(
+          eq(jobs.workspaceId, auth.workspaceId),
+          eq(jobs.id, jobId),
+          eq(jobs.kind, 'media_generate'),
+          eq(jobs.state, 'failed'),
+          eq(jobs.savePending, true),
+          isNotNull(jobs.remoteId),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      const [current] = await deps.db
+        .select()
+        .from(jobs)
+        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.kind, 'media_generate')))
+        .limit(1);
+      if (
+        current &&
+        current.state === 'queued' &&
+        current.stage === 'saving' &&
+        current.savePending &&
+        current.remoteId &&
+        readRetrySaveRequestId(current) === requestId
+      ) {
+        await deps.queues.enqueueMediaGenerate(
+          'retry_save_generation',
+          { jobId, workspaceId: auth.workspaceId },
+          { jobId: buildRetrySaveQueueJobId(current) },
+        );
+        return { job: serializeJob(current) };
+      }
+      throw new CloudError('INVALID_ARGUMENT', 'Media job does not have a pending save to retry.', {
+        status: 409,
+        applied: false,
+      });
+    }
+    try {
+      await deps.queues.enqueueMediaGenerate(
+        'retry_save_generation',
+        { jobId, workspaceId: auth.workspaceId },
+        { jobId: buildRetrySaveQueueJobId(updated) },
+      );
+    } catch (error) {
+      await deps.db
+        .update(jobs)
+        .set(
+          asUpdate(jobs, {
+            state: 'failed',
+            stage: existing.stage ?? 'failed',
+            failureStage: existing.failureStage ?? 'saving',
+            savePending: true,
+            errorCode: existing.errorCode,
+            errorMessage: existing.errorMessage,
+            resultJson: existing.resultJson ?? null,
+            terminalAt: existing.terminalAt ?? sql`now()`,
+            updatedAt: sql`now()`,
+          }),
+        )
+        .where(
+          and(
+            eq(jobs.workspaceId, auth.workspaceId),
+            eq(jobs.id, jobId),
+            eq(jobs.state, 'queued'),
+            eq(jobs.stage, 'saving'),
+          ),
+        )
+        .catch(() => {});
+      throw error;
+    }
+    return { job: serializeJob(updated) };
   };
 
   const handleMediaAction = async (
@@ -1028,7 +1183,7 @@ function createCloudMediaJobsPort(deps: {
       case 'resume':
         return resumeJob(auth, String(args.jobId ?? ''), String(args.requestId ?? ''));
       case 'retry_save':
-        return retrySaveJob(auth, String(args.jobId ?? ''));
+        return retrySaveJob(auth, String(args.jobId ?? ''), String(args.requestId ?? ''));
       default:
         throw new CloudError('INVALID_ARGUMENT', `Unsupported media action '${action}'`, {
           status: 400,
@@ -2139,7 +2294,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const auth = c.get('auth') as AuthContext | undefined;
     logger.info('HTTP request completed', {
       method: c.req.method,
-      path,
+      path: routePath(c),
       status: c.res.status,
       durationMs: Date.now() - startedAt,
       ...(auth

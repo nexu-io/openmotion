@@ -77,13 +77,17 @@ export type RelightChoices = Partial<Record<typeof relightControls[number]['key'
 /** The prompt sent to the model: the feature's fixed instruction, then what the user wrote. */
 export function imageFeaturePrompt(feature: ImageFeatureId, prompt: string, relight: RelightChoices = {}): string {
   const note = prompt.trim();
+  const prefix = imageFeaturePromptPrefix(feature, relight);
+  return note || feature === 'character' ? prefix + note : prefix.trimEnd();
+}
+
+export function imageFeaturePromptPrefix(feature: ImageFeatureId, relight: RelightChoices = {}): string {
   if (feature === 'remove-background') return 'Remove the entire background and isolate only the main subject cleanly on a transparent background. '
-    + 'Keep the subject identical in shape, texture, and lighting.' + (note ? ' ' + note : '');
+    + 'Keep the subject identical in shape, texture, and lighting. ';
   if (feature === 'relight') {
     const light = relightControls.map(control => (control.choices.find(choice => choice.value === relight[control.key]) ?? control.choices[0]).prompt).join(', ');
     return 'Relight this image. Keep the subject, composition, pose and every detail unchanged; change only the lighting, shadows and reflections. '
-      + `Lighting: ${light}.` + (note ? ' ' + note : '');
+      + `Lighting: ${light}. `;
   }
-  return 'Keep the character from the reference images consistent: the same face, hairstyle, body shape, skin tone, outfit and distinguishing features. '
-    + note;
+  return 'Keep the character from the reference images consistent: the same face, hairstyle, body shape, skin tone, outfit and distinguishing features. ';
 }
