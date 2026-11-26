@@ -104,9 +104,14 @@ it('corrects out-of-range music durations on blur and submits seconds in the mod
   expect(generate).not.toHaveBeenCalled();
   await act(async () => input.blur());
   expect(input.value).toBe('3');
-  await edit('601');
+  // Eleven Music must finish within the media gateway's request window, so the form stops at five minutes.
+  expect(input.max).toBe('300');
+  expect(input.placeholder).toBe('3–300');
+  await edit('600');
+  await act(async () => prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true })));
+  expect(generate).not.toHaveBeenCalled();
   await act(async () => input.blur());
-  expect(input.value).toBe('600');
+  expect(input.value).toBe('300');
   await edit('4');
   await act(async () => host.querySelector<HTMLButtonElement>('.om-sound-submit button[data-primary]')!.click());
   expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ model: music.id, parameters: { music_length_ms: 4000 } }));

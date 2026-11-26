@@ -184,6 +184,17 @@ describe('MockModelGateway Deterministic Valid PNG/MP4/WAV Generation', () => {
 });
 
 describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero BYOK)', () => {
+  it('rejects Eleven Music durations beyond five minutes before submitting', async () => {
+    const sent: unknown[] = [];
+    const gateway = new OpenDesignModelGateway({ apiUrl: 'https://amr.example.test', linkUrl: 'https://link.example.test',
+      fetcher: async (_url, init) => { sent.push(JSON.parse(String(init?.body)).parameters); return Response.json({ task_id: 'music-task' }); } });
+    const submit = (music_length_ms: number) => gateway.submitTask({ workspaceId: 'workspace' }, { jobId: 'music-job', modality: 'audio',
+      mode: 'text-to-audio', modelId: 'elevenlabs-music-v2', prompt: 'Rain piano', parameters: { music_length_ms }, inputs: [] });
+    for (const ms of [599000, 600000]) await assert.rejects(() => submit(ms), /Duration \(seconds\)/);
+    assert.equal(sent.length, 0);
+    await submit(300000);
+    assert.deepEqual(sent, [{ music_length_ms: 300000, prompt: 'Rain piano' }]);
+  });
   it('marks a failed Cloud audio task as remote-terminal, including an unknown outcome', async () => {
     const statuses: Record<string, Record<string, unknown>> = {
       'audio-unknown': { status: 'failed', error: { code: 'audio_outcome_unknown', retryable: false } },

@@ -421,8 +421,10 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
   if (model.provider === 'opendesign' && model.modelId === 'elevenlabs-v3' && fields && cloudSpeech(model)) {
     fields.push(number('speed', 'Speech speed', undefined, 0.7, 1.2, 0.1));
   }
+  // ElevenLabs documents up to 600 s, but the media gateway gives each music request 360 s, and
+  // 599–600 s requests ended with an unknown outcome. Keep to the five minutes the Music overview documents.
   if (model.provider === 'opendesign' && model.modelId === 'elevenlabs-music-v2' && model.mode === 'text-to-audio') {
-    fields = [number('music_length_ms', 'Duration (seconds)', undefined, 3000, 600000, 1000)];
+    fields = [number('music_length_ms', 'Duration (seconds)', undefined, 3000, 300000, 1000)];
   }
   // The connector's `audio music --duration` takes whole seconds; music models publish no duration range.
   if (model.provider === 'account' && model.modality === 'audio' && model.mode === 'text-to-audio') fields = [number('duration', 'Duration (seconds)', undefined, 1)];
