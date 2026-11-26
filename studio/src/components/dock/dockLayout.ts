@@ -25,7 +25,7 @@ export const isSideRequestedCollapsed = (group: DockviewApi["groups"][number]) =
 
 /** Uncompressed preferences; responsive fitting budgets only the visible columns. */
 export function preferredSideWidths() {
-  return { left: 200, right: 230 };
+  return { left: 288, right: 230 };
 }
 
 /** Initial free-layout widths, with both side columns open. */

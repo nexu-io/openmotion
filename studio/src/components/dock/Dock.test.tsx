@@ -1128,14 +1128,14 @@ it.each(["compositions", "design"] as const)("shrinks the single open %s side be
 
 
 it.each(["compositions", "design"] as const)("opens a new %s side at its preferred width without reserving an expanded opposite side", (id) => {
-  let width = 800;
+  let width = 900;
   mount("default-single-side", {}, { panels: MVP_PANEL_IDS, fixedLayout: true, initialCompactLayout: true, dockWidth: () => width });
   const api = dockApi!;
   const controller = useDockLayoutStore.getState().controller!;
   const side = api.getPanel(id)!.group;
   const opposite = api.getPanel(id === "compositions" ? "design" : "compositions")!.group;
   const preview = api.getPanel("preview")!.group;
-  const preferred = id === "compositions" ? 200 : 230;
+  const preferred = id === "compositions" ? 288 : 230;
   act(() => { resizeDock(api, width); controller.setGroupCollapsed!(id, false); });
   expect(side.width).toBe(preferred);
   expect(opposite.width).toBe(48);
@@ -1143,15 +1143,15 @@ it.each(["compositions", "design"] as const)("opens a new %s side at its preferr
   act(() => { width -= 20; resizeDock(api, width); });
   expect(side.width).toBe(preferred - 20);
   expect(preview.width).toBe(beforePreview);
-  act(() => { width = 800; resizeDock(api, width); });
+  act(() => { width = 900; resizeDock(api, width); });
   expect(side.width).toBe(preferred);
   act(() => controller.setGroupCollapsed!(id === "compositions" ? "design" : "compositions", false));
   expect(side.width).toBe(preferred);
   expect(preview.width).toBeGreaterThanOrEqual(360);
-  act(() => { width = 750; resizeDock(api, width); });
+  act(() => { width = 850; resizeDock(api, width); });
   expect(side.width).toBeLessThan(preferred);
   expect(preview.width).toBeGreaterThanOrEqual(360);
-  act(() => { width = 800; resizeDock(api, width); });
+  act(() => { width = 900; resizeDock(api, width); });
   act(() => controller.setGroupCollapsed!(id === "compositions" ? "design" : "compositions", true));
   expect(side.width).toBe(preferred);
 });

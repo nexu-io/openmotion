@@ -107,7 +107,7 @@ describe("dock panel strip contract", () => {
     const tab = workspaceBodyOf(
       ":root[data-motion-ui] .hf-dock .dv-groupview .dv-tabs-container > .dv-tab:has(.hf-dock-tab[data-icon-navigation])",
     );
-    expect(tab).toContain("flex: 1 1 0");
+    expect(tab).toContain("flex: 1 1 auto");
     expect(tab).toContain("justify-content: center");
   });
 });
