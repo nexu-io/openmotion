@@ -15,6 +15,34 @@ export const DESKTOP_PROTOCOL_SCHEME = 'openmotion' as const;
 export const DESKTOP_DATA_LAYOUT_VERSION = 1 as const;
 export const DEFAULT_MCP_SERVER_NAME = 'openmotion' as const;
 
+export const DEFAULT_MCP_SERVER_NAMES: Record<HostReleaseChannel, string> = {
+  stable: 'openmotion',
+  test: 'openmotion-test',
+  dev: 'openmotion-local',
+};
+
+export function defaultMcpServerNameForChannel(channel: HostReleaseChannel): string {
+  return DEFAULT_MCP_SERVER_NAMES[channel];
+}
+
+export function defaultMcpServerNameForOrigin(originOrUrl: string): string {
+  try {
+    const parsed = new URL(originOrUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]') {
+      return DEFAULT_MCP_SERVER_NAMES.dev;
+    }
+    const testHost = new URL(DEFAULT_STUDIO_URLS.test).hostname.toLowerCase();
+    const testParentDomain = testHost.split('.').slice(-2).join('.');
+    if (host === testHost || (testParentDomain && host.endsWith(`.${testParentDomain}`))) {
+      return DEFAULT_MCP_SERVER_NAMES.test;
+    }
+  } catch {
+    // Fall back to the production server name for non-URL inputs.
+  }
+  return DEFAULT_MCP_SERVER_NAMES.stable;
+}
+
 export const DEFAULT_STUDIO_URLS: Record<HostReleaseChannel, string> = {
   stable: 'https://motion.open-design.ai',
   test: 'https://openmotion.powerformer.net',
@@ -105,11 +133,16 @@ export type BuiltinThirdPartyTemplate = {
   templateId: string;
   program: 'codex' | 'claude';
   mutating: boolean;
+  /** Optional bounded timeout override (ms) for interactive flows such as browser OAuth login. */
+  timeoutMs?: number;
   /** Argv tokens; `{paramName}` denotes a typed placeholder. Never passed to a shell. */
   argv: readonly string[];
   params: Record<string, { type: TemplatePlaceholderType; required?: boolean; defaultValue?: string }>;
   description: string;
 };
+
+/** Bounded timeout (3 min) for interactive browser OAuth sign-in flows (MFA / consent). */
+export const INTERACTIVE_OAUTH_TIMEOUT_MS = 180_000 as const;
 
 /**
  * Built-in third-party CLI allowlist (v1): codex and claude only,
@@ -147,6 +180,17 @@ export const BUILTIN_THIRD_PARTY_TEMPLATES: readonly BuiltinThirdPartyTemplate[]
       serverName: { type: 'identifier', required: false, defaultValue: DEFAULT_MCP_SERVER_NAME },
     },
     description: 'Remove OpenMotion MCP server from Codex CLI',
+  },
+  {
+    templateId: 'codex.mcp.login',
+    program: 'codex',
+    mutating: true,
+    timeoutMs: INTERACTIVE_OAUTH_TIMEOUT_MS,
+    argv: ['mcp', 'login', '{serverName}'],
+    params: {
+      serverName: { type: 'identifier', required: false, defaultValue: DEFAULT_MCP_SERVER_NAME },
+    },
+    description: 'Launch OAuth 2.1 browser sign-in for OpenMotion MCP server in Codex CLI',
   },
   {
     templateId: 'claude.version',

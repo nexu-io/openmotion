@@ -2611,14 +2611,34 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     });
   });
 
-  app.get('/connect/guide', authWithWelcome, (c) => {
-    const info = buildIntegrationPayload(getAuthContext(c));
+  app.get('/connect/guide', (c) => {
     const host = integrationHost(c.req.query('host') ?? null);
-    return new Response(agentGuide(info, host), {
+    const accept = (c.req.header('accept') ?? '').toLowerCase();
+    const prefersHtml =
+      accept.includes('text/html') &&
+      !accept.includes('text/plain') &&
+      !accept.includes('application/json');
+    if (prefersHtml) {
+      const target = `/settings/mcp?host=${encodeURIComponent(host)}`;
+      return c.redirect(target, 302);
+    }
+    const publicInfo = buildCloudIntegrationInfo({
+      publicOrigin: config.APP_PUBLIC_ORIGIN,
+      version: VERSION,
+      workspaceId: 'authenticated-workspace',
+      authMode: config.AUTH_MODE,
+      oauth2Enabled: true,
+      patEnabled: true,
+      authorizationServerUrl: oauth21.issuer,
+      resourceMetadataUrl: oauth21.resourceMetadataUrl,
+      tools: phase1Tools.map((tool) => ({ name: tool.name, description: tool.description })),
+    });
+    return new Response(agentGuide(publicInfo, host), {
       status: 200,
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
+        Vary: 'Accept',
       },
     });
   });

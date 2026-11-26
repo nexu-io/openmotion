@@ -883,6 +883,48 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
       assert.equal(res.status, 401, `expected 401 for unauthenticated ${url}`);
     }
 
+    // /connect/guide redirects browsers to interactive /settings/mcp and returns plain-text guide for agents even before auth
+    const guideHtmlRes = await app.request('/connect/guide?host=mcp', {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+    });
+    assert.equal(guideHtmlRes.status, 302);
+    assert.equal(guideHtmlRes.headers.get('location'), '/settings/mcp?host=mcp');
+
+    const guideTextRes = await app.request('/connect/guide?host=mcp', {
+      headers: { Accept: 'text/plain' },
+    });
+    assert.equal(guideTextRes.status, 200);
+    const guideText = await guideTextRes.text();
+    assert.match(guideText, /https:\/\/motion\.example\.test\/settings\/mcp/);
+    assert.match(guideText, /https:\/\/motion\.example\.test\/settings\/account#tokens/);
+
+    // Unauthenticated /mcp returns 401 with structured OAuth 2.1 + PAT guidance
+    const mcpUnauthRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    assert.equal(mcpUnauthRes.status, 401);
+    const mcpUnauthBody = (await mcpUnauthRes.json()) as {
+      errorCode?: string;
+      authGuidance?: {
+        preferred?: string;
+        connectPageUrl?: string;
+        patSettingsUrl?: string;
+        patReadOnlyUrl?: string;
+        commands?: { codex?: string[] };
+      };
+    };
+    assert.equal(mcpUnauthBody.errorCode, 'auth_required');
+    assert.equal(mcpUnauthBody.authGuidance?.preferred, 'oauth2.1');
+    assert.equal(mcpUnauthBody.authGuidance?.connectPageUrl, 'https://motion.example.test/settings/mcp');
+    assert.equal(mcpUnauthBody.authGuidance?.patSettingsUrl, 'https://motion.example.test/settings/account#tokens');
+    assert.equal(
+      mcpUnauthBody.authGuidance?.patReadOnlyUrl,
+      'https://motion.example.test/settings/account?preset=readonly#tokens',
+    );
+    assert.ok(mcpUnauthBody.authGuidance?.commands?.codex?.some((cmd) => cmd.includes('codex mcp login')));
+
     // OAuth 2.1 discovery endpoints are public
     const prmRes = await app.request('/.well-known/oauth-protected-resource');
     assert.equal(prmRes.status, 200);

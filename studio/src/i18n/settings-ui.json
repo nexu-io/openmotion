@@ -472,7 +472,11 @@
     "Could not update download folder.": "无法更新默认下载目录。",
     "Download folder reset to system default": "默认下载目录已重置为系统默认",
     "Could not reset download folder.": "无法重置默认下载目录。",
-    "Could not restart the desktop app.": "无法重启桌面客户端。"
+    "Could not restart the desktop app.": "无法重启桌面客户端。",
+    "Permissions": "权限范围",
+    "Full workspace access": "完整工作空间权限",
+    "Read-only verification": "只读验证（最小权限）",
+    "Read-only": "只读"
   },
   "ja": {
     "Local Agents": "ローカル Agent",
@@ -711,7 +715,11 @@
     "Could not update download folder.": "ダウンロードフォルダを更新できませんでした。",
     "Download folder reset to system default": "ダウンロードフォルダを既定にリセットしました",
     "Could not reset download folder.": "ダウンロードフォルダをリセットできませんでした。",
-    "Could not restart the desktop app.": "デスクトップアプリを再起動できませんでした。"
+    "Could not restart the desktop app.": "デスクトップアプリを再起動できませんでした。",
+    "Permissions": "権限",
+    "Full workspace access": "ワークスペース全権限",
+    "Read-only verification": "読み取り専用検証",
+    "Read-only": "読み取り専用"
   },
   "ko": {
     "What's new": "새로운 소식",
@@ -845,7 +853,11 @@
     "Could not update download folder.": "다운로드 폴더를 업데이트할 수 없습니다.",
     "Download folder reset to system default": "다운로드 폴더가 기본값으로 초기화되었습니다",
     "Could not reset download folder.": "다운로드 폴더를 초기화할 수 없습니다.",
-    "Could not restart the desktop app.": "데스크톱 앱을 재시작할 수 없습니다."
+    "Could not restart the desktop app.": "데스크톱 앱을 재시작할 수 없습니다.",
+    "Permissions": "권한",
+    "Full workspace access": "전체 워크스페이스 권한",
+    "Read-only verification": "읽기 전용 검증",
+    "Read-only": "읽기 전용"
   },
   "de": {
     "What's new": "Neuigkeiten",
@@ -979,7 +991,11 @@
     "Could not update download folder.": "Download-Ordner konnte nicht aktualisiert werden.",
     "Download folder reset to system default": "Download-Ordner auf Systemstandard zurückgesetzt",
     "Could not reset download folder.": "Download-Ordner konnte nicht zurückgesetzt werden.",
-    "Could not restart the desktop app.": "Desktop-App konnte nicht neu gestartet werden."
+    "Could not restart the desktop app.": "Desktop-App konnte nicht neu gestartet werden.",
+    "Permissions": "Berechtigungen",
+    "Full workspace access": "Voller Arbeitsbereichszugriff",
+    "Read-only verification": "Schreibgeschützte Prüfung",
+    "Read-only": "Nur Lesen"
   },
   "fr": {
     "What's new": "Nouveautés",
@@ -1113,7 +1129,11 @@
     "Could not update download folder.": "Impossible de mettre à jour le dossier de téléchargement.",
     "Download folder reset to system default": "Dossier de téléchargement réinitialisé par défaut",
     "Could not reset download folder.": "Impossible de réinitialiser le dossier de téléchargement.",
-    "Could not restart the desktop app.": "Impossible de redémarrer l’application de bureau."
+    "Could not restart the desktop app.": "Impossible de redémarrer l’application de bureau.",
+    "Permissions": "Autorisations",
+    "Full workspace access": "Accès complet à l’espace de travail",
+    "Read-only verification": "Vérification en lecture seule",
+    "Read-only": "Lecture seule"
   },
   "ru": {
     "What's new": "Что нового",
@@ -1247,7 +1267,11 @@
     "Could not update download folder.": "Не удалось обновить папку загрузок.",
     "Download folder reset to system default": "Папка загрузок сброшена по умолчанию",
     "Could not reset download folder.": "Не удалось сбросить папку загрузок.",
-    "Could not restart the desktop app.": "Не удалось перезапустить настольное приложение."
+    "Could not restart the desktop app.": "Не удалось перезапустить настольное приложение.",
+    "Permissions": "Права доступа",
+    "Full workspace access": "Полный доступ к рабочему пространству",
+    "Read-only verification": "Проверка только для чтения",
+    "Read-only": "Только чтение"
   },
   "es": {
     "What's new": "Novedades",
@@ -1381,7 +1405,11 @@
     "Could not update download folder.": "No se pudo actualizar la carpeta de descargas.",
     "Download folder reset to system default": "Carpeta de descargas restablecida a la predeterminada",
     "Could not reset download folder.": "No se pudo restablecer la carpeta de descargas.",
-    "Could not restart the desktop app.": "No se pudo reiniciar la aplicación de escritorio."
+    "Could not restart the desktop app.": "No se pudo reiniciar la aplicación de escritorio.",
+    "Permissions": "Permisos",
+    "Full workspace access": "Acceso completo al espacio de trabajo",
+    "Read-only verification": "Verificación de solo lectura",
+    "Read-only": "Solo lectura"
   },
   "pt-BR": {
     "What's new": "Novidades",
@@ -1515,7 +1543,11 @@
     "Could not update download folder.": "Não foi possível atualizar a pasta de downloads.",
     "Download folder reset to system default": "Pasta de downloads redefinida para o padrão",
     "Could not reset download folder.": "Não foi possível redefinir a pasta de downloads.",
-    "Could not restart the desktop app.": "Não foi possível reiniciar o aplicativo para desktop."
+    "Could not restart the desktop app.": "Não foi possível reiniciar o aplicativo para desktop.",
+    "Permissions": "Permissões",
+    "Full workspace access": "Acesso completo ao espaço de trabalho",
+    "Read-only verification": "Verificação somente leitura",
+    "Read-only": "Somente leitura"
   },
   "it": {
     "What's new": "Novità",
@@ -1649,7 +1681,11 @@
     "Could not update download folder.": "Impossibile aggiornare la cartella download.",
     "Download folder reset to system default": "Cartella download ripristinata al valore predefinito",
     "Could not reset download folder.": "Impossibile ripristinare la cartella download.",
-    "Could not restart the desktop app.": "Impossibile riavviare l’app desktop."
+    "Could not restart the desktop app.": "Impossibile riavviare l’app desktop.",
+    "Permissions": "Permessi",
+    "Full workspace access": "Accesso completo allo spazio di lavoro",
+    "Read-only verification": "Verifica in sola lettura",
+    "Read-only": "Sola lettura"
   },
   "tr": {
     "What's new": "Yenilikler",
@@ -1783,6 +1819,10 @@
     "Could not update download folder.": "İndirme klasörü güncellenemedi.",
     "Download folder reset to system default": "İndirme klasörü varsayılana sıfırlandı",
     "Could not reset download folder.": "İndirme klasörü sıfırlanamadı.",
-    "Could not restart the desktop app.": "Masaüstü uygulaması yeniden başlatılamadı."
+    "Could not restart the desktop app.": "Masaüstü uygulaması yeniden başlatılamadı.",
+    "Permissions": "İzinler",
+    "Full workspace access": "Tam çalışma alanı erişimi",
+    "Read-only verification": "Salt okunur doğrulama",
+    "Read-only": "Salt okunur"
   }
 }

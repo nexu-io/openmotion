@@ -113,6 +113,7 @@ type ResolvedTemplate = {
   publisherId?: string;
   mutating: boolean;
   stdinSecret: boolean;
+  timeoutMs?: number;
   argvTemplate: readonly string[];
   paramSchemas: Record<string, { type: TemplatePlaceholderType; required?: boolean; defaultValue?: string }>;
 };
@@ -625,6 +626,7 @@ export class ExecAtom {
         program: builtin.program,
         mutating: builtin.mutating,
         stdinSecret: false,
+        ...(builtin.timeoutMs !== undefined ? { timeoutMs: builtin.timeoutMs } : {}),
         argvTemplate: builtin.argv,
         paramSchemas: builtin.params,
       });
@@ -883,11 +885,13 @@ export class ExecAtom {
         : {}),
     };
 
+    const effectiveTimeoutMs =
+      template.timeoutMs !== undefined ? Math.max(this.timeoutMs, template.timeoutMs) : this.timeoutMs;
     const startTime = Date.now();
     const output = await this.commandRunner({
       binaryPath,
       argv,
-      timeoutMs: this.timeoutMs,
+      timeoutMs: effectiveTimeoutMs,
       env,
       stdin: stdinSecret,
     });
@@ -903,7 +907,7 @@ export class ExecAtom {
     const stderr = scrub(output.stderr);
 
     if (output.timedOut) {
-      return hostErr('TIMEOUT', `Command "${template.templateId}" timed out after ${this.timeoutMs}ms`, {
+      return hostErr('TIMEOUT', `Command "${template.templateId}" timed out after ${effectiveTimeoutMs}ms`, {
         templateId: template.templateId,
         program: template.program,
         durationMs,

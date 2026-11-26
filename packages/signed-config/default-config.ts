@@ -179,6 +179,7 @@ export function createBundledDefaultConfigPayload(
           'codex.version',
           'codex.mcp.add_remote',
           'codex.mcp.remove',
+          'codex.mcp.login',
           'claude.version',
           'claude.mcp.add_remote',
           'claude.mcp.remove',

@@ -8,7 +8,7 @@ import {
   type AtomExecResult,
   type DetectedAgentCli,
 } from '../../../shared/desktop-contract';
-import { DEFAULT_MCP_SERVER_NAME } from '../../../shared/desktop-builtin-rules';
+import { defaultMcpServerNameForOrigin } from '../../../shared/desktop-builtin-rules';
 import { CONNECT_SCRIPT_DEFAULT_PORT } from '../../../shared/connect-script-protocol';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -189,7 +189,7 @@ function defaultMcpUrl(): string {
 
 export function DesktopConnectPanel({
   mcpUrl,
-  serverName = DEFAULT_MCP_SERVER_NAME,
+  serverName,
   hasAuthorizedConnection = false,
   hasTokenWithoutCall = false,
   minShellVersion,
@@ -203,7 +203,10 @@ export function DesktopConnectPanel({
   const updater = useDesktopUpdateState();
 
   const resolvedMcpUrl = useMemo(() => (mcpUrl?.trim() || defaultMcpUrl()), [mcpUrl]);
-  const resolvedServerName = serverName.trim() || DEFAULT_MCP_SERVER_NAME;
+  const resolvedServerName = useMemo(
+    () => serverName?.trim() || defaultMcpServerNameForOrigin(resolvedMcpUrl),
+    [serverName, resolvedMcpUrl],
+  );
 
   const [detection, setDetection] = useState<AtomDetectResult | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -327,17 +330,21 @@ export function DesktopConnectPanel({
           HOST_CAPABILITIES.ATOM_DETECT,
           ['run', 'detect', 'scan'],
         );
+        const detectParams = {
+          serverName: resolvedServerName,
+          expectedMcpUrl: resolvedMcpUrl,
+        };
         let result = await invokeHostAtom<AtomDetectResult>(
           HOST_CAPABILITIES.ATOM_DETECT,
           primaryMethod,
-          undefined,
+          detectParams,
           { bridge: host.bridge },
         );
         if (!result.ok && result.error.code === 'UNSUPPORTED' && primaryMethod === 'run') {
           result = await invokeHostAtom<AtomDetectResult>(
             HOST_CAPABILITIES.ATOM_DETECT,
             'detect',
-            undefined,
+            detectParams,
             { bridge: host.bridge },
           );
         }
@@ -364,7 +371,16 @@ export function DesktopConnectPanel({
         setDetecting(false);
       }
     },
-    [host.bridge, host.capabilities, host.info?.shellVersion, canDetect, t, toast.showToast],
+    [
+      host.bridge,
+      host.capabilities,
+      host.info?.shellVersion,
+      canDetect,
+      resolvedServerName,
+      resolvedMcpUrl,
+      t,
+      toast.showToast,
+    ],
   );
 
   useEffect(() => {

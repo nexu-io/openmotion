@@ -5,6 +5,7 @@ import { formatTemplatePrompt } from './template-prompts.ts';
 import { templateGuideContinuationInstruction } from './template-guide.ts';
 import { workflowEntryGuide } from './workflow-entry.js';
 import { transcriptWorkflowPrompt } from './transcript-workflow.ts';
+import { defaultMcpServerNameForOrigin } from './desktop-builtin-rules.ts';
 
 export function transcriptExamplePrompt(info?: Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory'> | null, locale = 'en') {
   return `First list projects with openmotion_get_project and ask the user to identify the source project and media. Replace SELECTED_PROJECT_ID with that confirmed identity before any operation.\n\n` + transcriptWorkflowPrompt({
@@ -215,11 +216,17 @@ export function integrationConfig(info: IntegrationInfo, host: IntegrationHost) 
         text: deepseekConfig(info),
       };
     }
+    const serverName = defaultMcpServerNameForOrigin(info.previewUrl);
     if (host === 'codex') {
+      const patConfig = auth.pat
+        ? auth.oauth2
+          ? '# Optional PAT fallback (only if OAuth 2.1 is unavailable):\n# bearer_token_env_var = "OPENMOTION_TOKEN"\n'
+          : 'bearer_token_env_var = "OPENMOTION_TOKEN"\n'
+        : '';
       return {
         filename: 'openmotion-codex.toml',
         contentType: 'text/plain; charset=utf-8',
-        text: `[mcp_servers.openmotion]\nurl = ${JSON.stringify(url)}\n${auth.pat ? 'bearer_token_env_var = "OPENMOTION_TOKEN"\n' : ''}`,
+        text: `[mcp_servers.${serverName}]\nurl = ${JSON.stringify(url)}\n${patConfig}`,
       };
     }
     const headers = auth.pat ? { Authorization: 'Bearer ${OPENMOTION_TOKEN}' } : undefined;
@@ -229,7 +236,7 @@ export function integrationConfig(info: IntegrationInfo, host: IntegrationHost) 
       text: JSON.stringify(
         {
           mcpServers: {
-            openmotion: {
+            [serverName]: {
               type: 'http',
               url,
               ...(headers ? { headers } : {}),
@@ -268,10 +275,18 @@ export function manualConnection(info: IntegrationInfo, host: IntegrationHost, l
         ? `Current MCP endpoint: ${url}\nChatGPT Cloud requires a public HTTPS Streamable HTTP URL with OAuth 2.1 enabled.\nUse Codex, Claude Code, Cursor, or DeepSeek Harness with this local HTTP endpoint.`
         : `当前 MCP 地址：${url}\nChatGPT 云端需要公开 HTTPS Streamable HTTP 端点与 OAuth 2.1 授权。\n当前本地 HTTP 环境可先使用 Codex、Claude Code、Cursor 或 DeepSeek Harness。`;
     }
+    const serverName = defaultMcpServerNameForOrigin(info.previewUrl);
     if (host === 'codex') {
-      return `codex mcp add openmotion --url ${shellQuote(url)}\ncodex mcp get openmotion`;
+      const loginLine = auth.oauth2 && auth.mode !== 'dev' ? `\ncodex mcp login ${serverName}` : '';
+      return `codex mcp add ${serverName} --url ${shellQuote(url)}${loginLine}\ncodex mcp get ${serverName}`;
     }
-    return `claude mcp add --transport http openmotion ${shellQuote(url)}\nclaude mcp get openmotion`;
+    const claudeOAuthHint =
+      auth.oauth2 && auth.mode !== 'dev'
+        ? locale === 'en'
+          ? `\n# Then run /mcp in Claude Code and select "${serverName}" to complete OAuth 2.1 sign-in.`
+          : `\n# 随后在 Claude Code 中运行 /mcp 并选择 "${serverName}" 完成 OAuth 2.1 浏览器登录。`
+        : '';
+    return `claude mcp add --scope user --transport http ${serverName} ${shellQuote(url)}${claudeOAuthHint}\nclaude mcp get ${serverName}`;
   }
 
   if (host === 'deepseek') return deepseekConfig(info);
@@ -314,18 +329,19 @@ export function setupPrompt(info: IntegrationInfo | null, host: IntegrationHost,
         ? `ChatGPT Cloud requires a public HTTPS Streamable HTTP MCP endpoint with OAuth 2.1. Current endpoint: ${mcpUrl}.`
         : `ChatGPT 云端需要公开 HTTPS Streamable HTTP MCP 端点与 OAuth 2.1 授权。当前端点：${mcpUrl}。`;
     }
+    const serverName = defaultMcpServerNameForOrigin(info.previewUrl);
     if (locale === 'zh-CN') {
-      return `将 ${hostNames[host]} 连接到远程 OpenMotion Streamable HTTP MCP 服务：${mcpUrl}
+      return `将 ${hostNames[host]} 连接到远程 OpenMotion Streamable HTTP MCP 服务：${mcpUrl}（建议服务名：${serverName}）
 先阅读并在宿主安装主 Skill：${setupSkillUrl}
-使用 OAuth 2.1（自动发现）或 Workspace Personal Access Token (Authorization: Bearer <PAT>) 完成授权。
-不要安装本地运行时或使用 docker exec。
+优先使用 OAuth 2.1 自动发现完成浏览器授权（Codex 运行 \`codex mcp login ${serverName}\`，Claude Code 运行 \`/mcp\`）；仅在宿主不支持 OAuth 2.1 时，再前往 ${info.previewUrl}/settings/account#tokens 创建工作区 Personal Access Token (Authorization: Bearer <PAT>)。
+不要安装本地运行时或使用 docker exec，也不要拿云端工程去查本机 127.0.0.1 MCP。
 连接后调用 openmotion_get_project 核对当前工作区（${info.dataDirectory}），并按需通过 openmotion_import_assets 的 upload_ticket / url / library_asset 导入素材。
 等我给出创作要求后再创建或修改工程。`;
     }
-    return `Connect ${hostNames[host]} to this OpenMotion Streamable HTTP MCP server: ${mcpUrl}
+    return `Connect ${hostNames[host]} to this OpenMotion Streamable HTTP MCP server: ${mcpUrl} (recommended server name: ${serverName})
 Read the primary OpenMotion Skill: ${setupSkillUrl}
-Authenticate via OAuth 2.1 discovery or a workspace Personal Access Token (Authorization: Bearer <PAT>).
-Do not install a separate local runtime or wrap commands with docker exec.
+Prefer OAuth 2.1 browser sign-in (run \`codex mcp login ${serverName}\` in Codex or \`/mcp\` in Claude Code); only if the host does not support OAuth 2.1, create a workspace Personal Access Token at ${info.previewUrl}/settings/account#tokens (Authorization: Bearer <PAT>).
+Do not install a separate local runtime, wrap commands with docker exec, or query a local 127.0.0.1 MCP for a cloud project.
 Discover OpenMotion tools and call openmotion_get_project to verify workspace (${info.dataDirectory}).
 Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).
 Wait for my creative brief before creating or modifying a project.`;
@@ -390,6 +406,9 @@ OpenMotion — Streamable HTTP MCP workspace for editable motion video projects.
 
 - Studio URL: ${info.previewUrl}
 - MCP Endpoint (Streamable HTTP): ${info.transport.url}
+- Recommended MCP Server Name: ${defaultMcpServerNameForOrigin(info.previewUrl)}
+- Interactive MCP Setup Page: ${info.previewUrl}/settings/mcp
+- Personal Access Token Page (fallback when OAuth 2.1 is unavailable): ${info.previewUrl}/settings/account#tokens (read-only preset: ${info.previewUrl}/settings/account?preset=readonly#tokens)
 - Auth Mode: ${info.transport.auth.mode} (OAuth 2.1: ${info.transport.auth.oauth2 ? 'enabled' : 'disabled'}, PAT: ${info.transport.auth.pat ? 'enabled' : 'disabled'})
 - Version: ${info.version}
 
@@ -404,7 +423,7 @@ Configuration snippet:
 \`\`\`${host === 'deepseek' ? 'yaml' : host === 'codex' ? 'toml' : 'json'}
 ${configSnippet}\`\`\`
 
-Authenticate using OAuth 2.1 discovery (\`${info.transport.auth.resourceMetadataUrl ?? info.previewUrl + '/.well-known/oauth-protected-resource/mcp'}\`) or a workspace Personal Access Token in the \`Authorization: Bearer <token>\` header. Browser session cookies are never accepted on \`/mcp\`.
+Prefer OAuth 2.1 browser sign-in via auto-discovery (\`${info.transport.auth.resourceMetadataUrl ?? info.previewUrl + '/.well-known/oauth-protected-resource/mcp'}\`): in Codex run \`codex mcp login ${defaultMcpServerNameForOrigin(info.previewUrl)}\`, in Claude Code run \`/mcp\`. Only if your client does not support OAuth 2.1, create a workspace Personal Access Token at \`${info.previewUrl}/settings/account#tokens\` (or \`${info.previewUrl}/settings/account?preset=readonly#tokens\` for read-only verification) and send it in the \`Authorization: Bearer <token>\` header. Browser session cookies are never accepted on \`/mcp\`.
 
 ## API Discovery
 
