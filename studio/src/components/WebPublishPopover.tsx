@@ -2,11 +2,13 @@ import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AccountSummary } from '../../../shared/provider-directory';
-import type {
-  WebPublicationRecord,
-  WebPublishMode,
-  WebPublishStatusResponse,
-  WebPublishTargetKind,
+import {
+  isPaidWebPublishPlan,
+  type WebPublicationRecord,
+  type WebPublishMode,
+  type WebPublishStatusResponse,
+  type WebPublishTargetKind,
+  type WebPublishVisibility,
 } from '../../../shared/web-publish';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -46,7 +48,7 @@ export interface WebPublishPopoverProps {
   onOpenAccount?: () => void;
 }
 
-type ActiveOp = WebPublishMode | 'stop' | null;
+type ActiveOp = WebPublishMode | 'stop' | 'visibility' | null;
 
 function mergePublicationStatus(
   prev: WebPublishStatusResponse | null,
@@ -126,6 +128,8 @@ export function WebPublishPopover({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [prepublishEnabled, setPrepublishEnabled] = useState(true);
+  const [draftVisibility, setDraftVisibility] = useState<WebPublishVisibility>('public');
+  const [showUpgradeHint, setShowUpgradeHint] = useState(false);
   const currentTargetKey = `${targetKind}:${targetId}:${filePath ?? ''}`;
   const deployAfterSignInTargetRef = useRef<string | null>(null);
   const prevAccountStateRef = useRef<AccountSummary['state'] | undefined>(undefined);
@@ -137,6 +141,8 @@ export function WebPublishPopover({
     setStatus(null);
     setError(null);
     setPrepublishEnabled(true);
+    setDraftVisibility('public');
+    setShowUpgradeHint(false);
     setCopied(false);
   }, [targetKind, targetId, filePath]);
 
@@ -163,6 +169,9 @@ export function WebPublishPopover({
         refresh: refreshRemote,
       });
       setStatus(next);
+      if (next.active?.visibility) {
+        setDraftVisibility(next.active.visibility);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('Could not check share status'));
     } finally {
@@ -196,7 +205,13 @@ export function WebPublishPopover({
     }
   }, [onCopyUrl, onNotify, reportPublish, t]);
 
-  const runMutation = useCallback(async (op: Exclude<ActiveOp, null>, copyOnSuccess = false) => {
+  const pub = status?.active ?? null;
+  const linkStatus = pub?.status ?? 'none';
+  const isPublished = linkStatus === 'published';
+  const effectiveVisibility: WebPublishVisibility =
+    isPublished ? (pub?.visibility ?? draftVisibility) : draftVisibility;
+
+  const runMutation = useCallback(async (op: WebPublishMode | 'stop', copyOnSuccess = false) => {
     if (activeOp) return;
     setActiveOp(op);
     setError(null);
@@ -204,6 +219,9 @@ export function WebPublishPopover({
       if (op === 'stop') {
         const stopped = await webPublishClient.unpublish(targetKind, targetId, { filePath, sourcePath, embedUrl });
         setStatus(prev => mergePublicationStatus(prev, targetKind, targetId, stopped.publication, prev?.freshness ?? 'unknown'));
+        if (stopped.publication.visibility) {
+          setDraftVisibility(stopped.publication.visibility);
+        }
         reportPublish('stop', 'success');
         onNotify?.(t('Share link disabled'), 'info');
         return;
@@ -216,6 +234,7 @@ export function WebPublishPopover({
         embedUrl,
         deployMode: op,
         name: title,
+        ...(targetKind === 'game' ? { visibility: effectiveVisibility } : {}),
       });
       setStatus(prev =>
         mergePublicationStatus(
@@ -237,8 +256,14 @@ export function WebPublishPopover({
         onNotify?.(t('Cloud preview link updated'), 'info');
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t('Cloud share operation failed');
-      setError(msg);
+      if (err instanceof WebPublishApiError && err.code === 'PRIVATE_SHARE_REQUIRES_PAID_PLAN') {
+        setShowUpgradeHint(true);
+        setDraftVisibility('public');
+        setError(null);
+      } else {
+        const msg = err instanceof Error ? err.message : t('Cloud share operation failed');
+        setError(msg);
+      }
       const authRequired = err instanceof WebPublishApiError && (err.status === 401 || err.code === 'AUTH_REQUIRED');
       reportPublish(op, 'failure', { error_kind: authRequired ? 'auth_required' : err instanceof WebPublishApiError && err.status === 409 ? 'conflict' : 'other' });
       if (err instanceof WebPublishApiError && (err.status === 401 || err.code === 'AUTH_REQUIRED')) {
@@ -250,7 +275,7 @@ export function WebPublishPopover({
     } finally {
       setActiveOp(null);
     }
-  }, [activeOp, collab, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
+  }, [activeOp, collab, copyUrl, effectiveVisibility, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
 
   // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes for this exact target.
   useEffect(() => {
@@ -312,11 +337,57 @@ export function WebPublishPopover({
     }
   }, [open, accountResolved, signedIn, authorizing, publishHookId, targetKind]);
   const mutating = activeOp !== null;
-  const pub = status?.active ?? null;
-  const linkStatus = pub?.status ?? 'none';
-  const isPublished = linkStatus === 'published';
   const isStopped = linkStatus === 'stopped';
   const linkAccessOn = isPublished || (linkStatus === 'none' && prepublishEnabled);
+  const collabPlan =
+    collab?.snapshot?.quota?.planId ??
+    collab?.snapshot?.activeWorkspace?.planId ??
+    null;
+  const effectivePlan = status?.accountPlan ?? collabPlan ?? account?.plan ?? null;
+  const canUsePrivateShare =
+    typeof status?.canUsePrivateShare === 'boolean'
+      ? status.canUsePrivateShare || (!status.accountPlan && isPaidWebPublishPlan(effectivePlan))
+      : isPaidWebPublishPlan(effectivePlan);
+
+  const handleSelectVisibility = async (next: WebPublishVisibility) => {
+    if (mutating) return;
+    if (next === 'unlisted' && !canUsePrivateShare) {
+      setShowUpgradeHint(true);
+      return;
+    }
+    setShowUpgradeHint(false);
+    if (!isPublished || !pub) {
+      setDraftVisibility(next);
+      return;
+    }
+    if (pub.visibility === next) return;
+    setActiveOp('visibility');
+    setError(null);
+    try {
+      const updated = await webPublishClient.setVisibility(targetKind, targetId, {
+        visibility: next,
+        filePath,
+        sourcePath,
+        embedUrl,
+      });
+      setStatus(prev =>
+        mergePublicationStatus(prev, targetKind, targetId, updated.publication, prev?.freshness ?? 'unknown'),
+      );
+      setDraftVisibility(updated.publication.visibility ?? next);
+      onNotify?.(
+        t(next === 'unlisted' ? 'Switched to link-only sharing' : 'Switched to public sharing'),
+        'info',
+      );
+    } catch (err) {
+      if (err instanceof WebPublishApiError && err.code === 'PRIVATE_SHARE_REQUIRES_PAID_PLAN') {
+        setShowUpgradeHint(true);
+      } else {
+        setError(err instanceof Error ? err.message : t('Cloud share operation failed'));
+      }
+    } finally {
+      setActiveOp(null);
+    }
+  };
 
   const handleToggleLinkAccess = () => {
     if (!signedIn || mutating) return;
@@ -408,7 +479,11 @@ export function WebPublishPopover({
           <div className="om-web-publish-row">
             <div className="om-web-publish-row-text">
               <strong>{t('Link access')}</strong>
-              <span>{t('Recipients can view and play this live preview — not your conversation or code.')}</span>
+              <span>
+                {targetKind === 'game'
+                  ? t('Anyone with the link can play this game directly in their browser.')
+                  : t('Recipients can view and play this live preview — not your conversation or code.')}
+              </span>
             </div>
             <Button
               variant="plain"
@@ -423,6 +498,85 @@ export function WebPublishPopover({
               <span className="om-web-publish-switch-thumb" aria-hidden="true" />
             </Button>
           </div>
+
+          {targetKind === 'game' && (
+            <div className="om-web-publish-visibility" data-game-visibility-control="">
+              <div className="om-web-publish-visibility-head">
+                <strong>{t('Visibility')}</strong>
+                {isPublished && (
+                  <span
+                    className="om-web-publish-community-pill"
+                    data-tone={effectiveVisibility === 'public' && pub?.feedStatus !== 'rejected' ? 'public' : undefined}
+                  >
+                    {effectiveVisibility === 'unlisted'
+                      ? t('Link only')
+                      : pub?.feedStatus === 'featured' || pub?.feedStatus === 'approved'
+                        ? t('In community')
+                        : pub?.feedStatus === 'rejected'
+                          ? t('Not in community')
+                          : t('In review')}
+                  </span>
+                )}
+              </div>
+              <div className="om-web-publish-visibility-segment" role="radiogroup" aria-label={t('Visibility')}>
+                <Button
+                  variant="plain"
+                  type="button"
+                  role="radio"
+                  aria-checked={effectiveVisibility === 'public'}
+                  disabled={mutating}
+                  className="om-web-publish-visibility-option"
+                  data-selected={effectiveVisibility === 'public' ? 'true' : undefined}
+                  onClick={() => void handleSelectVisibility('public')}
+                >
+                  <RemixIcon name="global-line" size={13} />
+                  <span>{t('Public')}</span>
+                </Button>
+                <Button
+                  variant="plain"
+                  type="button"
+                  role="radio"
+                  aria-checked={effectiveVisibility === 'unlisted'}
+                  disabled={mutating}
+                  className="om-web-publish-visibility-option"
+                  data-selected={effectiveVisibility === 'unlisted' ? 'true' : undefined}
+                  data-visibility-option="unlisted"
+                  onClick={() => void handleSelectVisibility('unlisted')}
+                >
+                  <RemixIcon name="eye-off-line" size={13} />
+                  <span>{t('Unlisted')}</span>
+                  {!canUsePrivateShare && (
+                    <span className="om-web-publish-visibility-badge">{t('Go+')}</span>
+                  )}
+                </Button>
+              </div>
+              <p className="om-web-publish-visibility-hint">
+                {effectiveVisibility === 'unlisted'
+                  ? t('Only people with the link can play. Hidden from community and search.')
+                  : pub?.feedStatus === 'rejected'
+                    ? t('Playable via direct link, but not listed in the community feed.')
+                    : canUsePrivateShare
+                      ? t('Eligible for community discovery and Remix. Switch to Unlisted anytime.')
+                      : t('Public by default. Great games may be featured in the community and remixed.')}
+              </p>
+              {showUpgradeHint && !canUsePrivateShare && (
+                <div className="om-web-publish-upgrade-note" role="status" data-private-upgrade-hint="">
+                  <span>
+                    {t('Upgrade to Go+ to share games privately with link-only access.')}
+                  </span>
+                  <a
+                    className="om-web-publish-upgrade-link"
+                    href={`${(account?.consoleUrl || 'https://open-design.ai').replace(/\/$/, '')}/subscription`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span>{t('Upgrade to Go+')}</span>
+                    <RemixIcon name="external-link-line" size={12} />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
 
           {isPublished && pub?.url && (
             <div className="om-web-publish-url-row">
@@ -656,6 +810,9 @@ export function WebPublishPopover({
       )}
 
       {signedIn && (() => {
+        const consoleBase = (account?.consoleUrl || 'https://open-design.ai').replace(/\/$/, '');
+        const teamUrl = `${consoleBase}/team`;
+        const resetUrl = `${consoleBase}/reset`;
         const snap = collab?.snapshot;
         const activeWs = snap?.activeWorkspace;
         const projectWsId = snap?.projectMeta[targetId]?.workspaceId;
@@ -666,7 +823,30 @@ export function WebPublishPopover({
           activeWs?.workspaceType === 'team'
             ? activeWs
             : snap?.workspaces.find(w => w.workspaceType === 'team' && w.memberStatus === 'active' && w.lifecycleState === 'active') ?? null;
-        if (!collab || (!projectTeamWs && !activeTeamWs)) return null;
+        if (!collab || (!projectTeamWs && !activeTeamWs)) {
+          return (
+            <div className="om-web-publish-growth-row" data-web-publish-growth="">
+              <a
+                className="om-web-publish-growth-link"
+                href={teamUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <RemixIcon name="group-line" size={13} />
+                <span>{t('Create a team')}</span>
+              </a>
+              <a
+                className="om-web-publish-growth-link"
+                href={resetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <RemixIcon name="gift-line" size={13} />
+                <span>{t('Invite for reset cards')}</span>
+              </a>
+            </div>
+          );
+        }
         const resolvedKind = targetKind === 'design' || targetKind === 'game' ? targetKind : 'motion';
         const resolvedTitle = title || status?.title || targetId;
         if (!projectTeamWs && activeTeamWs) {
@@ -702,6 +882,17 @@ export function WebPublishPopover({
                 </Button>
               </div>
               <CommentSyncBanner projectId={targetId} compact />
+              <div className="om-web-publish-growth-row" data-web-publish-growth="">
+                <a
+                  className="om-web-publish-growth-link"
+                  href={resetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <RemixIcon name="gift-line" size={13} />
+                  <span>{t('Invite teammates for reset cards')}</span>
+                </a>
+              </div>
             </div>
           );
         }
@@ -744,6 +935,17 @@ export function WebPublishPopover({
               </Button>
             </div>
             <CommentSyncBanner projectId={targetId} compact />
+            <div className="om-web-publish-growth-row" data-web-publish-growth="">
+              <a
+                className="om-web-publish-growth-link"
+                href={resetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <RemixIcon name="gift-line" size={13} />
+                <span>{t('Invite teammates for reset cards')}</span>
+              </a>
+            </div>
           </div>
         );
       })()}

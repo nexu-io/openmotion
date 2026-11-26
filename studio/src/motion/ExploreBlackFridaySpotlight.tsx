@@ -2,6 +2,7 @@ import { Button } from 'open-design-ui/button';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { motionStudio, type StudioDestination } from './creativeStudios';
+import { ExploreCoverImage } from './ExploreCoverImage';
 import { findModelHub } from './modelHubs';
 import { motionStudioCover } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
@@ -402,7 +403,7 @@ export function ExploreBlackFridaySpotlight({ active, onNavigate, onOpenMotionEd
               onClick={event => openSlide(event.currentTarget)}
             >
               <div className="om-feature-art" aria-hidden="true"><div className="om-feature-camera">
-                <img src={slide.poster} alt="" draggable={false} />
+                <ExploreCoverImage src={slide.poster} eager={i < 3} draggable={false} />
                 {active && visible && slide.clip && hoveredSlide === slide.id && <FeaturedClip src={slide.clip} poster={slide.poster} playing={clipPlaying} />}
               </div></div>
               <div className="om-spotlight-overlay">

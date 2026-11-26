@@ -426,7 +426,7 @@ describe('Phase B growth surfaces', () => {
             title: 'Fresh Updates',
             body: 'First update bullet\nSecond update bullet',
             ctaLabel: 'Explore',
-            linkUrl: 'https://github.com/openmotion-ai/openmotion/releases',
+            linkUrl: 'https://github.com/nexu-io/openmotion/releases',
           },
         });
       }

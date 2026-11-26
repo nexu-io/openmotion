@@ -308,6 +308,7 @@ test("WhatsNewService honors channel gating, validates schema/HTTPS links, and l
   assert.equal(defaultRes.version, '1.2.3');
   assert.ok(defaultRes.id);
   assert.ok(defaultRes.content);
+  assert.equal(defaultRes.content.linkUrl, 'https://github.com/nexu-io/openmotion/releases');
 
   // Explicit opt-out or non-release channel disables What's New.
   const optedOut = new WhatsNewService({ env: { OPENMOTION_WHATS_NEW_ENABLED: '0' } });

@@ -1,19 +1,19 @@
 {
   "id": "openmotion-2026-11-collab",
-  "title": "Team Workspaces, Auto-Recovery & In-App Updates",
-  "body": "Share Motion, Design & Game projects directly into team workspaces with unified visibility controls.\nAuto-resume generation within 5 seconds after topping up OpenDesign credits or upgrading plans.\nStay informed with the new in-app notification center for plan alerts and product releases.",
-  "linkUrl": "https://github.com/openmotion-ai/openmotion/releases",
+  "title": "Team Workspaces & Auto-Recovery",
+  "body": "Team workspaces — Share Motion, Design & Game projects with unified visibility.\nAuto-recovery — Generation resumes within 5s after topping up or upgrading.\nNotification center — Track plan alerts and product releases in one place.",
+  "linkUrl": "https://github.com/nexu-io/openmotion/releases",
   "ctaLabel": "Explore updates",
   "locales": {
     "zh-CN": {
-      "title": "团队工作区协作、充值自动恢复与站内通知中心",
-      "body": "在全新 /projects 中心一键管理与共享 Motion、Design 与 Game 项目，清晰掌控个人与团队可见性。\n额度用尽后充值或升级套餐，系统每 5 秒自动检测并在恢复后即时解除阻塞。\n新增右上角站内通知中心与动态活动触点，第一时间接收套餐变更与产品更新。",
-      "ctaLabel": "查看更新说明"
+      "title": "团队工作区协作与自动恢复",
+      "body": "团队工作区 — 在项目中心统一共享 Motion、Design 与 Game 作品。\n充值自动恢复 — 额度补充或升级后 5 秒内自动续跑，无需重来。\n站内通知中心 — 第一时间接收套餐提醒与版本更新动态。",
+      "ctaLabel": "查看更新"
     },
     "ja": {
-      "title": "チームワークスペース連携・残高自動復帰・アプリ内通知センター",
-      "body": "Motion・Design・Game プロジェクトをチームワークスペースとシームレスに共有・管理できるようになりました。\nクレジット補充やプランアップグレード後、5秒ごとの自動チェックにより生成作業を即時再開できます。\nアプリ内通知センターからプラン変更や最新のリリース情報をすばやく確認できます。",
-      "ctaLabel": "アップデート詳細"
+      "title": "チームワークスペースと自動復帰",
+      "body": "チーム連携 — Motion・Design・Game プロジェクトの共有と公開範囲を一元管理。\n自動再開 — クレジット補充やプラン更新後、5秒以内に生成を自動復帰。\n通知センター — プラン通知や最新リリースをアプリ内で素早く確認。",
+      "ctaLabel": "アップデートを見る"
     }
   }
 }
