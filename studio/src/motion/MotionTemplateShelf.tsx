@@ -37,7 +37,7 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
   const matches = useMemo(() => topBrands
     ? rankDiscoverySeries(groupBrandSeries(catalog ?? [])).slice(0, topBrandsLimit).map(brand => brand.items[0])
     : templatesInCollection(catalog ?? firstPage?.items ?? [], collection), [catalog, firstPage, collection, topBrands]);
-  const count = catalog ? matches.length : firstPage?.total;
+  const count = catalog ? matches.length : firstPage?.catalogReady === false ? undefined : firstPage?.total;
   const visible = matches.slice(0, limit);
   const playing = useTemplatePlayback(root, visible.map(item => item.id).join('|'), active, true, priority, true);
   const hasMore = visible.length < matches.length;

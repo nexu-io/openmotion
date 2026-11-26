@@ -224,12 +224,19 @@ export class PrismMotionCatalog {
     this.onPublicationChanged = options.onPublicationChanged;
   }
 
-  async getTemplates({ requirePublication = false } = {}): Promise<readonly PreparedCatalogTemplate[]> {
+  /** Starts a refresh when due and immediately returns the last validated publication, if any. */
+  getPublication(): readonly PreparedCatalogTemplate[] | undefined {
     if (!this.pending && this.now() >= this.checkAfter) {
       this.pending = this.refresh();
     }
+    return this.cached;
+  }
+
+  async getTemplates({ requirePublication = false } = {}): Promise<readonly PreparedCatalogTemplate[]> {
+    const publication = this.getPublication();
+    if (publication) return publication;
     // A fresh process has no snapshot yet; let callers that need one wait (bounded) for the first load.
-    if (requirePublication && !this.cached && this.pending) {
+    if (requirePublication && this.pending) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         this.pending,

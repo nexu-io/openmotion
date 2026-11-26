@@ -994,7 +994,7 @@ it('opens a collection with its filters and opens individual Explore cards direc
   fetcher.mockImplementation((input: string, options?: RequestInit) => {
     const url = new URL(input, location.origin);
     if (!url.pathname.endsWith('/template-catalog')) return fallback(input, options);
-    const firstPage = url.searchParams.get('limit') === '60' && url.searchParams.get('offset') === '0';
+    const firstPage = url.searchParams.get('category') === 'all' && url.searchParams.get('offset') === '0';
     return Promise.resolve(Response.json({ items: firstPage ? entries.slice(0, 2) : entries.slice(2), next: firstPage ? 2 : null, catalogVersion: 'test' }));
   });
   await mount(); await click('Explore');

@@ -66,6 +66,7 @@ const TEMPLATE_ID_REGEX = /^[a-z0-9][a-z0-9_-]{0,127}$/i;
 const DEFAULT_PRESIGN_GET_TTL_SEC = 900;
 const REDIRECT_CACHE_CONTROL = 'public, max-age=300, s-maxage=300';
 const REDIRECT_VARY = 'Origin';
+const NO_PRISM_TEMPLATES: readonly PreparedCatalogTemplate[] = [];
 
 export function validateTemplateId(value: string): string {
   if (typeof value !== 'string' || !TEMPLATE_ID_REGEX.test(value)) {
@@ -510,7 +511,7 @@ function deriveDefaultProjectTitle(row: CatalogTemplateRow, locale = 'en'): stri
 // ---------------------------------------------------------------------------
 
 export interface CatalogServiceDeps {
-  prismCatalog?: Pick<PrismMotionCatalog, 'getTemplates'>;
+  prismCatalog?: Pick<PrismMotionCatalog, 'getTemplates' | 'getPublication'>;
   db: Database;
   storage: StoragePort;
   textCache?: HotTextCache;
@@ -528,7 +529,7 @@ export class CatalogService implements CatalogPort {
   private readonly presignGetTtlSec: number;
 
   private readonly publishedCards = new WeakMap<readonly PreparedCatalogTemplate[], Map<string, GalleryTemplate[]>>();
-  private readonly prismCatalog?: Pick<PrismMotionCatalog, 'getTemplates'>;
+  private readonly prismCatalog?: CatalogServiceDeps['prismCatalog'];
   private readonly runtimeAssets: RuntimeTemplateAssets;
 
   constructor(deps: CatalogServiceDeps) {
@@ -544,7 +545,9 @@ export class CatalogService implements CatalogPort {
 
   private async loadTemplateIndex(options: Pick<CatalogListOptions, 'kind' | 'locale'>) {
     if (this.prismCatalog) {
-      const cms = options.kind === 'builtin' ? [] : await this.prismCatalog.getTemplates();
+      const includePrism = options.kind !== 'builtin';
+      const publication = includePrism ? this.prismCatalog.getPublication() : undefined;
+      const cms = publication ?? NO_PRISM_TEMPLATES;
       const first = cms[0];
       const locale = catalogLocale(Object.keys(first?.metadata.locales ?? {}), options.locale ?? this.defaultLocale, this.defaultLocale);
       const key = (options.kind ?? 'all') + '/' + locale;
@@ -557,7 +560,7 @@ export class CatalogService implements CatalogPort {
         cards.set(key, items);
         this.publishedCards.set(cms, cards);
       }
-      return { items, catalogVersion: first?.catalogVersion ?? 'builtin' };
+      return { items, catalogVersion: first?.catalogVersion ?? 'builtin', catalogReady: !includePrism || publication !== undefined };
     }
     const baseQuery = this.db.select().from(catalogTemplates);
     const rows = options.kind
@@ -576,7 +579,7 @@ export class CatalogService implements CatalogPort {
     const builtinRows = rows.filter((row) => row.kind === 'builtin').sort((a, b) => a.sortOrder - b.sortOrder);
     const ordered = [...prismRows, ...builtinRows];
     const items = ordered.map((row) => projectRowToGalleryTemplate(row, locale));
-    return { items, catalogVersion: ordered[0]?.catalogVersion ?? 'empty' };
+    return { items, catalogVersion: ordered[0]?.catalogVersion ?? 'empty', catalogReady: true };
   }
 
   async listAllTemplates() {
@@ -586,7 +589,7 @@ export class CatalogService implements CatalogPort {
   }
 
   async listTemplates(options: CatalogListOptions = {}): Promise<CatalogListResult> {
-    const { items, catalogVersion } = await this.loadTemplateIndex(options);
+    const { items, catalogVersion, catalogReady } = await this.loadTemplateIndex(options);
     const visible = options.covered ? items.filter((item) => Boolean(item.posterUrl)) : items;
 
     let page: TemplatePage;
@@ -610,6 +613,7 @@ export class CatalogService implements CatalogPort {
       ...page,
       catalogTotal: items.length,
       catalogVersion,
+      ...(this.prismCatalog && options.kind !== 'builtin' ? { catalogReady } : {}),
       source: this.prismCatalog ? 'prism' : 'catalog-cas',
     };
   }

@@ -17,7 +17,8 @@ import type { GalleryTemplate } from '../../../shared/catalog';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('./useCoveredTemplates', () => ({
+vi.mock('./useCoveredTemplates', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./useCoveredTemplates')>(),
   readCachedCoveredTemplates: () => null,
   useCoveredTemplates: () => ({
     catalog: [],
