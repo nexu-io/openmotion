@@ -287,15 +287,20 @@ export function resolveTimelineIdForSelection(
 ): string | null {
   return (
     findMatchingTimelineElementId(selection, elements) ??
-    (selection.isolatedClipOwner && findMatchingTimelineElementId({
-      ...selection.isolatedClipOwner, isCompositionHost: false,
-    }, elements)) ??
+    findIsolatedClipOwnerTimelineId(selection.isolatedClipOwner, elements) ??
     findTimelineIdByAncestor(
       selection.element,
       elements,
       selection.sourceFile || activeCompPath || "index.html",
     )
   );
+}
+
+export function findIsolatedClipOwnerTimelineId(
+  owner: DomEditSelection['isolatedClipOwner'],
+  elements: TimelineElement[],
+): string | null {
+  return owner ? findMatchingTimelineElementId({ ...owner, isCompositionHost: false }, elements) : null;
 }
 
 /**
