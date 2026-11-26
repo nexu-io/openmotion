@@ -2,7 +2,7 @@ import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-r
 import { PrismMotionCatalog } from '../services/prism-motion-catalog.ts';
 import { commitCaptionCommand } from '../mcp/caption-mutations.ts';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -43,10 +43,15 @@ import {
   sessionPath,
   templateLibraryPreview,
 } from '../../shared/workspace-url.ts';
+import { validPending, type PendingEvent } from '../../tracking/core.ts';
+import { studioEvents } from '../../tracking/events.ts';
+import { createPosthogSender } from '../../tracking/node.ts';
 import {
   AmrIdentityClient,
   InMemoryAuthCache,
   OidcService,
+  SESSION_COOKIE_NAME,
+  TRACKING_ATTESTATION_COOKIE_NAME,
   amrIdentityClientFromAppConfig,
   buildOAuth21Config,
   createAuthMiddleware,
@@ -55,7 +60,14 @@ import {
   createPgAuthStore,
   createRedisAuthCache,
   getAuthContext,
+  isHttpsOrigin,
   oidcConfigFromAppConfig,
+  parseCookies,
+  resolveBrowserSession,
+  resolveTrackingAttestationSecret,
+  serializeTrackingAttestationCookie,
+  verifyCsrfOrigin,
+  verifyTrackingAttestationCookie,
   type AuthEnv,
   type AuthKeyValueCache,
   type AuthMiddlewareDeps,
@@ -149,6 +161,187 @@ export function resolveApiCorsAllowedOrigins(
     config.APP_PUBLIC_ORIGIN,
     config.PREVIEW_PUBLIC_ORIGIN ? [config.PREVIEW_PUBLIC_ORIGIN] : [],
   );
+}
+
+function normalizeCspOrigin(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed || /[\s;,"'\x00-\x1f\x7f]/.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Main-document security headers required by Google Identity Services (GIS) One Tap + FedCM.
+ * Enforces GIS script/style/frame/connect allowances, `identity-credentials-get` Permissions-Policy,
+ * and `Cross-Origin-Opener-Policy: same-origin-allow-popups` (never `same-origin`).
+ */
+export function buildStudioDocumentSecurityHeaders(
+  options: { previewOrigin?: string | null; storagePublicOrigin?: string | null } = {},
+): Record<string, string> {
+  const preview = normalizeCspOrigin(options.previewOrigin) ?? '';
+  const storageOrigin = normalizeCspOrigin(options.storagePublicOrigin) ?? '';
+  const uniqueSources = (sources: string[]) => [...new Set(sources.filter(Boolean))].join(' ');
+  const frameSrc = uniqueSources(["'self'", 'blob:', 'https://accounts.google.com/gsi/', preview]);
+  const connectSrc = uniqueSources([
+    "'self'",
+    'https://accounts.google.com/gsi/',
+    'http://127.0.0.1:*',
+    'http://localhost:*',
+    'https:',
+    'wss:',
+    preview,
+    storageOrigin,
+  ]);
+  const imgSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const mediaSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const fontSrc = uniqueSources(["'self'", 'data:', 'https:', storageOrigin]);
+  return {
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
+      `frame-src ${frameSrc}`,
+      `connect-src ${connectSrc}`,
+      `img-src ${imgSrc}`,
+      `media-src ${mediaSrc}`,
+      `font-src ${fontSrc}`,
+      "worker-src 'self' blob:",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; '),
+    'Permissions-Policy': 'identity-credentials-get=(self "https://accounts.google.com")',
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Content-Type-Options': 'nosniff',
+  };
+}
+
+export interface CloudPosthogDispatcherOptions {
+  readonly config: Pick<AppConfig, 'NODE_ENV' | 'APP_PUBLIC_ORIGIN'>;
+  readonly logger?: Pick<Logger, 'warn'>;
+  readonly host?: string;
+  readonly token?: string;
+  readonly geoip?: boolean;
+  readonly fetch?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Creates the production/cloud PostHog delivery callback wired into `createApiApp({ onTrackingEvents })`.
+ * Reads `OPENMOTION_POSTHOG_HOST`/`OPENMOTION_POSTHOG_KEY` or falls back to `shared/tracking-config.json`.
+ */
+export class TrackingDeliveryRetryError extends Error {
+  readonly retryable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'TrackingDeliveryRetryError';
+  }
+}
+
+export function createCloudPosthogDispatcher(
+  options: CloudPosthogDispatcherOptions,
+): (events: readonly PendingEvent[]) => Promise<void> {
+  const procEnv = options.env ?? process.env;
+  const telemetryDisabled =
+    ['0', 'false', 'off'].includes(procEnv.OPENMOTION_TELEMETRY?.toLowerCase() ?? '') ||
+    procEnv.DO_NOT_TRACK === '1';
+  if (telemetryDisabled) {
+    return async () => {};
+  }
+
+  const testing = options.config.NODE_ENV === 'test' || Boolean(procEnv.NODE_TEST_CONTEXT);
+  const explicitOverride = Boolean(options.fetch || (options.host && options.token));
+  if (testing && !explicitOverride && !procEnv.OPENMOTION_TRACKING_TEST_RUN_ID) {
+    return async () => {};
+  }
+
+  let host = options.host;
+  let token = options.token;
+  let geoip = options.geoip;
+
+  if (!host || !token) {
+    const customEnv =
+      procEnv.OPENMOTION_POSTHOG_HOST !== undefined || procEnv.OPENMOTION_POSTHOG_KEY !== undefined;
+    if (customEnv) {
+      host = host ?? procEnv.OPENMOTION_POSTHOG_HOST;
+      token = token ?? procEnv.OPENMOTION_POSTHOG_KEY;
+      geoip = geoip ?? procEnv.OPENMOTION_GEOIP === '1';
+    } else {
+      try {
+        const bundled = JSON.parse(
+          readFileSync(new URL('../../shared/tracking-config.json', import.meta.url), 'utf8'),
+        ) as { host?: string; token?: string; geoip?: boolean };
+        host = host ?? bundled.host;
+        token = token ?? bundled.token;
+        geoip = geoip ?? bundled.geoip;
+      } catch {
+        return async () => {};
+      }
+    }
+  }
+
+  if (!host || !token) {
+    return async () => {};
+  }
+
+  let sender: ReturnType<typeof createPosthogSender>;
+  try {
+    sender = createPosthogSender({
+      host,
+      token,
+      identity: {
+        installation_id: randomUUID(),
+        utm_source: null,
+        created_at: new Date().toISOString(),
+      },
+      appVersion: VERSION,
+      env: options.config.NODE_ENV,
+      testRunId:
+        options.config.NODE_ENV === 'test' ? procEnv.OPENMOTION_TRACKING_TEST_RUN_ID : undefined,
+      geoip: geoip ?? true,
+      channel: 'cloud',
+      timeoutMs: options.timeoutMs ?? 3000,
+      fetch: options.fetch,
+    });
+  } catch (error) {
+    options.logger?.warn('Cloud PostHog telemetry sender disabled due to invalid configuration', { error });
+    return async () => {};
+  }
+
+  return async (events: readonly PendingEvent[]): Promise<void> => {
+    for (let offset = 0; offset < events.length; offset += 16) {
+      const slice = events.slice(offset, offset + 16);
+      let receipt: 'accepted' | 'retry' | 'drop';
+      try {
+        receipt = await sender(slice, AbortSignal.timeout(options.timeoutMs ?? 3000));
+      } catch (error) {
+        options.logger?.warn('Cloud PostHog batch delivery failed; returning retryable error', {
+          count: slice.length,
+          error,
+        });
+        throw new TrackingDeliveryRetryError('Cloud PostHog delivery failed');
+      }
+      if (receipt === 'retry') {
+        options.logger?.warn('Cloud PostHog batch returned retryable receipt', {
+          receipt,
+          count: slice.length,
+        });
+        throw new TrackingDeliveryRetryError('Cloud PostHog upstream temporarily unavailable');
+      }
+      if (receipt !== 'accepted') {
+        options.logger?.warn('Cloud PostHog batch dropped permanently', {
+          receipt,
+          count: slice.length,
+        });
+      }
+    }
+  };
 }
 
 function resolveIncomingRequestHost(request: Request, trustProxyHops: number): string {
@@ -258,6 +451,8 @@ export interface CreateApiAppDeps {
   readonly eventBus: ApiEventBusPort;
   readonly hotTextCache?: HotTextCachePort;
   readonly rateLimiter?: RateLimiter;
+  readonly onTrackingEvents?: (events: readonly PendingEvent[]) => void | Promise<void>;
+  readonly trackingRateLimitPerMin?: number;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
   readonly oidc?: OidcService;
@@ -2476,27 +2671,375 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     });
   });
 
-  app.get('/motion-api/tracking', authMiddleware, (c) => {
-    return c.json({ enabled: false, locked: true, reason: 'cloud' });
-  });
-  app.post('/motion-api/tracking', authMiddleware, (c) => {
-    return c.json({ ok: true, accepted: false }, 202);
-  });
-  const trackingPreferencesPayload = {
-    enabled: false,
-    preference: false,
-    locked: true,
-    reason: 'environment' as const,
+  const GUEST_ALLOWED_TRACKING_EVENTS = new Set([
+    'onetap_prompt_attempt',
+    'onetap_prompt_observed',
+    'onetap_credential_received',
+    'onetap_login_success',
+    'onetap_login_failed',
+  ]);
+
+  const trackingAttestationSecret = resolveTrackingAttestationSecret(config);
+  const trackingCookieSecure = isHttpsOrigin(config.APP_PUBLIC_ORIGIN);
+
+  const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
+  const TRACKING_PREF_COOKIE_NAME = 'om_tracking_pref';
+  const TRACKING_PREF_TTL_SEC = 31_536_000;
+  const localTrackingPrefs = new Map<string, boolean>();
+  const localTrackingRateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+  const isTelemetryEnvDisabled = (): boolean => {
+    const envVal = process.env.OPENMOTION_TELEMETRY?.trim().toLowerCase() ?? '';
+    return ['0', 'false', 'off'].includes(envVal) || process.env.DO_NOT_TRACK === '1';
   };
-  app.get('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+
+  const trackingPrefCacheKey = (userId: string) => `om:tracking:pref:${userId}`;
+
+  const readStoredUserTrackingPreference = async (userId: string): Promise<boolean | null> => {
+    if (authDeps.cache) {
+      try {
+        const cached = await authDeps.cache.get(trackingPrefCacheKey(userId));
+        if (cached === '1') return true;
+        if (cached === '0') return false;
+      } catch {
+        // Fall back to in-memory / cookie preference if cache read fails transiently.
+      }
+    }
+    const local = localTrackingPrefs.get(userId);
+    return typeof local === 'boolean' ? local : null;
+  };
+
+  const writeStoredUserTrackingPreference = async (userId: string, enabled: boolean): Promise<void> => {
+    localTrackingPrefs.set(userId, enabled);
+    if (authDeps.cache) {
+      try {
+        await authDeps.cache.set(trackingPrefCacheKey(userId), enabled ? '1' : '0', TRACKING_PREF_TTL_SEC);
+      } catch {
+        // Cookie still persists browser preference when cache is transiently unavailable.
+      }
+    }
+  };
+
+  const resolveEffectiveTrackingPreference = async (
+    cookies: Record<string, string>,
+    userId: string | null,
+  ): Promise<{
+    enabled: boolean;
+    preference: boolean;
+    locked: boolean;
+    reason: 'environment' | null;
+  }> => {
+    if (!deps.onTrackingEvents || isTelemetryEnvDisabled()) {
+      return {
+        enabled: false,
+        preference: false,
+        locked: true,
+        reason: 'environment',
+      };
+    }
+    let preference: boolean | null = null;
+    if (userId) {
+      preference = await readStoredUserTrackingPreference(userId);
+    }
+    if (preference === null) {
+      const cookieVal = cookies[TRACKING_PREF_COOKIE_NAME];
+      if (cookieVal === '0') preference = false;
+      else if (cookieVal === '1') preference = true;
+    }
+    const effective = preference ?? true;
+    return {
+      enabled: effective,
+      preference: effective,
+      locked: false,
+      reason: null,
+    };
+  };
+
+  const extractTrackingClientIp = (c: Context): string =>
+    (config.TRUST_PROXY_HOPS > 0 ? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() : undefined) ||
+    c.req.header('x-real-ip')?.trim() ||
+    'local';
+
+  const checkTrackingRateLimit = async (
+    scope: 'ingest' | 'consent' | 'config',
+    clientIp: string,
+    limit: number,
+  ): Promise<{ allowed: boolean; retryAfterSec: number }> => {
+    const windowMs = 60_000;
+    const ipHash = createHash('sha256').update(clientIp.trim() || 'local').digest('hex').slice(0, 32);
+    const bucketKey = `tracking:${scope}:${ipHash}`;
+    if (deps.rateLimiter) {
+      try {
+        const result = await deps.rateLimiter.consume(bucketKey, limit, windowMs, 1);
+        return { allowed: result.allowed, retryAfterSec: Math.max(1, result.retryAfterSec) };
+      } catch {
+        // Fall through to local sliding window limiter if Redis is transiently unreachable.
+      }
+    }
+    const now = Date.now();
+    if (localTrackingRateBuckets.size > 10_000) {
+      for (const [k, v] of localTrackingRateBuckets.entries()) {
+        if (v.resetAt <= now) localTrackingRateBuckets.delete(k);
+      }
+    }
+    const existing = localTrackingRateBuckets.get(bucketKey);
+    if (!existing || now >= existing.resetAt) {
+      localTrackingRateBuckets.set(bucketKey, { count: 1, resetAt: now + windowMs });
+      return { allowed: true, retryAfterSec: 0 };
+    }
+    if (existing.count >= limit) {
+      return { allowed: false, retryAfterSec: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)) };
+    }
+    existing.count += 1;
+    return { allowed: true, retryAfterSec: 0 };
+  };
+
+  const trackingIngestLimitPerMin = deps.trackingRateLimitPerMin ?? 60;
+  const trackingConsentLimitPerMin = Math.max(1, Math.min(30, trackingIngestLimitPerMin));
+  const trackingConfigLimitPerMin = Math.max(trackingIngestLimitPerMin, 120);
+
+  app.get('/motion-api/tracking', async (c) => {
+    const rl = await checkTrackingRateLimit('config', extractTrackingClientIp(c), trackingConfigLimitPerMin);
+    if (!rl.allowed) {
+      c.header('Retry-After', String(rl.retryAfterSec));
+      return c.json({ code: 'RATE_LIMITED', error: 'Too many tracking requests' }, 429);
+    }
+    const cookies = parseCookies(c.req.header('cookie'));
+    const deviceIdConsented = cookies[METRICS_CONSENT_COOKIE_NAME] === 'granted';
+    let resolvedUserId: string | null = null;
+    const rawSession = cookies[SESSION_COOKIE_NAME];
+    if (rawSession) {
+      try {
+        const resolved = await resolveBrowserSession(authDeps.store, rawSession, {
+          authMode: config.AUTH_MODE,
+          cache: authDeps.cache,
+        });
+        resolvedUserId = resolved?.auth.userId ?? null;
+      } catch {
+        // Treat invalid/expired session as guest when reading tracking config.
+      }
+    }
+    const pref = await resolveEffectiveTrackingPreference(cookies, resolvedUserId);
+    return c.json({
+      enabled: pref.enabled,
+      locked: pref.locked,
+      mode: 'cloud',
+      deviceIdConsented,
+    });
   });
-  app.put('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+  app.post('/motion-api/tracking/consent', async (c) => {
+    const rl = await checkTrackingRateLimit('consent', extractTrackingClientIp(c), trackingConsentLimitPerMin);
+    if (!rl.allowed) {
+      c.header('Retry-After', String(rl.retryAfterSec));
+      return c.json({ code: 'RATE_LIMITED', error: 'Too many tracking requests' }, 429);
+    }
+    if (!verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
+      return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
+    }
+    let consented = false;
+    try {
+      const parsed = (await c.req.json()) as { deviceIdConsented?: unknown };
+      consented = parsed?.deviceIdConsented === true;
+    } catch {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
+    }
+    const cookieParts = [
+      `${METRICS_CONSENT_COOKIE_NAME}=${consented ? 'granted' : 'denied'}`,
+      'Path=/',
+      'SameSite=Lax',
+      'Max-Age=31536000',
+    ];
+    if (trackingCookieSecure) cookieParts.push('Secure');
+    c.header('Set-Cookie', cookieParts.join('; '));
+    return c.json({ ok: true, deviceIdConsented: consented });
   });
-  app.post('/motion-api/tracking/preferences', authMiddleware, (c) => {
-    return c.json(trackingPreferencesPayload);
+  app.post('/motion-api/tracking', async (c) => {
+    const rl = await checkTrackingRateLimit('ingest', extractTrackingClientIp(c), trackingIngestLimitPerMin);
+    if (!rl.allowed) {
+      c.header('Retry-After', String(rl.retryAfterSec));
+      return c.json({ code: 'RATE_LIMITED', error: 'Too many tracking requests' }, 429);
+    }
+    const cookies = parseCookies(c.req.header('cookie'));
+    const rawSession = cookies[SESSION_COOKIE_NAME];
+    const rawTrackAtt = cookies[TRACKING_ATTESTATION_COOKIE_NAME];
+    const hasOriginHeader = c.req.header('origin') !== undefined;
+    if ((rawSession || rawTrackAtt || hasOriginHeader) && !verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
+      return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
+    }
+
+    let rawBody: { events?: unknown };
+    try {
+      const parsed = await c.req.json();
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid tracking payload' }, 400);
+      }
+      rawBody = parsed as { events?: unknown };
+    } catch {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
+    }
+
+    if (!Array.isArray(rawBody.events) || rawBody.events.length === 0 || rawBody.events.length > 32) {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'events must be a non-empty array of up to 32 items' }, 400);
+    }
+
+    const attestedAppUserIds = verifyTrackingAttestationCookie(rawTrackAtt, trackingAttestationSecret);
+    let resolvedUserId: string | null = null;
+    let resolvedAppUserId: string | null = null;
+    let isAuthenticated = false;
+    if (rawSession) {
+      try {
+        const resolved = await resolveBrowserSession(authDeps.store, rawSession, {
+          authMode: config.AUTH_MODE,
+          cache: authDeps.cache,
+        });
+        if (resolved) {
+          isAuthenticated = true;
+          resolvedUserId = resolved.auth.userId;
+          const auth =
+            config.AUTH_MODE === 'oidc' && authDeps.amrIdentity
+              ? await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth)
+              : resolved.auth;
+          resolvedAppUserId = auth.appUserId ?? null;
+          if (resolvedAppUserId) {
+            attestedAppUserIds.add(resolvedAppUserId);
+          }
+        }
+      } catch {
+        // Treat invalid/expired session cookie as guest for One Tap telemetry.
+      }
+    } else if (config.AUTH_MODE === 'dev') {
+      isAuthenticated = true;
+    }
+
+    const effectivePref = await resolveEffectiveTrackingPreference(cookies, resolvedUserId);
+    if (!effectivePref.enabled) {
+      return c.json({ ok: true, accepted: false, enabled: false, count: 0 }, 202);
+    }
+
+    const acceptedEvents: PendingEvent[] = [];
+    for (const candidate of rawBody.events) {
+      if (!validPending(studioEvents, candidate)) continue;
+      // Unauthenticated guests may only submit registered One Tap events from the Studio entrypoint.
+      const isGuestEvent =
+        GUEST_ALLOWED_TRACKING_EVENTS.has(candidate.event) && candidate.entrypoint === 'studio';
+      const claimedAppUserId =
+        typeof candidate.app_user_id === 'string' && candidate.app_user_id.trim()
+          ? candidate.app_user_id.trim()
+          : undefined;
+      const normalized: PendingEvent = { ...candidate };
+
+      if (claimedAppUserId) {
+        if (attestedAppUserIds.has(claimedAppUserId)) {
+          // Preserve server-confirmed event attribution across account switches and post-logout flushes.
+          normalized.app_user_id = claimedAppUserId;
+          acceptedEvents.push(normalized);
+          continue;
+        }
+        // Never trust an unverified/spoofed app_user_id.
+        delete normalized.app_user_id;
+        if (isGuestEvent) {
+          acceptedEvents.push(normalized);
+        }
+        continue;
+      }
+
+      // Event had no app_user_id when queued (e.g. guest pre-login One Tap prompt):
+      // never overwrite guest events with a subsequent signed-in session cookie.
+      delete normalized.app_user_id;
+      if (isGuestEvent) {
+        acceptedEvents.push(normalized);
+      } else if (isAuthenticated) {
+        if (resolvedAppUserId) {
+          normalized.app_user_id = resolvedAppUserId;
+        }
+        acceptedEvents.push(normalized);
+      }
+    }
+
+    if (acceptedEvents.length > 0) {
+      logger.info('Cloud studio telemetry ingested', {
+        count: acceptedEvents.length,
+        authenticated: isAuthenticated,
+        hasAppUserId: Boolean(resolvedAppUserId),
+        events: acceptedEvents.map((item) => item.event),
+      });
+      try {
+        await deps.onTrackingEvents?.(acceptedEvents);
+      } catch (error) {
+        if (error instanceof TrackingDeliveryRetryError) {
+          return c.json(
+            {
+              code: 'TRACKING_UNAVAILABLE',
+              error: 'Telemetry upstream temporarily unavailable',
+              retryable: true,
+            },
+            503,
+          );
+        }
+        throw error;
+      }
+    }
+
+    if (isAuthenticated && resolvedAppUserId) {
+      const existingAttested = verifyTrackingAttestationCookie(rawTrackAtt, trackingAttestationSecret);
+      if (!existingAttested.has(resolvedAppUserId)) {
+        const attCookie = serializeTrackingAttestationCookie(
+          rawTrackAtt,
+          resolvedAppUserId,
+          trackingAttestationSecret,
+          { secure: trackingCookieSecure },
+        );
+        if (attCookie) {
+          c.header('Set-Cookie', attCookie);
+        }
+      }
+    }
+
+    return c.json({ ok: true, accepted: acceptedEvents.length > 0, enabled: true, count: acceptedEvents.length }, 202);
   });
+  const handleGetTrackingPreferences = async (c: Context<AuthEnv>) => {
+    const auth = getAuthContext(c);
+    const cookies = parseCookies(c.req.header('cookie'));
+    const pref = await resolveEffectiveTrackingPreference(cookies, auth.userId);
+    return c.json(pref);
+  };
+  const handleUpdateTrackingPreferences = async (c: Context<AuthEnv>) => {
+    const auth = getAuthContext(c);
+    const cookies = parseCookies(c.req.header('cookie'));
+    const current = await resolveEffectiveTrackingPreference(cookies, auth.userId);
+    if (current.locked) {
+      return c.json(current);
+    }
+    let enabled: boolean;
+    try {
+      const parsed = (await c.req.json()) as { enabled?: unknown };
+      if (typeof parsed?.enabled !== 'boolean') {
+        return c.json({ code: 'INVALID_ARGUMENT', error: 'enabled must be a boolean' }, 400);
+      }
+      enabled = parsed.enabled;
+    } catch {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
+    }
+    await writeStoredUserTrackingPreference(auth.userId, enabled);
+    const prefCookieParts = [
+      `${TRACKING_PREF_COOKIE_NAME}=${enabled ? '1' : '0'}`,
+      'HttpOnly',
+      'Path=/',
+      'SameSite=Lax',
+      `Max-Age=${TRACKING_PREF_TTL_SEC}`,
+    ];
+    if (trackingCookieSecure) prefCookieParts.push('Secure');
+    c.header('Set-Cookie', prefCookieParts.join('; '));
+    return c.json({
+      enabled,
+      preference: enabled,
+      locked: false,
+      reason: null,
+    });
+  };
+  app.get('/motion-api/tracking/preferences', authMiddleware, handleGetTrackingPreferences);
+  app.put('/motion-api/tracking/preferences', authMiddleware, handleUpdateTrackingPreferences);
+  app.post('/motion-api/tracking/preferences', authMiddleware, handleUpdateTrackingPreferences);
   app.post('/motion-api/diagnostics', authMiddleware, (c) => {
     return c.json({ ok: true, mode: 'cloud-container', version: VERSION });
   });
@@ -2643,7 +3186,18 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.route('/motion-api/assets', createAssetRoutes({ assetService: assets }));
   app.route('/motion-api', createExportRoutes({ exportService: exportsService }));
   app.route('/motion-api/models', createModelRoutes({ gateway, authStore, mediaJobs }));
-  app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway, cache: authCache }));
+  app.route(
+    '/motion-api/account',
+    createAccountRoutes({
+      config,
+      authStore,
+      gateway,
+      cache: authCache,
+      upgradeHandoffEnabled: Boolean(
+        config.AUTH_MODE === 'oidc' && authDeps.amrIdentity?.isOneTapConfigured(),
+      ),
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // 8. Explicit P2 Deferred Routes (`501 FEATURE_DEFERRED_P2`)
@@ -2929,24 +3483,28 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         `${preconnectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
       const bytes = Buffer.from(studioHtml, 'utf8');
       const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
+      const documentSecurityHeaders = buildStudioDocumentSecurityHeaders({
+        previewOrigin: previewHostIsolationEnabled && previewOriginUrl ? previewOriginUrl.origin : null,
+        storagePublicOrigin: normalizeCspOrigin(config.S3_PUBLIC_ENDPOINT ?? config.S3_ENDPOINT),
+      });
       if (c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {
           status: 304,
           headers: {
+            ...documentSecurityHeaders,
             ETag: etag,
             'Cache-Control': 'no-cache',
-            'X-Content-Type-Options': 'nosniff',
           },
         });
       }
       return new Response(headOnly ? null : bytes, {
         status: 200,
         headers: {
+          ...documentSecurityHeaders,
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Length': String(bytes.byteLength),
           ETag: etag,
           'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
         },
       });
     } catch (error) {
@@ -3030,6 +3588,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
   const authStore = createPgAuthStore(dbHandle.db);
   const authCache = createRedisAuthCache(redisCmd);
   const mcpSessionStore = new RedisMcpSessionStore(redisCmd);
+  const cloudPosthogDispatcher = createCloudPosthogDispatcher({ config, logger });
 
   const { app, services } = createApiApp({
     config,
@@ -3039,6 +3598,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     eventBus,
     hotTextCache,
     rateLimiter,
+    onTrackingEvents: cloudPosthogDispatcher,
     authStore,
     authCache,
     mcpSessionStore,

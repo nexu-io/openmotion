@@ -113,11 +113,15 @@ test('one registry governs discovery and rejects hidden calls before domain hand
   );
   assert.equal(call.json.result.isError, true);
   assert.match(call.json.result.content[0].text, /MCP_TOOL_NOT_EXPOSED/);
-  assert.equal(
-    initialized.json.result.instructions,
-    workflowEntryGuide + ' ' + templateDiscoveryGuide + ' ' + skillDiscoveryGuide + ' ' + phase1.instructions,
+  const instructions: string = initialized.json.result.instructions;
+  const registryInstructions =
+    workflowEntryGuide + ' ' + templateDiscoveryGuide + ' ' + skillDiscoveryGuide + ' ' + phase1.instructions;
+  assert.equal(instructions.slice(0, registryInstructions.length + 2), registryInstructions + '\n\n');
+  assert.match(
+    instructions.slice(registryInstructions.length + 2),
+    /^Connected OpenMotion MCP server: \S+\/mcp \(origin=\S+, authMode=\w+, workspaceId=[\w-]+\)\. When given a project or session URL from a different origin, treat PROJECT_NOT_FOUND as an environment mismatch/,
   );
-  assert.ok(!initialized.json.result.instructions.includes('openmotion_get_workflow'));
+  assert.ok(!instructions.includes('openmotion_get_workflow'));
 });
 
 test('a missing implementation cannot produce a partial public registry', () => {

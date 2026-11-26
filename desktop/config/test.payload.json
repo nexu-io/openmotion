@@ -1,15 +1,5 @@
 {
-  "studioUrl": "https://openmotion.powerformer.net",
-  "allowedOrigins": [
-    "https://openmotion.powerformer.net"
-  ],
   "windowPolicy": {
-    "allowedPopupOrigins": [
-      "https://openmotion.powerformer.net"
-    ],
-    "allowedAuthOrigins": [
-      "https://openmotion.powerformer.net"
-    ],
     "allowBlankPopups": true
   },
   "minShellVersion": "0.2.0",

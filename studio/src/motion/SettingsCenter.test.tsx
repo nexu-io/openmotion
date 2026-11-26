@@ -141,8 +141,8 @@ it('renders desktop-only preferences when supported, updates host, handles resta
       });
     }
     if (capability === HOST_CAPABILITIES.PREFERENCES && method === 'pickDownloadDir') {
-      currentSnapshot = createSnapshot({ ...currentSnapshot.values, lastDownloadDir: '/Users/demo/Exports' });
-      return hostOk({ canceled: false, path: '/Users/demo/Exports', snapshot: currentSnapshot });
+      currentSnapshot = createSnapshot({ ...currentSnapshot.values, lastDownloadDir: '/opt/demo/Exports' });
+      return hostOk({ canceled: false, path: '/opt/demo/Exports', snapshot: currentSnapshot });
     }
     if (capability === HOST_CAPABILITIES.PREFERENCES && method === 'relaunch') {
       return hostOk({ relaunching: true });
@@ -214,7 +214,7 @@ it('renders desktop-only preferences when supported, updates host, handles resta
   )!;
   await act(async () => pickBtn.click());
   expect(invoke).toHaveBeenCalledWith(HOST_CAPABILITIES.PREFERENCES, 'pickDownloadDir');
-  expect(section!.textContent).toContain('/Users/demo/Exports');
+  expect(section!.textContent).toContain('/opt/demo/Exports');
 
   // External host event (e.g. toggled in macOS native menu) updates switch live.
   const confirmToggle = section!.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Confirm before quitting"]')!;

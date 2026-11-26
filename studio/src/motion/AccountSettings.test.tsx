@@ -273,6 +273,66 @@ it('shows a calm account-verification hint before external billing links in desk
   }
 });
 
+it('routes upgrade links through /auth/upgrade-handoff with attribution in OIDC web mode and suppresses One Tap on confirmed sign-out', async () => {
+  sessionStorage.clear();
+  const disableAutoSelect = vi.fn();
+  window.google = {
+    accounts: {
+      id: {
+        initialize: vi.fn(),
+        prompt: vi.fn(),
+        disableAutoSelect,
+        cancel: vi.fn(),
+      },
+    },
+  };
+  try {
+    const page = await open(
+      {
+        authenticated: true,
+        authMode: 'oidc',
+        authMethod: 'session_cookie',
+        user: { id: 'u1', appUserId: 'usr_app_1', email: 'ada@example.test', displayName: 'Ada' },
+        billing: { plan: 'free', mediaEntitlement: 'not-included', balanceUsd: 0 },
+      },
+      'en',
+      'subscription',
+    );
+    const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
+    const upgradeUrl = new URL(upgrade.href);
+    expect(upgradeUrl.pathname).toBe('/auth/upgrade-handoff');
+    expect(upgradeUrl.searchParams.get('targetPath')).toBe('/dashboard');
+    expect(upgradeUrl.searchParams.get('billing')).toBe('plan');
+    expect(upgradeUrl.searchParams.get('od_origin')).toBe('openmotion');
+    expect(upgradeUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+    expect(upgradeUrl.searchParams.get('od_entry_id')).toBeTruthy();
+    expect(upgradeUrl.searchParams.get('od_entry_at')).toBeTruthy();
+
+    const manageUrl = new URL(manage.href);
+    expect(manageUrl.pathname).toBe('/auth/upgrade-handoff');
+    expect(manageUrl.searchParams.get('targetPath')).toBe('/dashboard');
+    expect(manageUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+
+    // Failed logout does NOT write suppression flag
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false }), { status: 500 })));
+    await act(async () => findButton(page, 'Sign out')!.click());
+    expect(sessionStorage.getItem('od_onetap_suppressed_once')).toBeNull();
+    expect(disableAutoSelect).not.toHaveBeenCalled();
+
+    // Confirmed logout writes od_onetap_suppressed_once and calls disableAutoSelect
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      hooks.summary = { authenticated: false, authMode: 'oidc', consoleUrl: 'https://open-design.ai/cloud' };
+      return Response.json({ ok: true });
+    }));
+    await act(async () => findButton(page, 'Sign out')!.click());
+    expect(sessionStorage.getItem('od_onetap_suppressed_once')).toBe('1');
+    expect(disableAutoSelect).toHaveBeenCalledTimes(1);
+  } finally {
+    sessionStorage.clear();
+    delete window.google;
+  }
+});
+
 it('supports minimal read-only PAT preset via ?preset=readonly#tokens and displays read-only badge', async () => {
   const originalHref = window.location.href;
   window.history.replaceState(null, '', '/settings/account?preset=readonly#tokens');
@@ -317,4 +377,25 @@ it('supports minimal read-only PAT preset via ?preset=readonly#tokens and displa
   } finally {
     window.history.replaceState(null, '', originalHref);
   }
+});
+
+it('falls back to direct console dashboard links when server reports upgradeHandoffEnabled=false', async () => {
+  const page = await open(
+    {
+      authenticated: true,
+      authMode: 'oidc',
+      authMethod: 'session_cookie',
+      upgradeHandoffEnabled: false,
+      user: { id: 'u1', appUserId: 'usr_app_1', email: 'ada@example.test', displayName: 'Ada' },
+      billing: { plan: 'free', mediaEntitlement: 'not-included', balanceUsd: 0 },
+    },
+    'en',
+    'subscription',
+  );
+  const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
+  const upgradeUrl = new URL(upgrade.href);
+  expect(upgradeUrl.origin + upgradeUrl.pathname).toBe('https://open-design.ai/cloud/dashboard');
+  expect(upgradeUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  const manageUrl = new URL(manage.href);
+  expect(manageUrl.origin + manageUrl.pathname).toBe('https://open-design.ai/cloud/dashboard');
 });

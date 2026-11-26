@@ -69,7 +69,7 @@ Companion reference for [SKILL.md](../SKILL.md).
 | Channel | Default Studio URL | Env Switcher enabled? | Allowed origins | Session partition |
 | --- | --- | --- | --- | --- |
 | `stable` | `https://motion.open-design.ai` | **No** (fail-closed) | `*.open-design.ai` only | Default session |
-| `test` | `https://openmotion.powerformer.net` | **Yes** | `*.open-design.ai`, `*.openmotion.powerformer.net`, optional `OPENMOTION_DESKTOP_ALLOWED_ENV_DOMAINS`, plus `http://127.0.0.1:<port>` / `http://localhost:<port>` | Default for base test; `persist:om-env-<sha256>` for any override |
+| `test` | Built-in test channel default (`DEFAULT_STUDIO_URLS.test`) | **Yes** | `*.open-design.ai`, built-in staging domain, optional `OPENMOTION_DESKTOP_ALLOWED_ENV_DOMAINS`, plus `http://127.0.0.1:<port>` / `http://localhost:<port>` | Default for base test; `persist:om-env-<sha256>` for any override |
 | `dev` | `http://127.0.0.1:4173` | **Yes** | Same as `test` + loopback | Default for base dev; `persist:om-env-<sha256>` for any override |
 
 ## 4. Two-tier Signed Config key & rotation runbook

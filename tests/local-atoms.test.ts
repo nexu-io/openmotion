@@ -195,15 +195,15 @@ describe('PathResolver', () => {
     const existingDirs = new Set([
       '/bin/zsh',
       '/opt/homebrew/bin',
-      '/Users/tester/.nvm/versions/node',
-      '/Users/tester/.nvm/versions/node/v22.18.0/bin',
-      '/Users/tester/.local/bin',
+      '/opt/tester/.nvm/versions/node',
+      '/opt/tester/.nvm/versions/node/v22.18.0/bin',
+      '/opt/tester/.local/bin',
     ]);
-    const executables = new Set(['/Users/tester/.volta/bin/codex', '/opt/homebrew/bin/claude']);
+    const executables = new Set(['/opt/tester/.volta/bin/codex', '/opt/homebrew/bin/claude']);
 
     const resolver = createPathResolver({
       platform: 'darwin',
-      homeDir: '/Users/tester',
+      homeDir: '/opt/tester',
       env: { SHELL: '/bin/zsh', PATH: '/usr/bin:/bin' },
       loginShellRunner: async (shell, args) => {
         shellCalls += 1;
@@ -211,19 +211,19 @@ describe('PathResolver', () => {
         assert.equal(args[0], '-lc');
         return {
           exitCode: 0,
-          stdout: 'Welcome to zsh!\n__OPENMOTION_PATH_START__/Users/tester/.volta/bin:/usr/bin__OPENMOTION_PATH_END__\n',
+          stdout: 'Welcome to zsh!\n__OPENMOTION_PATH_START__/opt/tester/.volta/bin:/usr/bin__OPENMOTION_PATH_END__\n',
         };
       },
       fs: {
         existsSync: p => existingDirs.has(p),
-        readdirSync: p => (p === '/Users/tester/.nvm/versions/node' ? ['v20.10.0', 'v22.18.0'] : []),
+        readdirSync: p => (p === '/opt/tester/.nvm/versions/node' ? ['v20.10.0', 'v22.18.0'] : []),
         isExecutableFile: p => executables.has(p),
       },
     });
 
     const codexPath = await resolver.resolveBinary('codex');
     const claudePath = await resolver.resolveBinary('claude');
-    assert.equal(codexPath, '/Users/tester/.volta/bin/codex');
+    assert.equal(codexPath, '/opt/tester/.volta/bin/codex');
     assert.equal(claudePath, '/opt/homebrew/bin/claude');
     assert.equal(shellCalls, 1, 'login shell result should be cached');
 

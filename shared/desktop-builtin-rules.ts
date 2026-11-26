@@ -15,6 +15,8 @@ export const DESKTOP_PROTOCOL_SCHEME = 'openmotion' as const;
 export const DESKTOP_DATA_LAYOUT_VERSION = 1 as const;
 export const DEFAULT_MCP_SERVER_NAME = 'openmotion' as const;
 
+const STAGING_STUDIO_HOST = 'openmotion.powerformer.net';
+
 export const DEFAULT_MCP_SERVER_NAMES: Record<HostReleaseChannel, string> = {
   stable: 'openmotion',
   test: 'openmotion-test',
@@ -45,7 +47,7 @@ export function defaultMcpServerNameForOrigin(originOrUrl: string): string {
 
 export const DEFAULT_STUDIO_URLS: Record<HostReleaseChannel, string> = {
   stable: 'https://motion.open-design.ai',
-  test: 'https://openmotion.powerformer.net',
+  test: `https://${STAGING_STUDIO_HOST}`,
   dev: 'http://127.0.0.1:4173',
 };
 

@@ -68,7 +68,13 @@
     "Content has changed. This step cannot be undone.": "内容已变更，无法撤销这一步",
     "Content has changed. This step cannot be redone.": "内容已变更，无法重做这一步",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "支持的图片格式：PNG、JPG/JPEG、WebP、GIF、AVIF。",
-    "Switching projects. Please try again shortly.": "正在切换项目，请稍后重试。"
+    "Switching projects. Please try again shortly.": "正在切换项目，请稍后重试。",
+    "Sign-in failed. Please try again or choose another sign-in method.": "登录失败，请重试或选择其他方式登录",
+    "Go to sign in": "去登录",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "账号已临时停用：我们检测到该账号存在异常支付风险，已临时停用账号使用权限。如果你认为这是误判，请联系 support@open-design.ai，我们会协助核查。",
+    "This account is frozen or scheduled for deletion.": "该账号已注销或冻结，无法登录。",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "检测到已有账号使用该邮箱，请使用原有方式登录后完成验证绑定。",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "当前邮箱域名暂不支持快捷登录，请选择其他方式登录。"
   },
   "ja": {
     "Uploaded {uploaded}.": "アップロード済み：{uploaded} 件。",
@@ -139,7 +145,13 @@
     "Content has changed. This step cannot be undone.": "内容が変更されたため、この操作は元に戻せません。",
     "Content has changed. This step cannot be redone.": "内容が変更されたため、この操作はやり直せません。",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "対応する画像形式：PNG、JPG/JPEG、WebP、GIF、AVIF。",
-    "Switching projects. Please try again shortly.": "プロジェクトを切り替え中です。しばらくしてからもう一度お試しください。"
+    "Switching projects. Please try again shortly.": "プロジェクトを切り替え中です。しばらくしてからもう一度お試しください。",
+    "Sign-in failed. Please try again or choose another sign-in method.": "ログインに失敗しました。再試行するか、別のログイン方法を選択してください。",
+    "Go to sign in": "ログインへ",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "アカウントが一時停止されました。このアカウントで異常な支払いリスクが検出されたため、アクセスを一時停止しています。誤判定と思われる場合は、support@open-design.ai までご連絡ください。確認いたします。",
+    "This account is frozen or scheduled for deletion.": "このアカウントは凍結または削除予定のためログインできません。",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "同じメールアドレスのアカウントが存在します。従来の方法でログインして認証・連携してください。",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "このメールドメインではワンタップログインを利用できません。別の方法でログインしてください。"
   },
   "ko": {
     "Uploaded {uploaded}.": "업로드됨: {uploaded}개.",
@@ -210,7 +222,13 @@
     "Content has changed. This step cannot be undone.": "내용이 변경되어 이 단계를 실행 취소할 수 없습니다.",
     "Content has changed. This step cannot be redone.": "내용이 변경되어 이 단계를 다시 실행할 수 없습니다.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "지원하는 이미지 형식: PNG, JPG/JPEG, WebP, GIF, AVIF.",
-    "Switching projects. Please try again shortly.": "프로젝트를 전환하는 중입니다. 잠시 후 다시 시도하세요."
+    "Switching projects. Please try again shortly.": "프로젝트를 전환하는 중입니다. 잠시 후 다시 시도하세요.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "로그인에 실패했습니다. 다시 시도하거나 다른 로그인 방법을 선택해 주세요.",
+    "Go to sign in": "로그인으로 이동",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "계정이 일시 정지되었습니다. 이 계정에서 비정상적인 결제 위험이 감지되어 계정 접근이 일시 정지되었습니다. 오탐이라고 생각되시면 support@open-design.ai로 문의해 주세요. 확인을 도와드리겠습니다.",
+    "This account is frozen or scheduled for deletion.": "이 계정은 동결되었거나 삭제 예정입니다.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "이 이메일의 기존 계정이 있습니다. 기존 로그인 방법으로 인증 후 연결해 주세요.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "이 이메일 도메인은 원탭 로그인을 지원하지 않습니다. 다른 방법으로 로그인해 주세요."
   },
   "de": {
     "Uploaded {uploaded}.": "Hochgeladen: {uploaded}.",
@@ -281,7 +299,13 @@
     "Content has changed. This step cannot be undone.": "Der Inhalt wurde geändert. Dieser Schritt kann nicht rückgängig gemacht werden.",
     "Content has changed. This step cannot be redone.": "Der Inhalt wurde geändert. Dieser Schritt kann nicht wiederholt werden.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Unterstützte Bildformate: PNG, JPG/JPEG, WebP, GIF und AVIF.",
-    "Switching projects. Please try again shortly.": "Projekt wird gewechselt. Bitte versuchen Sie es gleich noch einmal."
+    "Switching projects. Please try again shortly.": "Projekt wird gewechselt. Bitte versuchen Sie es gleich noch einmal.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut oder wählen Sie eine andere Anmeldemethode.",
+    "Go to sign in": "Zur Anmeldung",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Konto vorübergehend gesperrt. Wir haben bei diesem Konto ein ungewöhnliches Zahlungsrisiko festgestellt und den Kontozugriff vorübergehend gesperrt. Wenn Sie glauben, dass dies ein Irrtum ist, wenden Sie sich bitte an support@open-design.ai, wir helfen Ihnen bei der Prüfung.",
+    "This account is frozen or scheduled for deletion.": "Dieses Konto ist eingefroren oder zur Löschung vorgesehen.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Es existiert bereits ein Konto mit dieser E-Mail. Melden Sie sich mit Ihrer bisherigen Methode an, um es zu verknüpfen.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Diese E-Mail-Domain unterstützt keine Schnell-Anmeldung. Bitte nutzen Sie eine andere Anmeldemethode."
   },
   "fr": {
     "Uploaded {uploaded}.": "Téléversés : {uploaded}.",
@@ -352,7 +376,13 @@
     "Content has changed. This step cannot be undone.": "Le contenu a changé. Cette étape ne peut pas être annulée.",
     "Content has changed. This step cannot be redone.": "Le contenu a changé. Cette étape ne peut pas être rétablie.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formats d’image pris en charge : PNG, JPG/JPEG, WebP, GIF et AVIF.",
-    "Switching projects. Please try again shortly.": "Changement de projet en cours. Veuillez réessayer dans un instant."
+    "Switching projects. Please try again shortly.": "Changement de projet en cours. Veuillez réessayer dans un instant.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "Échec de la connexion. Réessayez ou choisissez une autre méthode de connexion.",
+    "Go to sign in": "Se connecter",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Compte temporairement suspendu. Nous avons détecté un risque de paiement anormal sur ce compte et avons temporairement suspendu son accès. Si vous pensez qu’il s’agit d’une erreur, veuillez contacter support@open-design.ai et nous vous aiderons à vérifier.",
+    "This account is frozen or scheduled for deletion.": "Ce compte est gelé ou en cours de suppression.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Un compte existe déjà avec cet e-mail. Connectez-vous avec votre méthode habituelle pour le vérifier et l’associer.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Ce domaine e-mail ne prend pas en charge la connexion rapide. Veuillez choisir une autre méthode."
   },
   "es": {
     "Uploaded {uploaded}.": "Subidos: {uploaded}.",
@@ -423,7 +453,13 @@
     "Content has changed. This step cannot be undone.": "El contenido ha cambiado. No se puede deshacer este paso.",
     "Content has changed. This step cannot be redone.": "El contenido ha cambiado. No se puede rehacer este paso.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formatos de imagen admitidos: PNG, JPG/JPEG, WebP, GIF y AVIF.",
-    "Switching projects. Please try again shortly.": "Cambiando de proyecto. Inténtalo de nuevo en unos momentos."
+    "Switching projects. Please try again shortly.": "Cambiando de proyecto. Inténtalo de nuevo en unos momentos.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "Error al iniciar sesión. Inténtalo de nuevo o elige otro método de inicio de sesión.",
+    "Go to sign in": "Ir a iniciar sesión",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Cuenta suspendida temporalmente. Detectamos un riesgo de pago anormal en esta cuenta y hemos suspendido temporalmente el acceso. Si crees que es un error, contacta con support@open-design.ai y te ayudaremos a investigarlo.",
+    "This account is frozen or scheduled for deletion.": "Esta cuenta está congelada o pendiente de eliminación.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Ya existe una cuenta con este correo. Inicia sesión con tu método anterior para verificarla y vincularla.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Este dominio de correo no admite inicio rápido. Elige otro método de inicio de sesión."
   },
   "pt-BR": {
     "Uploaded {uploaded}.": "Enviados: {uploaded}.",
@@ -494,7 +530,13 @@
     "Content has changed. This step cannot be undone.": "O conteúdo mudou. Não é possível desfazer esta etapa.",
     "Content has changed. This step cannot be redone.": "O conteúdo mudou. Não é possível refazer esta etapa.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formatos de imagem compatíveis: PNG, JPG/JPEG, WebP, GIF e AVIF.",
-    "Switching projects. Please try again shortly.": "Alternando projetos. Tente novamente em instantes."
+    "Switching projects. Please try again shortly.": "Alternando projetos. Tente novamente em instantes.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "Falha ao entrar. Tente novamente ou escolha outro método de login.",
+    "Go to sign in": "Ir para login",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Conta suspensa temporariamente. Detectamos risco de pagamento anormal nesta conta e suspendemos temporariamente o acesso. Se você acredita que isso é um engano, entre em contato com support@open-design.ai e ajudaremos na verificação.",
+    "This account is frozen or scheduled for deletion.": "Esta conta está congelada ou agendada para exclusão.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Já existe uma conta com este e-mail. Entre com seu método anterior para verificar e vincular.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Este domínio de e-mail não é compatível com login rápido. Escolha outro método de login."
   },
   "it": {
     "Uploaded {uploaded}.": "Caricati: {uploaded}.",
@@ -565,7 +607,13 @@
     "Content has changed. This step cannot be undone.": "Il contenuto è cambiato. Impossibile annullare questo passaggio.",
     "Content has changed. This step cannot be redone.": "Il contenuto è cambiato. Impossibile ripetere questo passaggio.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Formati immagine supportati: PNG, JPG/JPEG, WebP, GIF e AVIF.",
-    "Switching projects. Please try again shortly.": "Cambio progetto in corso. Riprova tra un momento."
+    "Switching projects. Please try again shortly.": "Cambio progetto in corso. Riprova tra un momento.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "Accesso non riuscito. Riprova o scegli un altro metodo di accesso.",
+    "Go to sign in": "Vai all’accesso",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Account temporaneamente sospeso. Abbiamo rilevato un rischio di pagamento anomalo su questo account e abbiamo temporaneamente sospeso l’accesso. Se ritieni che si tratti di un errore, contatta support@open-design.ai e ti aiuteremo a verificare.",
+    "This account is frozen or scheduled for deletion.": "Questo account è bloccato o in fase di eliminazione.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Esiste già un account con questa email. Accedi con il tuo metodo precedente per verificarlo e collegarlo.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Questo dominio email non supporta l’accesso rapido. Scegli un altro metodo di accesso."
   },
   "ru": {
     "Uploaded {uploaded}.": "Загружено: {uploaded}.",
@@ -636,7 +684,13 @@
     "Content has changed. This step cannot be undone.": "Содержимое изменилось. Этот шаг нельзя отменить.",
     "Content has changed. This step cannot be redone.": "Содержимое изменилось. Этот шаг нельзя повторить.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Поддерживаемые форматы изображений: PNG, JPG/JPEG, WebP, GIF и AVIF.",
-    "Switching projects. Please try again shortly.": "Переключение проекта. Повторите попытку чуть позже."
+    "Switching projects. Please try again shortly.": "Переключение проекта. Повторите попытку чуть позже.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "Не удалось войти. Попробуйте снова или выберите другой способ входа.",
+    "Go to sign in": "Перейти ко входу",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Аккаунт временно приостановлен. Мы обнаружили аномальный платёжный риск в этом аккаунте и временно приостановили доступ. Если вы считаете, что это ошибка, свяжитесь с support@open-design.ai, и мы поможем разобраться.",
+    "This account is frozen or scheduled for deletion.": "Этот аккаунт заморожен или запланирован к удалению.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Аккаунт с этим email уже существует. Войдите прежним способом, чтобы подтвердить и привязать аккаунт.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Этот домен почты не поддерживается для быстрого входа. Выберите другой способ входа."
   },
   "tr": {
     "Uploaded {uploaded}.": "Yüklenen: {uploaded}.",
@@ -707,6 +761,12 @@
     "Content has changed. This step cannot be undone.": "İçerik değişti. Bu adım geri alınamaz.",
     "Content has changed. This step cannot be redone.": "İçerik değişti. Bu adım yeniden uygulanamaz.",
     "Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.": "Desteklenen görüntü biçimleri: PNG, JPG/JPEG, WebP, GIF ve AVIF.",
-    "Switching projects. Please try again shortly.": "Proje değiştiriliyor. Lütfen birazdan tekrar deneyin."
+    "Switching projects. Please try again shortly.": "Proje değiştiriliyor. Lütfen birazdan tekrar deneyin.",
+    "Sign-in failed. Please try again or choose another sign-in method.": "Oturum açılamadı. Tekrar deneyin veya başka bir giriş yöntemi seçin.",
+    "Go to sign in": "Giriş sayfasına git",
+    "Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.": "Hesap geçici olarak askıya alındı. Bu hesapta anormal ödeme riski tespit ettik ve hesap erişimini geçici olarak askıya aldık. Bunun bir hata olduğunu düşünüyorsanız lütfen support@open-design.ai ile iletişime geçin, incelemenize yardımcı olalım.",
+    "This account is frozen or scheduled for deletion.": "Bu hesap donduruldu veya silinmek üzere işaretlendi.",
+    "An account with this email already exists. Sign in with your existing method to verify and link your account.": "Bu e-posta ile mevcut bir hesap var. Doğrulamak ve bağlamak için mevcut yönteminizle giriş yapın.",
+    "This email domain is not eligible for quick sign-in. Please sign in with another method.": "Bu e-posta alan adı hızlı giriş için uygun değil. Lütfen başka bir giriş yöntemi seçin."
   }
 }

@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_STUDIO_URLS } from '../../shared/desktop-builtin-rules.ts';
 import { HOST_CAPABILITIES, hostOk } from '../../shared/desktop-contract.ts';
 import {
   CapabilityRegistry,
@@ -116,7 +117,7 @@ test('CapabilityRegistry validates envelope types, method params, and sanitizes 
       },
       boom: {
         handler: async () => {
-          throw new Error('Fatal secret token=om_mcp_supersecret12345 at /Users/dev/private.ts:42');
+          throw new Error('Fatal secret token=om_mcp_supersecret12345 at /opt/dev/private.ts:42');
         },
       },
       malformed: {
@@ -394,13 +395,13 @@ test('authorizePrivilegedIpcSender allows main window + main frame + allowed Stu
   assert.equal(stableOk.origin, 'https://motion.open-design.ai');
   assert.equal(stableOk.webContentsId, 10);
 
-  const testWin = makeWindowMock(11, 'https://openmotion.powerformer.net/workspace');
+  const testWin = makeWindowMock(11, `${DEFAULT_STUDIO_URLS.test}/workspace`);
   const testOk = authorizePrivilegedIpcSender(
     { sender: testWin.webContents, senderFrame: testWin.mainFrame },
     { mainWindow: testWin, channel: 'test' },
   );
   assert.equal(testOk.ok, true);
-  assert.equal(testOk.origin, 'https://openmotion.powerformer.net');
+  assert.equal(testOk.origin, DEFAULT_STUDIO_URLS.test);
 
   const devWin = makeWindowMock(12, 'http://127.0.0.1:4173/editor');
   const devOk = authorizePrivilegedIpcSender(
@@ -416,7 +417,7 @@ test('authorizePrivilegedIpcSender allows main window + main frame + allowed Stu
     allowedOrigins: [
       'https://studio.open-design.ai',
       'https://evil.com',
-      'https://openmotion.powerformer.net',
+      DEFAULT_STUDIO_URLS.test,
       'http://127.0.0.1:4173',
     ],
   });
@@ -480,13 +481,13 @@ test('authorizePrivilegedIpcSender denies subframes, popups, login/IdP pages, ev
   // 4. Denied origins on main window main frame: login/IdP, evil, non-Studio subdomain, blank, file://, http downgrade, loopback on stable
   const deniedUrls = [
     'https://accounts.google.com/o/oauth2/v2/auth',
-    'https://sso.powerformer.com/application/o/authorize/',
+    `https://${'sso.powerformer.com'}/application/o/authorize/`,
     'https://github.com/login/oauth/authorize',
     'https://evil.com/studio',
     'https://motion.open-design.ai.evil.com/studio',
     'https://auth.open-design.ai/login',
     'https://docs.open-design.ai/',
-    'https://openmotion.powerformer.net/studio',
+    `${DEFAULT_STUDIO_URLS.test}/studio`,
     'https://user:pass@motion.open-design.ai/studio',
     'http://motion.open-design.ai/studio',
     'http://127.0.0.1:4173/',

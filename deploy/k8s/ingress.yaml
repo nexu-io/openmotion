@@ -16,6 +16,22 @@ metadata:
     # Covers MCP_MAX_BODY_BYTES (10 MiB) + overhead; binary media uploads go directly to S3 via Presigned PUT.
     nginx.ingress.kubernetes.io/proxy-body-size: "16m"
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Google Identity Services (GIS) One Tap + FedCM main-document response header contract:
+    # - Production (motion.open-design.ai) & test (motion.open-design.powerformer.net) Studio HTML documents
+    #   are served by openmotion-api with matching CSP, Permissions-Policy, and COOP headers.
+    # - This Ingress preserves those headers and never enforces COOP: same-origin on the main Studio host
+    #   (which would break Google GIS FedCM/popup flows). Preview host isolation remains enforced by api.ts.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($host != "preview.openmotion.example.com") {
+        more_set_headers 'Permissions-Policy: identity-credentials-get=(self "https://accounts.google.com")';
+        more_set_headers "Cross-Origin-Opener-Policy: same-origin-allow-popups";
+        more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      }
+    # Expected GIS CSP directives emitted on Studio main HTML document by openmotion-api:
+    # script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client;
+    # style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style;
+    # frame-src 'self' https://accounts.google.com/gsi/;
+    # connect-src 'self' https://accounts.google.com/gsi/ http://127.0.0.1:* http://localhost:* https: wss:;
     # Cookie-less Preview Subdomain Isolation (c5):
     # - Main Studio/API host (`motion.example.com`) issues host-only HttpOnly session cookies (never Domain=.example.com).
     # - Dedicated preview host (`preview.openmotion.example.com`) receives zero browser session cookies and is

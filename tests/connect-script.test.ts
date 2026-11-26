@@ -9,6 +9,7 @@ import {
   type ConnectScriptEventMessage,
   type ConnectScriptHealthResponse,
 } from '../shared/connect-script-protocol.ts';
+import { DEFAULT_STUDIO_URLS } from '../shared/desktop-builtin-rules.ts';
 import {
   HOST_CAPABILITIES,
   HOST_CONTRACT_VERSION,
@@ -250,7 +251,7 @@ describe('Web Connect Script Loopback Server', () => {
 
       // Staging origin rejected on stable channel
       const stagingOnStable = await fetch(`${server.baseUrl}${CONNECT_SCRIPT_ENDPOINTS.HEALTH}`, {
-        headers: { Origin: 'https://openmotion.powerformer.net' },
+        headers: { Origin: DEFAULT_STUDIO_URLS.test },
       });
       assert.equal(stagingOnStable.status, 403);
 

@@ -76,6 +76,7 @@ const rawConfigSchema = z.object({
   OIDC_CLIENT_ID: optionalNonEmptyString,
   OIDC_CLIENT_SECRET: optionalNonEmptyString,
   OIDC_CALLBACK_URL: optionalUrl,
+  OIDC_POST_LOGOUT_REDIRECT_URI: optionalUrl,
   OIDC_SCOPES: z.string().min(1).default('openid profile email'),
   OIDC_CLAIM_SUB: z.string().min(1).default('sub'),
   OIDC_CLAIM_EMAIL: z.string().min(1).default('email'),
@@ -95,6 +96,9 @@ const rawConfigSchema = z.object({
   OPENDESIGN_LINK_URL: z.string().url().default('https://amr-link.open-design.ai'),
   // OpenDesign web console that account/plan links open; non-production environments point at their own console.
   OPENDESIGN_CONSOLE_URL: z.string().url().default('https://open-design.ai/cloud'),
+  OPENDESIGN_PRICING_URL: optionalUrl,
+  OPENDESIGN_ONE_TAP_INTERNAL_URL: optionalUrl,
+  OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: optionalNonEmptyString,
   OPENDESIGN_INTERNAL_API_TOKEN: optionalNonEmptyString,
   OPENDESIGN_S2S_API_KEY: optionalNonEmptyString,
   AMR_IDENTITY_CACHE_TTL_SEC: z.coerce.number().int().min(1).max(60).default(60),

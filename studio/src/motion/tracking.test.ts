@@ -159,3 +159,111 @@ it('exposes safe queue and delivery statuses while rejecting private or non-Stud
   expect(await tracking.flushMotionTracking()).toBe('disabled');
   expect(tracking.getMotionTrackingStatus().pending).toBe(0);
 });
+
+it('attaches app_user_id when signed in via setMotionTrackingUserId and omits it when cleared', async () => {
+  const bodies: Array<{ events: Array<{ app_user_id?: string }> }> = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url, init?: RequestInit) => {
+    if (init?.body) bodies.push(JSON.parse(String(init.body)));
+    return Response.json({ enabled: true });
+  }));
+  const tracking = await import('./tracking');
+  tracking.setMotionTrackingUserId('usr_app_42');
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  await tracking.flushMotionTracking();
+  expect(bodies[0].events[0].app_user_id).toBe('usr_app_42');
+
+  tracking.setMotionTrackingUserId(null);
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  await tracking.flushMotionTracking();
+  expect('app_user_id' in bodies[1].events[0]).toBe(false);
+});
+
+it('never treats cloud /motion-api/tracking enabled=true as device-ID consent and blocks odDeviceId passthrough until explicit consent', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ enabled: true, locked: false, mode: 'cloud' })),
+  );
+  history.replaceState(
+    null,
+    '',
+    '/explore?od_origin=open_design&od_entry_id=ent_1&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T00:00:00.000Z&od_device_id=dev_should_not_leak',
+  );
+  const tracking = await import('./tracking');
+  const { isMotionTrackingConsented, setMotionTrackingConsented } = await import('./trackingIdentity');
+  const { collectOneTapAttribution } = await import('./googleOneTap');
+
+  setMotionTrackingConsented(false);
+  await tracking.initializeTracking();
+  expect(tracking.getMotionTrackingStatus()).toMatchObject({ configuration: 'ready', enabled: true });
+  expect(isMotionTrackingConsented()).toBe(false);
+
+  const collected = collectOneTapAttribution();
+  expect(collected.attribution.odEntry).toMatchObject({
+    sourceProduct: 'open_design',
+    entryId: 'ent_1',
+    sourceDetail: 'openmotion_manage_subscription',
+    entryOccurredAt: '2026-11-24T00:00:00.000Z',
+  });
+  expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceId');
+  expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceIdConsent');
+});
+
+it('propagates explicit deviceIdConsented=true from cloud /motion-api/tracking into One Tap odEntry attribution', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ enabled: true, locked: false, mode: 'cloud', deviceIdConsented: true })),
+  );
+  history.replaceState(
+    null,
+    '',
+    '/explore?od_origin=open_design&od_entry_id=ent_2&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T00:00:00.000Z&od_device_id=dev_consented_1',
+  );
+  const tracking = await import('./tracking');
+  const { isMotionTrackingConsented, setMotionTrackingConsented } = await import('./trackingIdentity');
+  const { collectOneTapAttribution } = await import('./googleOneTap');
+
+  setMotionTrackingConsented(false);
+  await tracking.initializeTracking();
+  expect(isMotionTrackingConsented()).toBe(true);
+
+  const collected = collectOneTapAttribution();
+  expect(collected.attribution.odEntry).toMatchObject({
+    sourceProduct: 'open_design',
+    entryId: 'ent_2',
+    odDeviceId: 'dev_consented_1',
+    odDeviceIdConsent: true,
+  });
+});
+
+it('does not treat toggling usage-data sharing on via setMotionTrackingEnabled(true) as device-ID consent', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ enabled: false, locked: false, mode: 'cloud', deviceIdConsented: false })),
+  );
+  history.replaceState(
+    null,
+    '',
+    '/explore?od_origin=open_design&od_entry_id=ent_3&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T00:00:00.000Z&od_device_id=dev_toggle_blocked',
+  );
+  const tracking = await import('./tracking');
+  const { isMotionTrackingConsented, setMotionTrackingConsented } = await import('./trackingIdentity');
+  const { collectOneTapAttribution } = await import('./googleOneTap');
+
+  setMotionTrackingConsented(false);
+  await tracking.initializeTracking();
+  expect(isMotionTrackingConsented()).toBe(false);
+
+  // Enabling usage-data sharing must NOT grant device-ID consent
+  tracking.setMotionTrackingEnabled(true);
+  expect(tracking.getMotionTrackingStatus()).toMatchObject({ configuration: 'ready', enabled: true });
+  expect(isMotionTrackingConsented()).toBe(false);
+  expect(collectOneTapAttribution().attribution.odEntry).not.toHaveProperty('odDeviceId');
+
+  // Explicit device-ID consent enables it, turning sharing off clears it, and turning sharing back on restores explicit consent
+  tracking.setMotionDeviceIdConsented(true);
+  expect(isMotionTrackingConsented()).toBe(true);
+  tracking.setMotionTrackingEnabled(false);
+  expect(isMotionTrackingConsented()).toBe(false);
+  tracking.setMotionTrackingEnabled(true);
+  expect(isMotionTrackingConsented()).toBe(true);
+});

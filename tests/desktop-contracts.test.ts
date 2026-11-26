@@ -46,8 +46,8 @@ test('Q1 built-in third-party allowlist contains codex and claude with 3 templat
 test('Q1 domain scope strictly confines stable builds to open-design.ai subdomains', () => {
   assert.equal(isUrlInAllowedDomainScope('https://motion.open-design.ai/mcp', { channel: 'stable' }), true);
   assert.equal(isUrlInAllowedDomainScope('https://open-design.ai', { channel: 'stable' }), true);
-  assert.equal(isUrlInAllowedDomainScope('https://openmotion.powerformer.net', { channel: 'stable' }), false);
-  assert.equal(isUrlInAllowedDomainScope('https://openmotion.powerformer.net', { channel: 'test' }), true);
+  assert.equal(isUrlInAllowedDomainScope(DEFAULT_STUDIO_URLS.test, { channel: 'stable' }), false);
+  assert.equal(isUrlInAllowedDomainScope(DEFAULT_STUDIO_URLS.test, { channel: 'test' }), true);
   assert.equal(isUrlInAllowedDomainScope('https://evil-open-design.ai', { channel: 'stable' }), false);
   assert.equal(isUrlInAllowedDomainScope('http://motion.open-design.ai', { channel: 'stable' }), false);
   assert.equal(

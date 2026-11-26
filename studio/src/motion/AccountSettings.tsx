@@ -13,6 +13,8 @@ import { gatewayRequest, type CloudApiError } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { clearPrivateSwrCache } from './swrCache';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
+import { suppressOneTapAfterConfirmedLogout } from './googleOneTap';
+import { setMotionTrackingUserId } from './trackingIdentity';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 import {
   isDesktopApp,
@@ -30,8 +32,10 @@ export interface CloudWorkspaceSummary {
 
 export interface CloudAccountSummary extends AccountSummary {
   userId?: string;
+  appUserId?: string | null;
   authMode?: 'oidc' | 'dev';
   authMethod?: 'session_cookie' | 'pat' | 'oauth_bearer' | 'oidc_jwt' | 'dev_bypass';
+  upgradeHandoffEnabled?: boolean;
   activeWorkspace?: CloudWorkspaceSummary | null;
   workspaces?: CloudWorkspaceSummary[];
   mediaEntitlement?: 'included' | 'not-included' | 'unknown';
@@ -68,9 +72,11 @@ interface CloudSummaryApiResponse {
   authenticated?: boolean;
   authMode?: 'oidc' | 'dev';
   authMethod?: CloudAccountSummary['authMethod'];
+  upgradeHandoffEnabled?: boolean;
   consoleUrl?: string;
   user?: {
     id?: string;
+    appUserId?: string | null;
     email?: string | null;
     displayName?: string | null;
     name?: string | null;
@@ -142,15 +148,45 @@ function isReadOnlyTokenScopes(scopes: readonly string[]): boolean {
   );
 }
 
-function subscriptionUrl(consoleUrl: string, entrySource = 'openmotion_manage_subscription') {
-  const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
-  url.search = new URLSearchParams({
+function subscriptionUrl(
+  consoleUrl: string,
+  entrySource = 'openmotion_manage_subscription',
+  options?: {
+    useUpgradeHandoff?: boolean;
+    targetPath?: string;
+    requireAuth?: boolean;
+    expectedAppUserId?: string | null;
+  },
+) {
+  const params = new URLSearchParams({
     billing: 'plan',
     od_origin: 'openmotion',
     od_entry_source: entrySource,
     od_entry_id: crypto.randomUUID(),
     od_entry_at: new Date().toISOString(),
-  }).toString();
+  });
+  if (options?.useUpgradeHandoff) {
+    const baseOrigin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : DEFAULT_CONSOLE_URL;
+    const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
+    if (options.targetPath) {
+      handoff.searchParams.set('targetPath', options.targetPath);
+    }
+    if (options.requireAuth) {
+      handoff.searchParams.set('requireAuth', '1');
+      if (options.expectedAppUserId) {
+        handoff.searchParams.set('expectedAppUserId', options.expectedAppUserId);
+      }
+    }
+    for (const [key, value] of params.entries()) {
+      handoff.searchParams.set(key, value);
+    }
+    return handoff.href;
+  }
+  const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
+  url.search = params.toString();
   return url.href;
 }
 
@@ -165,6 +201,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
     return {
       state: raw.state,
       userId: raw.user?.id,
+      appUserId: raw.user?.appUserId ?? null,
       consoleUrl,
       user: raw.user ? { name: raw.user.name ?? raw.user.displayName ?? undefined, email: raw.user.email ?? undefined } : undefined,
       plan: raw.plan,
@@ -175,6 +212,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
       errorCode: raw.errorCode,
       authMode: raw.authMode,
       authMethod: raw.authMethod,
+      upgradeHandoffEnabled: raw.upgradeHandoffEnabled,
       activeWorkspace: raw.activeWorkspace,
       workspaces: raw.workspaces,
       modelGateway: raw.modelGateway,
@@ -185,6 +223,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
   return {
     state: authenticated ? 'signed-in' : 'signed-out',
     userId: raw.user?.id,
+    appUserId: raw.user?.appUserId ?? null,
     consoleUrl,
     user: raw.user
       ? {
@@ -197,6 +236,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
     billingUnavailable: raw.billing?.unavailable,
     authMode: raw.authMode ?? 'oidc',
     authMethod: raw.authMethod,
+    upgradeHandoffEnabled: raw.upgradeHandoffEnabled,
     activeWorkspace: raw.activeWorkspace ?? null,
     workspaces: Array.isArray(raw.workspaces) ? raw.workspaces : [],
     mediaEntitlement: raw.billing?.mediaEntitlement,
@@ -319,8 +359,21 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
 
   function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
     const consoleUrl = state.account!.consoleUrl;
+    const useUpgradeHandoff = Boolean(
+      signedIn &&
+      account?.authMode === 'oidc' &&
+      account?.upgradeHandoffEnabled !== false &&
+      !isDesktopApp(),
+    );
+    const buildUrl = () =>
+      subscriptionUrl(consoleUrl, source, {
+        useUpgradeHandoff,
+        targetPath: '/dashboard',
+        requireAuth: signedIn,
+        expectedAppUserId: account?.appUserId ?? null,
+      });
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
-      const targetUrl = subscriptionUrl(consoleUrl, source);
+      const targetUrl = buildUrl();
       if (event.detail === 0 && event.button === 0) event.currentTarget.href = targetUrl;
       tracking.reportSettingsClick('account', element);
       if (isDesktopApp() && (event.button === 0 || event.button === 1)) {
@@ -331,10 +384,10 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       }
     };
     return {
-      href: subscriptionUrl(consoleUrl, source),
+      href: buildUrl(),
       target: '_blank',
       rel: 'noreferrer',
-      onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => { event.currentTarget.href = subscriptionUrl(consoleUrl, source); },
+      onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => { event.currentTarget.href = buildUrl(); },
       onClick: open,
       onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => { if (event.button === 1) open(event); },
     };
@@ -361,6 +414,8 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       const data = await response.json().catch(() => ({})) as { ok?: boolean; endSessionUrl?: string };
       if (!response.ok) throw new Error(t('Could not sign out'));
+      suppressOneTapAfterConfirmedLogout();
+      setMotionTrackingUserId(null);
       clearPrivateSwrCache();
       state.setAccount({ state: 'signed-out', consoleUrl: account?.consoleUrl || DEFAULT_CONSOLE_URL, authMode: account?.authMode ?? 'oidc' });
       setTokens(null);

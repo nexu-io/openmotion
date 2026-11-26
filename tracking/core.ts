@@ -12,6 +12,7 @@ export type PendingEvent = {
   event: string; event_id: string; occurred_at: string; entrypoint: Entry;
   device_timezone: string | null; utc_offset_minutes: number; properties: Fields;
   host_context?: HostContext;
+  app_user_id?: string;
 };
 export type Receipt = 'accepted' | 'retry' | 'drop';
 export const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -48,8 +49,9 @@ export function validProperties(registry: Registry, event: string, raw: unknown)
 export function validPending(registry: Registry, value: unknown): value is PendingEvent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const e = value as PendingEvent;
-  if (Object.keys(e).some(k => !['event','event_id','occurred_at','entrypoint','device_timezone','utc_offset_minutes','properties','host_context'].includes(k))) return false;
+  if (Object.keys(e).some(k => !['event','event_id','occurred_at','entrypoint','device_timezone','utc_offset_minutes','properties','host_context','app_user_id'].includes(k))) return false;
   if (e.host_context !== undefined && !validHostContext(e.host_context)) return false;
+  if (e.app_user_id !== undefined && (typeof e.app_user_id !== 'string' || !code.test(e.app_user_id))) return false;
   if (typeof e.occurred_at !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(e.occurred_at)) return false;
   const time = Date.parse(e.occurred_at), age = Date.now() - time;
   if (!uuid.test(e.event_id) || !Number.isFinite(time) || age < -300_000 || age > 86_400_000) return false;
@@ -66,6 +68,7 @@ export function createTracker<const R extends Registry>(options: {
   registry: R; entrypoint: Entry; enabled: boolean;
   send: (events: readonly PendingEvent[], signal: AbortSignal) => Promise<Receipt>;
   maxQueue?: number; flushIntervalMs?: number; isEnabled?: () => boolean;
+  getAppUserId?: () => string | null;
 }) {
   let enabled = options.enabled, queue: PendingEvent[] = [], timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight: Promise<Receipt | 'disabled' | 'empty'> | undefined, controller: AbortController | undefined;
@@ -95,8 +98,10 @@ export function createTracker<const R extends Registry>(options: {
   }
   function track<E extends keyof R & string>(event: E, properties: EventFields<R[E]>, eventId: string = crypto.randomUUID(), entrypoint: Entry = options.entrypoint, host?: HostContext) {
     if (!active()) return 'disabled';
+    const rawAppUserId = options.getAppUserId?.()?.trim();
+    const appUserId = rawAppUserId && code.test(rawAppUserId) ? rawAppUserId : undefined;
     try { return ingest({ event, properties, event_id: eventId, occurred_at: new Date().toISOString(),
-      entrypoint, ...deviceContext(), ...(host ? { host_context: host } : {}) }); } catch { return 'invalid'; }
+      entrypoint, ...deviceContext(), ...(host ? { host_context: host } : {}), ...(appUserId ? { app_user_id: appUserId } : {}) }); } catch { return 'invalid'; }
   }
   function setEnabled(next: boolean) {
     enabled = next;

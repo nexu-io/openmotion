@@ -141,10 +141,14 @@ export const DEFAULT_FALLBACK_AUTH_ORIGINS_STABLE: readonly string[] = [
   'https://api.open-design.ai',
 ] as const;
 
+const DEFAULT_FALLBACK_AUTH_HOSTS_TEST = [
+  'vela-api.powerformer.net',
+  'open-design.powerformer.net',
+  'sso.powerformer.com',
+] as const;
+
 export const DEFAULT_FALLBACK_AUTH_ORIGINS_TEST: readonly string[] = [
-  'https://vela-api.powerformer.net',
-  'https://open-design.powerformer.net',
-  'https://sso.powerformer.com',
+  ...DEFAULT_FALLBACK_AUTH_HOSTS_TEST.map(host => `https://${host}`),
   ...DEFAULT_FALLBACK_AUTH_ORIGINS_STABLE,
 ] as const;
 

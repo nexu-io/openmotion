@@ -15,6 +15,7 @@ import {
   signRevocationList,
   verifySignedConfigEnvelope,
 } from '../packages/signed-config/index.ts';
+import { DEFAULT_STUDIO_URLS } from '../shared/desktop-builtin-rules.ts';
 import {
   SIGNED_CONFIG_FORMAT_VERSION,
   validateSignedConfigPayloadBounds,
@@ -422,7 +423,7 @@ test('rejects out-of-bounds payloads even when validly signed by root + daily ke
       name: 'staging domain disallowed on stable channel',
       payload: {
         ...createBundledDefaultConfigPayload('stable'),
-        studioUrl: 'https://openmotion.powerformer.net',
+        studioUrl: DEFAULT_STUDIO_URLS.test,
       },
       expectedPath: 'studioUrl',
     },

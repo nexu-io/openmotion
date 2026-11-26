@@ -79,16 +79,22 @@ export function applySideMinimums(api: DockviewApi, dockWidth = window.innerWidt
     if (fixedLayout && !group.api.isVisible) return sum;
     return sum + (zone ? isSideCollapsed(group) ? railWidth : sideMinimumWidth(dockWidth, fixedLayout, zone) : 0);
   }, 0);
-  // Reserve a complete track below the toolbar/ruler, including the wrapped phone toolbar,
-  // while capping vertical minimums when the host window is short (e.g. 480px height).
+  // Reserve a complete track below the toolbar/ruler, including the wrapped phone toolbar.
+  // In non-fixed desktop mode, cap vertical minimums when the host window is short (e.g. 480px height).
   const baseTimelineHeight = fixedLayout ? (dockWidth <= 480 ? 160 : 128) : MIN_TIMELINE_H;
   const hostHeight = api.groups[0]?.element.closest<HTMLElement>(".hf-dock")?.clientHeight ?? 0;
-  const timelineHeight = hostHeight > 0
-    ? Math.min(baseTimelineHeight, Math.max(84, Math.floor(hostHeight * 0.45)))
-    : baseTimelineHeight;
-  const previewHeight = hostHeight > 0
-    ? Math.min(MIN_PREVIEW_H, Math.max(88, hostHeight - timelineHeight - DOCK_GAPS))
-    : MIN_PREVIEW_H;
+  const timelineHeight = fixedLayout
+    ? baseTimelineHeight
+    : hostHeight > 0
+      ? Math.min(baseTimelineHeight, Math.max(84, Math.floor(hostHeight * 0.45)))
+      : baseTimelineHeight;
+  const previewHeight = fixedLayout
+    ? hostHeight > 0
+      ? Math.min(MIN_PREVIEW_H, Math.max(96, hostHeight - timelineHeight - DOCK_GAPS))
+      : MIN_PREVIEW_H
+    : hostHeight > 0
+      ? Math.min(MIN_PREVIEW_H, Math.max(88, hostHeight - timelineHeight - DOCK_GAPS))
+      : MIN_PREVIEW_H;
   for (const group of api.groups) {
     if (fixedLayout && sideZone(group) && !group.api.isVisible) continue;
     if (fixedLayout || (hostHeight > 0 && hostHeight < MIN_PREVIEW_H + MIN_TIMELINE_H)) {

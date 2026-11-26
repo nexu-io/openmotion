@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DEFAULT_STUDIO_URLS } from '../../shared/desktop-builtin-rules.ts';
 import {
   DesktopEnvironmentStore,
   describeDesktopEnvironment,
@@ -25,24 +26,29 @@ import {
 import { parseDesktopDeepLink } from '../src/protocol.ts';
 import { buildDesktopMenuTemplate } from '../src/menu.ts';
 
+const TEST_STUDIO_ORIGIN = DEFAULT_STUDIO_URLS.test;
+const TEST_STUDIO_HOST = new URL(TEST_STUDIO_ORIGIN).host;
+const laneUrl = sub => `https://${sub}.${TEST_STUDIO_HOST}`;
+const EXTRA_LANE_ROOT = 'lanes.example-internal.test';
+
 test('stable channel disables environment switching across validation, argv, store, and deep links', () => {
   assert.equal(isEnvironmentSwitcherEnabled('stable'), false);
   assert.equal(isEnvironmentSwitcherEnabled('test'), true);
   assert.equal(isEnvironmentSwitcherEnabled('dev'), true);
 
-  const stableCheck = validateTestEnvironmentUrl('https://openmotion.powerformer.net', {
+  const stableCheck = validateTestEnvironmentUrl(TEST_STUDIO_ORIGIN, {
     channel: 'stable',
   });
   assert.equal(stableCheck.ok, false);
 
   const stableArgv = extractStudioUrlFromArgv(
-    ['OpenDesign', '--studio-url=https://openmotion.powerformer.net'],
+    ['OpenDesign', `--studio-url=${TEST_STUDIO_ORIGIN}`],
     { channel: 'stable' },
   );
   assert.equal(stableArgv, undefined);
 
   const stableDeepLink = parseDesktopDeepLink(
-    'openmotion://open?env=https%3A%2F%2Fopenmotion.powerformer.net',
+    `openmotion://open?env=${encodeURIComponent(TEST_STUDIO_ORIGIN)}`,
     { allowEnvParam: true, channel: 'stable' },
   );
   assert.equal(stableDeepLink.ok, false);
@@ -58,13 +64,13 @@ test('stable channel disables environment switching across validation, argv, sto
 
 test('test/dev URL validation accepts test domains, pluggable Orbit domains, and loopback while rejecting untrusted hosts', () => {
   assert.deepEqual(
-    validateTestEnvironmentUrl('https://pr-482.openmotion.powerformer.net/settings', {
+    validateTestEnvironmentUrl(`${laneUrl('pr-482')}/settings`, {
       channel: 'test',
     }),
     {
       ok: true,
-      normalizedUrl: 'https://pr-482.openmotion.powerformer.net',
-      origin: 'https://pr-482.openmotion.powerformer.net',
+      normalizedUrl: laneUrl('pr-482'),
+      origin: laneUrl('pr-482'),
       isLoopback: false,
     },
   );
@@ -82,31 +88,31 @@ test('test/dev URL validation accepts test domains, pluggable Orbit domains, and
   );
 
   // Future Orbit lane root domains plug in cleanly via extraAllowedDomains.
-  const extraDomains = parseExtraAllowedEnvDomains('lanes.powerformer.net, preview.openmotion.internal');
-  const laneCheck = validateTestEnvironmentUrl('https://pr-99.lanes.powerformer.net', {
+  const extraDomains = parseExtraAllowedEnvDomains(`${EXTRA_LANE_ROOT}, preview.openmotion.internal`);
+  const laneCheck = validateTestEnvironmentUrl(`https://pr-99.${EXTRA_LANE_ROOT}`, {
     channel: 'test',
     extraAllowedDomains: extraDomains,
   });
   assert.equal(laneCheck.ok, true);
-  assert.equal(laneCheck.origin, 'https://pr-99.lanes.powerformer.net');
+  assert.equal(laneCheck.origin, `https://pr-99.${EXTRA_LANE_ROOT}`);
 
   // Untrusted hosts, non-loopback HTTP, and credentials are rejected.
   assert.equal(validateTestEnvironmentUrl('https://evil.example.com', { channel: 'test' }).ok, false);
-  assert.equal(validateTestEnvironmentUrl('http://openmotion.powerformer.net', { channel: 'test' }).ok, false);
-  assert.equal(validateTestEnvironmentUrl('https://user:pass@openmotion.powerformer.net', { channel: 'test' }).ok, false);
+  assert.equal(validateTestEnvironmentUrl(`http://${TEST_STUDIO_HOST}`, { channel: 'test' }).ok, false);
+  assert.equal(validateTestEnvironmentUrl(`https://user:pass@${TEST_STUDIO_HOST}`, { channel: 'test' }).ok, false);
   assert.equal(validateTestEnvironmentUrl('javascript:alert(1)', { channel: 'test' }).ok, false);
 });
 
 test('session partitions isolate custom lanes and local loopback while keeping default session for base test', () => {
-  const defaultTest = 'https://openmotion.powerformer.net';
+  const defaultTest = TEST_STUDIO_ORIGIN;
   assert.equal(resolveEnvironmentSessionPartition(defaultTest, defaultTest), undefined);
 
   const laneA = resolveEnvironmentSessionPartition(
-    'https://pr-101.openmotion.powerformer.net',
+    laneUrl('pr-101'),
     defaultTest,
   );
   const laneB = resolveEnvironmentSessionPartition(
-    'https://pr-102.openmotion.powerformer.net',
+    laneUrl('pr-102'),
     defaultTest,
   );
   const local = resolveEnvironmentSessionPartition('http://127.0.0.1:4173', defaultTest);
@@ -117,7 +123,7 @@ test('session partitions isolate custom lanes and local loopback while keeping d
   assert.notEqual(laneA, laneB);
   assert.notEqual(laneA, local);
 
-  const laneDesc = describeDesktopEnvironment('https://pr-482.openmotion.powerformer.net', {
+  const laneDesc = describeDesktopEnvironment(laneUrl('pr-482'), {
     channel: 'test',
     defaultUrl: defaultTest,
   });
@@ -143,14 +149,14 @@ test('DesktopEnvironmentStore persists override and recent list safely and refus
 
     const setLocal = store.setOverride('http://127.0.0.1:4173/settings', '2026-11-23T00:00:00.000Z');
     assert.equal(setLocal.ok, true);
-    const setLane = store.setOverride('https://pr-482.openmotion.powerformer.net', '2026-11-23T00:01:00.000Z');
+    const setLane = store.setOverride(laneUrl('pr-482'), '2026-11-23T00:01:00.000Z');
     assert.equal(setLane.ok, true);
 
     const reloaded = readDesktopEnvironmentState(filePath, opts);
-    assert.equal(reloaded.overrideUrl, 'https://pr-482.openmotion.powerformer.net');
+    assert.equal(reloaded.overrideUrl, laneUrl('pr-482'));
     assert.deepEqual(
       reloaded.recent.map(item => item.url),
-      ['https://pr-482.openmotion.powerformer.net', 'http://127.0.0.1:4173'],
+      [laneUrl('pr-482'), 'http://127.0.0.1:4173'],
     );
 
     store.reset();
@@ -223,11 +229,11 @@ test('explicitTestStudioOrigin authorizes user-selected loopback on test channel
 
 test('deep link env parameter works on test channel with validation and menu omits Environment on stable', () => {
   const validDeepLink = parseDesktopDeepLink(
-    'openmotion://open?env=https%3A%2F%2Fpr-482.openmotion.powerformer.net&path=%2Fsettings%2Fgeneral',
+    `openmotion://open?env=${encodeURIComponent(laneUrl('pr-482'))}&path=%2Fsettings%2Fgeneral`,
     { allowEnvParam: true, channel: 'test' },
   );
   assert.equal(validDeepLink.ok, true);
-  assert.equal(validDeepLink.params.env, 'https://pr-482.openmotion.powerformer.net');
+  assert.equal(validDeepLink.params.env, laneUrl('pr-482'));
   assert.equal(validDeepLink.params.path, '/settings/general');
 
   const evilDeepLink = parseDesktopDeepLink(
@@ -257,11 +263,11 @@ test('deep link env parameter works on test channel with validation and menu omi
       activeUrl: 'http://127.0.0.1:4173',
       isCustomOverride: true,
       presets: [
-        { label: 'Test Default', url: 'https://openmotion.powerformer.net', active: false },
+        { label: 'Test Default', url: TEST_STUDIO_ORIGIN, active: false },
         { label: 'Local Dev', url: 'http://127.0.0.1:4173', active: true },
       ],
       recent: [
-        { label: 'PR-482', url: 'https://pr-482.openmotion.powerformer.net', active: false },
+        { label: 'PR-482', url: laneUrl('pr-482'), active: false },
       ],
       onSelectUrl: () => {},
       onOpenSwitcher: () => {},

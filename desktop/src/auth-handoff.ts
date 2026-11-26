@@ -24,13 +24,72 @@ import {
   DESKTOP_HANDOFF_EXCHANGE_PATH,
   DESKTOP_HANDOFF_START_PATH,
   isValidDesktopLoopbackRedirectUri,
+  normalizeDesktopHandoffPlanTier,
   type DesktopHandoffExchangeRequest,
   type DesktopHandoffExchangeResponse,
+  type DesktopHandoffPlanTier,
 } from '../../shared/desktop-auth-handoff.ts';
 
 export const DEFAULT_DESKTOP_HANDOFF_TIMEOUT_MS = 5 * 60 * 1000;
 export const DEFAULT_DESKTOP_EXCHANGE_TIMEOUT_MS = 15 * 1000;
 export const DEFAULT_DESKTOP_CALLBACK_PATH = '/callback' as const;
+export const DEFAULT_DESKTOP_PRICING_URL_PROD = 'https://open-design.ai/pricing' as const;
+export const DEFAULT_DESKTOP_PRICING_URL_TEST = 'https://open-design.powerformer.net/pricing' as const;
+
+const ALLOWED_DESKTOP_PRICING_HOSTS = [
+  'open-design.ai',
+  'open-design.powerformer.net',
+  'vela-api.powerformer.net',
+] as const;
+
+const ALLOWED_DESKTOP_PRICING_PATH_PREFIXES = [
+  '/pricing',
+  '/plans',
+  '/zh/pricing',
+  '/api/auth/one-tap/handoff',
+] as const;
+
+/**
+ * Validates and resolves the allowlisted Pricing redirect URL for desktop loopback handoff.
+ * Returns `null` if an explicit candidate is outside the allowlist so the manager safely
+ * falls back to the static 200 completion HTML instead of redirecting to an untrusted URL.
+ */
+export function resolveSafeDesktopPricingUrl(
+  candidate: string | undefined,
+  studioOrigin: string,
+): string | null {
+  let rawTarget = candidate?.trim();
+  if (!rawTarget) {
+    try {
+      const studioHost = new URL(studioOrigin).hostname.toLowerCase().replace(/\.$/, '');
+      rawTarget =
+        studioHost === 'powerformer.net' || studioHost.endsWith('.powerformer.net')
+          ? DEFAULT_DESKTOP_PRICING_URL_TEST
+          : DEFAULT_DESKTOP_PRICING_URL_PROD;
+    } catch {
+      rawTarget = DEFAULT_DESKTOP_PRICING_URL_PROD;
+    }
+  }
+  if (/[\x00-\x1f\x7f]/.test(rawTarget)) return null;
+  try {
+    const parsed = new URL(rawTarget);
+    if (parsed.protocol !== 'https:') return null;
+    if (parsed.username || parsed.password) return null;
+    const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    const hostAllowed = ALLOWED_DESKTOP_PRICING_HOSTS.some(
+      domain => host === domain || host.endsWith(`.${domain}`),
+    );
+    if (!hostAllowed) return null;
+    const normalizedPath = parsed.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+    const pathAllowed = ALLOWED_DESKTOP_PRICING_PATH_PREFIXES.some(
+      prefix => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`),
+    );
+    if (!pathAllowed) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
 
 export type DesktopAuthHandoffStatus =
   | 'idle'
@@ -48,6 +107,8 @@ export type DesktopAuthHandoffState = {
   redirectUri?: string;
   user?: DesktopHandoffExchangeResponse['user'];
   workspaceId?: string;
+  planTier?: DesktopHandoffPlanTier;
+  interactiveLogin?: boolean;
   errorCode?: string;
   errorMessage?: string;
 };
@@ -93,6 +154,67 @@ export function parseStudioAuthNavigationUrl(
   } catch {
     return null;
   }
+}
+
+export interface ElectronSessionDeliveryTarget {
+  isDestroyed(): boolean;
+  webContents: {
+    session: {
+      cookies: {
+        flushStore(): Promise<void>;
+        get(filter: { url: string; name: string }): Promise<Array<{ value?: string }>>;
+      };
+      fetch(
+        url: string,
+        init: { method: 'GET'; credentials: 'include' },
+      ): Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+    };
+  };
+}
+
+/**
+ * Verifies that the Electron BrowserWindow session actually holds the newly exchanged `om_session`
+ * for the exact `user.id` and `workspaceId` returned by `/auth/desktop/exchange` (rejecting stale
+ * Account A cookies that failed to be overwritten during Account B sign-in).
+ */
+export async function verifyElectronSessionDelivered(
+  getWindow: () => ElectronSessionDeliveryTarget | null,
+  context: {
+    studioOrigin: string;
+    user: DesktopHandoffExchangeResponse['user'];
+    workspaceId: string;
+  },
+): Promise<boolean> {
+  const win = getWindow();
+  if (!win || win.isDestroyed()) return false;
+  await win.webContents.session.cookies.flushStore().catch(() => {});
+  if (win.isDestroyed()) return false;
+  const cookies = await win.webContents.session.cookies.get({
+    url: context.studioOrigin,
+    name: 'om_session',
+  });
+  if (win.isDestroyed() || !cookies.some(cookie => Boolean(cookie.value))) {
+    return false;
+  }
+  const meUrl = new URL('/auth/me', context.studioOrigin).toString();
+  const meRes = await win.webContents.session.fetch(meUrl, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  if (win.isDestroyed() || !meRes.ok) {
+    return false;
+  }
+  const meBody = (await meRes.json().catch(() => null)) as {
+    authenticated?: unknown;
+    user?: { id?: unknown };
+    activeWorkspaceId?: unknown;
+  } | null;
+  return (
+    !win.isDestroyed() &&
+    meBody?.authenticated === true &&
+    meBody.user?.id === context.user.id &&
+    meBody.activeWorkspaceId === context.workspaceId
+  );
 }
 
 /**
@@ -158,6 +280,20 @@ export type DesktopAuthHandoffManagerOptions = {
   exchangeTimeoutMs?: number;
   /** Path served on the loopback server (default: "/callback"). */
   callbackPath?: string;
+  /** Optional explicit Pricing URL for interactive Free/Go 302 redirect (validated against allowlist). */
+  pricingUrl?: string;
+  /** Optional dynamic resolver for Pricing URL (validated against allowlist). */
+  getPricingUrl?: () => string | undefined;
+  /**
+   * Optional verification hook invoked after `/auth/desktop/exchange` returns 200 to confirm
+   * the main Electron window is still alive and `om_session` is persisted in its session store
+   * before sending the loopback HTTP response (200 or 302).
+   */
+  verifySessionDelivered?: (context: {
+    studioOrigin: string;
+    user: DesktopHandoffExchangeResponse['user'];
+    workspaceId: string;
+  }) => Promise<boolean> | boolean;
   /** Optional callback invoked after authentication completes to focus main window. */
   onFocusMainWindow?: () => void;
 };
@@ -186,6 +322,8 @@ type ActiveAttempt = {
   server: Server;
   timeoutTimer: ReturnType<typeof setTimeout> | null;
   exchangeAbort: AbortController | null;
+  pendingResponse: ServerResponse | null;
+  responseEnded: boolean;
   consumed: boolean;
   settled: boolean;
   canceled: boolean;
@@ -400,6 +538,34 @@ function closeServerAfterResponse(server: Server): void {
   }
 }
 
+function createAbortError(message = 'Session exchange timed out.'): Error {
+  const err = new Error(message);
+  err.name = 'AbortError';
+  return err;
+}
+
+function runWithAbort<T>(work: () => Promise<T> | T, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(createAbortError());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(createAbortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve()
+      .then(work)
+      .then(
+        value => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        error => {
+          signal.removeEventListener('abort', onAbort);
+          reject(error);
+        },
+      );
+  });
+}
+
 export class DesktopAuthHandoffManager {
   private readonly staticStudioOrigin?: string;
   private readonly getStudioOriginFn?: () => string;
@@ -408,6 +574,13 @@ export class DesktopAuthHandoffManager {
   private readonly timeoutMs: number;
   private readonly exchangeTimeoutMs: number;
   private readonly callbackPath: string;
+  private readonly staticPricingUrl?: string;
+  private readonly getPricingUrlFn?: () => string | undefined;
+  private readonly verifySessionDelivered?: (context: {
+    studioOrigin: string;
+    user: DesktopHandoffExchangeResponse['user'];
+    workspaceId: string;
+  }) => Promise<boolean> | boolean;
   private readonly onFocusMainWindow?: () => void;
 
   private state: DesktopAuthHandoffState = { status: 'idle' };
@@ -427,7 +600,17 @@ export class DesktopAuthHandoffManager {
     this.exchangeTimeoutMs = options.exchangeTimeoutMs ?? DEFAULT_DESKTOP_EXCHANGE_TIMEOUT_MS;
     const rawPath = options.callbackPath?.trim() || DEFAULT_DESKTOP_CALLBACK_PATH;
     this.callbackPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+    this.staticPricingUrl = options.pricingUrl;
+    this.getPricingUrlFn = options.getPricingUrl;
+    this.verifySessionDelivered = options.verifySessionDelivered;
     this.onFocusMainWindow = options.onFocusMainWindow;
+  }
+
+  private resolveCurrentPricingUrl(): string | undefined {
+    if (this.getPricingUrlFn) {
+      return this.getPricingUrlFn();
+    }
+    return this.staticPricingUrl;
   }
 
   private resolveCurrentStudioOrigin(): string {
@@ -476,6 +659,44 @@ export class DesktopAuthHandoffManager {
     }
   }
 
+  private respondOnceAndClose(
+    attempt: ActiveAttempt,
+    write: (res: ServerResponse, onDone: () => void) => void,
+    options?: { closePromptly?: boolean },
+  ): void {
+    if (attempt.responseEnded) return;
+    attempt.responseEnded = true;
+    const res = attempt.pendingResponse;
+    attempt.pendingResponse = null;
+    const closeFn = options?.closePromptly ? closeServerPromptly : closeServerAfterResponse;
+    if (!res || res.writableEnded || res.destroyed) {
+      closeFn(attempt.server);
+      return;
+    }
+    try {
+      write(res, () => {
+        closeFn(attempt.server);
+      });
+    } catch {
+      closeFn(attempt.server);
+    }
+  }
+
+  private respondErrorAndClose(
+    attempt: ActiveAttempt,
+    statusCode: 502 | 503 | 504,
+    options?: { closePromptly?: boolean },
+  ): void {
+    this.respondOnceAndClose(
+      attempt,
+      (res, onDone) => {
+        res.writeHead(statusCode, STATIC_HTML_HEADERS);
+        res.end(CALLBACK_ERROR_HTML, onDone);
+      },
+      options,
+    );
+  }
+
   private cleanupAttempt(attempt: ActiveAttempt): void {
     if (attempt.timeoutTimer) {
       clearTimeout(attempt.timeoutTimer);
@@ -485,7 +706,11 @@ export class DesktopAuthHandoffManager {
       attempt.exchangeAbort.abort();
       attempt.exchangeAbort = null;
     }
-    closeServerPromptly(attempt.server);
+    if (attempt.pendingResponse && !attempt.responseEnded) {
+      this.respondErrorAndClose(attempt, 503, { closePromptly: true });
+    } else {
+      closeServerPromptly(attempt.server);
+    }
     if (this.activeAttempt === attempt) {
       this.activeAttempt = null;
     }
@@ -606,6 +831,8 @@ export class DesktopAuthHandoffManager {
       server,
       timeoutTimer: null,
       exchangeAbort: null,
+      pendingResponse: null,
+      responseEnded: false,
       consumed: false,
       settled: false,
       canceled: false,
@@ -738,16 +965,18 @@ export class DesktopAuthHandoffManager {
       attempt.timeoutTimer = null;
     }
 
-    res.writeHead(200, STATIC_HTML_HEADERS);
-    res.end(CALLBACK_SUCCESS_HTML, () => {
-      closeServerAfterResponse(attempt.server);
-    });
+    // Suspend the loopback HTTP response until PKCE exchange and Electron session
+    // persistence complete (or fail/timeout) before responding once and closing the server.
+    attempt.pendingResponse = res;
 
     void this.performExchange(attempt, code);
   }
 
   private async performExchange(attempt: ActiveAttempt, code: string): Promise<void> {
-    if (attempt.settled || attempt.canceled) return;
+    if (attempt.settled || attempt.canceled) {
+      this.respondErrorAndClose(attempt, 503);
+      return;
+    }
 
     this.emitState({
       status: 'exchanging',
@@ -769,17 +998,25 @@ export class DesktopAuthHandoffManager {
     }, this.exchangeTimeoutMs);
 
     try {
-      const response = await this.exchangeFetch(exchangeUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(requestBody),
-        credentials: 'include',
-        signal: abortController.signal,
-      });
+      const response = await runWithAbort(
+        () =>
+          this.exchangeFetch(exchangeUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(requestBody),
+            credentials: 'include',
+            signal: abortController.signal,
+          }),
+        abortController.signal,
+      );
 
-      if (attempt.canceled || attempt.settled) return;
+      if (attempt.canceled || attempt.settled) {
+        this.respondErrorAndClose(attempt, 503);
+        return;
+      }
 
       if (!response.ok) {
+        this.respondErrorAndClose(attempt, 502);
         this.settleAttempt(attempt, {
           status: 'error',
           startedAt: attempt.startedAt,
@@ -792,8 +1029,11 @@ export class DesktopAuthHandoffManager {
 
       let parsedBody: unknown;
       try {
-        parsedBody = await response.json();
-      } catch {
+        parsedBody = await runWithAbort(() => response.json(), abortController.signal);
+      } catch (jsonErr) {
+        const isAbort = jsonErr instanceof Error && jsonErr.name === 'AbortError';
+        if (isAbort) throw jsonErr;
+        this.respondErrorAndClose(attempt, 502);
         this.settleAttempt(attempt, {
           status: 'error',
           startedAt: attempt.startedAt,
@@ -804,9 +1044,13 @@ export class DesktopAuthHandoffManager {
         return;
       }
 
-      if (attempt.canceled || attempt.settled) return;
+      if (attempt.canceled || attempt.settled) {
+        this.respondErrorAndClose(attempt, 503);
+        return;
+      }
 
       if (!isValidExchangeResponse(parsedBody)) {
+        this.respondErrorAndClose(attempt, 502);
         this.settleAttempt(attempt, {
           status: 'error',
           startedAt: attempt.startedAt,
@@ -817,12 +1061,80 @@ export class DesktopAuthHandoffManager {
         return;
       }
 
+      if (this.verifySessionDelivered) {
+        let delivered = false;
+        try {
+          delivered = await runWithAbort(
+            () =>
+              this.verifySessionDelivered!({
+                studioOrigin: attempt.studioOrigin,
+                user: parsedBody.user,
+                workspaceId: parsedBody.workspaceId,
+              }),
+            abortController.signal,
+          );
+        } catch (verifyErr) {
+          const isAbort = verifyErr instanceof Error && verifyErr.name === 'AbortError';
+          if (isAbort) throw verifyErr;
+          delivered = false;
+        }
+
+        if (attempt.canceled || attempt.settled) {
+          this.respondErrorAndClose(attempt, 503);
+          return;
+        }
+
+        if (!delivered) {
+          this.respondErrorAndClose(attempt, 503);
+          this.settleAttempt(attempt, {
+            status: 'error',
+            startedAt: attempt.startedAt,
+            completedAt: new Date().toISOString(),
+            errorCode: 'SESSION_DELIVERY_FAILED',
+            errorMessage: 'Could not confirm desktop session cookie delivery.',
+          });
+          return;
+        }
+      }
+
+      const planTier = normalizeDesktopHandoffPlanTier(parsedBody.planTier);
+      const interactiveLogin = parsedBody.interactiveLogin === true;
+      const shouldRedirectPricing =
+        interactiveLogin && (planTier === 'free' || planTier === 'go');
+      const rawRedirectCandidate =
+        parsedBody.pricingHandoffUrl !== undefined
+          ? parsedBody.pricingHandoffUrl
+          : this.resolveCurrentPricingUrl();
+      const safePricingUrl =
+        shouldRedirectPricing && rawRedirectCandidate !== null
+          ? resolveSafeDesktopPricingUrl(rawRedirectCandidate, attempt.studioOrigin)
+          : null;
+
+      if (safePricingUrl) {
+        this.respondOnceAndClose(attempt, (res, onDone) => {
+          res.writeHead(302, {
+            location: safePricingUrl,
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+            connection: 'close',
+          });
+          res.end('', onDone);
+        });
+      } else {
+        this.respondOnceAndClose(attempt, (res, onDone) => {
+          res.writeHead(200, STATIC_HTML_HEADERS);
+          res.end(CALLBACK_SUCCESS_HTML, onDone);
+        });
+      }
+
       this.settleAttempt(attempt, {
         status: 'authenticated',
         startedAt: attempt.startedAt,
         completedAt: new Date().toISOString(),
         user: parsedBody.user,
         workspaceId: parsedBody.workspaceId,
+        planTier,
+        interactiveLogin,
       });
 
       try {
@@ -831,8 +1143,12 @@ export class DesktopAuthHandoffManager {
         // Ignore window focus errors after successful auth.
       }
     } catch (error) {
-      if (attempt.canceled || attempt.settled) return;
+      if (attempt.canceled || attempt.settled) {
+        this.respondErrorAndClose(attempt, 503);
+        return;
+      }
       const isAbort = error instanceof Error && error.name === 'AbortError';
+      this.respondErrorAndClose(attempt, isAbort ? 504 : 502);
       this.settleAttempt(attempt, {
         status: 'error',
         startedAt: attempt.startedAt,

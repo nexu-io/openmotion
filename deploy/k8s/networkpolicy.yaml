@@ -82,6 +82,22 @@ spec:
       ports:
         - protocol: TCP
           port: 9000
+    # In-cluster AMR API service for One Tap S2S (challenge / exchange / handoff-ticket)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nexu
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - amr-api
+                  - vela-api
+                  - api
+      ports:
+        - protocol: TCP
+          port: 18080
     # External HTTPS (OIDC IdP, OpenDesign Model Gateway, cloud S3/R2) — excludes private & metadata CIDRs
     - to:
         - ipBlock:
