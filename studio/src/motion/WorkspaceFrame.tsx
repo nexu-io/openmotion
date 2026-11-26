@@ -79,6 +79,10 @@ import { parseProjectIdFromHash } from '../utils/projectRouting';
 import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard, type GuestSignInIntent } from './WorkspaceChromeContext';
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 
+// Right after sign-in the API can briefly answer 503 (for example while a new pod loads the
+// template catalog). Retry the saved intent with its idempotency key before asking the user.
+const AUTO_RESUME_RETRY_DELAYS_MS = [1_000, 3_000, 6_000] as const;
+
 type WorkspaceFrameProps = {
   children: ReactNode; waitForSaves: () => Promise<void>; projectId?: string; sessionId?: string; blocked?: boolean; message?: string; saveState?: string; onLibraryClose?: () => void; onNavigate?: (targetHref?: string, opened?: WorkspaceRoute) => void; onInvalidProject?: (projectId: string) => void;
 };
@@ -478,19 +482,31 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     }
     return true;
   }, [sessionId, workspace.createArtifact, workspace.startSession, workspace.create, workspace.open, workspace.projects, projectId, openEditor]);
-  const autoResumedKeyRef = useRef<string | null>(null);
+  const autoResumeRef = useRef<{ key: string; failures: number; waiting: boolean } | null>(null);
+  const autoResumeTimer = useRef<number | undefined>(undefined);
+  const [autoResumeRetry, setAutoResumeRetry] = useState(0);
+  useEffect(() => () => window.clearTimeout(autoResumeTimer.current), []);
   useEffect(() => {
     if (!workspace.status || guestMode || workspace.busy) return;
     const pending = readAuthPendingDraft();
     if (!pending?.autoResume) return;
     if (pending.action === 'open_editor' && !workspace.catalogLoaded) return;
-    if (autoResumedKeyRef.current === pending.idempotencyKey) return;
-    autoResumedKeyRef.current = pending.idempotencyKey;
+    const previous = autoResumeRef.current?.key === pending.idempotencyKey ? autoResumeRef.current : null;
+    if (previous?.waiting) return;
+    const attempt = { key: pending.idempotencyKey, failures: previous?.failures ?? 0, waiting: true };
+    autoResumeRef.current = attempt;
     void resumePendingDraft(pending).then(ok => {
       const latest = readAuthPendingDraft();
       if (!latest || latest.idempotencyKey !== pending.idempotencyKey) return;
       if (ok) {
         clearAuthPendingDraft();
+      } else if (latest.autoResume && attempt.failures < AUTO_RESUME_RETRY_DELAYS_MS.length) {
+        // A sign-in failure replaces the intent without autoResume, so only other failures retry here.
+        autoResumeTimer.current = window.setTimeout(() => {
+          attempt.failures += 1;
+          attempt.waiting = false;
+          setAutoResumeRetry(value => value + 1);
+        }, AUTO_RESUME_RETRY_DELAYS_MS[attempt.failures]);
       } else {
         saveAuthPendingDraft({
           action: latest.action,
@@ -504,7 +520,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         });
       }
     });
-  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft]);
+  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft, autoResumeRetry]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
   const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
   const canReturnToBlockedEditor = Boolean(editorState?.blocked && projectId && !workspace.busy && !blocked);
