@@ -1358,4 +1358,108 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
     assert.equal(crossTenant.status, 403);
     assert.equal(((await crossTenant.json()) as { code: string }).code, 'WORKSPACE_FORBIDDEN');
   });
+
+  it('persists device_id in om_auth_attr cookie on /auth/login and forwards it into trackWebSignInResult on callback success and cancel', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+    const { jwks, signJwt } = await createEphemeralOidcFixture();
+
+    let capturedNonce = '';
+    const oidc = new OidcService(
+      {
+        issuer: 'https://idp.example.test',
+        clientId: 'openmotion-cloud-client',
+        clientSecret: 'ephemeral-test-client-secret',
+        callbackUrl: 'https://motion.example.test/auth/callback',
+        scopes: 'openid profile email',
+        claimSub: 'sub',
+        claimEmail: 'email',
+        claimName: 'name',
+        discovery: {
+          issuer: 'https://idp.example.test',
+          authorization_endpoint: 'https://idp.example.test/authorize',
+          token_endpoint: 'https://idp.example.test/token',
+          jwks_uri: 'https://idp.example.test/jwks.json',
+        },
+        jwks,
+        fetcher: async () => {
+          const idToken = await signJwt({
+            sub: 'opendesign-device-user',
+            email: 'dev@example.test',
+            name: 'Dev User',
+            nonce: capturedNonce,
+          });
+          return new Response(JSON.stringify({ id_token: idToken, access_token: 'ext_at' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        },
+      },
+      cache,
+    );
+
+    const signInCalls: Array<Record<string, unknown>> = [];
+    const cloudTracking = {
+      trackWebSignInResult(params: Record<string, unknown>) {
+        signInCalls.push(params);
+      },
+    } as unknown as Parameters<typeof createAuthRoutes>[0]['cloudTracking'];
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, oidc, cloudTracking }));
+
+    // 1. Device-only login (no hook_id/entry_id) -> cookie carries deviceId -> callback success emits it
+    const browserDeviceId = '11111111-2222-4333-8444-555555555555';
+    const loginRes = await app.request(`/auth/login?returnTo=/studio&device_id=${encodeURIComponent(browserDeviceId)}`);
+    assert.equal(loginRes.status, 302);
+    const authUrl = new URL(loginRes.headers.get('location')!);
+    capturedNonce = authUrl.searchParams.get('nonce')!;
+    const loginCookies = loginRes.headers.getSetCookie();
+    const txCookie = extractCookieValue(loginCookies, 'om_oidc_tx');
+    const attrCookieRaw = extractCookieValue(loginCookies, 'om_auth_attr');
+    assert.ok(txCookie);
+    assert.ok(attrCookieRaw);
+    const parsedAttr = JSON.parse(decodeURIComponent(attrCookieRaw)) as { deviceId?: string };
+    assert.equal(parsedAttr.deviceId, browserDeviceId);
+
+    const cbRes = await app.request(
+      `/auth/callback?code=ok-code&state=${encodeURIComponent(authUrl.searchParams.get('state')!)}`,
+      {
+        headers: {
+          Cookie: `om_oidc_tx=${encodeURIComponent(txCookie)}; om_auth_attr=${encodeURIComponent(attrCookieRaw)}`,
+        },
+      },
+    );
+    assert.equal(cbRes.status, 302);
+    assert.equal(signInCalls.length, 1);
+    assert.equal(signInCalls[0]?.outcome, 'success');
+    assert.equal(signInCalls[0]?.deviceId, browserDeviceId);
+    assert.ok(signInCalls[0]?.userId);
+
+    // 2. Cancelled callback also forwards deviceId + hookId
+    const entryId = '22222222-3333-4444-8555-666666666666';
+    const cancelLoginRes = await app.request(
+      `/auth/login?returnTo=/studio&hook_id=bf_banner&entry_id=${entryId}&device_id=${encodeURIComponent(browserDeviceId)}`,
+    );
+    assert.equal(cancelLoginRes.status, 302);
+    const cancelAuthUrl = new URL(cancelLoginRes.headers.get('location')!);
+    const cancelCookies = cancelLoginRes.headers.getSetCookie();
+    const cancelTx = extractCookieValue(cancelCookies, 'om_oidc_tx')!;
+    const cancelAttr = extractCookieValue(cancelCookies, 'om_auth_attr')!;
+    const cancelCbRes = await app.request(
+      `/auth/callback?error=access_denied&state=${encodeURIComponent(cancelAuthUrl.searchParams.get('state')!)}`,
+      {
+        headers: {
+          Cookie: `om_oidc_tx=${encodeURIComponent(cancelTx)}; om_auth_attr=${encodeURIComponent(cancelAttr)}`,
+        },
+      },
+    );
+    assert.equal(cancelCbRes.status, 302);
+    assert.equal(signInCalls.length, 2);
+    assert.equal(signInCalls[1]?.outcome, 'cancelled');
+    assert.equal(signInCalls[1]?.hookId, 'bf_banner');
+    assert.equal(signInCalls[1]?.entryId, entryId);
+    assert.equal(signInCalls[1]?.deviceId, browserDeviceId);
+  });
 });

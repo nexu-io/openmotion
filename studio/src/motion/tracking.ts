@@ -34,8 +34,12 @@ import {
 export type { TrackingUserIdentity };
 export { resetMotionTrackingIdentity, syncMotionTrackingIdentity };
 
-function isDoNotTrackEnabled(): boolean {
+export function isDoNotTrackEnabled(): boolean {
   return typeof navigator !== 'undefined' && navigator.doNotTrack === '1';
+}
+
+export function isBrowserTrackingSuppressed(): boolean {
+  return isDoNotTrackEnabled() || configuration === 'disabled';
 }
 
 function createNoopBrowserTracker(): ReturnType<typeof createBrowserTracking<typeof studioEvents>> {

@@ -459,3 +459,14 @@ it('attaches the browser tracking device_id to buildLoginUrl for OIDC sign-in at
   expect(plainUrl.searchParams.get('device_id')).toBe(deviceId);
   resetBrowserTrackingDeviceIdForTests();
 });
+
+it('omits device_id and avoids persisting one when Do Not Track is enabled', () => {
+  resetBrowserTrackingDeviceIdForTests();
+  window.localStorage.removeItem('openmotion:tracking:device_id');
+  vi.spyOn(navigator, 'doNotTrack', 'get').mockReturnValue('1');
+  const url = new URL(buildLoginUrl('/studio', { hookId: 'bf_banner' }), 'https://cloud.example.test');
+  expect(url.pathname).toBe('/auth/login');
+  expect(url.searchParams.get('hook_id')).toBe('bf_banner');
+  expect(url.searchParams.get('device_id')).toBeNull();
+  expect(window.localStorage.getItem('openmotion:tracking:device_id')).toBeNull();
+});

@@ -1079,4 +1079,61 @@ describe('cloud tracking allowlist (shared PostHog & Tracert strict filtering)',
     assert.ok(CLOUD_ALLOWED_STUDIO_EVENTS.size <= 40);
     assert.equal(CLOUD_BLOCKED_SURFACE_AREAS.has('template_card'), true);
   });
+
+  it('emits browser device_id and device-based anonymous identity on trackWebSignInResult', async () => {
+    const sent: Array<{ batch: Array<{ event: string; properties: Record<string, unknown> }> }> = [];
+    const tracker = createCloudTracking(
+      '0.0.1-test',
+      {
+        OPENMOTION_TRACKING_ENABLED: '1',
+        OPENMOTION_POSTHOG_TOKEN: 'phc_test_token_1234567890',
+        OPENMOTION_POSTHOG_HOST: 'https://us.i.posthog.com',
+        OPENMOTION_TRACKING_ENV: 'test',
+        OPENMOTION_TRACKING_TEST_RUN_ID: crypto.randomUUID(),
+      },
+      {
+        posthogFetch: async (_url, init) => {
+          sent.push(JSON.parse(String(init?.body ?? '{}')));
+          return new Response(JSON.stringify({ status: 1 }), { status: 200 });
+        },
+      },
+    );
+
+    const browserDeviceId = 'browser-dev-11111111-2222-4333-8444-555555555555';
+    const entryId = '22222222-2222-4222-8222-222222222222';
+    tracker.trackWebSignInResult({
+      outcome: 'success',
+      hookId: 'bf_banner',
+      entryId,
+      deviceId: browserDeviceId,
+      userId: 'amr_user_99',
+      durationMs: 420,
+    });
+    tracker.trackWebSignInResult({
+      outcome: 'cancelled',
+      deviceId: browserDeviceId,
+      durationMs: 120,
+    });
+    await tracker.flush({ timeoutMs: 2000 });
+    await tracker.shutdown({ timeoutMs: 1000 });
+
+    const events = sent.flatMap((b) => b.batch);
+    assert.equal(events.length, 2);
+
+    const successEv = events.find((e) => e.properties.outcome === 'success');
+    assert.ok(successEv);
+    assert.equal(successEv.event, 'account_sign_in_result');
+    assert.equal(successEv.properties.device_id, browserDeviceId);
+    assert.equal(successEv.properties.device_id_source, 'browser');
+    assert.equal(successEv.properties.amr_user_id, 'amr_user_99');
+    assert.equal(successEv.properties.distinct_id, 'amr_user_99');
+    assert.equal(successEv.properties.source_detail, 'bf_banner');
+    assert.equal(successEv.properties.entry_id, entryId);
+
+    const cancelEv = events.find((e) => e.properties.outcome === 'cancelled');
+    assert.ok(cancelEv);
+    assert.equal(cancelEv.properties.device_id, browserDeviceId);
+    assert.equal(cancelEv.properties.device_id_source, 'browser');
+    assert.equal(cancelEv.properties.distinct_id, browserDeviceId);
+  });
 });

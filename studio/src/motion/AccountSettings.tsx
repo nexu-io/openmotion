@@ -1,6 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import * as tracking from './pageTracking';
+import { isBrowserTrackingSuppressed } from './tracking';
 import { getBrowserTrackingDeviceId } from './trackingDeviceId';
 import { resetMotionTrackingIdentity } from './trackingIdentity';
 import { Tooltip } from '../components/ui/Tooltip';
@@ -179,7 +180,8 @@ export function buildLoginUrl(returnTo?: string, attribution?: { hookId?: string
   const params = new URLSearchParams({ returnTo: target || '/' });
   if (attribution?.hookId) params.set('hook_id', attribution.hookId);
   if (attribution?.entryId) params.set('entry_id', attribution.entryId);
-  const deviceId = attribution?.deviceId ?? (typeof window !== 'undefined' ? getBrowserTrackingDeviceId() : undefined);
+  const deviceId = attribution?.deviceId
+    ?? (typeof window !== 'undefined' && !isBrowserTrackingSuppressed() ? getBrowserTrackingDeviceId() : undefined);
   if (deviceId) params.set('device_id', deviceId);
   return `/auth/login?${params.toString()}`;
 }
