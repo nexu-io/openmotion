@@ -6,7 +6,7 @@ import { I18nProvider } from '../i18n/I18n';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
 import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { resetAccountSummaryCacheForTest } from './AccountSettings';
-import { readAuthPendingDraft } from './authRecoveryStore';
+import { readAuthPendingDraft, saveAuthPendingDraft } from './authRecoveryStore';
 import { MotionApp } from './MotionApp';
 
 vi.mock('./MotionProjectEditor', () => ({ preloadMotionProjectEditor: vi.fn() }));
@@ -48,6 +48,7 @@ afterEach(() => {
   localStorage.clear();
   setCachedCloudDisklessMode(null);
   history.replaceState(null, '', '/');
+  vi.useRealTimers();
 });
 
 async function settle(until: () => boolean = () => false, timeoutMs = 400) {
@@ -73,8 +74,8 @@ function stubGuestApi() {
   }));
 }
 
-/** Signed-in API for an existing account that owns only the sample project; creation endpoints fail once with 503. */
-function stubSignedInApi() {
+/** Signed-in API for an existing account that owns only the sample project; the first `failures` creation calls answer 503. */
+function stubSignedInApi({ failures = 1 } = {}) {
   const calls: Call[] = [];
   const catalog = {
     activeId: SAMPLE,
@@ -83,7 +84,7 @@ function stubSignedInApi() {
   };
   const sessionsById = new Map<string, { id: string; artifacts: Array<{ id: string; kind: string; projectId: string; title: string }> }>();
   const projectsByRequest = new Map<string, string>();
-  let warmingUp = true;
+  let remainingFailures = failures;
   const createProject = (requestId: string, title: string) => {
     const existing = projectsByRequest.get(requestId);
     if (existing) return existing;
@@ -103,8 +104,8 @@ function stubSignedInApi() {
       return Response.json({ state: 'signed-in', user: { id: 'user-1', email: 'qa@example.com' }, activeWorkspace: { id: 'ws-1' }, plan: 'free' });
     }
     const creating = method === 'POST' && (parsed.pathname === '/motion-api/sessions' || parsed.pathname === '/motion-api/projects');
-    if (creating && warmingUp) {
-      warmingUp = false;
+    if (creating && remainingFailures > 0) {
+      remainingFailures -= 1;
       return Response.json(CATALOG_WARMING_UP, { status: 503 });
     }
     if (method === 'POST' && parsed.pathname === '/motion-api/sessions') {
@@ -210,4 +211,36 @@ it('creates exactly one blank project after a guest signs in from New project, r
   expect(api.catalog.projects.map(project => project.id)).toEqual([SAMPLE, CREATED]);
   expect(readAuthPendingDraft()).toBeNull();
   expect(location.pathname).toBe(`/editor/${CREATED}`);
+});
+
+/** Lets the initial automatic resume and its three timed retries run and fail. */
+async function exhaustAutomaticRetries() {
+  for (const delay of [1_000, 3_000, 6_000]) {
+    await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+    await settle();
+  }
+}
+
+function sessionPosts(calls: Call[]) {
+  return calls.filter(call => call.method === 'POST' && call.path === '/motion-api/sessions');
+}
+
+it('resumes again when a later sign-in in the same page re-saves the same intent after the retry chain ended', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  history.replaceState(null, '', '/explore?template=custom-agents');
+  const intent = saveAuthPendingDraft({ action: 'use_template', templateId: 'custom-agents', returnTo: '/explore?template=custom-agents', autoResume: true });
+  const api = stubSignedInApi({ failures: 4 });
+  await mountApp();
+  await exhaustAutomaticRetries();
+  expect(readAuthPendingDraft()?.autoResume).toBeUndefined();
+
+  // Desktop and bridge sign-in keep the SPA mounted, re-save the intent and announce the account change.
+  const again = saveAuthPendingDraft({ action: 'use_template', templateId: 'custom-agents', autoResume: true });
+  expect(again.idempotencyKey).toBe(intent.idempotencyKey);
+  await act(async () => { window.dispatchEvent(new Event('motion:account-changed')); });
+  await settle(() => api.createdProjects().length > 0 && location.pathname.startsWith('/editor/'), 2_000);
+
+  expect(sessionPosts(api.calls).map(call => call.body.id)).toEqual(Array(5).fill(intent.idempotencyKey));
+  expect(api.createdProjects()).toEqual([CREATED]);
+  expect(readAuthPendingDraft()).toBeNull();
 });

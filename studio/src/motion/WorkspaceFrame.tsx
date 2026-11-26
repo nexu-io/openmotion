@@ -495,10 +495,16 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     if (previous?.waiting) return;
     const attempt = { key: pending.idempotencyKey, failures: previous?.failures ?? 0, waiting: true };
     autoResumeRef.current = attempt;
+    // A finished chain must not block a later sign-in that re-saves the same intent and key.
+    const release = () => { if (autoResumeRef.current === attempt) autoResumeRef.current = null; };
     void resumePendingDraft(pending).then(ok => {
       const latest = readAuthPendingDraft();
-      if (!latest || latest.idempotencyKey !== pending.idempotencyKey) return;
+      if (!latest || latest.idempotencyKey !== pending.idempotencyKey) {
+        release();
+        return;
+      }
       if (ok) {
+        release();
         clearAuthPendingDraft();
       } else if (latest.autoResume && attempt.failures < AUTO_RESUME_RETRY_DELAYS_MS.length) {
         // A sign-in failure replaces the intent without autoResume, so only other failures retry here.
@@ -508,6 +514,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
           setAutoResumeRetry(value => value + 1);
         }, AUTO_RESUME_RETRY_DELAYS_MS[attempt.failures]);
       } else {
+        release();
         saveAuthPendingDraft({
           action: latest.action,
           returnTo: latest.returnTo,
