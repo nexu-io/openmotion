@@ -200,21 +200,21 @@ export function createExportRoutes(deps: ExportRoutesDeps): Hono {
       c.req.query('download') !== 'false';
     const isFrame =
       !isDownload &&
+      meta.mimeType.startsWith('video/') &&
       c.req.query('frame') !== undefined &&
       c.req.query('frame') !== '0' &&
       c.req.query('frame') !== 'false';
     const isRetry = isFrame && /^[1-9]\d*$/.test(c.req.query('retry') ?? '');
     const presigned = await exportService.presignExportFile(auth, meta.jobId, {
-      disposition: 'attachment',
+      disposition: isFrame ? 'inline' : 'attachment',
       frame: isFrame,
       bypassCacheWindow: isRetry,
     });
-    const isVideoFrameRetry = isRetry && presigned.metadata.mimeType.startsWith('video/');
     return new Response(null, {
       status: 302,
       headers: {
         Location: presigned.url,
-        'Cache-Control': isVideoFrameRetry ? 'no-store' : 'private, max-age=60',
+        'Cache-Control': isRetry ? 'no-store' : 'private, max-age=60',
         Vary: 'Origin, Cookie',
         ETag: meta.etag,
       },

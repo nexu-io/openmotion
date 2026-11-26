@@ -4,6 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoFrameThumbnail } from "./VideoFrameThumbnail";
 import {
+  getCachedVideoFrame,
+  MAX_CACHED_BYTES,
+  MAX_THUMBNAIL_EDGE,
   resetVideoFrameThumbnailLoaderForTests,
   resolveVideoFrameUrl,
 } from "./videoFrameThumbnailLoader";
@@ -377,5 +380,64 @@ describe("VideoFrameThumbnail", () => {
     v1.readyState = 2;
     act(() => v1.dispatch("loadedmetadata"));
     expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/jpeg;base64,RECOVERED");
+  });
+
+  it("downscales high-resolution videos to MAX_THUMBNAIL_EDGE while keeping smaller videos unscaled", () => {
+    // 4K landscape -> clamped proportionally to MAX_THUMBNAIL_EDGE wide.
+    render({ src: "/motion-api/assets/uhd/versions/v1/file" });
+    videos[0].videoWidth = 3840;
+    videos[0].videoHeight = 2160;
+    act(() => videos[0].dispatch("loadedmetadata"));
+    act(() => videos[0].dispatch("seeked"));
+    expect(canvas.width).toBe(MAX_THUMBNAIL_EDGE);
+    expect(canvas.height).toBe(Math.round(MAX_THUMBNAIL_EDGE * (2160 / 3840)));
+
+    // 4K portrait -> clamped proportionally to MAX_THUMBNAIL_EDGE tall.
+    render({ src: "/motion-api/assets/uhd/versions/v2/file" });
+    videos[1].videoWidth = 2160;
+    videos[1].videoHeight = 3840;
+    act(() => videos[1].dispatch("loadedmetadata"));
+    act(() => videos[1].dispatch("seeked"));
+    expect(canvas.height).toBe(MAX_THUMBNAIL_EDGE);
+    expect(canvas.width).toBe(Math.round(MAX_THUMBNAIL_EDGE * (2160 / 3840)));
+
+    // Standard 640x360 stays unscaled.
+    render({ src: "/motion-api/assets/sd/versions/v1/file" });
+    videos[2].videoWidth = 640;
+    videos[2].videoHeight = 360;
+    act(() => videos[2].dispatch("loadedmetadata"));
+    act(() => videos[2].dispatch("seeked"));
+    expect(canvas.width).toBe(640);
+    expect(canvas.height).toBe(360);
+  });
+
+  it("evicts oldest cached frames when accumulated byte size exceeds MAX_CACHED_BYTES", () => {
+    const chunkLen = Math.floor(MAX_CACHED_BYTES * 0.45);
+    const makePayload = (tag: string) => `data:image/jpeg;base64,${tag}${"A".repeat(chunkLen)}`;
+
+    toDataUrlImpl = () => makePayload("1");
+    render({ src: "/motion-api/assets/mem/versions/v1/file" });
+    act(() => videos[0].dispatch("loadedmetadata"));
+    act(() => videos[0].dispatch("seeked"));
+
+    toDataUrlImpl = () => makePayload("2");
+    render({ src: "/motion-api/assets/mem/versions/v2/file" });
+    act(() => videos[1].dispatch("loadedmetadata"));
+    act(() => videos[1].dispatch("seeked"));
+
+    // Both v1 and v2 fit under 90% of MAX_CACHED_BYTES; touch v1 so v2 becomes oldest.
+    expect(getCachedVideoFrame("/motion-api/assets/mem/versions/v1/file")).not.toBeNull();
+    expect(getCachedVideoFrame("/motion-api/assets/mem/versions/v2/file")).not.toBeNull();
+    expect(getCachedVideoFrame("/motion-api/assets/mem/versions/v1/file")).not.toBeNull();
+
+    // Inserting v3 pushes total over MAX_CACHED_BYTES -> evicts LRU entry (v2) while keeping v1 and v3.
+    toDataUrlImpl = () => makePayload("3");
+    render({ src: "/motion-api/assets/mem/versions/v3/file" });
+    act(() => videos[2].dispatch("loadedmetadata"));
+    act(() => videos[2].dispatch("seeked"));
+
+    expect(getCachedVideoFrame("/motion-api/assets/mem/versions/v2/file")).toBeNull();
+    expect(getCachedVideoFrame("/motion-api/assets/mem/versions/v1/file")).not.toBeNull();
+    expect(getCachedVideoFrame("/motion-api/assets/mem/versions/v3/file")).not.toBeNull();
   });
 });

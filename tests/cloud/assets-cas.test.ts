@@ -1067,6 +1067,110 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     assert.match(sseText, /"status":"complete"/);
   });
 
+  it('never lets frame: true override explicit attachment disposition in ExportService or legacy render file route', async () => {
+    const storage = new MemoryStorage();
+    const eventBus = new MemoryEventBus();
+    const videoExportRow = {
+      id: JID_A,
+      workspaceId: WID_A,
+      projectId: PID_A,
+      kind: 'export_render',
+      state: 'completed',
+      stage: 'completed',
+      progress: 100,
+      versionId: VID_A,
+      revision: REV_1,
+      requestId: null,
+      idempotencyKey: null,
+      inputPayload: { outputName: 'launch-film.mp4', format: 'mp4', compositionPath: 'index.html' },
+      resultJson: {
+        s3Key: exportKey(WID_A, JID_A, 'launch-film.mp4'),
+        outputName: 'launch-film.mp4',
+        mimeType: 'video/mp4',
+        bytes: 987_654,
+        sha256: SHA_A,
+      },
+      errorCode: null,
+      errorMessage: null,
+      createdAt: new Date(),
+      startedAt: new Date(),
+      terminalAt: new Date(),
+      deletedAt: null,
+      updatedAt: new Date(),
+    };
+    const gifExportRow = {
+      ...videoExportRow,
+      inputPayload: { outputName: 'loop.gif', format: 'gif', compositionPath: 'index.html' },
+      resultJson: {
+        s3Key: exportKey(WID_A, JID_A, 'loop.gif'),
+        outputName: 'loop.gif',
+        mimeType: 'image/gif',
+        bytes: 123_456,
+        sha256: SHA_A,
+      },
+    };
+
+    const { db } = createScriptedDb({
+      selectQueue: [
+        [videoExportRow], // presignExportFile attachment + frame: true
+        [videoExportRow], // presignExportFile inline + frame: true
+        [videoExportRow], [videoExportRow], [videoExportRow], // route (frame=1&retry=1): lookup + meta + presign
+        [videoExportRow], [videoExportRow], [videoExportRow], // route (download=1&frame=1): lookup + meta + presign
+        [gifExportRow], [gifExportRow], [gifExportRow], // route (non-video frame=1&retry=1): lookup + meta + presign
+      ],
+    });
+    const svc = new ExportService({
+      db,
+      storage,
+      eventBus,
+      queues: { enqueueRenderExport: async () => ({}) as never, renderExport: { getJob: async () => null } as never },
+    });
+
+    // Contradictory `{ disposition: 'attachment', frame: true }` MUST preserve attachment semantics.
+    await svc.presignExportFile(authFor(), JID_A, {
+      disposition: 'attachment',
+      frame: true,
+      bypassCacheWindow: true,
+    });
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'attachment; filename="launch-film.mp4"');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+
+    // Explicit `{ disposition: 'inline', frame: true }` mints bare RFC 6266 `inline`.
+    await svc.presignExportFile(authFor(), JID_A, {
+      disposition: 'inline',
+      frame: true,
+      bypassCacheWindow: true,
+    });
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, 0);
+
+    // Legacy `/projects/:projectId/renders/file/:filename` passes inline only for video `?frame=1`,
+    // and keeps attachment for `?download=1&frame=1` and non-video exports.
+    const exportApp = createExportRoutes({ exportService: svc, getAuth: () => authFor() });
+    const frameRes = await exportApp.request(
+      `http://localhost/projects/${PID_A}/renders/file/launch-film.mp4?frame=1&retry=1`,
+    );
+    assert.equal(frameRes.status, 302);
+    assert.equal(frameRes.headers.get('cache-control'), 'no-store');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, 0);
+
+    const downloadRes = await exportApp.request(
+      `http://localhost/projects/${PID_A}/renders/file/launch-film.mp4?download=1&frame=1`,
+    );
+    assert.equal(downloadRes.status, 302);
+    assert.equal(downloadRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'attachment; filename="launch-film.mp4"');
+
+    const gifFrameRes = await exportApp.request(
+      `http://localhost/projects/${PID_A}/renders/file/loop.gif?frame=1&retry=1`,
+    );
+    assert.equal(gifFrameRes.status, 302);
+    assert.equal(gifFrameRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'attachment; filename="loop.gif"');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+  });
+
   it('rejects cross-tenant export access cleanly (workspace_id scoping)', async () => {
     const storage = new MemoryStorage();
     const eventBus = new MemoryEventBus();

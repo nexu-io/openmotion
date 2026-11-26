@@ -881,7 +881,9 @@ export class ExportService {
     const metadata = await this.getExportFileMetadata(ctx, jobId);
     const expiresInSec = options.expiresInSec ?? this.presignGetTtlSec;
     const mode = options.disposition ?? 'attachment';
-    const isVideoFrame = Boolean(options.frame && metadata.mimeType.startsWith('video/'));
+    // Only allow CORS video frame extraction (`inline` bare disposition) when the caller explicitly
+    // requests inline viewing; never let `frame: true` silently override an `attachment` download.
+    const isVideoFrame = Boolean(options.frame && mode === 'inline' && metadata.mimeType.startsWith('video/'));
     const cleanFilename = metadata.filename.replace(/["\\\r\n]/g, '_') || 'export.mp4';
     const bypassCacheWindow = isVideoFrame && Boolean(options.bypassCacheWindow);
     const url = await this.storage.presignGet(metadata.s3Key, {

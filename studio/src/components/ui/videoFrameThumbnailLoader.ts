@@ -9,7 +9,9 @@
  *   version history reuse extracted frames immediately without re-decoding.
  */
 
-const MAX_CACHED_FRAMES = 200;
+export const MAX_CACHED_FRAMES = 200;
+export const MAX_CACHED_BYTES = 8 * 1024 * 1024;
+export const MAX_THUMBNAIL_EDGE = 960;
 const MAX_CONCURRENT_EXTRACTIONS = 4;
 const EXTRACTION_TIMEOUT_MS = 15_000;
 
@@ -32,6 +34,7 @@ interface VideoFrameJob {
 }
 
 const frameCache = new Map<string, string>();
+let cachedBytes = 0;
 const inFlightJobs = new Map<string, VideoFrameJob>();
 const pendingQueue: VideoFrameJob[] = [];
 let activeCount = 0;
@@ -80,12 +83,22 @@ export function getCachedVideoFrame(src: string): string | null {
 }
 
 function setCachedVideoFrame(src: string, dataUrl: string): void {
-  frameCache.delete(src);
+  const existing = frameCache.get(src);
+  if (existing !== undefined) {
+    cachedBytes = Math.max(0, cachedBytes - existing.length);
+    frameCache.delete(src);
+  }
+  if (dataUrl.length > MAX_CACHED_BYTES) return;
   frameCache.set(src, dataUrl);
-  while (frameCache.size > MAX_CACHED_FRAMES) {
-    const oldest = frameCache.keys().next().value;
-    if (oldest === undefined) break;
-    frameCache.delete(oldest);
+  cachedBytes += dataUrl.length;
+  while (frameCache.size > MAX_CACHED_FRAMES || cachedBytes > MAX_CACHED_BYTES) {
+    const oldestKey = frameCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldestValue = frameCache.get(oldestKey);
+    frameCache.delete(oldestKey);
+    if (oldestValue !== undefined) {
+      cachedBytes = Math.max(0, cachedBytes - oldestValue.length);
+    }
   }
 }
 
@@ -173,9 +186,17 @@ function startJob(job: VideoFrameJob): void {
       return;
     }
     try {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
+      const maxEdge = Math.max(video.videoWidth, video.videoHeight);
+      const scale = maxEdge > MAX_THUMBNAIL_EDGE ? MAX_THUMBNAIL_EDGE / maxEdge : 1;
+      const targetWidth = Math.max(1, Math.round(video.videoWidth * scale));
+      const targetHeight = Math.max(1, Math.round(video.videoHeight * scale));
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      if (scale < 1) {
+        ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+      } else {
+        ctx.drawImage(video, 0, 0);
+      }
       const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
       if (!dataUrl || !dataUrl.startsWith("data:image/")) {
         finishError();
@@ -276,6 +297,7 @@ export function subscribeVideoFrame(
 
 export function resetVideoFrameThumbnailLoaderForTests(): void {
   frameCache.clear();
+  cachedBytes = 0;
   pendingQueue.length = 0;
   for (const job of [...inFlightJobs.values()]) {
     job.settled = true;
