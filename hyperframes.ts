@@ -200,7 +200,7 @@ function readHtmlAttribute(element: Element, name: string): string | undefined {
 function findRootCompositionInDocument(
   document: Document,
   parseHTMLContent: (html: string) => Document,
-): Element | undefined {
+): { root: Element; fromTemplate: boolean } | undefined {
   const pickRoot = (doc: Document): Element | undefined => {
     const compositions = Array.from(doc.querySelectorAll('*')) as Element[];
     const roots = compositions.filter((element) => readHtmlAttribute(element, 'data-composition-id') !== undefined);
@@ -208,13 +208,13 @@ function findRootCompositionInDocument(
   };
 
   const direct = pickRoot(document);
-  if (direct) return direct;
+  if (direct) return { root: direct, fromTemplate: false };
 
   for (const template of Array.from(document.querySelectorAll('template')) as Element[]) {
     const innerHtml = template.innerHTML;
     if (!innerHtml) continue;
     const innerRoot = pickRoot(parseHTMLContent(innerHtml));
-    if (innerRoot) return innerRoot;
+    if (innerRoot) return { root: innerRoot, fromTemplate: true };
   }
 
   return undefined;
@@ -237,12 +237,10 @@ function parseDurationSecondsAttr(raw: string | undefined): number | undefined {
   return match[2]?.toLowerCase() === 'ms' ? value / 1000 : value;
 }
 
-async function resolveSnapshotExportExpectation(
+async function resolveSnapshotCompositionContext(
   runtimeRoot: string,
   directory: string,
   compositionPath: string,
-  infoResult: Record<string, unknown>,
-  messages: { missingRoot: string; invalidFpsPrefix: string },
 ) {
   const coreRoot = path.join(runtimeRoot, 'node_modules/@hyperframes/core');
   const core = JSON.parse(await readFile(path.join(coreRoot, 'package.json'), 'utf8'));
@@ -256,8 +254,17 @@ async function resolveSnapshotExportExpectation(
 
   const entryHtml = await readFile(path.join(directory, compositionPath), 'utf8');
   const entryDoc = parseHTMLContent(entryHtml);
-  const sceneRoot = findRootCompositionInDocument(entryDoc, parseHTMLContent);
-  if (!sceneRoot) throw new Error(messages.missingRoot);
+  const found = findRootCompositionInDocument(entryDoc, parseHTMLContent);
+  if (!found) {
+    return {
+      sceneRoot: undefined,
+      fromTemplate: false,
+      shellRoot: undefined,
+      parseFps,
+      fpsToNumber,
+      CANVAS_DIMENSIONS,
+    };
+  }
 
   // Match hyperframes@0.9.7 producer: a <template>-wrapped sub-scene is rendered inside
   // the host shell extracted from index.html (inheriting root canvas width/height and
@@ -271,10 +278,53 @@ async function resolveSnapshotExportExpectation(
     if (indexHtml !== null) {
       const standaloneHtml = extractStandaloneEntryFromIndex(indexHtml, compositionPath, entryHtml);
       if (standaloneHtml) {
-        shellRoot = findRootCompositionInDocument(parseHTMLContent(standaloneHtml), parseHTMLContent);
+        shellRoot = findRootCompositionInDocument(parseHTMLContent(standaloneHtml), parseHTMLContent)?.root;
       }
     }
   }
+
+  return {
+    sceneRoot: found.root,
+    fromTemplate: found.fromTemplate,
+    shellRoot,
+    parseFps,
+    fpsToNumber,
+    CANVAS_DIMENSIONS,
+  };
+}
+
+/**
+ * Resolve the authored default `data-fps` for a `<template>`-wrapped sub-scene (falling back to
+ * its `index.html` host shell's `data-fps`). Needed because `hyperframes@0.9.7` CLI's
+ * `readCompositionFps` only scans top-level elements and falls back to 30 fps unless `--fps`
+ * is passed explicitly.
+ */
+export async function resolveTemplateDefaultFps(
+  runtimeRoot: string,
+  directory: string,
+  compositionPath: string,
+): Promise<string | undefined> {
+  if (compositionPath === 'index.html') return undefined;
+  const ctx = await resolveSnapshotCompositionContext(runtimeRoot, directory, compositionPath);
+  if (!ctx.sceneRoot || !ctx.fromTemplate) return undefined;
+  const rawFps =
+    readHtmlAttribute(ctx.sceneRoot, 'data-fps')?.trim() ||
+    (ctx.shellRoot ? readHtmlAttribute(ctx.shellRoot, 'data-fps')?.trim() : undefined);
+  if (!rawFps) return undefined;
+  const parsed = ctx.parseFps(rawFps);
+  return parsed.ok ? rawFps : undefined;
+}
+
+async function resolveSnapshotExportExpectation(
+  runtimeRoot: string,
+  directory: string,
+  compositionPath: string,
+  infoResult: Record<string, unknown>,
+  messages: { missingRoot: string; invalidFpsPrefix: string },
+) {
+  const { sceneRoot, shellRoot, parseFps, fpsToNumber, CANVAS_DIMENSIONS } =
+    await resolveSnapshotCompositionContext(runtimeRoot, directory, compositionPath);
+  if (!sceneRoot) throw new Error(messages.missingRoot);
 
   const dimensionsMap = (CANVAS_DIMENSIONS ?? {}) as Record<string, { readonly width: number; readonly height: number }>;
   const declaredResolution =

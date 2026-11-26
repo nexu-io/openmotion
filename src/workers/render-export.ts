@@ -20,6 +20,7 @@ import { extractStandaloneEntryFromIndex } from '@hyperframes/core/compiler';
 import { validateExportExpectation } from '../../shared/export-spec.ts';
 import {
   pluginRoot,
+  resolveTemplateDefaultFps,
   runHyperframesIsolated,
   snapshotExportExpectationIsolated,
   type CommandResult,
@@ -766,6 +767,17 @@ const SAFE_FPS_STRING = /^\d{1,6}(?:\/\d{1,6})?$/;
 const SAFE_RESOLUTION_PRESET = /^[a-z0-9-]{2,32}$/i;
 const SAFE_BITRATE_STRING = /^\d+(?:\.\d+)?[kKmM]?$/;
 
+function extractValidFpsSetting(settings?: Record<string, unknown>): string | undefined {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return undefined;
+  if (typeof settings.fps === 'number' && Number.isFinite(settings.fps) && settings.fps >= 1 && settings.fps <= 240) {
+    return String(settings.fps);
+  }
+  if (typeof settings.fps === 'string' && SAFE_FPS_STRING.test(settings.fps.trim())) {
+    return settings.fps.trim();
+  }
+  return undefined;
+}
+
 /**
  * Build validated CLI arguments for `hyperframes@0.9.7 render`, forwarding only safe
  * allowlisted `payload.settings` (`fps`, `quality`, `resolution`, `crf`, `videoBitrate`,
@@ -795,10 +807,9 @@ export function buildRenderExportArgs(params: {
 
   const settings = params.settings;
   if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
-    if (typeof settings.fps === 'number' && Number.isFinite(settings.fps) && settings.fps >= 1 && settings.fps <= 240) {
-      args.push('--fps', String(settings.fps));
-    } else if (typeof settings.fps === 'string' && SAFE_FPS_STRING.test(settings.fps.trim())) {
-      args.push('--fps', settings.fps.trim());
+    const explicitFps = extractValidFpsSetting(settings);
+    if (explicitFps) {
+      args.push('--fps', explicitFps);
     }
 
     if (typeof settings.quality === 'string' && ALLOWED_RENDER_QUALITIES.has(settings.quality.trim())) {
@@ -878,12 +889,7 @@ export function applyRenderSettingsToExpectation(
 
   let { width, height, fps } = base;
 
-  const rawFps =
-    typeof settings.fps === 'number' && Number.isFinite(settings.fps) && settings.fps >= 1 && settings.fps <= 240
-      ? String(settings.fps)
-      : typeof settings.fps === 'string' && SAFE_FPS_STRING.test(settings.fps.trim())
-        ? settings.fps.trim()
-        : undefined;
+  const rawFps = extractValidFpsSetting(settings);
   if (rawFps) {
     const parsedFps = parseFps(rawFps);
     if (parsedFps.ok) {
@@ -1175,11 +1181,25 @@ export async function processExportRenderJob(
       source: captureTuning.source,
     });
 
+    // hyperframes@0.9.7 CLI's readCompositionFps does not descend into <template> content, so
+    // without an explicit --fps it silently defaults to 30 fps even when the template scene or
+    // its index.html host shell declares another data-fps. Forward the authored default so CLI
+    // rendering and post-render expectation verification always agree.
+    let renderSettings = payload.settings;
+    if (compositionPath !== 'index.html' && !extractValidFpsSetting(payload.settings)) {
+      const templateDefaultFps = await resolveTemplateDefaultFps(runtimeRoot, projectDir, compositionPath).catch(
+        () => undefined,
+      );
+      if (templateDefaultFps) {
+        renderSettings = { ...(payload.settings ?? {}), fps: templateDefaultFps };
+      }
+    }
+
     const renderArgs = buildRenderExportArgs({
       compositionPath,
       outputFilePath,
       format,
-      settings: payload.settings,
+      settings: renderSettings,
       workers: captureTuning.workers,
       disableLowMemoryMode: captureTuning.disableLowMemoryMode,
       disableBrowserGpu: captureTuning.disableBrowserGpu,

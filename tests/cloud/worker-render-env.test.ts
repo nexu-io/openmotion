@@ -1463,4 +1463,97 @@ describe('Sub-scene (<template>) Export Expectation, Parity Injection & Settings
       await rm(tmpBase, { recursive: true, force: true });
     }
   });
+
+  it('forwards authored template/shell data-fps to hyperframes render when settings.fps is omitted so CLI and verification match', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-test-render-template-fps-'));
+    try {
+      const storage = new MemoryStorage();
+      const eventBus = new MemoryEventBus();
+      const indexHtml = `<!doctype html><html><body>
+        <div data-composition-id="root" data-width="1920" data-height="1080" data-fps="24" data-duration="20">
+          <div data-composition-src="compositions/fps60.html" data-start="0" data-duration="3"></div>
+          <div data-composition-src="compositions/inherit24.html" data-start="3" data-duration="4"></div>
+        </div>
+      </body></html>`;
+      const fps60Html = `<template><div data-composition-id="fps60" data-width="1920" data-height="1080" data-duration="3" data-fps="60">60fps</div></template>`;
+      const inherit24Html = `<template><div data-composition-id="inherit24" data-duration="4">24fps</div></template>`;
+
+      const indexSha = sha256(indexHtml);
+      const fps60Sha = sha256(fps60Html);
+      const inherit24Sha = sha256(inherit24Html);
+      await storage.putObject(workspaceBlobKey(WID_A, indexSha), indexHtml, 'text/html');
+      await storage.putObject(workspaceBlobKey(WID_A, fps60Sha), fps60Html, 'text/html');
+      await storage.putObject(workspaceBlobKey(WID_A, inherit24Sha), inherit24Html, 'text/html');
+
+      const snapshotRows = [
+        { path: 'index.html', blobScope: 'workspace', sha256: indexSha, sizeBytes: indexHtml.length, mimeType: 'text/html' },
+        { path: 'compositions/fps60.html', blobScope: 'workspace', sha256: fps60Sha, sizeBytes: fps60Html.length, mimeType: 'text/html' },
+        { path: 'compositions/inherit24.html', blobScope: 'workspace', sha256: inherit24Sha, sizeBytes: inherit24Html.length, mimeType: 'text/html' },
+      ];
+
+      const fakeMp4 = Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypisom'), Buffer.alloc(64, 5)]);
+
+      for (const scenario of [
+        { compositionPath: 'compositions/fps60.html', expectedFps: 60, expectedDuration: 3 },
+        { compositionPath: 'compositions/inherit24.html', expectedFps: 24, expectedDuration: 4 },
+      ]) {
+        let passedArgs: string[] = [];
+        let verifiedExpected: unknown;
+        const db = createFakeRenderDb(snapshotRows, () => [{ id: JID_OK }]);
+        const res = await processExportRenderJob(
+          {
+            db,
+            storage,
+            eventBus,
+            logger: SILENT_LOGGER,
+            workerId: 'render-test-fps',
+            tmpBaseDir: tmpBase,
+            runRenderCommand: async (_rt, _dir, args) => {
+              passedArgs = args;
+              await writeFile(args[args.indexOf('--output') + 1], fakeMp4);
+              return { code: 0, stdout: 'Render complete\n', stderr: '' };
+            },
+            verifyExportFn: async (outFile, expected) => {
+              verifiedExpected = expected;
+              return {
+                scope: 'technical',
+                status: 'passed',
+                file: outFile,
+                sha256: sha256(fakeMp4),
+                expected,
+                checks: [{ name: 'probe', status: 'passed', details: 'ok' }],
+                remainingChecks: [],
+              };
+            },
+          },
+          {
+            jobId: JID_OK,
+            workspaceId: WID_A,
+            projectId: PID_A,
+            versionId: VID_A,
+            revision: REV_1,
+            compositionPath: scenario.compositionPath,
+            outputName: 'scene.mp4',
+            format: 'mp4',
+            phase1: true,
+          },
+        );
+        assert.equal(res.state, 'completed');
+        assert.equal(
+          passedArgs[passedArgs.indexOf('--fps') + 1],
+          String(scenario.expectedFps),
+          `${scenario.compositionPath} must pass explicit --fps ${scenario.expectedFps} to hyperframes render`,
+        );
+        assert.deepEqual(verifiedExpected, {
+          width: 1920,
+          height: 1080,
+          fps: scenario.expectedFps,
+          duration: scenario.expectedDuration,
+          audio: 'optional',
+        });
+      }
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
 });
