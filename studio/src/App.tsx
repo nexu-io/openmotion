@@ -424,6 +424,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
   });
   const renderClipContent = useRenderClipContent({
     fileTreeLoaded: fileManager.fileTreeLoaded,
+    fileTree: fileManager.fileTree,
     projectIdRef: fileManager.projectIdRef,
     compIdToSrc,
     activePreviewUrl:

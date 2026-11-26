@@ -1,7 +1,7 @@
 import { buildProjectApiPath } from "../utils/projectRouting";
 import { resolvePreviewRelative } from "../utils/previewRelativePath";
 import { VIDEO_EXT } from "../utils/mediaTypes";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { createElement } from "react";
 import { CompositionThumbnail, VideoThumbnail } from "../player";
 import {
@@ -121,23 +121,44 @@ function withSoundStrip(
   return createElement(AudibleVideoClipContent, { thumbnail, waveform: waveform(0) });
 }
 
-function resolveAuthoredMediaSrc(rawSrc: string, sourceFile: string | undefined): string {
+function resolveAuthoredMediaSrc(
+  rawSrc: string,
+  sourceFile: string | undefined,
+  projectFileSet: ReadonlySet<string> | null,
+): string {
   const trimmed = rawSrc.trim();
   const isRelative =
     Boolean(trimmed) &&
     !trimmed.startsWith("/") &&
     !/^[a-z][a-z0-9+.-]*:/i.test(trimmed) &&
     !trimmed.startsWith("//");
-  if (sourceFile && isRelative && (trimmed.startsWith(".") || !/^assets\//i.test(trimmed))) {
-    try {
-      const normalizedSource = sourceFile.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
-      const resolved = new URL(trimmed, `https://project.invalid/${normalizedSource}`);
-      const relPath = resolved.pathname.replace(/^\/+/, "");
-      if (relPath) {
-        return authoredSrcPath(`${relPath}${resolved.search}${resolved.hash}`);
+  if (sourceFile && isRelative) {
+    const isDotRelative = /^\.\.?(?:\/|$)/.test(trimmed);
+    if (isDotRelative || projectFileSet) {
+      try {
+        const normalizedSource = sourceFile.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+        const resolved = new URL(trimmed, `https://project.invalid/${normalizedSource}`);
+        const relPath = resolved.pathname.replace(/^\/+/, "");
+        if (relPath) {
+          if (isDotRelative) {
+            return authoredSrcPath(`${relPath}${resolved.search}${resolved.hash}`);
+          }
+          let decodedRelPath = relPath;
+          try {
+            decodedRelPath = decodeURIComponent(relPath);
+          } catch {
+            // Keep raw relPath if percent-encoding is malformed.
+          }
+          // Mirror preview-bundler's existence-aware rewriteAssetPath: only rebase bare
+          // relative paths against the composition directory when that sibling file actually
+          // exists in the loaded file tree; otherwise preserve preview-root-relative paths.
+          if (projectFileSet?.has(decodedRelPath)) {
+            return authoredSrcPath(`${relPath}${resolved.search}${resolved.hash}`);
+          }
+        }
+      } catch {
+        // Fall back to direct authored path normalization below.
       }
-    } catch {
-      // Fall back to direct authored path normalization below.
     }
   }
   return authoredSrcPath(rawSrc);
@@ -145,6 +166,7 @@ function resolveAuthoredMediaSrc(rawSrc: string, sourceFile: string | undefined)
 
 export interface UseRenderClipContentOptions {
   fileTreeLoaded: boolean;
+  fileTree?: readonly string[];
   projectIdRef: { current: string | null };
   compIdToSrc: Map<string, string>;
   activePreviewUrl: string | null;
@@ -153,6 +175,7 @@ export interface UseRenderClipContentOptions {
 
 export function useRenderClipContent({
   fileTreeLoaded,
+  fileTree,
   projectIdRef,
   compIdToSrc,
   activePreviewUrl,
@@ -164,6 +187,10 @@ export function useRenderClipContent({
   const effectiveMode = effectiveThumbnailMode(thumbnailMode);
   const sessionEpoch = usePlayerStore((s) => s.timelineSessionEpoch);
   const thumbnailRevisions = usePlayerStore((s) => s.thumbnailRevisions);
+  const projectFileSet = useMemo(() => {
+    if (!fileTree || fileTree.length === 0) return null;
+    return new Set(fileTree.map((p) => p.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "")));
+  }, [fileTree]);
   return useCallback(
     // Pre-existing clip-content dispatcher; reduced by extracting renderAudioClip.
     // fallow-ignore-next-line complexity
@@ -233,7 +260,7 @@ export function useRenderClipContent({
           el.sourceFile ??
           (activePreviewUrl ? compositionPathOfPreviewUrl(activePreviewUrl) : undefined);
         let mediaSrc = resolveMediaPreviewUrl(
-          resolveAuthoredMediaSrc(el.src, sourceFile),
+          resolveAuthoredMediaSrc(el.src, sourceFile, projectFileSet),
           pid,
           window.location.origin,
         );
@@ -333,6 +360,7 @@ export function useRenderClipContent({
     },
     [
       fileTreeLoaded,
+      projectFileSet,
       projectIdRef,
       compIdToSrc,
       activePreviewUrl,
