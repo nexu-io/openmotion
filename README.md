@@ -44,13 +44,11 @@ OpenMotion is a **full-stack agentic video** studio and an **open-source alterna
 - 🧩 OpenMotion introduces **Motion.md**, a Markdown format for shot order, timing and transitions. Use it to share how a brand film works, shot by shot.
 - 🎛️ **Images, video, music and voice.** Create artwork with GPT Image 2.6, add a shot with Seedance 2.5, score it with Suno and narrate it with Eleven v4. [Explore the models and providers](#model-wall).
 
-<a id="快速开始"></a> <a id="quick-start"></a>
-
 <a id="desktop-app"></a>
 
 ### Download the Desktop App (macOS & Windows)
 
-Use OpenMotion Studio in a native cloud-first desktop client (`OpenDesign`) with signed macOS & Windows installers, built-in local Agent MCP auto-connection, and automatic updates.
+Use OpenMotion Studio in a native cloud-first desktop client (`OpenDesign`) with signed and notarized macOS installers, Windows installers, built-in local Agent MCP auto-connection, and automatic updates.
 
 | Platform | Installer | Notes |
 | --- | --- | --- |
@@ -60,6 +58,8 @@ Use OpenMotion Studio in a native cloud-first desktop client (`OpenDesign`) with
 **[Download from GitHub Releases (`desktop-v*`) →](https://github.com/nexu-io/openmotion/releases)**
 
 Stable desktop releases are published under independent `desktop-v<version>` tags alongside `SHA256SUMS.txt` (decoupled from npm `v*` releases). Want to run or package the desktop shell from source? See [desktop/](desktop/).
+
+<a id="快速开始"></a> <a id="quick-start"></a>
 
 ### Install from ChatGPT Marketplace
 

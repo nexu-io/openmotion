@@ -44,13 +44,11 @@ OpenMotion 是一个**由 AI Agent 驱动的全栈视频创作工作台**，也�
 - 🧩 OpenMotion 首次定义了 **Motion.md**，用 Markdown 记录镜头顺序、时长和转场。品牌宣传片的拆解可以随工程一起分享。
 - 🎛️ **图片、视频、音乐和语音。** 用 GPT Image 2.6 生成画面、Seedance 2.5 补镜头、Suno 配乐，再用 Eleven v4 生成旁白。[查看模型与接入方式](#model-wall)
 
-<a id="快速开始"></a> <a id="quick-start"></a>
-
 <a id="desktop-app"></a>
 
 ### 下载桌面客户端（macOS / Windows）
 
-通过云端优先的原生桌面客户端（`OpenDesign`）直接使用 OpenMotion Studio，提供签名与公证安装包、本地 Agent MCP 一键接入与自动更新。
+通过云端优先的原生桌面客户端（`OpenDesign`）直接使用 OpenMotion Studio，提供经签名与 Apple 公证的 macOS 安装包和 Windows 安装包、本地 Agent MCP 一键接入与自动更新。
 
 | 平台 | 安装包 | 说明 |
 | --- | --- | --- |
@@ -60,6 +58,8 @@ OpenMotion 是一个**由 AI Agent 驱动的全栈视频创作工作台**，也�
 **[前往 GitHub Releases 下载（`desktop-v*`）→](https://github.com/nexu-io/openmotion/releases)**
 
 桌面端正式版会以独立的 `desktop-v<version>` 标签发布，并附带 `SHA256SUMS.txt` 校验文件（与 npm `v*` 发版解耦）。如需从源码运行或本地打包，见 [desktop/](../desktop/)。
+
+<a id="快速开始"></a> <a id="quick-start"></a>
 
 ### 从 ChatGPT 插件市场安装
 

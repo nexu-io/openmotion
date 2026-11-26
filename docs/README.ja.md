@@ -44,13 +44,11 @@ OpenMotion は、**AI エージェントが動画制作の全工程を担うフ�
 - 🧩 **Motion.md** は、OpenMotion が定義した Markdown 形式です。カットの順番、尺、トランジションを記録し、ブランド動画の演出をプロジェクトと一緒に共有できます。
 - 🎛️ **画像・動画・音楽・音声。** GPT Image 2.6 で画像を、Seedance 2.5 で追加カットを作成。Suno で音楽を付け、Eleven v4 でナレーションを生成できます。[モデルと接続方法を見る](#model-wall)
 
-<a id="快速开始"></a> <a id="quick-start"></a>
-
 <a id="desktop-app"></a>
 
 ### デスクトップアプリをダウンロード（macOS / Windows）
 
-クラウドファーストのネイティブデスクトップクライアント（`OpenDesign`）から OpenMotion Studio をそのまま利用できます。署名・公証済みの macOS / Windows インストーラー、ローカルエージェントへの MCP 自動接続、自動アップデートを備えています。
+クラウドファーストのネイティブデスクトップクライアント（`OpenDesign`）から OpenMotion Studio をそのまま利用できます。署名・Apple 公証済みの macOS インストーラーと Windows インストーラー、ローカルエージェントへの MCP 自動接続、自動アップデートを備えています。
 
 | プラットフォーム | インストーラー | 備考 |
 | --- | --- | --- |
@@ -60,6 +58,8 @@ OpenMotion は、**AI エージェントが動画制作の全工程を担うフ�
 **[GitHub Releases からダウンロード（`desktop-v*`）→](https://github.com/nexu-io/openmotion/releases)**
 
 デスクトップ安定版は npm の `v*` リリースとは独立した `desktop-v<version>` タグで、`SHA256SUMS.txt` とともに公開されます。ソースから起動またはパッケージ化する場合は [desktop/](../desktop/) を参照してください。
+
+<a id="快速开始"></a> <a id="quick-start"></a>
 
 ### ChatGPT Marketplace からインストール
 

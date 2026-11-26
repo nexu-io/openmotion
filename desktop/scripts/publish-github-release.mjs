@@ -147,8 +147,8 @@ export function buildGithubReleaseNotes({
     `SHA-256 verification checksums are attached in [\`SHA256SUMS.txt\`](${ghDownloadBase}/SHA256SUMS.txt).`,
   ];
 
-  if (changelog) {
-    sections.push('', '### What Changed', '', changelog);
+  if (changelog.source !== 'empty' && changelog.plainMarkdown) {
+    sections.push('', '### What Changed', '', changelog.plainMarkdown);
   }
 
   if (compareUrl) {
@@ -228,12 +228,24 @@ export function publishDesktopGithubRelease({
     }
 
     if (releaseExists) {
+      // An interrupted `gh release create` leaves a draft behind (it creates
+      // the draft before uploading). Publish it once the uploads succeed.
       execFile('gh', ['release', 'upload', tag, ...uploadPaths, '--clobber', ...repoArgs], {
         stdio: 'inherit',
       });
       execFile(
         'gh',
-        ['release', 'edit', tag, '--title', title, '--notes-file', notesFile, ...repoArgs],
+        [
+          'release',
+          'edit',
+          tag,
+          '--title',
+          title,
+          '--notes-file',
+          notesFile,
+          '--draft=false',
+          ...repoArgs,
+        ],
         { stdio: 'inherit' },
       );
     } else {

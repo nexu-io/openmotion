@@ -1282,6 +1282,18 @@ test('desktop/scripts/publish-github-release.mjs enforces stable-only desktop-v 
   assert.match(notes, /https:\/\/releases\.open-design\.ai\/open-motion\/desktop\/stable\//);
   assert.equal(notes.includes('inner.nexu.space'), false);
   assert.equal(notes.includes('powerformer.net'), false);
+  assert.equal(notes.includes('[object Object]'), false);
+  assert.match(notes, /### What Changed\n\n[\s\S]*add GitHub Releases publication/);
+
+  const manualNotes = buildGithubReleaseNotes({
+    version: '0.2.1',
+    manualNotes: 'Fix the sign-in loop after waking from sleep',
+  });
+  assert.equal(manualNotes.includes('[object Object]'), false);
+  assert.match(manualNotes, /### What Changed\n\n[\s\S]*Fix the sign-in loop after waking from sleep/);
+
+  const emptyNotes = buildGithubReleaseNotes({ version: '0.2.1' });
+  assert.equal(emptyNotes.includes('### What Changed'), false);
 });
 
 test('publishDesktopGithubRelease handles create, idempotent update, and missing asset validation', () => {
@@ -1332,6 +1344,27 @@ test('publishDesktopGithubRelease handles create, idempotent update, and missing
     assert.equal(updateCalls[1][2], 'upload');
     assert.ok(updateCalls[1].includes('--clobber'));
     assert.equal(updateCalls[2][2], 'edit');
+    assert.ok(updateCalls[2].includes('--draft=false'));
+
+    // A retry after an interrupted create finds the leftover draft: assets
+    // are uploaded first, and only then is the draft published.
+    const draftCalls = [];
+    publishDesktopGithubRelease({
+      channel: 'stable',
+      version: '0.2.1',
+      assetsDir: dir,
+      execFile: (cmd, args) => {
+        draftCalls.push([cmd, ...args]);
+        if (args[1] === 'view') return '{"isDraft":true}';
+        return '';
+      },
+    });
+    assert.deepEqual(
+      draftCalls.map(call => call[2]),
+      ['view', 'upload', 'edit'],
+    );
+    assert.ok(draftCalls[2].includes('--draft=false'));
+    assert.equal(draftCalls.some(call => call[2] === 'create'), false);
 
     // Non-stable channel is rejected before invoking gh.
     assert.throws(
