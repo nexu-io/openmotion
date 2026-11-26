@@ -5,10 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EDITOR_ASSET_AUTO_RELEASE_MS,
   EDITOR_ASSET_ESCAPE_HATCH_MS,
-  EDITOR_ASSET_PROGRESS_DEBOUNCE_MS,
-  EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS,
   EditorAssetLoadingOverlay,
-  EditorAssetProgressBar,
   triggerEditorAssetRetry,
   useEditorAssetReadiness,
 } from "./EditorAssetLoadingOverlay";
@@ -87,63 +84,6 @@ describe("EditorAssetLoadingOverlay", () => {
   });
 });
 
-describe("EditorAssetProgressBar", () => {
-  it("debounces briefly so instant cache hits never paint the hairline", () => {
-    act(() => {
-      root!.render(
-        <EditorAssetProgressBar loading={true} completed={0} total={9} />,
-      );
-    });
-    act(() => {
-      vi.advanceTimersByTime(EDITOR_ASSET_PROGRESS_DEBOUNCE_MS - 40);
-    });
-    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).toBeNull();
-
-    act(() => {
-      root!.render(
-        <EditorAssetProgressBar loading={false} completed={9} total={9} />,
-      );
-    });
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).toBeNull();
-  });
-
-  it("renders a non-blocking hairline progress bar and holds it briefly once shown", () => {
-    act(() => {
-      root!.render(
-        <EditorAssetProgressBar loading={true} completed={4} total={9} />,
-      );
-    });
-    act(() => {
-      vi.advanceTimersByTime(EDITOR_ASSET_PROGRESS_DEBOUNCE_MS + 20);
-    });
-    const bar = host!.querySelector('[data-testid="editor-asset-progress-bar"]');
-    expect(bar).not.toBeNull();
-    expect(bar?.getAttribute("role")).toBe("progressbar");
-    expect(bar?.getAttribute("aria-valuenow")).toBe("44");
-    expect(host!.querySelector('[data-testid="editor-asset-loading-overlay"]')).toBeNull();
-    expect(host!.querySelector('[data-testid="editor-asset-loading-skip"]')).toBeNull();
-
-    // Completing immediately after mount still holds the bar for the minimum dwell time.
-    act(() => {
-      root!.render(
-        <EditorAssetProgressBar loading={false} completed={9} total={9} />,
-      );
-    });
-    act(() => {
-      vi.advanceTimersByTime(EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS - 100);
-    });
-    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).not.toBeNull();
-
-    act(() => {
-      vi.advanceTimersByTime(400);
-    });
-    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).toBeNull();
-  });
-});
-
 describe("useEditorAssetReadiness", () => {
   it("unlocks when the file tree arrives with the preview and media pending, and retries failures in the background", async () => {
     const showToast = vi.fn(() => 1);
@@ -168,12 +108,11 @@ describe("useEditorAssetReadiness", () => {
 
     act(() => root!.render(<Harness fileTreeLoaded={false} />));
     expect(latest.blocking).toBe(true);
-    expect(latest.backgroundLoading).toBe(false);
     expect(usePlayerStore.getState().editorInputLocked).toBe(true);
 
     act(() => root!.render(<Harness fileTreeLoaded />));
     expect(latest.blocking).toBe(false);
-    expect(latest.backgroundLoading).toBe(true);
+    expect(usePlayerStore.getState().assetReadinessPhase).toBe("loading");
     expect(usePlayerStore.getState().editorInputLocked).toBe(false);
 
     const retrySpy = vi.fn(async () => {
@@ -212,7 +151,6 @@ describe("useEditorAssetReadiness", () => {
     expect(presentation).toBe("feedback");
     expect(action.label).toBe("Retry");
 
-    // Subsequent in-place retry uses background hairline and never re-blocks the full cover.
     await act(async () => {
       await action.onClick();
     });
@@ -223,7 +161,7 @@ describe("useEditorAssetReadiness", () => {
     expect(showToast).toHaveBeenLastCalledWith("Assets reloaded", "info", "feedback");
   });
 
-  it("hands off to the non-blocking background hairline when the user skips the initial cover", () => {
+  it("unlocks input while media continues loading when the user skips the initial cover", () => {
     const showToast = vi.fn(() => 1);
     let latest!: ReturnType<typeof useEditorAssetReadiness>;
 
@@ -243,12 +181,11 @@ describe("useEditorAssetReadiness", () => {
 
     act(() => root!.render(<Harness />));
     expect(latest.blocking).toBe(true);
-    expect(latest.backgroundLoading).toBe(false);
     expect(usePlayerStore.getState().editorInputLocked).toBe(true);
 
     act(() => latest.skip());
     expect(latest.blocking).toBe(false);
-    expect(latest.backgroundLoading).toBe(true);
+    expect(usePlayerStore.getState().assetReadinessPhase).toBe("loading");
     expect(usePlayerStore.getState().editorInputLocked).toBe(false);
   });
 
@@ -292,7 +229,7 @@ describe("useEditorAssetReadiness", () => {
     expect(onReloadPreview).toHaveBeenCalledTimes(1);
   });
 
-  it("releases the cover and hides the hairline when previewLoadError occurs", () => {
+  it("releases the cover and unlocks input after a preview load error", () => {
     const showToast = vi.fn(() => 1);
     let latest!: ReturnType<typeof useEditorAssetReadiness>;
 
@@ -315,7 +252,6 @@ describe("useEditorAssetReadiness", () => {
       usePlayerStore.getState().setPreviewLoadError(true);
     });
     expect(latest.blocking).toBe(false);
-    expect(latest.backgroundLoading).toBe(false);
     expect(usePlayerStore.getState().editorInputLocked).toBe(false);
   });
 

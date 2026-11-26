@@ -258,9 +258,22 @@ export class QueueService {
     options?: JobsOptions,
   ) {
     const validated = validateMediaGeneratePayload(name, payload);
+    const jobId = options?.jobId ?? validated.jobId;
+    if (
+      (name === 'retry_save_generation' || name === 'resume_generation') &&
+      typeof this.mediaGenerate.getJob === 'function'
+    ) {
+      const existing = await this.mediaGenerate.getJob(jobId).catch(() => undefined);
+      if (existing) {
+        const state = await existing.getState().catch(() => null);
+        if (state === 'completed' || state === 'failed') {
+          await existing.remove().catch(() => {});
+        }
+      }
+    }
     return this.mediaGenerate.add(name, validated, {
       ...options,
-      jobId: options?.jobId ?? validated.jobId,
+      jobId,
       attempts: 1,
     });
   }

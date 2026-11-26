@@ -137,12 +137,14 @@ it('resumes an acknowledged empty session without resubmitting a changed display
   expect(pendingTemplateProjects()).toEqual([]);
 });
 
-it('points cloud streamable-http template handoff instructions to /mcp-setup instead of GitHub', () => {
+it('points cloud streamable-http template handoff instructions to /install.md instead of GitHub or /mcp-setup', () => {
   const cloudInfo = { previewUrl: 'https://openmotion.example', transport: { type: 'streamable-http' } };
   const zh = templateHandoffPrompt(template, 'zh-CN', cloudInfo);
   const en = templateHandoffPrompt(template, 'en', cloudInfo);
-  expect(zh).toContain('https://openmotion.example/mcp-setup');
+  expect(zh).toContain('https://openmotion.example/install.md');
   expect(zh).not.toContain('github.com/nexu-io/openmotion');
-  expect(en).toContain('https://openmotion.example/mcp-setup');
+  expect(zh).not.toContain('/mcp-setup');
+  expect(en).toContain('https://openmotion.example/install.md');
   expect(en).not.toContain('github.com/nexu-io/openmotion');
+  expect(en).not.toContain('/mcp-setup');
 });

@@ -69,7 +69,7 @@ export type IntegrationInfo = {
 export function buildCloudIntegrationInfo(options: {
   publicOrigin: string;
   version: string;
-  workspaceId: string;
+  workspaceId?: string;
   authMode: 'oidc' | 'dev';
   oauth2Enabled?: boolean;
   patEnabled?: boolean;
@@ -82,11 +82,11 @@ export function buildCloudIntegrationInfo(options: {
   return {
     deployment: { type: 'cloud' },
     templateSource: 'catalog',
-    workspaceId: options.workspaceId,
+    ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
     name: 'OpenMotion',
     version: options.version,
     previewUrl: origin,
-    dataDirectory: `workspace:${options.workspaceId}`,
+    dataDirectory: options.workspaceId ? `workspace:${options.workspaceId}` : '',
     transport: {
       type: 'streamable-http',
       url: mcpUrl,
@@ -108,6 +108,40 @@ export function isStreamableHttpTransport(
   transport: IntegrationTransport | undefined | null,
 ): transport is StreamableHttpIntegrationTransport {
   return transport?.type === 'streamable-http';
+}
+
+export type PartialIntegrationHint = Partial<
+  Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory' | 'transport' | 'deployment'>
+>;
+
+export function isCloudIntegration(info: PartialIntegrationHint | null | undefined): boolean {
+  if (!info) return false;
+  if (isStreamableHttpTransport(info.transport)) return true;
+  if (info.deployment?.type === 'cloud') return true;
+  return Boolean(info.dataDirectory?.startsWith('workspace:'));
+}
+
+export function cloudInstallGuideUrl(originOrUrl: string): string {
+  try {
+    return `${new URL(originOrUrl).origin}/install.md`;
+  } catch {
+    return `${originOrUrl.replace(/\/+$/, '')}/install.md`;
+  }
+}
+
+/**
+ * Resolves the machine-readable connection guide URL to place inside Agent prompts:
+ * - Cloud Streamable HTTP deployments always point to `<ORIGIN>/install.md` (public Markdown).
+ * - Legacy local stdio workspaces keep `<ORIGIN>/connect/guide?host=...`.
+ */
+export function agentConnectionGuideUrl(
+  info: Pick<IntegrationInfo, 'previewUrl'> & PartialIntegrationHint,
+  host: IntegrationHost = 'mcp',
+): string {
+  if (isCloudIntegration(info)) {
+    return cloudInstallGuideUrl(info.previewUrl);
+  }
+  return guideUrl({ previewUrl: new URL(info.previewUrl).origin }, host);
 }
 
 export function supportsChatgptCloud(info: IntegrationInfo | null | undefined): boolean {
@@ -274,8 +308,8 @@ export function manualConnection(info: IntegrationInfo, host: IntegrationHost, l
         : `codex mcp add openmotion --url ${shellQuote(url)}\ncodex mcp get openmotion`;
     }
     return auth.oauth2
-      ? `claude mcp add --transport http openmotion ${shellQuote(url)} --scope user\nclaude mcp login openmotion\nclaude mcp get openmotion`
-      : `claude mcp add --transport http openmotion ${shellQuote(url)} --scope user\nclaude mcp get openmotion`;
+      ? `claude mcp add --transport http --scope user openmotion ${shellQuote(url)}\nclaude mcp login openmotion\nclaude mcp get openmotion`
+      : `claude mcp add --transport http --scope user openmotion ${shellQuote(url)}\nclaude mcp get openmotion`;
   }
 
   if (host === 'deepseek') return deepseekConfig(info);
@@ -286,6 +320,25 @@ export function manualConnection(info: IntegrationInfo, host: IntegrationHost, l
   const prefix = host === 'codex' ? 'codex mcp add openmotion' : 'claude mcp add --transport stdio openmotion';
   const environment = Object.entries(env).map(([key, value]) => `--env ${shellQuote(`${key}=${value}`)}`).join(' ');
   return `${prefix} ${environment} -- ${[command, ...args].map(shellQuote).join(' ')}\n${host === 'codex' ? 'codex' : 'claude'} mcp get openmotion`;
+}
+
+/**
+ * Claude Desktop remote MCP servers use Settings -> Connectors -> Add custom connector (OAuth 2.1)
+ * rather than raw HTTP entries in `claude_desktop_config.json`; local stdio stays JSON-based.
+ */
+export function claudeDesktopManualConnection(info: IntegrationInfo, locale: 'zh-CN' | 'en' = 'zh-CN') {
+  if (!isStreamableHttpTransport(info.transport)) {
+    return manualConnection(info, 'mcp', locale);
+  }
+  const { url, auth } = info.transport;
+  if (supportsChatgptCloud(info)) {
+    return locale === 'en'
+      ? `Open Claude Desktop (or Claude.ai) Settings -> Connectors -> Add custom connector\nURL: ${url}\nAuthentication: OAuth 2.1 (auto-discovered via ${auth.resourceMetadataUrl ?? url})`
+      : `在 Claude Desktop（或 Claude.ai）设置 -> Connectors -> Add custom connector 中添加远程连接器\nURL：${url}\n授权方式：OAuth 2.1（自动发现：${auth.resourceMetadataUrl ?? url}）`;
+  }
+  return locale === 'en'
+    ? `Current MCP endpoint: ${url}\nClaude Desktop remote Custom Connectors require a public HTTPS Streamable HTTP URL with OAuth 2.1 (Settings -> Connectors -> Add custom connector).\nUse Codex, Claude Code, Cursor, or DeepSeek Harness with this local HTTP endpoint, or deploy OpenMotion behind HTTPS.`
+    : `当前 MCP 地址：${url}\nClaude Desktop 远程连接器（设置 -> Connectors -> Add custom connector）需要公开 HTTPS Streamable HTTP 端点与 OAuth 2.1 授权。\n当前本地 HTTP 环境可先使用 Codex、Claude Code、Cursor 或 DeepSeek Harness，或将 OpenMotion 部署到 HTTPS 域名后接入。`;
 }
 
 export function apiDiscoveryCommand(info: IntegrationInfo) {
@@ -311,6 +364,21 @@ export function setupGuideUrl(info: IntegrationInfo | null) {
   return `https://releases.open-design.ai/open-motion/${environment === 'dev' ? 'dev/' : ''}install.md`;
 }
 
+export function cloudMcpPostAuthorizationInstructions(
+  publicOrigin: string,
+  host?: IntegrationHost,
+  locale: 'zh-CN' | 'en' = 'en',
+) {
+  const helpUrl = new URL('/mcp-setup', publicOrigin).href;
+  const hostName = host ? hostNames[host] : null;
+  if (locale === 'zh-CN') {
+    const newChatTarget = hostName ? `新的 ${hostName} 聊天` : '当前客户端的新聊天';
+    return `授权成功后，如果工具已可用，请继续我已经提出的创作需求，或直接告诉我可以发送创作需求。安装文档 /install.md 仅供 Agent 内部阅读，请勿在回复里展示。如果当前聊天还没加载 OpenMotion 工具，请提示我打开${newChatTarget}并发送创作需求。如需分享接入帮助，请使用 ${helpUrl}。`;
+  }
+  const newChatTarget = hostName ? `a new ${hostName} chat` : 'a new chat in this client';
+  return `After authorization, keep /install.md internal to the Agent. When the tools are ready, continue the user's existing request or tell them they can send a creative request. If the OpenMotion tools are unavailable in the current chat, tell the user to open ${newChatTarget} and send their creative request there. If the user needs a setup help link, use ${helpUrl}.`;
+}
+
 // Bootstrap instructions must work before an installation or local server exists.
 // Exact local paths belong only to manual configuration and the running service's guide.
 export function setupPrompt(
@@ -319,7 +387,9 @@ export function setupPrompt(
   locale: 'zh-CN' | 'en' = 'zh-CN',
   translate: (message: string, values: Record<string, string>) => string =
     (message, values) => message.replace(/\{(\w+)\}/g, (placeholder, key: string) => values[key] ?? placeholder),
+  options?: { waitForBrief?: boolean },
 ) {
+  const waitForBrief = options?.waitForBrief ?? true;
   if (info && isStreamableHttpTransport(info.transport)) {
     const mcpUrl = info.transport.url;
     const guide = setupGuideUrl(info);
@@ -329,15 +399,23 @@ export function setupPrompt(
         : `ChatGPT 云端需要公开 HTTPS Streamable HTTP MCP 端点与 OAuth 2.1 授权。当前端点：${mcpUrl}。`;
     }
     if (locale === 'zh-CN') {
-      return `请阅读 ${guide}，帮我将 ${hostNames[host]} 接入 OpenMotion 云端 MCP（${mcpUrl}）。
-不要安装 npm 包、克隆仓库、启动本地运行时或使用 docker exec。
-导入素材时使用 openmotion_import_assets 的 upload_ticket / url / library_asset 模式。
-等我给出创作要求后再创建或修改工程。`;
+      const lines = [
+        `请阅读 ${guide}，帮我将 ${hostNames[host]} 接入 OpenMotion 云端 MCP（${mcpUrl}）。`,
+        '不要安装 npm 包、克隆仓库、启动本地运行时或使用 docker exec。',
+        '导入素材时使用 openmotion_import_assets 的 upload_ticket / url / library_asset 模式。',
+        cloudMcpPostAuthorizationInstructions(mcpUrl, host, 'zh-CN'),
+      ];
+      if (waitForBrief) lines.push('等我给出创作要求后再创建或修改工程。');
+      return lines.join('\n');
     }
-    return `Follow ${guide} to connect ${hostNames[host]} to OpenMotion Cloud MCP (${mcpUrl}).
-Do not install an npm package, clone the repository, start a local runtime, or wrap commands with docker exec.
-Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).
-Wait for my creative brief before creating or modifying a project.`;
+    const lines = [
+      `Follow ${guide} to connect ${hostNames[host]} to OpenMotion Cloud MCP (${mcpUrl}).`,
+      'Do not install an npm package, clone the repository, start a local runtime, or wrap commands with docker exec.',
+      'Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).',
+      cloudMcpPostAuthorizationInstructions(mcpUrl, host, 'en'),
+    ];
+    if (waitForBrief) lines.push('Wait for my creative brief before creating or modifying a project.');
+    return lines.join('\n');
   }
 
   const onboarding = translate("Complete onboarding in this same turn: prepare the shared welcome and video cards (exactly three), then open the template library and present them. Use the same three recommendations as text only when card presentation is unsupported or fails. Do not send internal instructions as another user message. Wait for my creative brief before creating or changing a project.", {});
@@ -385,7 +463,7 @@ Follow the installation guide: {guide}
 }
 export function templatePrompt(info: IntegrationInfo, _host: IntegrationHost, template: { id: string; title: string }, locale = 'zh-CN') {
   const installUrl = isStreamableHttpTransport(info?.transport)
-    ? `${info.previewUrl.replace(/\/+$/, '')}/mcp-setup`
+    ? setupGuideUrl(info)
     : undefined;
   return formatTemplatePrompt(template, locale, installUrl);
 }
@@ -537,7 +615,7 @@ Local project menus use openmotion_manage_project for rename, independent duplic
 
 Offline sharing uses openmotion_project_archive: list projects with openmotion_get_project, export explicit projectIds or all=true, or import an absolute local ZIP sourcePath as independent copies. Retain a stable requestId. Studio All projects and Import projects use the same service. ZIP packages include current source, local assets and fonts; external URLs still require network access. Import does not switch or overwrite an existing project.
 
-For NEW generated media, use openmotion_media_use inspect/reference/models to discover configured capabilities, then openmotion_assets_use generate with the full model ID, status with the original jobId, get/read at a pinned assetId/versionId, and import_to_project only for selected film assets. No project is required for standalone generation. Use openmotion_assets only when tools/list lacks the preferred name; it has no read, so inspect adopted local media with available tools. Keep old media_use jobs on their original Tool/projectId/jobId and never import their project files twice. Image references pin exact image versions: image models with supportsImageReference edit with up to their maxInputImages (one for local Codex and OpenDesign account models), and video models that report maxInputImages take one image as the first frame; first-and-last-frame video is unavailable. Use resume with the original jobId and a stable requestId to check a failed/interrupted Cloud task with a known remoteId, without uploading inputs or submitting another paid generation. Cancelled jobs and confirmed remote failures cannot resume. Use retry_save only for retained local outputs (savePending); regeneration is a separate paid request requiring authorization. Studio offers Check original task on eligible failed jobs. Reference counts follow the selected model before any reference file is read; there is no fixed library count ceiling. Local Codex/account editing remains one image, video remains one first frame, and project referenceAsset remains image-only. Follow the shared generation boundary in production/materials. Keep credentials in Settings, obtain missing spend consent, explain unsupported capabilities and proposed alternatives, and do not silently downgrade. Regenerate only within the asset count and spend the user explicitly approved, including any retries they approved; otherwise ask before another paid request; unknown outcomes require original-job inspection, not a new paid submission.
+For NEW generated media, use openmotion_media_use inspect/reference/models to discover configured capabilities, then openmotion_assets_use generate with the full model ID, status with the original jobId, get/read at a pinned assetId/versionId, and import_to_project only for selected film assets. No project is required for standalone generation. Use openmotion_assets only when tools/list lacks the preferred name; it has no read, so inspect adopted local media with available tools. Keep old media_use jobs on their original Tool/projectId/jobId and never import their project files twice. Image references pin exact image versions: image models with supportsImageReference edit with up to their maxInputImages (one for local Codex and OpenDesign account models), and video models that report maxInputImages take one image as the first frame; first-and-last-frame video is unavailable. Use resume with the original jobId and a stable requestId to check a failed/interrupted Cloud task with a known remoteId, without uploading inputs or submitting another paid generation. Cancelled jobs and confirmed remote failures cannot resume. When savePending is true, use retry_save with the original jobId and a stable requestId. In Cloud, it retrieves the existing result while it is still available from the gateway. Studio offers Retry saving for these jobs and Check original task for eligible interrupted jobs. Regeneration is a separate paid request requiring authorization. Reference counts follow the selected model before any reference file is read; there is no fixed library count ceiling. Local Codex/account editing remains one image, video remains one first frame, and project referenceAsset remains image-only. Follow the shared generation boundary in production/materials. Keep credentials in Settings, obtain missing spend consent, explain unsupported capabilities and proposed alternatives, and do not silently downgrade. Regenerate only within the asset count and spend the user explicitly approved, including any retries they approved; otherwise ask before another paid request; unknown outcomes require original-job inspection, not a new paid submission.
 
 For Workflows (scenario runs — deferred to Phase 2 in Cloud P1, returning \`501 FEATURE_DEFERRED_P2\` on \`action=scenario\` and \`/motion-api/scenarios/*\`), local workspaces load the workflow's grouped Skills first—call openmotion_get_skill for library:* Skills and resources/read for openmotion://workflow/*/start guides—then call openmotion_assets_use with action=scenario and scenario.command (catalog, list, get, create, update_brief, update_step, generate, sync, add_pool, add_iteration, link_design, link_motion, embed_image, export). Identify the active run and current expectedRevision with list/get before mutating, and re-read on conflicts. Direct media generation inside a workflow run uses command=generate + command=sync; Agent-processed or refined workspace assets save back into the active workflow run version's Assets and step history atomically via command=add_pool with recordIteration=true (passing stepId and source="agent" on each item) and a stable requestId. Link HTML pages via command=link_design and editable Motion projects via command=link_motion.
 Local fonts use openmotion://fonts/index and per-family resources for selection and on-demand preparation; openmotion_import_assets imports the selected local files and optional licenses with actual metadata and relative CSS. Check required copy and mixed-script rendering before delivery. 素材通过 openmotion_import_assets 批量持久导入实际本机附件，检查逐项结果；再用 openmotion_edit_project 保存原生 HTML/CSS/JS 和可选需求，传 expectedRevision、expectedVersionId 及稳定 requestId。冲突时重新读，不盲目覆盖 GUI 修改。

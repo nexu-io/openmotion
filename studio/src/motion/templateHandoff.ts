@@ -103,16 +103,16 @@ export function templateHandoffPrompt(template: GalleryTemplate, locale: string,
   const editable = isEditableTemplate(template);
   const isCloud = info?.transport?.type === 'streamable-http' || (!info && getCachedCloudDisklessMode());
   const cloudSetupUrl = isCloud
-    ? `${(info?.previewUrl || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/+$/, '')}/mcp-setup`
+    ? `${(info?.previewUrl || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/+$/, '')}/install.md`
     : undefined;
   const localized = formatLocalizedTemplateHandoff(template, editable, locale, cloudSetupUrl);
   if (localized !== undefined) return localized;
   if (cloudSetupUrl) {
-    return locale === 'zh-CN' ? `使用说明：请使用已连接的 OpenMotion 云端 MCP；如未接入，请先按 ${cloudSetupUrl} 接入云端 MCP 并验证连接（不要按本地 GitHub 仓库重新部署）。
+    return locale === 'zh-CN' ? `使用说明：请使用已连接的 OpenMotion 云端 MCP；如未接入，请先按 ${cloudSetupUrl} 接入云端 MCP 并完成 OAuth 授权（不要按本地 GitHub 仓库重新部署，不要执行新建模板引导，接入后直接基于下方指定模板继续）。
 指定模板：${template.title}（${template.id}）；资源类型：${editable ? '可编辑工程' : '参考创作，仅有参考视频与动效说明，没有原片工程'}。
 创作要求：先读取这条准确资源，${editable ? '基于完整模板创建独立工程，再按我的要求修改' : '根据参考和我的内容创建独立作品，不承诺精确复刻'}；保留已有工程。先核对产品名、功能文案；需要界面展示时核对截图或录屏，缺必要材料先说明。Logo可用文字品牌，未提供音频时静音。交付时返回准确工程链接，打开并检查自己的内容，后续在同一工程接着改。
 我的要求：
-` : `Instructions: Use the connected OpenMotion Cloud MCP. If not connected yet, follow ${cloudSetupUrl} to connect Cloud MCP and verify the connection (do not install or self-host locally from GitHub).
+` : `Instructions: Use the connected OpenMotion Cloud MCP. If not connected yet, follow ${cloudSetupUrl} to connect Cloud MCP and authorize via OAuth 2.1 (do not install or self-host locally from GitHub; skip generic template onboarding and continue directly with the selected template below).
 Selected template: ${template.title} (${template.id}). Resource: ${editable ? 'editable project' : 'reference video and motion guidance; no original editable project'}.
 Creation requirements: Read this exact resource. ${editable ? 'Create an independent project from the complete template, then adapt it to my request.' : 'Create an independent work from the reference and my content; do not promise an exact reconstruction.'} Preserve existing projects. Check product name, copy and any required screenshots or recordings; ask for missing essential inputs. A text brand may replace a logo. Use silence if no audio is supplied. Return the exact project link, open it to check my content, and continue in that same project.
 My request:

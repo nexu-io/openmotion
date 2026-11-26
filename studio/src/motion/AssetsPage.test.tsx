@@ -2,15 +2,17 @@
 import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { imageFeaturePrompt } from '../../../shared/image-features';
+import { videoFeaturePrompt } from '../../../shared/video-features';
 import { AssetsPage } from './AssetsPage';
 import type { AssetDraft } from './AssetComposer';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
-import type { LibraryAsset } from '../../../shared/asset-library';
+import { assetMediaUrl, type LibraryAsset } from '../../../shared/asset-library';
 import type { GameCard } from '../../../shared/game-contract';
 import { gameApi } from './game/gameCatalog';
 
-vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15' }) }));
+vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15', formatNumber: (value: number) => value.toLocaleString() }) }));
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 let lastComposerOnCreated: ((job: import('../../../shared/gateway').GenerationJob) => void) | undefined;
 let lastShowCurrentJob: boolean | undefined;
@@ -564,7 +566,7 @@ it('hands the selected still version to the Cinema first-frame draft', async () 
 it('prepares a first-frame draft from a guide and an uploaded image without submitting it', async () => {
   const { findMediaStudio } = await import('../../../shared/studio-catalog');
   const { studioDestination } = await import('./creativeStudios');
-  const { skillPreviewSnapshot } = await import('./skillCatalog');
+  const { archivedSkillCover } = await import('./skillCoverMedia');
   const fetchPreview = vi.fn(async () => new Response('sample', { headers: { 'Content-Type': 'application/octet-stream' } }));
   vi.stubGlobal('fetch', fetchPreview);
   const remember = vi.fn();
@@ -574,8 +576,8 @@ it('prepares a first-frame draft from a guide and an uploaded image without subm
   expect(container.querySelector('.om-scene-guide')).toBeTruthy();
   expect(fetchPreview).not.toHaveBeenCalled();
   await click('Play');
-  expect(fetchPreview).toHaveBeenCalledWith(skillPreviewSnapshot + 'light-shadow-product.mp4', expect.anything());
-  expect(container.querySelector('.om-scene-example-media video')?.getAttribute('src')).toMatch(/^blob:/);
+  expect(fetchPreview).not.toHaveBeenCalled();
+  expect(container.querySelector('.om-scene-example-media video')?.getAttribute('src')).toBe(archivedSkillCover('light-shadow-product').video);
   await click('Use this example');
   expect(remember.mock.lastCall?.[0].prompt).toMatch(/supplied frame/);
   const file = new File(['data'], 'still.png', { type: 'image/png' });
@@ -784,6 +786,175 @@ it('transitions completed placeholders in place without duplicating assets and l
   expect(studio.remember.mock.lastCall?.[0].prompt).toBe('Neon alley rain scene');
   await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!.click(); }); await flush();
   expect(container.querySelectorAll('.om-placeholder-stage')).toHaveLength(0);
+});
+
+it.each([
+  { current: 2, viewing: 1, prompt: 'Red square' },
+  { current: 1, viewing: 2, prompt: 'Blue square' },
+])('opens image details on V$viewing when V$current is current', async ({ current, viewing, prompt }) => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('squares');
+  const baseVersion = asset.versions[0];
+  asset.versions = [
+    { ...baseVersion, source: 'generated', prompt: 'Red square' },
+    { ...baseVersion, source: 'generated', id: 'squares-v2', prompt: 'Blue square' },
+  ];
+  asset.currentVersionId = asset.versions[current - 1].id;
+  records = new Map([[asset.id, asset]]);
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+    useAsFirstFrame: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />));
+  await flush();
+  await click('Generations');
+  await click(asset.name);
+  await click(`V${viewing}`);
+
+  const versionId = asset.versions[viewing - 1].id;
+  const url = assetMediaUrl(asset.id, versionId);
+  const lightbox = container.querySelector('.om-gen-lightbox')!;
+  expect(lightbox.querySelector('img')?.getAttribute('src')).toBe(url);
+  expect(lightbox.textContent).toContain(prompt);
+  expect(lightbox.querySelector('a[download]')?.getAttribute('href')).toBe(url);
+
+  await click('Asset details');
+  const details = container.querySelector('.om-asset-workspace')!;
+  expect(details.querySelector('.om-asset-viewer-stage img')?.getAttribute('src')).toBe(url);
+  expect(details.querySelector('.om-asset-provenance p')?.textContent).toBe(prompt);
+  expect(details.querySelector('a[download]')?.getAttribute('href')).toBe(`${url}?download=1`);
+  expect(details.querySelector('.om-asset-version[aria-pressed="true"] strong')?.textContent).toBe(`V${viewing}`);
+  expect(details.querySelector('.om-asset-version .om-badge')?.parentElement?.textContent).toBe(`V${current}Current`);
+  await click('Use as first frame');
+  expect(studio.useAsFirstFrame).toHaveBeenCalledWith({ name: asset.name, reference: { assetId: asset.id, versionId } });
+  await click('Edit as new version');
+  expect(container.querySelector('[aria-label="Creation draft"]')?.getAttribute('data-prompt')).toBe(prompt);
+});
+
+it('reports Asset version unavailable and clears the route instead of silently switching when a lightbox-selected version is deleted', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('deleted-ver');
+  const baseVersion = asset.versions[0];
+  asset.versions = [
+    { ...baseVersion, source: 'generated', prompt: 'Original V1' },
+    { ...baseVersion, source: 'generated', id: 'deleted-ver-v2', prompt: 'Current V2' },
+  ];
+  asset.currentVersionId = 'deleted-ver-v2';
+  records = new Map([[asset.id, asset]]);
+  const onAssetRoute = vi.fn();
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} onAssetRoute={onAssetRoute} />));
+  await flush();
+  await click('Generations');
+  await click(asset.name);
+  await click('V1');
+
+  // Simulate V1 deleted server-side before Asset details refreshes the asset.
+  const latest = structuredClone(asset);
+  latest.versions = [latest.versions[1]];
+  latest.updatedAt = 2;
+  records.set(asset.id, latest);
+
+  await click('Asset details');
+  expect(container.querySelector('.om-asset-workspace')).toBeNull();
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('Asset version unavailable');
+  expect(onAssetRoute).toHaveBeenLastCalledWith(null, null);
+});
+
+it.each([
+  ['remove-background', 'image', imageFeaturePrompt('remove-background', '保留发丝。'), '保留发丝。'],
+  ['video-camera-control', 'video', videoFeaturePrompt('camera-control', '向前走。', { movement: 'pan', pace: 'dynamic' }), '向前走。'],
+  ['video-multi-shot', 'video', videoFeaturePrompt('multi-shot', '穿过雨夜。', { shots: '2', style: 'match' }), '穿过雨夜。'],
+  ['relight', 'image', imageFeaturePrompt('relight', ''), ''],
+] as const)('refills the original %s prompt from card, lightbox and failed job', async (sceneId, modality, stored, original) => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('feature');
+  asset.modality = modality;
+  Object.assign(asset.versions[0], { source: 'generated', prompt: stored });
+  records = new Map([[asset.id, asset]]);
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === sceneId)!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+    initialDraft: { modality, prompt: 'Replace this draft', references: [] },
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />));
+  await flush();
+  await click('Generations');
+  await click('More actions');
+  const menuItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Reuse prompt')!;
+  await act(async () => menuItem.click());
+  await flush();
+  const applied = () => container.querySelector('input[aria-label="Creation draft"]')!;
+  expect(applied().getAttribute('data-prompt')).toBe(original);
+  expect(applied().getAttribute('data-prompt-applied-token')).toBe('1');
+
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-gen-open')!.click());
+  expect(container.querySelector('.om-gen-lightbox')?.textContent).toContain(stored);
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(original);
+  expect(applied().getAttribute('data-prompt-applied-token')).toBe('2');
+
+  const failedJob: import('../../../shared/gateway').GenerationJob = {
+    id: 'feature-failure', modality, prompt: stored, state: 'failed',
+    model: { id: 'opendesign:test', label: 'Test model', provider: 'opendesign' },
+    createdAt: 300, updatedAt: 300,
+  };
+  await act(async () => lastComposerOnCreated?.(failedJob));
+  await flush();
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(original);
+  expect(applied().getAttribute('data-prompt-applied-token')).toBe('3');
+});
+
+it.each([
+  ['text-to-video', 'video', videoFeaturePrompt('camera-control', '向前走。', { movement: 'pan', pace: 'dynamic' })],
+  ['text-to-image', 'image', imageFeaturePrompt('remove-background', '')],
+] as const)('preserves user-authored prompts verbatim when reusing from non-feature scene %s', async (sceneId, modality, stored) => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('plain');
+  asset.modality = modality;
+  Object.assign(asset.versions[0], { source: 'generated', prompt: stored });
+  records = new Map([[asset.id, asset]]);
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === sceneId)!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+    initialDraft: { modality, prompt: 'Replace this draft', references: [] },
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />));
+  await flush();
+  await click('Generations');
+  await click('More actions');
+  const menuItem = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Reuse prompt')!;
+  await act(async () => menuItem.click());
+  await flush();
+  const applied = () => container.querySelector('input[aria-label="Creation draft"]')!;
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
+
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-gen-open')!.click());
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
+
+  const failedJob: import('../../../shared/gateway').GenerationJob = {
+    id: 'plain-failure', modality, prompt: stored, state: 'failed',
+    model: { id: 'opendesign:test', label: 'Test model', provider: 'opendesign' },
+    createdAt: 300, updatedAt: 300,
+  };
+  await act(async () => lastComposerOnCreated?.(failedJob));
+  await flush();
+  await click('Reuse prompt');
+  expect(applied().getAttribute('data-prompt')).toBe(stored);
 });
 
 it('renders justified equal-height Generations flows for both Image and Video with human model names and unclipped Cinema Lightbox', async () => {

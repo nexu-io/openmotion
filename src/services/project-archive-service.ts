@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { crc32 } from 'node:zlib';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { HeadObjectResult, StoragePort } from '../contracts/storage.ts';
@@ -8,7 +8,7 @@ import type { Database } from '../db/client.ts';
 import { asInsert, asUpdate } from '../db/helpers.ts';
 import { idempotencyReceipts } from '../db/schema/jobs.ts';
 import { projects } from '../db/schema/projects.ts';
-import { archiveKey, assertTenantScopedKey } from '../infra/storage.ts';
+import { archiveKey, archiveMetaKey, assertTenantScopedKey } from '../infra/storage.ts';
 import { PROJECT_ARCHIVE_LIMITS } from '../../shared/project-archive.ts';
 import { firstFoldedDuplicate, unsafePortableSegment } from '../../shared/project-name.ts';
 import {
@@ -35,12 +35,17 @@ import type { InitialProjectFile, WorkspaceService } from './workspace-service.t
 
 const ARCHIVE_MANIFEST_NAME = 'openmotion-projects.json';
 const ARCHIVE_SCHEMA_VERSION = 1;
+const PENDING_IMPORT_LEASE_MS = 5 * 60 * 1000;
+const PENDING_IMPORT_HEARTBEAT_MS = 60 * 1000;
 
 export interface ProjectArchiveServiceDeps {
   readonly db: Database;
   readonly storage: StoragePort;
   readonly workspace: WorkspaceService;
   readonly files: ProjectFilesService;
+  readonly publicOrigin: string;
+  readonly pendingImportLeaseMs?: number;
+  readonly pendingImportHeartbeatMs?: number;
 }
 
 export interface ArchiveExportInput {
@@ -235,12 +240,112 @@ export class ProjectArchiveService {
   private readonly storage: StoragePort;
   private readonly workspace: WorkspaceService;
   private readonly files: ProjectFilesService;
+  private readonly publicOrigin: string;
+  private readonly pendingImportLeaseMs: number;
+  private readonly pendingImportHeartbeatMs: number;
 
   constructor(deps: ProjectArchiveServiceDeps) {
     this.db = deps.db;
     this.storage = deps.storage;
     this.workspace = deps.workspace;
     this.files = deps.files;
+    this.publicOrigin = deps.publicOrigin;
+    this.pendingImportLeaseMs = Math.max(10, deps.pendingImportLeaseMs ?? PENDING_IMPORT_LEASE_MS);
+    const defaultHeartbeat = Math.max(5, Math.min(PENDING_IMPORT_HEARTBEAT_MS, Math.floor(this.pendingImportLeaseMs / 3)));
+    this.pendingImportHeartbeatMs = Math.max(5, deps.pendingImportHeartbeatMs ?? defaultHeartbeat);
+  }
+
+  private archiveDownloadUrl(archiveId: string): string {
+    return new URL(`/motion-api/project-archives/${archiveId}/file`, this.publicOrigin).href;
+  }
+
+  private async assertArchiveProjectsAccess(ctx: AuthContext, projectIds: readonly string[]): Promise<void> {
+    if (ctx.authMethod !== 'oauth_bearer') return;
+    if (projectIds.length === 0) {
+      throw new CloudError('PROJECT_NOT_FOUND', 'Archive is not accessible to this OAuth session.', {
+        status: 404,
+        applied: false,
+      });
+    }
+    for (const pid of projectIds) {
+      await loadProjectOrThrow(this.db, ctx.workspaceId, pid, { allowTrashed: true, auth: ctx });
+    }
+  }
+
+  private stripReceiptOwnerMeta<T extends object>(payload: unknown): T {
+    const record = { ...(payload as Record<string, unknown>) };
+    delete record.ownerUserId;
+    return record as unknown as T;
+  }
+
+  private async assertReceiptProjectsReadable(
+    ctx: AuthContext,
+    payload: unknown,
+    listKey: 'projects' | 'imported',
+  ): Promise<void> {
+    if (ctx.authMethod !== 'oauth_bearer') return;
+    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+    const ownerUserId =
+      typeof record?.ownerUserId === 'string' && record.ownerUserId.length > 0 ? record.ownerUserId : null;
+    // The exporting/importing user keeps access to their own archive receipt even if an
+    // underlying project is permanently deleted afterwards.
+    if (ownerUserId && ctx.userId && ownerUserId === ctx.userId) {
+      return;
+    }
+    const entries = Array.isArray(record?.[listKey]) ? (record[listKey] as Array<{ projectId?: unknown }>) : [];
+    const projectIds = entries
+      .map((entry) => entry?.projectId)
+      .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0);
+    await this.assertArchiveProjectsAccess(ctx, projectIds);
+  }
+
+  private async readArchiveMetadata(
+    workspaceId: string,
+    archiveId: string,
+  ): Promise<{ ownerUserId?: string | null; projects?: Array<{ projectId?: string }> } | null> {
+    try {
+      const metaKey = assertTenantScopedKey(workspaceId, archiveMetaKey(workspaceId, archiveId));
+      const { stream } = await this.storage.getObjectStream(metaKey);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+      return parsed && typeof parsed === 'object'
+        ? (parsed as { ownerUserId?: string | null; projects?: Array<{ projectId?: string }> })
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async canReadArchive(ctx: AuthContext, archiveId: string): Promise<boolean> {
+    if (ctx.authMethod !== 'oauth_bearer') return true;
+    const receipts = await this.db
+      .select()
+      .from(idempotencyReceipts)
+      .where(
+        and(
+          eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+          eq(idempotencyReceipts.scope, 'archive:export'),
+          eq(idempotencyReceipts.resourceId, archiveId),
+          eq(idempotencyReceipts.state, 'completed'),
+        ),
+      );
+    const receipt = receipts[0];
+    const aclSource =
+      receipt?.responsePayload && typeof receipt.responsePayload === 'object'
+        ? receipt.responsePayload
+        : await this.readArchiveMetadata(ctx.workspaceId, archiveId);
+    if (!aclSource) {
+      return false;
+    }
+    try {
+      await this.assertReceiptProjectsReadable(ctx, aclSource, 'projects');
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -284,10 +389,9 @@ export class ProjectArchiveService {
         });
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
-        return {
-          ...(existingReceipt[0].responsePayload as unknown as ArchiveExportResult),
-          replayed: true,
-        };
+        await this.assertReceiptProjectsReadable(ctx, existingReceipt[0].responsePayload, 'projects');
+        const result = this.stripReceiptOwnerMeta<ArchiveExportResult>(existingReceipt[0].responsePayload);
+        return { ...result, downloadUrl: this.archiveDownloadUrl(result.archiveId), replayed: true };
       }
     }
 
@@ -438,6 +542,19 @@ export class ProjectArchiveService {
     const archiveId = randomUUID();
     const s3Key = assertTenantScopedKey(ctx.workspaceId, archiveKey(ctx.workspaceId, archiveId));
     await this.storage.putObject(s3Key, zipBytes, 'application/zip', zipBytes.byteLength);
+    // Persist durable archive ownership metadata alongside the ZIP so OAuth download
+    // authorization survives after the 30-day idempotency receipt is swept.
+    const metaBytes = Buffer.from(
+      JSON.stringify({
+        archiveId,
+        ownerUserId: ctx.userId ?? null,
+        projects: exportedEntries.map((entry) => ({ projectId: entry.projectId })),
+        createdAt: new Date().toISOString(),
+      }),
+      'utf8',
+    );
+    const metaKey = assertTenantScopedKey(ctx.workspaceId, archiveMetaKey(ctx.workspaceId, archiveId));
+    await this.storage.putObject(metaKey, metaBytes, 'application/json', metaBytes.byteLength);
 
     const filename =
       exportedEntries.length === 1
@@ -449,10 +566,15 @@ export class ProjectArchiveService {
       filename,
       bytes: zipBytes.byteLength,
       sha256: sha256Hex(zipBytes),
-      downloadUrl: `/motion-api/project-archives/${archiveId}/file`,
+      downloadUrl: this.archiveDownloadUrl(archiveId),
       projects: exportedEntries,
       skippedProjectIds,
       replayed: false,
+    };
+
+    const storedExportPayload: Record<string, unknown> = {
+      ...(result as unknown as Record<string, unknown>),
+      ...(ctx.userId ? { ownerUserId: ctx.userId } : {}),
     };
 
     await this.db
@@ -465,7 +587,7 @@ export class ProjectArchiveService {
           inputHash,
           state: 'completed',
           resourceId: archiveId,
-          responsePayload: result as unknown as Record<string, unknown>,
+          responsePayload: storedExportPayload,
           updatedAt: new Date(),
         }),
       )
@@ -474,7 +596,7 @@ export class ProjectArchiveService {
         set: asUpdate(idempotencyReceipts, {
           state: 'completed',
           resourceId: archiveId,
-          responsePayload: result as unknown as Record<string, unknown>,
+          responsePayload: storedExportPayload,
           updatedAt: new Date(),
         }),
       });
@@ -520,10 +642,25 @@ export class ProjectArchiveService {
         });
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
+        await this.assertReceiptProjectsReadable(ctx, existingReceipt[0].responsePayload, 'imported');
+        const replayedResult = this.stripReceiptOwnerMeta<ArchiveImportResult>(existingReceipt[0].responsePayload);
         return {
-          ...(existingReceipt[0].responsePayload as unknown as ArchiveImportResult),
+          ...replayedResult,
           replayed: true,
         };
+      }
+      if (existingReceipt[0].state === 'pending') {
+        const updatedMs =
+          existingReceipt[0].updatedAt instanceof Date
+            ? existingReceipt[0].updatedAt.getTime()
+            : Date.parse(String(existingReceipt[0].updatedAt));
+        if (!Number.isNaN(updatedMs) && updatedMs >= Date.now() - this.pendingImportLeaseMs) {
+          throw new CloudError(
+            'REQUEST_ID_CONFLICT',
+            `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
+            { status: 409, applied: 'unknown' },
+          );
+        }
       }
     }
 
@@ -582,45 +719,11 @@ export class ProjectArchiveService {
       await validateZipProjectInMemory(proj.title, proj.files);
     }
 
-    // Create each project independently (never overwriting or auto-switching active project).
-    const imported: ArchiveImportedProjectEntry[] = [];
-    for (const proj of extractedProjects) {
-      const initialFiles: InitialProjectFile[] = [...proj.files.entries()].map(([filePath, buf]) => {
-        const isText = isTextProjectPath(filePath) && !isBinaryBuffer(buf);
-        return {
-          path: filePath,
-          data: buf,
-          mimeType: getMimeType(filePath),
-          isText,
-        };
-      });
-
-      const created = await this.workspace.createProject(ctx, {
-        title: proj.title,
-        templateId: proj.templateId,
-        namingLanguage: proj.namingLanguage,
-        initialFiles,
-        selectActive: false,
-      });
-
-      imported.push({
-        projectId: created.projectId,
-        sessionId: created.sessionId,
-        title: created.title,
-        revision: created.revision,
-        versionId: created.versionId,
-        fileCount: initialFiles.length,
-      });
-    }
-
-    const result: ArchiveImportResult = {
-      imported,
-      totalFiles,
-      totalBytes,
-      replayed: false,
-    };
-
-    await this.db
+    // Claim the idempotency receipt atomically with a unique lease token before creating any
+    // projects so overlapping upload retries cannot create duplicate projects while an active
+    // import periodically refreshes its lease, whereas a genuinely quiet/crashed claim can be reclaimed.
+    const leaseToken = randomUUID();
+    const claimed = await this.db
       .insert(idempotencyReceipts)
       .values(
         asInsert(idempotencyReceipts, {
@@ -628,23 +731,210 @@ export class ProjectArchiveService {
           scope,
           requestId,
           inputHash,
-          state: 'completed',
-          resourceId: imported[0]?.projectId ?? null,
-          responsePayload: result as unknown as Record<string, unknown>,
+          state: 'pending',
+          resourceId: leaseToken,
+          responsePayload: null,
           updatedAt: new Date(),
         }),
       )
-      .onConflictDoUpdate({
+      .onConflictDoNothing({
         target: [idempotencyReceipts.workspaceId, idempotencyReceipts.scope, idempotencyReceipts.requestId],
-        set: asUpdate(idempotencyReceipts, {
-          state: 'completed',
-          resourceId: imported[0]?.projectId ?? null,
-          responsePayload: result as unknown as Record<string, unknown>,
-          updatedAt: new Date(),
-        }),
-      });
+      })
+      .returning();
 
-    return result;
+    if (claimed.length === 0) {
+      const reclaimNow = new Date();
+      const staleCutoff = new Date(reclaimNow.getTime() - this.pendingImportLeaseMs);
+      const reclaimed = await this.db
+        .update(idempotencyReceipts)
+        .set(asUpdate(idempotencyReceipts, { resourceId: leaseToken, updatedAt: reclaimNow }))
+        .where(
+          and(
+            eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+            eq(idempotencyReceipts.scope, scope),
+            eq(idempotencyReceipts.requestId, requestId),
+            eq(idempotencyReceipts.inputHash, inputHash),
+            eq(idempotencyReceipts.state, 'pending'),
+            lt(idempotencyReceipts.updatedAt, staleCutoff),
+          ),
+        )
+        .returning();
+
+      if (reclaimed.length === 0) {
+        const [current] = await this.db
+          .select()
+          .from(idempotencyReceipts)
+          .where(
+            and(
+              eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+              eq(idempotencyReceipts.scope, scope),
+              eq(idempotencyReceipts.requestId, requestId),
+            ),
+          );
+        if (current && current.inputHash.trim() !== inputHash) {
+          throw new CloudError('REQUEST_ID_CONFLICT', `requestId "${requestId}" was used for a different import.`, {
+            status: 409,
+            applied: false,
+          });
+        }
+        if (current && current.state === 'completed' && current.responsePayload) {
+          await this.assertReceiptProjectsReadable(ctx, current.responsePayload, 'imported');
+          const replayedResult = this.stripReceiptOwnerMeta<ArchiveImportResult>(current.responsePayload);
+          return {
+            ...replayedResult,
+            replayed: true,
+          };
+        }
+        throw new CloudError(
+          'REQUEST_ID_CONFLICT',
+          `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
+          { status: 409, applied: 'unknown' },
+        );
+      }
+    }
+
+    // Keep the pending lease fresh while creating projects (up to 500 MB / 5,000 files / 100 projects)
+    // via both periodic heartbeats and per-project renewals, fenced by our leaseToken.
+    let leaseActive = true;
+    let leaseLost = false;
+    let pendingHeartbeat: Promise<void> = Promise.resolve();
+    const refreshImportLease = async (): Promise<boolean> => {
+      if (!leaseActive) return false;
+      const refreshed = await this.db
+        .update(idempotencyReceipts)
+        .set(asUpdate(idempotencyReceipts, { updatedAt: new Date() }))
+        .where(
+          and(
+            eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+            eq(idempotencyReceipts.scope, scope),
+            eq(idempotencyReceipts.requestId, requestId),
+            eq(idempotencyReceipts.state, 'pending'),
+            eq(idempotencyReceipts.resourceId, leaseToken),
+          ),
+        )
+        .returning();
+      if (refreshed.length === 0) {
+        leaseLost = true;
+        return false;
+      }
+      return true;
+    };
+    const heartbeatTimer = setInterval(() => {
+      pendingHeartbeat = pendingHeartbeat
+        .then(() => refreshImportLease().then(() => undefined))
+        .catch(() => {});
+    }, this.pendingImportHeartbeatMs);
+    heartbeatTimer.unref?.();
+
+    const stopHeartbeat = async () => {
+      leaseActive = false;
+      clearInterval(heartbeatTimer);
+      await pendingHeartbeat;
+    };
+
+    // Create each project independently (never overwriting or auto-switching active project).
+    const imported: ArchiveImportedProjectEntry[] = [];
+    try {
+      for (let i = 0; i < extractedProjects.length; i++) {
+        if (i > 0 && (leaseLost || !(await refreshImportLease()))) {
+          throw new CloudError(
+            'REQUEST_ID_CONFLICT',
+            `Import request "${requestId}" lost its active lease before finishing. Retry with the same requestId.`,
+            { status: 409, applied: 'unknown' },
+          );
+        }
+        const proj = extractedProjects[i];
+        const initialFiles: InitialProjectFile[] = [...proj.files.entries()].map(([filePath, buf]) => {
+          const isText = isTextProjectPath(filePath) && !isBinaryBuffer(buf);
+          return {
+            path: filePath,
+            data: buf,
+            mimeType: getMimeType(filePath),
+            isText,
+          };
+        });
+
+        const created = await this.workspace.createProject(ctx, {
+          title: proj.title,
+          templateId: proj.templateId,
+          namingLanguage: proj.namingLanguage,
+          initialFiles,
+          selectActive: false,
+        });
+
+        imported.push({
+          projectId: created.projectId,
+          sessionId: created.sessionId,
+          title: created.title,
+          revision: created.revision,
+          versionId: created.versionId,
+          fileCount: initialFiles.length,
+        });
+      }
+
+      const result: ArchiveImportResult = {
+        imported,
+        totalFiles,
+        totalBytes,
+        replayed: false,
+      };
+
+      await stopHeartbeat();
+
+      const storedImportPayload: Record<string, unknown> = {
+        ...(result as unknown as Record<string, unknown>),
+        ...(ctx.userId ? { ownerUserId: ctx.userId } : {}),
+      };
+
+      const completed = await this.db
+        .update(idempotencyReceipts)
+        .set(
+          asUpdate(idempotencyReceipts, {
+            state: 'completed',
+            resourceId: imported[0]?.projectId ?? null,
+            responsePayload: storedImportPayload,
+            updatedAt: new Date(),
+          }),
+        )
+        .where(
+          and(
+            eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+            eq(idempotencyReceipts.scope, scope),
+            eq(idempotencyReceipts.requestId, requestId),
+            eq(idempotencyReceipts.state, 'pending'),
+            eq(idempotencyReceipts.resourceId, leaseToken),
+          ),
+        )
+        .returning();
+
+      if (completed.length === 0) {
+        throw new CloudError(
+          'REQUEST_ID_CONFLICT',
+          `Import request "${requestId}" lost its active lease before completion. Retry with the same requestId.`,
+          { status: 409, applied: 'unknown' },
+        );
+      }
+
+      return result;
+    } catch (error) {
+      await stopHeartbeat();
+      await this.db
+        .delete(idempotencyReceipts)
+        .where(
+          and(
+            eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+            eq(idempotencyReceipts.scope, scope),
+            eq(idempotencyReceipts.requestId, requestId),
+            eq(idempotencyReceipts.state, 'pending'),
+            eq(idempotencyReceipts.resourceId, leaseToken),
+          ),
+        )
+        .catch(() => {});
+      throw error;
+    } finally {
+      leaseActive = false;
+      clearInterval(heartbeatTimer);
+    }
   }
 
   /**
@@ -694,6 +984,7 @@ export class ProjectArchiveService {
   async headArchive(ctx: AuthContext, archiveId: string): Promise<HeadObjectResult | null> {
     assertValidUuid(ctx.workspaceId, 'workspaceId');
     assertValidUuid(archiveId, 'archiveId');
+    if (!(await this.canReadArchive(ctx, archiveId))) return null;
     const s3Key = assertTenantScopedKey(ctx.workspaceId, archiveKey(ctx.workspaceId, archiveId));
     return this.storage.headObject(s3Key);
   }
@@ -706,6 +997,7 @@ export class ProjectArchiveService {
   ): Promise<{ url: string; contentLength: number; filename: string } | null> {
     assertValidUuid(ctx.workspaceId, 'workspaceId');
     assertValidUuid(archiveId, 'archiveId');
+    if (!(await this.canReadArchive(ctx, archiveId))) return null;
     const s3Key = assertTenantScopedKey(ctx.workspaceId, archiveKey(ctx.workspaceId, archiveId));
     const head = await this.storage.headObject(s3Key);
     if (!head) return null;

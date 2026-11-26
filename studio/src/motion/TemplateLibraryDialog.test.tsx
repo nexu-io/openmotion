@@ -829,7 +829,7 @@ it.each([
     expect(host.querySelector('[aria-label="Template recreation instruction"]')?.textContent).toContain(id);
     await act(async () => button('Recreate this template').click());
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(title));
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(location.origin + '/mcp-setup'));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(location.origin + '/install.md'));
     expect(request.mock.calls.some(([url]) => url.endsWith('/integration'))).toBe(false);
   } finally { runtime.remove(); }
 });

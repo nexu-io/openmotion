@@ -10,8 +10,17 @@ import {
   resolveStudioSourcemapOption,
 } from '../packages/observability/vite.ts';
 import { openmotionI18nPlugin } from './vite-i18n-plugin';
+import { studioPreviewAssets } from '../scripts/studio-preview-assets';
+import { mediaOrigin, mediaPrefix } from '../shared/repository-media';
 
 const local = (file: string) => fileURLToPath(new URL(file, import.meta.url));
+const previewAssets = [...studioPreviewAssets(local('..'))];
+const skillPreviewHashes = Object.fromEntries(
+  previewAssets.filter(([name]) => !name.startsWith('hub-')).map(([name, { lock }]) => [name, lock.sha256]),
+);
+const modelHubPreviewHashes = Object.fromEntries(
+  previewAssets.filter(([name]) => name.startsWith('hub-')).map(([name, { lock }]) => [name, lock.sha256]),
+);
 
 export default defineConfig({
   base: '/',
@@ -30,7 +39,13 @@ export default defineConfig({
       });
     },
   }, ...createSentryVitePlugins(process.env)],
-  define: { __STUDIO_VERSION__: JSON.stringify('0.9.7'), ...(!process.env.VITEST ? { 'import.meta.env.VITE_HYPERFRAMES_NO_TELEMETRY': JSON.stringify('1') } : {}) },
+  define: {
+    __STUDIO_VERSION__: JSON.stringify('0.9.7'),
+    __STUDIO_PREVIEW_BASE__: JSON.stringify(`${mediaOrigin}/${mediaPrefix}`),
+    __STUDIO_PREVIEW_HASHES__: JSON.stringify(skillPreviewHashes),
+    __MODEL_HUB_PREVIEW_HASHES__: JSON.stringify(modelHubPreviewHashes),
+    ...(!process.env.VITEST ? { 'import.meta.env.VITE_HYPERFRAMES_NO_TELEMETRY': JSON.stringify('1') } : {}),
+  },
   resolve: { alias: [
     { find: 'open-design-ui', replacement: local('../packages/open-design-ui') },
     { find: /^@openmotion\/observability\/(.+)$/, replacement: local('../packages/observability/$1.ts') },

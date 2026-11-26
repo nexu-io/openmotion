@@ -43,7 +43,7 @@ import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
 import { DesktopUpdatePrompt } from './DesktopUpdatePrompt';
-import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
+import { dismissBannerToday, shouldShowBlackFridayBanner, useExploreCampaign, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { MobileEditorDesktopGuide } from './MobileEditorDesktopGuide';
@@ -74,12 +74,13 @@ import { StudioRouterProvider } from '../router/createAppRouter';
 import { useWorkspaceBlocker } from '../router/useWorkspaceBlocker';
 import { isNotFoundSpaPath } from '../../../shared/spa-routes';
 import { isCloudFeatureEnabled, useCloudFeatureEnabled } from '../utils/cloudFeatures';
+import { parseProjectIdFromHash } from '../utils/projectRouting';
 
 import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard, type GuestSignInIntent } from './WorkspaceChromeContext';
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 
 type WorkspaceFrameProps = {
-  children: ReactNode; waitForSaves: () => Promise<void>; projectId?: string; sessionId?: string; blocked?: boolean; message?: string; saveState?: string; onLibraryClose?: () => void; onNavigate?: (targetHref?: string, opened?: WorkspaceRoute) => void;
+  children: ReactNode; waitForSaves: () => Promise<void>; projectId?: string; sessionId?: string; blocked?: boolean; message?: string; saveState?: string; onLibraryClose?: () => void; onNavigate?: (targetHref?: string, opened?: WorkspaceRoute) => void; onInvalidProject?: (projectId: string) => void;
 };
 
 export function WorkspaceFrame(props: WorkspaceFrameProps) {
@@ -94,7 +95,7 @@ export function WorkspaceFrame(props: WorkspaceFrameProps) {
   return <WorkspaceFrameInner {...props} />;
 }
 
-function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blocked = false, message = '', saveState = '', onLibraryClose, onNavigate }: WorkspaceFrameProps) {
+function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blocked = false, message = '', saveState = '', onLibraryClose, onNavigate, onInvalidProject }: WorkspaceFrameProps) {
   const { t, locale } = useI18n();
   const localAgentsEnabled = useCloudFeatureEnabled('localAgents');
   const modelProvidersEnabled = useCloudFeatureEnabled('modelProviders');
@@ -118,6 +119,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const templatesPage = libraryRequested && !hostChrome;
   // Resource pages cover the editor without unmounting it.
   const pageOpen = isWorkspacePageOpen(page, templatesPage);
+  const editorRoute = !settings && !pageOpen;
   const lastExplore = useRef({ community: page.community, medium: page.medium });
   if (page.explore) lastExplore.current = { community: page.community, medium: page.medium };
   const skillBriefs = useRef(new Map<string, SkillParameters>());
@@ -210,7 +212,11 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       onNavigate(target, opened);
     });
   }, [onNavigate]);
-  const workspace = useWorkspace(beforeViewChange, projectId, sessionId, navigate, { externalHistoryGuard: Boolean(onNavigate) });
+  const workspace = useWorkspace(beforeViewChange, projectId, sessionId, navigate, {
+    externalHistoryGuard: Boolean(onNavigate),
+    allowUnscopedStatusFallback: !editorRoute,
+    onStaleProjectId: onInvalidProject,
+  });
   const fallbackActingRef = useRef(false);
   const [blockerError, setBlockerError] = useState<{ message: string } | null>(null);
   useEffect(() => { setBlockerError(null); }, [projectId, sessionId]);
@@ -260,14 +266,14 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const [mobileViewport, setMobileViewport] = useState(() => window.innerWidth < 640);
   const [phone] = useState(() => isMobile(window.navigator).phone);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
-  // Shown inside the campaign window on non-Explore tabs unless dismissed today; re-checked each minute for the end and the next day.
+  // Shown inside the campaign window unless dismissed today or superseded by the active Explore takeover hero.
   const [bfBannerShown, setBfBannerShown] = useMinuteCondition(shouldShowBlackFridayBanner);
-  const onExploreTab = page.explore && !templatesPage && !settings;
-  const bfBannerVisible = !hostChrome && !onExploreTab && bfBannerShown;
+  const exploreCampaign = useExploreCampaign(lastExplore.current);
+  const exploreShowsHero = exploreCampaign.showHero && page.explore && !templatesPage && !settings;
+  const bfBannerVisible = !hostChrome && bfBannerShown && !exploreShowsHero;
   const closeBfBanner = useCallback(() => { dismissBannerToday(); setBfBannerShown(false); }, [setBfBannerShown]);
   const expireBfBanner = useCallback(() => setBfBannerShown(false), [setBfBannerShown]);
   const [projectQuery, setProjectQuery] = useState('');
-  const editorRoute = !settings && !pageOpen;
   useEffect(() => {
     const activePage = settings
       ? `settings:${settings}`
@@ -400,13 +406,18 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     if (!guestMode || typeof window === 'undefined') return;
     if (!window.location.hash.startsWith('#project/')) return;
     if (!page.explore && !page.motion && !page.settings && !page.assets && !page.studio) return;
+    const hashProject = parseProjectIdFromHash(window.location.hash);
+    if (hashProject && onInvalidProject) {
+      onInvalidProject(hashProject);
+      return;
+    }
     const cleanUrl = `${window.location.pathname}${window.location.search}`;
     try {
       window.history.replaceState(window.history.state, '', cleanUrl);
     } catch {
       // Ignore history API restrictions in embedded frames.
     }
-  }, [guestMode, page.explore, page.motion, page.settings, page.assets, page.studio]);
+  }, [guestMode, onInvalidProject, page.explore, page.motion, page.settings, page.assets, page.studio]);
   const startGuestSignIn = useCallback((intent: GuestSignInIntent) => {
     const returnTo = currentReturnToPath();
     saveAuthPendingDraft({
@@ -491,17 +502,30 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
   const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
-  const motionEditorDisabled = libraryBusy || (!guestMode && (!workspace.status || workspace.projects.length === 0));
+  const canReturnToBlockedEditor = Boolean(editorState?.blocked && projectId && !workspace.busy && !blocked);
+  const motionEditorBusy = workspace.busy || blocked || (Boolean(editorState?.blocked) && !canReturnToBlockedEditor);
+  const motionEditorDisabled =
+    motionEditorBusy
+    || (!guestMode && (!workspace.status || (!workspace.catalogLoaded && workspace.projects.length === 0)));
   const openMotionEditor = async (selection: 'first' | 'last') => {
     if (motionEditorDisabled) return;
     if (guestMode) {
       startGuestSignIn({ action: 'open_editor' });
       return;
     }
+    if (canReturnToBlockedEditor) {
+      openEditor();
+      return;
+    }
     const current = projectId ?? workspace.activeProjectId;
     const previous = selection === 'last' ? workspace.projects.find(project => project.id === current) : undefined;
     const target = previous ?? workspace.projects[0];
-    if (!target) return;
+    if (!target) {
+      if (!await workspace.create() && !motionTemplatesOpen) {
+        navigationToast.showToast(t('Could not open project'), 'error', 'feedback');
+      }
+      return;
+    }
     if (target.id === projectId) openEditor();
     else if (!await workspace.open('projects', target.id) && !motionTemplatesOpen) {
       navigationToast.showToast(t('Could not open project'), 'error', 'feedback');
@@ -512,7 +536,6 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     beforeViewChange,
     switchingDisabled,
     () => { if (narrow) setSidebarOpen(false); },
-    () => openSettings('mcp'),
   );
   const reconnecting = Boolean(workspace.connectionError && isConnectionFailure(workspace.connectionError));
   const workspaceNotice = workspace.errorSource === 'connection' && reconnecting ? '' : workspace.error;
@@ -567,9 +590,14 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     // A brief started from a technique studio keeps its Skill so its draft stays separate from other studios' briefs.
     const skill = typeof seed === 'object' && (studio?.studio.surface === 'techniques' || (studio?.landing && page.specialty)) ? page.skill : null;
     if (studio && seed) {
-      studioDrafts.current.set(studioDraftKey(studio, skill), typeof seed === 'string'
+      const key = studioDraftKey(studio, skill);
+      const existing = studioDrafts.current.get(key);
+      const nextDraft: AssetDraft = typeof seed === 'string'
         ? { modality: studio.scene.modality, prompt: seed, references: [] }
-        : seed);
+        : (!seed.prompt && !seed.guideExample && !seed.references.length && existing?.prompt
+          ? { ...existing, model: undefined, source: undefined, preferredModel: seed.preferredModel ?? existing.preferredModel }
+          : seed);
+      studioDrafts.current.set(key, nextDraft);
       setStudioVisit(number => number + 1);
     }
     navigatePage({ studio, skill, settings: null, assets: false, skills: false, templates: false, ...lastExplore.current },
@@ -768,6 +796,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         templatesPage={templatesPage}
         connectionsOpen={connectionsOpen}
         lastExplore={lastExplore.current}
+        exploreCampaign={exploreCampaign}
         motionEditorDisabled={motionEditorDisabled}
         motionTemplatesOpen={motionTemplatesOpen}
         standaloneMcp={standaloneMcp}

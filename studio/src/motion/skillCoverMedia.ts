@@ -1,4 +1,3 @@
-import repositoryMedia from '../../../repository-media.json';
 import babylonJsPoster from './scene-art/babylon-js.webp';
 import bubbleFieldPoster from './scene-art/bubble-field.webp';
 import chalkBlueprintPoster from './scene-art/chalk-blueprint.webp';
@@ -13,10 +12,12 @@ import saleCountdownPoster from './scene-art/sale-countdown.webp';
 import splashFloatProductPoster from './scene-art/splash-float-product.webp';
 import talkingHeadRecreationPoster from './scene-art/talking-head-recreation.webp';
 
-const previewDirectory = 'studio/src/motion/skill-covers/';
-const hostedPreviews = new Map(repositoryMedia.files.filter(file => file.path.startsWith(previewDirectory)).map(file => [file.path, file.url]));
+declare const __STUDIO_PREVIEW_BASE__: string;
+declare const __STUDIO_PREVIEW_HASHES__: Record<string, string>;
+const hostedPreviews = new Map(Object.entries(__STUDIO_PREVIEW_HASHES__).map(([name, hash]) =>
+  [name, __STUDIO_PREVIEW_BASE__ + hash + name.slice(name.lastIndexOf('.'))] as const));
 // Explore and showcase posters are bundled via Vite into /editor-assets/*.webp so
-// first-screen discovery art serves from the CDN origin instead of raw.githubusercontent.com.
+// first-screen discovery art loads alongside the application.
 const bundledPosters: Record<string, string> = {
   'babylon-js': babylonJsPoster,
   'bubble-field': bubbleFieldPoster,
@@ -33,25 +34,15 @@ const bundledPosters: Record<string, string> = {
   'talking-head-recreation': talkingHeadRecreationPoster,
 };
 
-// Existing preview bytes remain available at this public source snapshot.
-export const skillPreviewSnapshot = 'https://raw.githubusercontent.com/nexu-io/openmotion/242dbd99d41e349ea43c3d8d48a1e06f6cece81a/' + previewDirectory;
-// Existing WebP posters remain available at this public source snapshot.
-export const skillPosterSnapshot = 'https://raw.githubusercontent.com/nexu-io/openmotion/008e46e896a72f4e5bd743fe1c4a5752240d2e8f/' + previewDirectory;
+const hostedClips = new Set(hostedPreviews.values());
+export const isHostedSkillMedia = (url?: string) => Boolean(url && hostedClips.has(url));
 
 export function archivedSkillPoster(name: string) {
-  const filename = name + '.webp';
-  return hostedPreviews.get(previewDirectory + filename) ?? bundledPosters[name] ?? skillPosterSnapshot + filename;
+  return hostedPreviews.get(`${name}.webp`) ?? bundledPosters[name];
 }
 
-export function skillCover(name: string, format: 'mp4' | 'webm' | 'gif' = 'mp4', snapshot = false) {
-  const filename = name + '.' + format;
-  const posterFilename = name + '.webp';
-  const animation = hostedPreviews.get(previewDirectory + filename)
-    ?? (snapshot ? skillPreviewSnapshot + filename : import.meta.env.DEV ? '/src/motion/skill-covers/' + filename : undefined);
-  const poster = hostedPreviews.get(previewDirectory + posterFilename)
-    ?? bundledPosters[name]
-    ?? (snapshot ? skillPosterSnapshot + posterFilename : import.meta.env.DEV ? '/src/motion/skill-covers/' + posterFilename : undefined);
+export function archivedSkillCover(name: string, format: 'mp4' | 'webm' | 'gif' = 'mp4') {
+  const animation = hostedPreviews.get(`${name}.${format}`);
+  const poster = archivedSkillPoster(name);
   return format === 'gif' ? { gif: animation, poster } : { video: animation, poster };
 }
-
-export const archivedSkillCover = (name: string, format?: 'gif') => skillCover(name, format, true);

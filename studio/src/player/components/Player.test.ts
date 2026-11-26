@@ -424,7 +424,7 @@ describe("ready to show", () => {
   it("covers the live canvas immediately until a displayable frame, without covering a hot reload", async () => {
     const { host, player } = await mountPlayer({ showInitialLoading: true });
     const cover = () => host.querySelector('[data-testid="composition-loading-overlay"]');
-    expect(cover()?.textContent).toContain("Loading composition");
+    expect(cover()?.textContent).toContain("Preparing the first preview frame");
     loadAndReady(player);
     await twoFrames();
     expect(cover()).not.toBeNull();
@@ -533,7 +533,7 @@ describe("ready to show", () => {
       onCompositionLoadingChange,
     });
     expect(host.textContent).not.toContain("Preparing preview assets");
-    expect(host.textContent).not.toContain("Loading composition");
+    expect(host.textContent).not.toContain("Preparing the first preview frame");
     expect(onCompositionLoadingChange).toHaveBeenLastCalledWith(true);
   });
 
@@ -546,6 +546,23 @@ describe("ready to show", () => {
       expect(usePlayerStore.getState().previewBooted).toBe(false);
       act(() => void vi.advanceTimersByTime(1));
       expect(usePlayerStore.getState().previewBooted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the live canvas covered without announcing a painted frame when the loading message expires", async () => {
+    vi.useFakeTimers();
+    try {
+      usePlayerStore.setState({ previewBooted: false });
+      const onPainted = vi.fn(), onReadyToShowChange = vi.fn();
+      const { host } = await mountPlayer({ showInitialLoading: true, trackAssets: true, onPainted, onReadyToShowChange });
+      act(() => void vi.advanceTimersByTime(5001));
+      expect(host.querySelector('[data-testid="composition-loading-overlay"]')).toBeNull();
+      expect(host.querySelector('[data-testid="composition-loading-backdrop"]')).not.toBeNull();
+      expect(usePlayerStore.getState().previewBooted).toBe(false);
+      expect(onPainted).not.toHaveBeenCalled();
+      expect(onReadyToShowChange).not.toHaveBeenCalledWith(true);
     } finally {
       vi.useRealTimers();
     }

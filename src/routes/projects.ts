@@ -505,7 +505,10 @@ export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables
   });
 
   // -------------------------------------------------------------------------
-  // Project-Level Agent Grants ("交给 Codex" / Revoke Project Access)
+  // Legacy Project-Level Agent Grants Routes (Inert Compatibility Endpoints)
+  // OAuth 2.1 access is now workspace-scoped by ownerUserId (matching PAT);
+  // rows persisted here no longer gate authorization and are retained only for
+  // backward compatibility with older API callers.
   // -------------------------------------------------------------------------
 
   app.get('/motion-api/projects/:id/grants', async (c) => {

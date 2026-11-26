@@ -75,9 +75,15 @@ Each file is located under its project's root, with exact byte counts and SHA-25
 
 ## Shared API
 
-The public `openmotion_project_archive` Tool exposes `action=export|import`. Use `openmotion_get_project` to page through available projects first. Both actions require a stable `requestId`. Export accepts `projectIds` or `all=true` and optional `expectedRevisions`; it returns the immutable ZIP path, same-origin download URL, checksum and source revisions. Import takes an absolute local `sourcePath` and returns new project/session identities. Reusing a request with different inputs is rejected. Importing the same file with a new request deliberately creates another copy.
+Use `openmotion_get_project` to page through available projects, then call `openmotion_project_archive` with `action=export`, `projectIds` or `all=true`, optional `expectedRevisions` and a stable `requestId`. Studio also calls this tool through `/motion-api/phase1/call`.
 
-Studio calls the same service through `/motion-api/phase1/call`. Browser import streams a ZIP to `/motion-api/project-archives/import?requestId=…` with `Content-Type: application/zip`; download uses `/motion-api/project-archives/<archiveId>/file`. These routes retain the installation's loopback and same-origin protections. Private ZIPs and receipts stay under the workspace's `project-archives` directory, outside the checkout; automatic retention cleanup is not implemented.
+**Cloud.** Export returns an absolute `downloadUrl` on the deployment's public origin, a SHA-256 checksum, byte count and source revisions. Open the URL in a browser signed in to the same Studio workspace or GET it with `Authorization: Bearer <token>` using an OAuth access token or workspace PAT with `projects:read`. Follow the short-lived object storage redirect and verify the downloaded ZIP against `sha256`.
+
+To import, upload the ZIP in Studio or send its bytes to `POST <origin>/motion-api/project-archives/import?requestId=<stable-id>` with `Content-Type: application/zip`. API clients use the same Bearer authentication with `projects:write` and at least editor access. The response's `imported` array gives the new project and session IDs. Studio uses its signed-in session.
+
+**Desktop.** The `action=import` tool takes an absolute local `sourcePath` and a stable `requestId`. Browser import uses the same ZIP upload route under the installation's loopback and same-origin protections.
+
+In both environments, reusing a request ID with different inputs is rejected. Importing the same file with a new request deliberately creates another copy.
 
 `tests/project-archive.test.ts` covers ZIP parsing, source/assets/font roundtrips, independent editing, all-project bundles, HTTP/MCP parity, request deduplication, revision conflicts and rejected inputs. Browser layout, native playback and human visual acceptance are separate checks.
 

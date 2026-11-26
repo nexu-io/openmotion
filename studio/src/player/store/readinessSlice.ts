@@ -9,14 +9,15 @@ import type { PreviewAssetFailure, PreviewAssetProgress } from "../lib/previewAs
 
 export interface PlaybackReadinessSlice {
   timelineReady: boolean;
-  /** Latched when the project's first preview shows its first frame (or fails), kept through edit
-   *  reloads, so work that must not compete with the boot waits for it once. */
+  /** Releases deferred editing work after preview boot, including a responsive runtime waiting
+   * on slow media. A displayable first frame is reported separately by the player. */
   previewBooted: boolean;
   /** Active composition asset readiness for background progress and failure recovery. */
   assetReadinessPhase: "loading" | "ready";
   assetReadinessCompleted: number;
   assetReadinessTotal: number;
   assetReadinessFailed: PreviewAssetFailure[];
+  assetReadinessPendingAsset?: string;
   assetReadinessGeneration: number;
   /** True after the user clicks the escape button or the cover auto-releases on timeout. */
   assetReadinessSkipped: boolean;
@@ -90,6 +91,7 @@ export function resetPlaybackReadinessState(): Pick<
   | "assetReadinessCompleted"
   | "assetReadinessTotal"
   | "assetReadinessFailed"
+  | "assetReadinessPendingAsset"
   | "assetReadinessGeneration"
   | "assetReadinessSkipped"
   | "editorInputLocked"
@@ -107,6 +109,7 @@ export function resetPlaybackReadinessState(): Pick<
     assetReadinessCompleted: 0,
     assetReadinessTotal: 0,
     assetReadinessFailed: [],
+    assetReadinessPendingAsset: undefined,
     assetReadinessGeneration: assetReadinessGenerationCounter,
     assetReadinessSkipped: false,
     editorInputLocked: false,
@@ -145,6 +148,7 @@ export function createPlaybackReadinessSlice(
         assetReadinessCompleted: 0,
         assetReadinessTotal: 0,
         assetReadinessFailed: [],
+        assetReadinessPendingAsset: undefined,
         assetReadinessGeneration: generation,
         assetReadinessSkipped: false,
         assetReadinessRetrying: false,
@@ -163,6 +167,7 @@ export function createPlaybackReadinessSlice(
           assetReadinessCompleted: progress.completed,
           assetReadinessTotal: progress.total,
           assetReadinessFailed: progress.failed,
+          assetReadinessPendingAsset: progress.status === "loading" ? progress.pendingAsset : undefined,
         };
       }),
     skipAssetReadiness: () =>

@@ -11,7 +11,11 @@ function checkCatalogProject(catalog: ProjectCatalog, projectId: string) {
 }
 
 async function openPreview(projectId: string, signal: AbortSignal) {
-  const opened = await motionApi<OpenedPreview>('/preview/open', { method: 'POST', signal, priority: 'high' }, projectId);
+  const opened = await motionApi<OpenedPreview>(
+    '/preview/open',
+    { method: 'POST', signal, priority: 'high', suppressAuthRecovery: true },
+    projectId,
+  );
   signal.throwIfAborted();
   if (opened.projectId !== undefined && opened.projectId !== projectId) throw new Error('项目状态与当前页面不匹配，请重新打开对应项目。');
   return opened;

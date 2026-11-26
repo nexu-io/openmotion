@@ -248,6 +248,7 @@ it('preserves cloud connection, manual download and project-file guidance on the
     const download = document.querySelector<HTMLAnchorElement>('a[download="openmotion-chatgpt.json"]');
     expect(download?.getAttribute('href')).toContain('https%3A%2F%2Fmotion.example.com%2Fmcp');
     expect(button('Manage API tokens (PAT)')).toBeDefined();
+    expect(document.querySelector('a[href$="/install.md"]')).toBeNull();
     await act(async () => (document.querySelector('#dev-drawer > button') as HTMLButtonElement).click());
     const card = document.querySelector('[data-mcp-scenario="project-file"]')!;
     await act(async () => card.querySelector('button')!.click());
@@ -255,6 +256,33 @@ it('preserves cloud connection, manual download and project-file guidance on the
     await act(async () => tab('Costs & local permissions').click());
     await act(async () => button('Model gateway').click());
     expect(openProviders).toHaveBeenCalledOnce();
+  } finally {
+    setCachedCloudDisklessMode(null);
+  }
+});
+
+it('loads public cloud MCP discovery via /connect/integration when unauthenticated guests visit /mcp-setup', async () => {
+  const publicCloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://motion.example.com',
+    version: '1.0.0',
+    authMode: 'oidc',
+    tools: info.tools,
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url === '/connect/integration') return Response.json(publicCloud);
+    return new Response('', { status: 401 });
+  }));
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  setCachedCloudDisklessMode(true);
+  try {
+    await mount('zh-CN');
+    expect(document.querySelector('[data-mcp-endpoint]')?.textContent).toContain('https://motion.example.com/mcp');
+    await act(async () => button('复制 Codex 安装指令').click());
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/install.md'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/mcp'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('打开新的 Codex 聊天并发送创作需求'));
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.example.com/mcp-setup'));
+    expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('openmotion#quick-start'));
   } finally {
     setCachedCloudDisklessMode(null);
   }
@@ -538,9 +566,9 @@ it('renders the 4-step hero stage, 3 feature carousels, standalone 6-item FAQ an
   expect(drawer.getAttribute('data-open')).toBe('true');
 });
 
-it('wires real /motion-api/connections OAuth evidence and Check sign-in refresh to DesktopConnectPanel', async () => {
+it('never renders DesktopConnectPanel on /mcp-setup in web or desktop hosts', async () => {
   const { buildCloudIntegrationInfo } = await import('../../../shared/integration');
-  const { HOST_CAPABILITIES, hostErr, hostOk } = await import('../../../shared/desktop-contract');
+  const { HOST_CAPABILITIES, hostErr } = await import('../../../shared/desktop-contract');
   const cloud = buildCloudIntegrationInfo({
     publicOrigin: 'https://motion.open-design.ai',
     version: '1.2.3',
@@ -551,16 +579,23 @@ it('wires real /motion-api/connections OAuth evidence and Check sign-in refresh 
     tools: info.tools,
   });
 
-  let connectionsResponse: () => Response = () => new Response('', { status: 401 });
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string) => {
-      if (url.includes('template-catalog')) return Response.json({ items: [] });
-      if (url.includes('/motion-api/connections')) return connectionsResponse();
-      return Response.json(cloud);
-    }),
-  );
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url.includes('template-catalog')) return Response.json({ items: [] });
+    return Response.json(cloud);
+  });
+  vi.stubGlobal('fetch', fetchMock);
 
+  // Ordinary web browser
+  await mount();
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(document.querySelector('[data-desktop-connect-panel]')).toBeNull();
+  expect(document.querySelector('[data-connect-script-form]')).toBeNull();
+  expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/motion-api/connections'))).toBe(false);
+
+  // Desktop host bridge present — still omitted from /mcp-setup
   window.__OPENMOTION_HOST__ = {
     info: vi.fn(async () => ({
       hostKind: 'desktop' as const,
@@ -575,21 +610,7 @@ it('wires real /motion-api/connections OAuth evidence and Check sign-in refresh 
       { name: HOST_CAPABILITIES.ATOM_DETECT, version: '1.0.0', status: 'available' as const, methods: ['run'] },
       { name: HOST_CAPABILITIES.ATOM_EXEC, version: '1.0.0', status: 'available' as const, methods: ['run'] },
     ]),
-    invoke: vi.fn(async capability => {
-      if (capability === HOST_CAPABILITIES.ATOM_DETECT) {
-        return hostOk({
-          platform: 'darwin',
-          arch: 'arm64',
-          agents: [
-            { agentId: 'codex', installed: true, version: 'v0.30.0', mcpConfigured: true },
-            { agentId: 'claude', installed: true, version: 'v1.5.0', mcpConfigured: true },
-          ],
-          engine: { installed: false, running: false, port: 0, providerKind: 'none' },
-          detectedAt: '2026-01-01T00:00:00Z',
-        });
-      }
-      return hostErr('UNSUPPORTED', 'Unsupported');
-    }) as NonNullable<Window['__OPENMOTION_HOST__']>['invoke'],
+    invoke: vi.fn(async () => hostErr('UNSUPPORTED', 'Unsupported')) as NonNullable<Window['__OPENMOTION_HOST__']>['invoke'],
     subscribe: () => () => {},
   };
 
@@ -599,84 +620,61 @@ it('wires real /motion-api/connections OAuth evidence and Check sign-in refresh 
       await Promise.resolve();
       await Promise.resolve();
     });
-
-    const codexRow = document.querySelector('[data-agent-id="codex"]')!;
-    const claudeRow = document.querySelector('[data-agent-id="claude"]')!;
-    // Unauthenticated / 401 fails silently and never claims Authorized & ready.
-    expect(codexRow.getAttribute('data-connection-state')).toBe('configured');
-    expect(claudeRow.getAttribute('data-connection-state')).toBe('configured');
-    expect(codexRow.textContent).toContain('Config written');
-    expect(codexRow.textContent).not.toContain('Authorized & ready');
-
-    // Return an active OAuth token WITHOUT a tool call yet for Codex: must stay configured, NOT authorized.
-    connectionsResponse = () =>
-      Response.json({
-        connections: [
-          { clientName: 'Codex CLI', workspaceId: 'ws-prod', activeTokenCount: 1, lastUsedAt: null },
-          { clientName: 'Claude Code', workspaceId: 'ws-prod', activeTokenCount: 0, lastUsedAt: null },
-          { clientName: 'Claude Code', workspaceId: 'ws-other', activeTokenCount: 2, lastUsedAt: '2026-01-01T00:00:00Z' },
-        ],
-      });
-
-    const checkSignIn = [...codexRow.querySelectorAll<HTMLButtonElement>('button')].find(
-      node => node.textContent?.trim() === 'Check sign-in',
-    )!;
-    expect(checkSignIn).toBeDefined();
-    await act(async () => checkSignIn.click());
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(codexRow.getAttribute('data-connection-state')).toBe('configured');
-    expect(codexRow.textContent).toContain('awaiting first tool call');
-    expect(codexRow.textContent).not.toContain('Authorized & ready');
-    expect(claudeRow.getAttribute('data-connection-state')).toBe('configured');
-
-    // Once Codex completes a read-only MCP tool call (`lastUsedAt` populated), it upgrades to Authorized & ready.
-    connectionsResponse = () =>
-      Response.json({
-        connections: [
-          { clientName: 'Codex CLI', workspaceId: 'ws-prod', activeTokenCount: 1, lastUsedAt: '2026-11-23T08:00:00Z' },
-          { clientName: 'Claude Code', workspaceId: 'ws-prod', activeTokenCount: 0, lastUsedAt: null },
-        ],
-      });
-
-    await act(async () => checkSignIn.click());
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(codexRow.getAttribute('data-connection-state')).toBe('authorized');
-    expect(codexRow.textContent).toContain('Authorized & ready');
-    expect(claudeRow.getAttribute('data-connection-state')).toBe('configured');
-    expect(claudeRow.textContent).not.toContain('Authorized & ready');
-
-    // Revoked token with historical lastUsedAt OR omitted activeTokenCount MUST downgrade back to configured!
-    connectionsResponse = () =>
-      Response.json({
-        connections: [
-          { clientName: 'Codex CLI', workspaceId: 'ws-prod', activeTokenCount: 0, lastUsedAt: '2026-11-23T08:00:00Z' },
-          { clientName: 'Claude Code', workspaceId: 'ws-prod', lastUsedAt: '2026-11-23T08:00:00Z' },
-        ],
-      });
-
-    const claudeCheckSignIn = [...claudeRow.querySelectorAll<HTMLButtonElement>('button')].find(
-      node => node.textContent?.trim() === 'Check sign-in',
-    )!;
-    expect(claudeCheckSignIn).toBeDefined();
-    await act(async () => claudeCheckSignIn.click());
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(codexRow.getAttribute('data-connection-state')).toBe('configured');
-    expect(codexRow.textContent).not.toContain('Authorized & ready');
-    expect(claudeRow.getAttribute('data-connection-state')).toBe('configured');
-    expect(claudeRow.textContent).not.toContain('Authorized & ready');
+    expect(document.querySelector('[data-desktop-connect-panel]')).toBeNull();
+    expect(document.querySelector('[data-connect-script-form]')).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/motion-api/connections'))).toBe(false);
   } finally {
     delete window.__OPENMOTION_HOST__;
   }
+});
+
+it('matches cloud manual configuration instructions to each client transport and auth mode', async () => {
+  const cloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://motion.open-design.ai',
+    version: '1.2.3',
+    workspaceId: 'ws-prod',
+    authMode: 'oidc',
+    oauth2Enabled: true,
+    patEnabled: true,
+    tools: info.tools,
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('template-catalog')) return Response.json({ items: [] });
+    return Response.json(cloud);
+  }));
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+
+  await mount('en', 'project');
+
+  // Claude Code uses canonical flag ordering matching install.md.
+  await act(async () => tab('Claude Code').click());
+  await act(async () => button('Manual setup').click());
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain(
+    "claude mcp add --transport http --scope user openmotion 'https://motion.open-design.ai/mcp'",
+  );
+
+  // Claude Desktop in cloud mode uses Settings -> Connectors -> Add custom connector (no openmotion.mcp.json).
+  await act(async () => tab('Claude Desktop').click());
+  await act(async () => button('Configure Claude Desktop').click());
+  expect(document.querySelector('.om-mcp-manual-title')?.textContent).toContain(
+    'Claude Desktop Settings -> Connectors -> Add custom connector',
+  );
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain('Add custom connector');
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).not.toContain('"mcpServers"');
+  expect(document.querySelector('a[download]')).toBeNull();
+
+  // Cursor / Other MCP clients with OAuth 2.1 do not tell users to provide OPENMOTION_TOKEN when JSON omits headers.
+  await act(async () => tab('Cursor').click());
+  await act(async () => button('Manual setup').click());
+  expect(document.querySelector('.om-mcp-manual-title')?.textContent).toContain('OAuth 2.1');
+  expect(document.querySelector('.om-mcp-manual-title')?.textContent).not.toContain('OPENMOTION_TOKEN');
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain('"url": "https://motion.open-design.ai/mcp"');
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).not.toContain('OPENMOTION_TOKEN');
+
+  // Developer drawer task examples omit "Wait for my creative brief" so they don't contradict the appended task.
+  await act(async () => (document.querySelector('#dev-drawer > button') as HTMLButtonElement).click());
+  const card = document.querySelector('[data-mcp-scenario="create"]')!;
+  await act(async () => card.querySelector('button')!.click());
+  expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.open-design.ai/install.md'));
+  expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('Wait for my creative brief'));
 });

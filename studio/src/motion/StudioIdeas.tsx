@@ -6,8 +6,8 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { MediaPreviewPlayer } from '../components/nle/MediaPreviewPlayer';
 import { type StudioDestination } from './creativeStudios';
 import { studioExamples, sceneLayout, type SceneExample } from './sceneShowcase';
-import { skillPreviewSnapshot } from './skillCatalog';
-import { useSkillPreview } from './useSkillPreview';
+import { isHostedSkillMedia } from './skillCoverMedia';
+import { isXVideoUrl, xVideoDocument } from './xVideoEmbed';
 import sofaCutout from './scene-art/sofa-cutout.webp';
 import sofaRelight from './scene-art/sofa-relight.webp';
 
@@ -27,15 +27,31 @@ function SceneComparisonGuide({ src, width, height, alt, title, description, wid
   </section>;
 }
 
-function ExampleMedia({ example, enabled }: { example: SceneExample; enabled: boolean }) {
+function ExampleMedia({ example, enabled, videoGuide = false }: { example: SceneExample; enabled: boolean; videoGuide?: boolean }) {
   const { t } = useI18n();
   const stage = useRef<HTMLDivElement>(null);
+  const video = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
   const [audioUrl, setAudioUrl] = useState('');
   const [requestedClip, setRequestedClip] = useState<string>();
-  const archivedClip = example.clip?.startsWith(skillPreviewSnapshot);
-  const clip = useSkillPreview(example.clip, enabled && !failed && (!archivedClip || requestedClip === example.clip), setFailed);
+  const [inView, setInView] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(() => (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ));
+  const hostedClip = isHostedSkillMedia(example.clip);
+  const xHostedClip = Boolean(example.clip && isXVideoUrl(example.clip));
+  const autoplay = videoGuide && !reducedMotion;
+  const clip = enabled && !failed && !xHostedClip && (!hostedClip || requestedClip === example.clip) ? example.clip : undefined;
   useEffect(() => { if (!enabled) setRequestedClip(undefined); }, [enabled]);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const pref = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => setReducedMotion(pref.matches);
+    pref.addEventListener('change', onChange);
+    return () => pref.removeEventListener('change', onChange);
+  }, []);
   useEffect(() => {
     if (!example.audio || !enabled || failed) return;
     // The bundled demo is small. A blob URL supports seeking even on static hosts without byte ranges.
@@ -57,21 +73,41 @@ function ExampleMedia({ example, enabled }: { example: SceneExample; enabled: bo
     };
   }, [example.audio, enabled, failed]);
   useEffect(() => {
-    const pause = () => { if (!enabled || document.hidden) stage.current?.querySelector<HTMLMediaElement>('audio, video')?.pause(); };
+    const sync = () => {
+      const media = video.current ?? stage.current?.querySelector<HTMLMediaElement>('audio, video');
+      if (!media) return;
+      if (!enabled || document.hidden || !inView) {
+        media.pause();
+      } else if (autoplay && media instanceof HTMLVideoElement) {
+        void media.play().catch(() => { /* Static poster remains visible when autoplay is blocked. */ });
+      }
+    };
     const element = stage.current;
     const observer = element && typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(entries => {
-      if (!entries[0]?.isIntersecting) element.querySelector<HTMLMediaElement>('audio, video')?.pause();
+      const visible = Boolean(entries[0]?.isIntersecting);
+      setInView(visible);
+      if (!visible) element.querySelector<HTMLMediaElement>('audio, video')?.pause();
     }) : null;
     if (element) observer?.observe(element);
-    pause(); document.addEventListener('visibilitychange', pause);
-    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', pause); };
-  }, [enabled]);
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', sync); };
+  }, [enabled, inView, autoplay, clip]);
   const mediaStyle = !example.audio && example.posterAspect
     ? { '--poster-aspect': String(example.posterAspect) } as CSSProperties
     : undefined;
   return <div ref={stage} className="om-scene-example-media" style={mediaStyle}>
-    {clip && !failed ? <video controls playsInline autoPlay={archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
-    {enabled && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
+    {xHostedClip && example.clip && enabled ? (
+      <iframe
+        key={example.clip}
+        className="om-hub-lightbox-video"
+        srcDoc={xVideoDocument(example.clip, example.poster, true, autoplay)}
+        sandbox="allow-scripts"
+        allow="autoplay; fullscreen"
+        title={t(example.title)}
+      />
+    ) : clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && hostedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" referrerPolicy="no-referrer" />}
+    {enabled && hostedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
       disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
       {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
       {t(requestedClip === example.clip ? 'Loading…' : 'Play')}
@@ -89,10 +125,35 @@ function ExampleMedia({ example, enabled }: { example: SceneExample; enabled: bo
   </div>;
 }
 
-export function StudioIdeas({ destination, onPrompt, active = true, modelName, currentPrompt }: { destination: StudioDestination; onPrompt: (prompt: string) => void; active?: boolean; modelName?: string; currentPrompt?: string }) {
+export function StudioIdeas({ destination, onPrompt, active = true, modelName, currentPrompt, featuredExample }: {
+  destination: StudioDestination;
+  onPrompt: (prompt: string) => void;
+  active?: boolean;
+  modelName?: string;
+  currentPrompt?: string;
+  featuredExample?: { title: string; prompt: string; poster: string; clip?: string; posterAspect?: number };
+}) {
   const { t } = useI18n();
   const [selected, setSelected] = useState(0);
   const { scene } = destination;
+  if (featuredExample) {
+    const remixExample: SceneExample = {
+      title: featuredExample.title,
+      prompt: featuredExample.prompt,
+      poster: featuredExample.poster,
+      clip: featuredExample.clip,
+      posterAspect: featuredExample.posterAspect,
+    };
+    return <section className="om-scene-guide om-scene-hero" data-remix-guide="true">
+      <div className="om-scene-hero-stage">
+        <ExampleMedia key={remixExample.poster} example={remixExample} enabled={active} videoGuide={scene.modality === 'video'} />
+      </div>
+      <div className="om-guide-heading">
+        <h2 className="om-title">{remixExample.title}</h2>
+        <p className="om-muted">{remixExample.prompt}</p>
+      </div>
+    </section>;
+  }
   if (scene.id === 'remove-background') return (
     <SceneComparisonGuide src={sofaCutout} width={1004} height={688}
       alt="An armchair before and after background removal"
@@ -127,7 +188,7 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName, c
     <div className="om-scene-hero-stage">
       {scene.id === 'speech'
         ? <blockquote className="om-speech-script"><RemixIcon name="voiceprint-line" size={28} /><p>{ideaPrompt}</p></blockquote>
-        : <ExampleMedia key={idea.title} example={idea} enabled={active} />}
+        : <ExampleMedia key={idea.title} example={idea} enabled={active} videoGuide={destination.studio.id === 'cinema' && scene.modality === 'video'} />}
     </div>
     <div className="om-guide-heading">
       <h2 className="om-title">{t(idea.title)}</h2>

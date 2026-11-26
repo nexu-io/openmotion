@@ -25,6 +25,7 @@ import {
   clearCookie,
   createBrowserSession,
   isHttpsOrigin,
+  oidcIdTokenCacheKey,
   parseCookies,
   resolveBrowserSession,
   revokeBrowserSession,
@@ -129,6 +130,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       const rawSession = cookies[SESSION_COOKIE_NAME];
       if (rawSession) {
         await revokeBrowserSession(deps.store, { rawToken: rawSession }, deps.cache);
+        await deps.cache?.del(oidcIdTokenCacheKey(rawSession)).catch(() => {});
       }
     }
 
@@ -218,7 +220,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         return new Response(null, { status: 302, headers });
       }
 
-      const { membership, returnTo } = await deps.oidc.completeCallback(deps.store, {
+      const { membership, returnTo, idToken } = await deps.oidc.completeCallback(deps.store, {
         code,
         state,
         txCookieValue,
@@ -232,6 +234,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         workspaceId: membership.workspace.id,
         ttlSec: DEFAULT_SESSION_TTL_SEC,
       });
+      await deps.cache?.set(oidcIdTokenCacheKey(session.token), idToken, DEFAULT_SESSION_TTL_SEC).catch(() => {});
 
       if (authAttribution.hookId || authAttribution.entryId) {
         deps.cloudTracking?.trackWebSignInResult({
@@ -272,24 +275,22 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const cookies = parseCookies(c.req.header('cookie'));
     const rawSession = cookies[SESSION_COOKIE_NAME];
 
+    let cachedIdToken: string | null = null;
     if (rawSession) {
       if (!verifyCsrfOrigin(c.req.raw, deps.config.APP_PUBLIC_ORIGIN)) {
         return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed on logout' }, 403);
       }
       await revokeBrowserSession(deps.store, { rawToken: rawSession }, deps.cache);
+      const idTokenKey = oidcIdTokenCacheKey(rawSession);
+      cachedIdToken = (await deps.cache?.get(idTokenKey).catch(() => null)) ?? null;
+      await deps.cache?.del(idTokenKey).catch(() => {});
     }
 
     c.header('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie, '/'));
-    let endSessionUrl: string | undefined;
-    if (deps.config.AUTH_MODE === 'oidc' && deps.oidc) {
-      try {
-        const doc = await deps.oidc.discover();
-        endSessionUrl = doc.end_session_endpoint;
-      } catch {
-        // Optional end_session_endpoint discovery failure must not block local logout.
-      }
+    if (cachedIdToken && deps.config.AUTH_MODE === 'oidc' && deps.oidc) {
+      await deps.oidc.endSession(cachedIdToken);
     }
-    return c.json({ ok: true, ...(endSessionUrl ? { endSessionUrl } : {}) }, 200);
+    return c.json({ ok: true }, 200);
   });
 
   app.get('/auth/me', authMiddleware, async (c) => {

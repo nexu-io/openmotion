@@ -3,6 +3,7 @@ import * as tracking from './pageTracking';
 import { destinationTarget, reportCreativePageView } from './exploreTracking';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { assetVersion, type LibraryAsset } from '../../../shared/asset-library';
+import { assetPromptForReuse } from './assetPromptForReuse';
 import { resumableJob, type GenerationJob } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -90,13 +91,16 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const scoped = Boolean(studio), lastStudioDraft = useRef(draft), submittedDraftRef = useRef<AssetDraft | undefined>(undefined);
   const markDraftSubmitted = useCallback((storageKey: string) => {
     clearPersistedStudioDraft(storageKey);
-    // Capture the post-submit draft after Composer's queued setDraft(current => ({ ...current, model, parameters }))
+    // Capture the post-submit draft after Composer's queued setDraft(current => ({ ...current, model, parameters, source: undefined }))
     // runs in the same React batch, so useLayoutEffect suppresses persisting the submitted draft without masking later edits.
     setDraft(current => {
-      submittedDraftRef.current = current;
-      return current;
+      const next = current.source ? { ...current, source: undefined } : current;
+      submittedDraftRef.current = next;
+      lastStudioDraft.current = next;
+      studioForm?.remember(next, { persist: false });
+      return next;
     });
-  }, []);
+  }, [studioForm]);
   useLayoutEffect(() => {
     if (submittedDraftRef.current === draft) return;
     submittedDraftRef.current = undefined;
@@ -108,7 +112,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     }
   }, [studioForm, studio, creating, draft, draftKeyState]);
   const selectionRequest = useRef(0);
-  const selectedAsset = useRef<LibraryAsset | undefined>(undefined), assetReadRequest = useRef(0);
+  const selectedAsset = useRef<LibraryAsset | undefined>(undefined), selectedVersionIdRef = useRef(''), assetReadRequest = useRef(0);
+  selectedVersionIdRef.current = versionId;
   const pendingWrites = useRef(new Set<string>()), [updatingAssets, setUpdatingAssets] = useState<Set<string>>(new Set());
   const mediaGenerations = Boolean(studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video'));
   const browser = useAssetBrowser({ kind, revision, active, lockedSource: mediaGenerations ? 'generated' : undefined });
@@ -124,10 +129,10 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     else tracking.reportAssetsPageView(hasProject);
   }, [active, studio?.destination.studio.id, studio?.destination.scene.id, studio?.destination.landing]);
   const audioStudio = studio?.openCreate ? studio : undefined;
-  const hasGuide = studio?.destination.landing || layout === 'workbench';
-  const guide = Boolean(hasGuide && (studioTab ? studioTab === 'guide' : studio?.destination.landing || browser.data?.total === 0));
+  const hasGuide = Boolean(studio?.destination.landing || layout === 'workbench' || draft.guideExample);
+  const guide = Boolean(hasGuide && (studioTab ? studioTab === 'guide' : studio?.destination.landing || Boolean(draft.guideExample) || browser.data?.total === 0));
   const applyPrompt = (prompt: string) => {
-    setDraft(current => ({ ...current, prompt }));
+    setDraft(current => ({ ...current, prompt, source: undefined }));
     if (!studio) setCreating(true);
     setMobileView('create');
     setPromptAppliedToken(++promptAppliedSeq.current);
@@ -135,6 +140,10 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       t(studio?.destination.scene.id === 'speech' ? 'Script loaded into editor' : 'Prompt loaded into editor'),
       'info',
     );
+  };
+  const reusePrompt = (prompt: string) => {
+    const scene = studio?.destination.scene;
+    applyPrompt(isFeatureScene(scene) ? assetPromptForReuse(prompt, scene!.modality) : prompt);
   };
   const gallery = useRef<HTMLElement>(null), galleryScroll = useRef<{ top: number; key: string } | undefined>(undefined);
   useLayoutEffect(() => {
@@ -150,7 +159,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const refresh = useCallback(() => setRevision(v => v + 1), []), onError = useCallback((message: string) => toast.showToast(message), [toast.showToast]), onInfo = useCallback((message: string) => toast.showToast(message, 'info'), [toast.showToast]);
   const missingVersion = t('Asset version unavailable');
   const clearPreview = useCallback(() => {
-    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = undefined;
+    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = undefined; selectedVersionIdRef.current = '';
     setSelectingTask(false); setSelected(undefined); setVersionId(''); setCreating(scoped && !studio?.openCreate);
     setPromptAppliedToken(0);
     if (scoped) { setDraft(lastStudioDraft.current); setTaskId(undefined); }
@@ -160,7 +169,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     onAssetRoute?.(null, null);
   }, [clearPreview, onAssetRoute]);
   const selectVersion = useCallback((asset: LibraryAsset, id: string) => {
-    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = asset;
+    selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = asset; selectedVersionIdRef.current = id;
     setSelectingTask(false); setSelected(asset); setVersionId(id); setCreating(false); setPromptAppliedToken(0);
   }, []);
   const open = useCallback((asset: LibraryAsset, id = asset.currentVersionId) => {
@@ -252,11 +261,17 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       if (cancelled || request !== assetReadRequest.current || selectedAsset.current?.id !== asset.id || pendingWrites.current.has(asset.id)) return;
       if (Boolean(asset.trashedAt) !== Boolean(selectedAsset.current.trashedAt)) { closePreview(); refresh(); return; }
       if (asset.updatedAt < selectedAsset.current.updatedAt) return;
-      setVersionId(current => assetVersion(asset, current) ? current : asset.currentVersionId);
+      const requestedVersion = selectedVersionIdRef.current;
+      if (requestedVersion && !assetVersion(asset, requestedVersion)) {
+        closePreview();
+        refresh();
+        onError(missingVersion);
+        return;
+      }
       selectedAsset.current = asset; setSelected(asset);
     }).catch(error => { if (!cancelled && request === assetReadRequest.current) onError(error.message); });
     return () => { cancelled = true; };
-  }, [active, selected?.id, revision, onError, closePreview, refresh]);
+  }, [active, selected?.id, revision, onError, closePreview, refresh, missingVersion]);
   const importFiles = async (files: File[], newVersion = false, entry: 'library_button' | 'library_drop' | 'library_new_version' | 'other' = newVersion ? 'library_new_version' : 'library_button', onImported?: (asset: LibraryAsset) => void, shouldContinue?: () => boolean) => {
     const targetId = newVersion ? selected?.id : undefined, parentVersionId = newVersion ? versionId : undefined, request = selectionRequest.current;
     if (newVersion && !targetId) return;
@@ -383,7 +398,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         if (!assetVersion(asset, job.library.parentVersionId)) throw new Error(t('A referenced version is no longer available.'));
         target = { asset, versionId: job.library.parentVersionId };
       }
-      const nextDraft: AssetDraft = { modality: job.modality, prompt: job.prompt, model: job.model.id, parameters: job.parameters, references, target };
+      const prompt = isFeatureScene(studioForm?.destination.scene) ? assetPromptForReuse(job.prompt, job.modality) : job.prompt;
+      const nextDraft: AssetDraft = { modality: job.modality, prompt, model: job.model.id, parameters: job.parameters, references, target };
       if (request !== selectionRequest.current) return;
       setDraft(nextDraft); setPromptAppliedToken(0); setTaskId(task.id);
       setTaskEpoch(value => value + 1); setCreating(true); setMobileView('create');
@@ -455,7 +471,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         onView={viewJob}
         onRetrySave={retrySave}
         onResume={resumeJob}
-        onReusePrompt={applyPrompt}
+        onReusePrompt={reusePrompt}
         onDismiss={dismissJob}
       />
     ))
@@ -608,7 +624,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     setMobileView('create');
   };
   const blankCanvas = layout === 'canvas' && browser.data?.total === 0 && !placeholderJobs.length && !browser.query && (mediaGenerations || browser.source === 'all');
-  const studioEmpty = studio && (layout === 'canvas' ? <StudioIdeas destination={studio.destination} onPrompt={applyPrompt}
+  const studioEmpty = studio && (layout === 'canvas' ? <StudioIdeas destination={studio.destination} active={active} onPrompt={applyPrompt}
+    featuredExample={draft.guideExample}
     currentPrompt={draft.prompt} modelName={studioModels?.selected && imageModelLabel(studioModels.selected)} /> : <p className="om-muted">{t('No assets yet')}</p>);
   const history = { tasks, selectedKey, loading: historyLoading, error: historyError, onRetry: () => { setHistoryLoading(true); setHistoryRetry(value => value + 1); }, onSelect: (task: AssetTask) => { tracking.reportAssetsClick('asset_tasks', 'select_task', { task_mode: task.mode }); void selectTask(task); } };
   const taskMenu = <AssetTaskMenu {...history} disabled={selectingTask} />;
@@ -640,8 +657,9 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const editSoundAsset = () => {
     if (!selected || !version || !studio) return;
     tracking.reportAssetsClick('asset_detail', 'edit_version', { modality: selected.modality });
+    const currentTab = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
     const classified = classifyAudioTrackTab(version.model, detailModels, version.source, version.audioKind);
-    const targetTab = classified === 'upload' ? (studio.soundTab === 'sfx' || studio.soundTab === 'speech' ? studio.soundTab : 'music') : classified;
+    const targetTab = classified === 'upload' ? (currentTab === 'sfx' || currentTab === 'speech' ? currentTab : 'music') : classified;
     const nextDraft: AssetDraft = {
       modality: 'audio',
       prompt: version.prompt ?? '',
@@ -651,6 +669,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     };
     closePreview();
     if (studio.selectSoundTab) {
+      // Same-tab navigation keeps the draft key, so it cannot reload the cached draft.
+      if (targetTab === currentTab) setDraft(nextDraft);
       studio.selectSoundTab(targetTab, nextDraft, version.model ?? null);
     } else if (studio.reuseInScene) {
       studio.reuseInScene(targetTab === 'speech' ? 'speech' : 'music', nextDraft, version.model ?? null);
@@ -713,7 +733,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         <Button variant="plain" className="om-nav-item" aria-pressed={!guide} onClick={() => setStudioTab('library')}>{t('Generations')}{activePlaceholderCount > 0 && <span className="om-badge om-tab-count" role="status">{activePlaceholderCount}</span>}</Button>
       </div> : <h2 className="om-subtitle">{t('Generations')}</h2>}{!mediaGenerations && <div className="om-asset-actions">{taskMenu}</div>}</header> : <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => { if (cloudGuestAssets) { openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' }); return; } tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button><Button variant="ghost" className="om-button h-auto" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</Button></div></header>}
 
-      {cloudGuestAssets ? <AssetsGuestEmptyState /> : guide && studio ? <StudioIdeas destination={studio.destination} active={active} currentPrompt={draft.prompt} onPrompt={applyPrompt} /> : studio && isCloudGuest ? <AssetsGuestEmptyState /> : studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video') ? (
+      {cloudGuestAssets ? <AssetsGuestEmptyState /> : guide && studio ? <StudioIdeas destination={studio.destination} active={active} currentPrompt={draft.prompt} onPrompt={applyPrompt} featuredExample={draft.guideExample} /> : studio && isCloudGuest ? <AssetsGuestEmptyState /> : studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video') ? (
         <MediaGenerationHistory
           modality={studio.destination.scene.modality}
           browser={browser}
@@ -722,8 +742,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
           placeholderJobs={placeholderJobs}
           emptyContent={studioEmpty}
           blankCanvas={blankCanvas}
-          onOpenDetail={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }}
-          onReusePrompt={applyPrompt}
+          onOpenDetail={(asset, id) => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset, id); }}
+          onReusePrompt={reusePrompt}
           onUseReference={studio.destination.scene.modality === 'image' ? attachReference : undefined}
           onUseFirstFrame={studio.useAsFirstFrame}
           onCancelJob={cancelJob}

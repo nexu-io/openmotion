@@ -44,7 +44,9 @@ import { parseConfig, type AppConfig } from '../../src/infra/config.ts';
 import { createLogger } from '../../src/infra/logger.ts';
 import { InMemoryMcpSessionStore } from '../../src/mcp/index.ts';
 import { MockModelGateway } from '../../src/services/mock-model-adapter.ts';
+import { ProjectArchiveService } from '../../src/services/project-archive-service.ts';
 import type { WelcomeBootstrapService } from '../../src/services/welcome-bootstrap.ts';
+import { processMediaGenerateJob } from '../../src/workers/media-generate.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SILENT_LOGGER = createLogger({ level: 'error' });
@@ -510,9 +512,9 @@ function evalW(row: Row, raw: string, params: unknown[]): boolean {
   if ((m = /^([\s\S]+?)\s+in\s*\(([\s\S]+)\)$/i.exec(term))) {
     return splitTop(m[2], ',').map((v) => evalSc(v, params)).includes(row[colName(m[1])]);
   }
-  if ((m = /^([\s\S]+?)\s*>=\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) >= Number(evalSc(m[2], params));
-  if ((m = /^([\s\S]+?)\s*>\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) > Number(evalSc(m[2], params));
-  if ((m = /^([\s\S]+?)\s*<\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) < Number(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*>=\s*([\s\S]+)$/.exec(term))) return sortVal(row[colName(m[1])]) >= sortVal(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*>\s*([\s\S]+)$/.exec(term))) return sortVal(row[colName(m[1])]) > sortVal(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*<\s*([\s\S]+)$/.exec(term))) return sortVal(row[colName(m[1])]) < sortVal(evalSc(m[2], params));
   if ((m = /^([\s\S]+?)\s*=\s*([\s\S]+)$/.exec(term))) return row[colName(m[1])] === evalSc(m[2], params);
   throw new Error(`Unsupported WHERE: ${term}`);
 }
@@ -539,6 +541,7 @@ function applySet(row: Row, setC: string, params: unknown[]): void {
 }
 function sortVal(v: unknown): string | number {
   if (typeof v === 'number') return v;
+  if (v instanceof Date) return v.getTime();
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return Date.parse(v);
   return String(v ?? '');
 }
@@ -689,7 +692,7 @@ function createFakeQueues(): { queues: ApiQueuesPort; enqueued: Array<{ queue: s
       enqueued.push({ queue: 'media-ingest', payload });
       return { id: randomUUID() } as never;
     },
-    async enqueueMediaGenerate(payload: unknown) {
+    async enqueueMediaGenerate(_name: string, payload: unknown) {
       enqueued.push({ queue: 'media-generate', payload });
       return { id: randomUUID() } as never;
     },
@@ -777,6 +780,9 @@ function createApiFixture(overrides: {
   return {
     app,
     services,
+    db,
+    queues,
+    gateway,
     config,
     pgClient,
     storage,
@@ -794,6 +800,594 @@ function createApiFixture(overrides: {
 // ---------------------------------------------------------------------------
 // 1. Unauthenticated Health Probes
 // ---------------------------------------------------------------------------
+
+describe('Cloud media generation and library save', () => {
+  for (const failFirstSave of [false, true]) {
+    it(failFirstSave ? 'OPEND-5749 retries a failed CAS save without resubmitting or duplicating assets' : 'commits one asset for one successful model submission', async (t) => {
+      const { app, db, queues, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+      const enqueue = t.mock.method(queues, 'enqueueMediaGenerate');
+      const submitTask = t.mock.method(gateway, 'submitTask');
+      const pollTask = t.mock.method(gateway, 'pollTask');
+      if (failFirstSave) {
+        t.mock.method(storage, 'putBlobIfAbsent', async () => {
+          throw new Error('Injected CAS write failure');
+        }, { times: 1 });
+      }
+      const worker = {
+        db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+        generateThumbnailBuffer: async () => null,
+      };
+      const submitted = await app.request('/motion-api/models/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Yellow flower',
+          requestId: 'generate-image-1',
+        }),
+      });
+      assert.equal(submitted.status, 202);
+      const { job: { id: jobId } } = await submitted.json();
+      const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+      assert.deepEqual(enqueue.mock.calls[0].arguments.slice(0, 2), ['generate_media', payload]);
+      const initial = processMediaGenerateJob(worker, 'generate_media', payload);
+
+      if (failFirstSave) {
+        await assert.rejects(initial, /Injected CAS write failure/);
+        const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+        assert.equal(status.status, 200);
+        const { job } = await status.json();
+        assert.equal(job.state, 'failed');
+        assert.equal(job.savePending, true);
+        assert.equal(job.failureStage, 'saving');
+        assert.equal(job.remoteId, pollTask.mock.calls[0].arguments[1].remoteTaskId);
+        assert.equal(pgClient.rows('assets').length, 0);
+        assert.equal(pgClient.rows('asset_versions').length, 0);
+
+        const initialClaimToken = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+        const firstRetry = await app.request('/motion-api/phase1/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'openmotion_assets_use',
+            arguments: { action: 'retry_save', jobId, requestId: 'retry-image-save-1' },
+          }),
+        });
+        const firstRetryBody = await firstRetry.text();
+        assert.equal(firstRetry.status, 200, firstRetryBody);
+        const { job: queuedRetry } = JSON.parse(firstRetryBody);
+        assert.equal(queuedRetry.state, 'queued');
+        assert.equal(queuedRetry.phase, 'saving');
+        assert.equal(queuedRetry.savePending, true);
+
+        // Replaying the exact same requestId while queued is idempotent and uses the same BullMQ jobId
+        // (also recovers if an API process crashed between PG update and Redis enqueue).
+        const replaySameRequest = await app.request('/motion-api/phase1/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'openmotion_assets_use',
+            arguments: { action: 'retry_save', jobId, requestId: 'retry-image-save-1' },
+          }),
+        });
+        assert.equal(replaySameRequest.status, 200);
+        assert.deepEqual(enqueue.mock.calls[1].arguments, [
+          'retry_save_generation',
+          payload,
+          { jobId: `${jobId}__retry_save__${initialClaimToken}__retry-image-save-1` },
+        ]);
+        assert.deepEqual(enqueue.mock.calls[2].arguments, enqueue.mock.calls[1].arguments);
+
+        // Concurrent retry with a different requestId while already queued must reject with 409 and not enqueue.
+        const secondRetry = await app.request('/motion-api/phase1/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'openmotion_assets_use',
+            arguments: { action: 'retry_save', jobId, requestId: 'retry-image-save-2' },
+          }),
+        });
+        assert.equal(secondRetry.status, 409);
+        assert.equal(enqueue.mock.callCount(), 3);
+
+        // Even if two workers race on the same queued retry, atomic claim fencing commits exactly once.
+        const results = await Promise.all([
+          processMediaGenerateJob(worker, 'retry_save_generation', payload),
+          processMediaGenerateJob(worker, 'retry_save_generation', payload),
+        ]);
+        assert.equal(results.filter((result) => result.state === 'completed').length, 1);
+        assert.equal(results.filter((result) => result.skipped).length, 1);
+        assert.equal(pollTask.mock.calls[1].arguments[1].remoteTaskId, job.remoteId);
+      } else {
+        assert.equal((await initial).state, 'completed');
+      }
+
+      assert.equal(submitTask.mock.callCount(), 1);
+      assert.equal(pollTask.mock.callCount(), failFirstSave ? 2 : 1);
+      const completed = await app.request(`/motion-api/models/jobs/${jobId}`);
+      assert.equal(completed.status, 200);
+      const { job } = await completed.json();
+      assert.equal(job.state, 'completed');
+      assert.equal(job.savePending, false);
+      assert.equal(job.failureStage, undefined);
+      assert.equal(job.errorCode, undefined);
+      assert.equal(job.libraryAssets.length, 1);
+      assert.deepEqual(pgClient.rows('assets').map((asset) => asset.id), [job.libraryAssets[0].assetId]);
+      assert.deepEqual(pgClient.rows('asset_versions').map((version) => version.id), [job.libraryAssets[0].versionId]);
+      const [blob] = pgClient.rows('workspace_blobs');
+      assert.equal(blob.ref_count, 1);
+      assert.equal(storage.objects.has(String(blob.s3_key)), true);
+    });
+  }
+
+  it('cancelling a queued retry_save marks it cancelled and prevents worker pickup from saving an asset', async (t) => {
+    const { app, db, queues, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const enqueue = t.mock.method(queues, 'enqueueMediaGenerate');
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Injected CAS write failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Blue iris',
+        requestId: 'generate-cancel-queued-retry',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Injected CAS write failure/);
+
+    const retried = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-before-cancel' },
+      }),
+    });
+    assert.equal(retried.status, 200);
+    const claimToken = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__${claimToken}__retry-before-cancel`);
+
+    const cancelled = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'cancel', jobId },
+      }),
+    });
+    assert.equal(cancelled.status, 200);
+    const { job: cancelledJob } = await cancelled.json();
+    assert.equal(cancelledJob.state, 'cancelled');
+    assert.equal(cancelledJob.savePending, false);
+
+    const workerResult = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(workerResult.skipped, true);
+    assert.equal(pgClient.rows('assets').length, 0);
+    assert.equal(pgClient.rows('asset_versions').length, 0);
+  });
+
+  it('finalizes cancelling retry_save cleanly to cancelled if Redis cancel notification is missed and CAS fails', async (t) => {
+    const { app, db, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const publishedEvents: Array<Record<string, unknown>> = [];
+    const origPublish = eventBus.publish.bind(eventBus);
+    let dropCancelPub = false;
+    t.mock.method(eventBus, 'publish', async (channel: string, payload: unknown) => {
+      if (dropCancelPub && channel.startsWith('om:cancel:')) {
+        return 0;
+      }
+      if (channel.startsWith('om:job:') && payload && typeof payload === 'object') {
+        publishedEvents.push(payload as Record<string, unknown>);
+      }
+      return origPublish(channel, payload);
+    });
+
+    let casAttempts = 0;
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      casAttempts += 1;
+      if (casAttempts === 1) {
+        throw new Error('First CAS write failure');
+      }
+      // Simulate API transitioning the running retry to cancelling while Redis notification is dropped.
+      dropCancelPub = true;
+      const cancelRes = await app.request('/motion-api/phase1/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'openmotion_assets_use',
+          arguments: { action: 'cancel', jobId },
+        }),
+      });
+      assert.equal(cancelRes.status, 200);
+      const { job: cancellingJob } = await cancelRes.json();
+      assert.equal(cancellingJob.state, 'cancelling');
+      throw new Error('Second CAS write failure after cancel');
+    });
+
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Silver fern',
+        requestId: 'generate-cancel-missed-redis',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /First CAS write failure/);
+
+    const retried = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-cancelling-cas' },
+      }),
+    });
+    assert.equal(retried.status, 200);
+    publishedEvents.length = 0;
+
+    const retryResult = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(retryResult.state, 'cancelled');
+
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(status.status, 200);
+    const { job: finalJob } = await status.json();
+    assert.equal(finalJob.state, 'cancelled');
+    assert.equal(finalJob.savePending, false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'failed'), false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'cancelled'), true);
+    assert.equal(pgClient.rows('assets').length, 0);
+
+    const retryAfterCancel = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-after-cancel' },
+      }),
+    });
+    assert.equal(retryAfterCancel.status, 409);
+  });
+
+  it('uses distinct caller requestIds for sequential retry_save attempts without millisecond collisions', async (t) => {
+    const { app, db, queues, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const enqueue = t.mock.method(queues, 'enqueueMediaGenerate');
+    const submitTask = t.mock.method(gateway, 'submitTask');
+    let casFailures = 0;
+    const origPut = storage.putBlobIfAbsent.bind(storage);
+    t.mock.method(storage, 'putBlobIfAbsent', async (...args: Parameters<typeof origPut>) => {
+      if (casFailures < 2) {
+        casFailures += 1;
+        throw new Error(`CAS failure #${casFailures}`);
+      }
+      return origPut(...args);
+    });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Red maple',
+        requestId: 'generate-two-retries',
+      }),
+    });
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /CAS failure #1/);
+
+    const claim1 = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    const retry1 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: `save-${jobId}` },
+      }),
+    });
+    assert.equal(retry1.status, 200);
+    await assert.rejects(processMediaGenerateJob(worker, 'retry_save_generation', payload), /CAS failure #2/);
+
+    // Reusing the same Studio requestId (`save-${jobId}`) after a second failure gets a fresh BullMQ jobId
+    // via the new claimToken epoch, so it cannot be silently dropped while the previous BullMQ job finishes.
+    const claim2 = String(pgClient.rows('jobs').find((row) => row.id === jobId)?.claim_token ?? 'init');
+    assert.notEqual(claim2, claim1);
+    const retry2 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: `save-${jobId}` },
+      }),
+    });
+    assert.equal(retry2.status, 200);
+    assert.equal(enqueue.mock.calls[1].arguments[2]?.jobId, `${jobId}__retry_save__${claim1}__save-${jobId}`);
+    assert.equal(enqueue.mock.calls[2].arguments[2]?.jobId, `${jobId}__retry_save__${claim2}__save-${jobId}`);
+
+    const finalRes = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(finalRes.state, 'completed');
+    assert.equal(submitTask.mock.callCount(), 1);
+    assert.equal(pgClient.rows('assets').length, 1);
+  });
+
+  it('does not overwrite a pending cancellation when an upstream poll returns failed', async (t) => {
+    const { app, db, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+    const publishedEvents: Array<Record<string, unknown>> = [];
+    const origPublish = eventBus.publish.bind(eventBus);
+    let dropCancelPub = false;
+    t.mock.method(eventBus, 'publish', async (channel: string, payload: unknown) => {
+      if (dropCancelPub && channel.startsWith('om:cancel:')) {
+        return 0;
+      }
+      if (channel.startsWith('om:job:') && payload && typeof payload === 'object') {
+        publishedEvents.push(payload as Record<string, unknown>);
+      }
+      return origPublish(channel, payload);
+    });
+    const origPoll = gateway.pollTask.bind(gateway);
+    let pollCalls = 0;
+    t.mock.method(gateway, 'pollTask', async (...args: Parameters<typeof origPoll>) => {
+      pollCalls += 1;
+      if (pollCalls === 1) return origPoll(...args);
+      dropCancelPub = true;
+      const cancelRes = await app.request('/motion-api/phase1/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'openmotion_assets_use',
+          arguments: { action: 'cancel', jobId },
+        }),
+      });
+      assert.equal(cancelRes.status, 200);
+      return {
+        remoteTaskId: args[1].remoteTaskId,
+        status: 'failed' as const,
+        error: { code: 'UPSTREAM_ERR', message: 'Upstream failed after cancel' },
+      };
+    });
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('First CAS write failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Snow pine',
+        requestId: 'generate-poll-fail-cancel-race',
+      }),
+    });
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /First CAS write failure/);
+
+    const retried = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-poll-cancel' },
+      }),
+    });
+    assert.equal(retried.status, 200);
+    publishedEvents.length = 0;
+
+    const result = await processMediaGenerateJob(worker, 'retry_save_generation', payload);
+    assert.equal(result.state, 'cancelled');
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    const { job: finalJob } = await status.json();
+    assert.equal(finalJob.state, 'cancelled');
+    assert.equal(finalJob.savePending, false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'failed'), false);
+    assert.equal(publishedEvents.some((evt) => evt.state === 'cancelled'), true);
+    assert.equal(pgClient.rows('assets').length, 0);
+  });
+
+  it('rolls back retry_save to failed with savePending=true when enqueueMediaGenerate rejects once', async (t) => {
+    const { app, db, gateway, config, storage, eventBus, queues } = createApiFixture();
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Transient CAS failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Cedar lantern',
+        requestId: 'generate-enqueue-rollback',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Transient CAS failure/);
+
+    const origEnqueue = queues.enqueueMediaGenerate.bind(queues);
+    t.mock.method(queues, 'enqueueMediaGenerate', async (...args: Parameters<typeof origEnqueue>) => {
+      throw new Error('Redis queue down');
+    }, { times: 1 });
+
+    const failedEnqueue = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-enqueue-fails' },
+      }),
+    });
+    assert.equal(failedEnqueue.status, 500);
+
+    const statusAfterRollback = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(statusAfterRollback.status, 200);
+    const { job: rolledBack } = (await statusAfterRollback.json()) as {
+      job: { state: string; savePending: boolean; failureStage?: string };
+    };
+    assert.equal(rolledBack.state, 'failed');
+    assert.equal(rolledBack.savePending, true);
+    assert.equal(rolledBack.failureStage, 'saving');
+
+    // A subsequent retry_save with a fresh requestId must succeed cleanly instead of hitting 409.
+    const nextRetry = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-enqueue-recovers' },
+      }),
+    });
+    assert.equal(nextRetry.status, 200);
+    const { job: recovered } = (await nextRetry.json()) as {
+      job: { state: string; stage: string; failureStage?: string };
+    };
+    assert.equal(recovered.state, 'queued');
+    assert.equal(recovered.stage, 'saving');
+    assert.equal(recovered.failureStage, undefined);
+  });
+
+  it('returns 400 INVALID_ARGUMENT with applied=false when openmotion_media_use retry_save omits requestId', async () => {
+    const { app } = createApiFixture();
+    const res = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_media_use',
+        arguments: { action: 'retry_save', jobId: randomUUID() },
+      }),
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as {
+      code?: string;
+      message?: string;
+      applied?: unknown;
+    };
+    assert.equal(body.code, 'INVALID_ARGUMENT');
+    assert.equal(body.applied, false);
+    assert.match(body.message ?? '', /requestId is required for retry_save/i);
+  });
+
+  it('emits a retry_save-specific timeout hint when retry_save_generation exhausts its poll window', async (t) => {
+    const { app, db, gateway, config, storage, eventBus, pgClient } = createApiFixture();
+    t.mock.method(storage, 'putBlobIfAbsent', async () => {
+      throw new Error('Initial CAS save failure');
+    }, { times: 1 });
+    const worker = {
+      db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+      generateThumbnailBuffer: async () => null,
+    };
+
+    const submitted = await app.request('/motion-api/models/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Silver lake',
+        requestId: 'generate-retry-save-timeout',
+      }),
+    });
+    assert.equal(submitted.status, 202);
+    const { job: { id: jobId } } = await submitted.json();
+    const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+    await assert.rejects(processMediaGenerateJob(worker, 'generate_media', payload), /Initial CAS save failure/);
+
+    const retry1 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-save-poll-timeout-1' },
+      }),
+    });
+    assert.equal(retry1.status, 200);
+
+    t.mock.method(gateway, 'pollTask', async (_ctx: unknown, input: { remoteTaskId: string }) => ({
+      remoteTaskId: input.remoteTaskId,
+      status: 'running' as const,
+    }));
+
+    await assert.rejects(
+      processMediaGenerateJob({ ...worker, pollIntervalMs: 5, maxPollMs: 15 }, 'retry_save_generation', payload),
+      /use retry_save/i,
+    );
+
+    const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+    assert.equal(status.status, 200);
+    const { job: timedOut } = (await status.json()) as {
+      job: { state: string; savePending: boolean; failureStage?: string; error?: string };
+    };
+    const dbRow = pgClient.rows('jobs').find((row) => row.id === jobId)!;
+    assert.equal(timedOut.state, 'failed');
+    assert.equal(timedOut.savePending, true);
+    assert.equal(timedOut.failureStage, 'saving');
+    assert.match(String(timedOut.error ?? dbRow.error_message ?? ''), /retry_save/i);
+    assert.doesNotMatch(String(timedOut.error ?? dbRow.error_message ?? ''), /use resume/i);
+
+    const resumeAttempt = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'resume', jobId, requestId: 'resume-after-retry-save-timeout' },
+      }),
+    });
+    assert.equal(resumeAttempt.status, 409);
+
+    const retry2 = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'retry_save', jobId, requestId: 'retry-save-poll-timeout-2' },
+      }),
+    });
+    assert.equal(retry2.status, 200);
+  });
+});
+
+it('logs registered project read/write routes without recording request paths or query strings', async () => {
+  const lines: string[] = [];
+  const logger = createLogger({ sink: (_, line) => lines.push(line) });
+  const { app } = createApiFixture({ deps: { logger } });
+  const prefix = '/api/projects/00000000-0000-4000-8000-000000000099/';
+  for (const [method, suffix, expected] of [
+    ['GET', 'file-source?path=private-name.html', 'file-source'],
+    ['GET', 'files/private-name.html', 'files/*'],
+    ['POST', 'text-edits', 'text-edits'],
+    ['POST', 'text-edits/batch', 'text-edits/batch'],
+    ['GET', 'preview/private-name.html', null],
+  ] as const) {
+    const res = await app.request(prefix + suffix, { method });
+    const record = lines.map(line => JSON.parse(line)).filter(log => log.msg === 'HTTP request completed').at(-1);
+    assert.equal(record.path, expected ? '/api/projects/:id/' + expected : '[REDACTED]');
+    assert.equal(record.status, res.status);
+    assert.equal(record.method, method);
+    assert.equal(typeof record.durationMs, 'number');
+    assert.ok(!JSON.stringify(record).includes('private-name'));
+  }
+});
 
 describe('Cloud API Entrypoint — Health Probes', () => {
   it('serves /api/health/live (200), /api/health/ready (200 healthy, 503 degraded), and /api/health', async () => {
@@ -880,6 +1474,7 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
       '/motion-api/models/defaults',
       '/motion-api/account/summary',
       '/motion-api/integration',
+      `/motion-api/project-archives/${randomUUID()}/file`,
     ]) {
       const res = await app.request(url);
       assert.equal(res.status, 401, `expected 401 for unauthenticated ${url}`);
@@ -890,10 +1485,13 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     assert.equal(publicCatalogRes.status, 200);
     const publicCatalog = (await publicCatalogRes.json()) as {
       defaults?: Record<string, unknown>;
-      models?: unknown[];
+      models?: Array<{ modality?: string }>;
     };
     assert.deepEqual(publicCatalog.defaults, {});
-    assert.ok(Array.isArray(publicCatalog.models));
+    assert.ok(Array.isArray(publicCatalog.models) && publicCatalog.models.length > 0);
+    assert.ok(publicCatalog.models.some((m) => m.modality === 'image'));
+    assert.ok(publicCatalog.models.some((m) => m.modality === 'video'));
+    assert.ok(publicCatalog.models.some((m) => m.modality === 'audio'));
 
     const publicStatusRes = await app.request('/motion-api/models/status');
     assert.equal(publicStatusRes.status, 200);
@@ -903,6 +1501,59 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     assert.ok(Array.isArray(publicStatus.providers) && publicStatus.providers.length >= 1);
     assert.equal('plan' in publicStatus.providers[0]!, false);
     assert.equal('hasBalance' in publicStatus.providers[0]!, false);
+
+    // Public read-only cloud MCP discovery, install guide & connect routes work without authentication (no workspaceId leaked)
+    const publicIntegrationRes = await app.request('/connect/integration');
+    assert.equal(publicIntegrationRes.status, 200);
+    const publicIntegration = (await publicIntegrationRes.json()) as {
+      workspaceId?: string;
+      dataDirectory?: string;
+      transport?: { type?: string; url?: string };
+    };
+    assert.equal(publicIntegration.workspaceId, undefined);
+    assert.equal(publicIntegration.dataDirectory, '');
+    assert.equal(publicIntegration.transport?.type, 'streamable-http');
+    assert.equal(publicIntegration.transport?.url, 'https://motion.example.test/mcp');
+
+    const publicGuideAgentRes = await app.request('/connect/guide?host=mcp');
+    assert.equal(publicGuideAgentRes.status, 200);
+    assert.match(publicGuideAgentRes.headers.get('content-type') ?? '', /^text\/markdown/);
+    assert.match(publicGuideAgentRes.headers.get('vary') ?? '', /\bAccept\b/i);
+    const publicGuideAgentBody = await publicGuideAgentRes.text();
+    assert.ok(publicGuideAgentBody.includes('https://motion.example.test/mcp'));
+    assert.ok(publicGuideAgentBody.includes('Mode B (task-driven handoff)'));
+
+    const publicGuideBrowserRes = await app.request('/connect/guide?host=codex', {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+    });
+    assert.equal(publicGuideBrowserRes.status, 302);
+    assert.equal(publicGuideBrowserRes.headers.get('location'), '/mcp-setup?host=codex');
+    assert.match(publicGuideBrowserRes.headers.get('vary') ?? '', /\bAccept\b/i);
+    assert.equal(publicGuideBrowserRes.headers.get('cache-control'), 'no-store');
+
+    const publicConfigRes = await app.request('/connect/config?host=codex');
+    assert.equal(publicConfigRes.status, 200);
+    assert.match(await publicConfigRes.text(), /https:\/\/motion\.example\.test\/mcp/);
+
+    // Unauthenticated /mcp distinguishes Agent instructions from human setup help.
+    const unauthMcpRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    assert.equal(unauthMcpRes.status, 401);
+    const unauthMcpBody = (await unauthMcpRes.json()) as {
+      authGuidance?: {
+        preferred?: string; installGuideUrl?: string; installGuideAudience?: string;
+        connectPageUrl?: string; postAuthorizationInstructions?: string;
+      };
+    };
+    assert.equal(unauthMcpBody.authGuidance?.preferred, 'oauth2.1');
+    assert.equal(unauthMcpBody.authGuidance?.installGuideUrl, 'https://motion.example.test/install.md');
+    assert.equal(unauthMcpBody.authGuidance?.installGuideAudience, 'agent');
+    assert.equal(unauthMcpBody.authGuidance?.connectPageUrl, 'https://motion.example.test/mcp-setup');
+    assert.match(unauthMcpBody.authGuidance?.postAuthorizationInstructions ?? '', /a new chat in this client/);
+    assert.doesNotMatch(unauthMcpBody.authGuidance?.postAuthorizationInstructions ?? '', /\bCodex\b/);
 
     // OAuth 2.1 discovery endpoints are public
     const prmRes = await app.request('/.well-known/oauth-protected-resource');
@@ -1113,9 +1764,33 @@ describe('Cloud API Entrypoint — End-to-End Product, Studio & Streamable HTTP 
 
     // 4. tools/list must advertise all 22 registered domain openmotion_* tools
     const listPayload = await callMcp(2, 'tools/list');
-    const tools = (listPayload.result?.tools ?? []) as Array<{ name: string; description: string }>;
+    const tools = (listPayload.result?.tools ?? []) as Array<{
+      name: string;
+      description: string;
+      inputSchema: { properties: { action?: { enum: string[] }; sourcePath?: unknown } };
+    }>;
     assert.equal(tools.length, phase1Tools.length);
     assert.equal(tools.length, 22);
+    const archiveTool = tools.find(tool => tool.name === 'openmotion_project_archive');
+    assert.ok(archiveTool);
+    assert.deepEqual(archiveTool.inputSchema.properties.action?.enum, ['export']);
+    assert.equal(archiveTool.inputSchema.properties.sourcePath, undefined);
+    assert.doesNotMatch(archiveTool.description, /sourcePath|local ZIP path/);
+    assert.ok(archiveTool.description.includes(`POST ${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import`));
+    assert.match(archiveTool.description, /projects:write/);
+    assert.match(archiveTool.description, /projects:read/);
+
+    const legacyArchive = await callMcp(21, 'tools/call', {
+      name: 'openmotion_project_archive',
+      arguments: { action: 'import', requestId: 'archive-legacy', sourcePath: '/tmp/project.zip' },
+    });
+    assert.equal(legacyArchive.result?.isError, true);
+    const legacyError = (legacyArchive.result?.structuredContent as {
+      error: { status: number; details: { legacyCode: string } };
+    }).error;
+    assert.equal(legacyError.status, 400);
+    assert.equal(legacyError.details.legacyCode, 'LOCAL_PATH_UNSUPPORTED_IN_CLOUD');
+    assert.ok(JSON.stringify(legacyArchive.result).includes(`POST ${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import`));
     const transcriptGuide = tools.find(tool => tool.name === 'openmotion_assets_use')?.description;
     assert.ok(transcriptGuide);
     assert.match(transcriptGuide, /Cloud ASR submit\/status is unavailable/);
@@ -1387,7 +2062,8 @@ describe('Cloud API Entrypoint — Models, Account, Catalog, Integration & P2 Ro
 
     const guideRes = await app.request('/connect/guide?host=codex');
     assert.equal(guideRes.status, 200);
-    assert.match(await guideRes.text(), /motion\.example\.test/);
+    assert.match(guideRes.headers.get('content-type') ?? '', /^text\/markdown/);
+    assert.match(await guideRes.text(), /https:\/\/motion\.example\.test\/mcp/);
 
     // Public catalog listing on BOTH /api/templates and /motion-api/templates
     const apiTemplatesRes = await app.request('/api/templates');
@@ -3273,18 +3949,25 @@ describe('Cloud API Entrypoint — Unified Config & Cookie-less Preview Subdomai
 });
 
 // ---------------------------------------------------------------------------
-// 8. OAuth Agent Project Grant Enforcement on MCP Asset Import & Media Jobs
+// 8. OAuth Agent Workspace-Level Project Access & Cross-User Owner Isolation
 // ---------------------------------------------------------------------------
 
-describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & Media Jobs)', () => {
-  it('enforces project_grants across openmotion_import_assets and all openmotion_media job operations', async () => {
+describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Isolation', () => {
+  it('grants an OAuth agent full access to its own user projects without per-project grants while isolating other users', async () => {
     const fixture = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const { app, config, pgClient, authStore } = fixture;
 
-    // Seed workspace membership & OAuth bearer token for an external agent client
     const userId = config.DEV_USER_ID;
+    const otherUserId = randomUUID();
     const workspaceId = config.DEV_WORKSPACE_ID;
     const clientId = 'oauth-client-codex';
+    authStore.seedWorkspace({
+      userId: otherUserId,
+      workspaceId,
+      email: 'colleague@example.test',
+      displayName: 'Colleague',
+      role: 'editor',
+    });
     authStore.seedWorkspace({
       userId,
       workspaceId,
@@ -3305,7 +3988,7 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       refreshExpiresAt: null,
     });
 
-    // Create two projects owned by the user via dev session: projectA (granted) and projectB (ungranted)
+    // Create two web projects owned by the user (no project_grants rows!) and one owned by another user in the same workspace
     const createProj = async (title: string): Promise<string> => {
       const res = await app.request('/motion-api/projects', {
         method: 'POST',
@@ -3315,19 +3998,11 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       assert.equal(res.status, 201);
       return ((await res.json()) as { projectId: string }).projectId;
     };
-    const projectA = await createProj('Granted Project A');
-    const projectB = await createProj('Ungranted Project B');
-
-    // Grant projectA ONLY to `oauth-client-codex`
-    pgClient.seed('project_grants', {
-      id: randomUUID(),
-      project_id: projectA,
-      user_id: userId,
-      workspace_id: workspaceId,
-      client_id: clientId,
-      granted_at: new Date().toISOString(),
-      revoked_at: null,
-    });
+    const projectA = await createProj('Web Project A');
+    const projectB = await createProj('Web Project B');
+    const otherUserProject = await createProj('Other User Private Project');
+    const otherRow = pgClient.rows('projects').find(row => row.id === otherUserProject)!;
+    otherRow.owner_user_id = otherUserId;
 
     const agent: AuthContext = {
       authMode: 'oidc', authMethod: 'oauth_bearer', role: 'editor', scopes: DEFAULT_PAT_SCOPES,
@@ -3335,11 +4010,17 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
     };
     const sessionA = pgClient.rows('projects').find(row => row.id === projectA)!.session_id as string;
     const sessionB = pgClient.rows('projects').find(row => row.id === projectB)!.session_id as string;
+    const otherSession = otherRow.session_id as string;
     const workspace = fixture.services.workspace;
-    await assert.rejects(workspace.selectProject(agent, projectA, projectB), { code: 'PROJECT_GRANT_REQUIRED' });
-    await assert.rejects(workspace.openSessionForEditor(agent, sessionA, projectA, projectB), { code: 'PROJECT_GRANT_REQUIRED' });
-    await assert.rejects(workspace.openSessionForEditor(agent, sessionB, projectB, projectA), { code: 'PROJECT_GRANT_REQUIRED' });
+
+    // Same-user web projects are immediately accessible without manual per-project grants
     assert.equal((await workspace.openSessionForEditor(agent, sessionA, projectA, projectA)).projectId, projectA);
+    assert.equal((await workspace.openSessionForEditor(agent, sessionB, projectB, projectB)).projectId, projectB);
+
+    // Another user's project/session remains strictly isolated as NOT_FOUND
+    await assert.rejects(workspace.selectProject(agent, projectA, otherUserProject), { code: 'PROJECT_NOT_FOUND' });
+    await assert.rejects(workspace.openSessionForEditor(agent, otherSession, otherUserProject), { code: 'PROJECT_NOT_FOUND' });
+    await assert.rejects(workspace.openSessionForEditor(agent, otherSession), { code: 'SESSION_NOT_FOUND' });
 
     // Initialize an MCP session authenticated as `oauth_bearer`
     const mcpHeaders = {
@@ -3357,11 +4038,17 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
         params: {
           protocolVersion: '2025-06-18',
           capabilities: {},
-          clientInfo: { name: 'codex-grant-test', version: '1.0.0' },
+          clientInfo: { name: 'codex-workspace-test', version: '1.0.0' },
         },
       }),
     });
     assert.equal(initRes.status, 200);
+    const initJson = (await initRes.json()) as { result?: { instructions?: string } };
+    assert.match(initJson.result?.instructions ?? '', /https:\/\/motion\.example\.test/);
+    assert.match(initJson.result?.instructions ?? '', /After authorization, keep \/install\.md internal/);
+    assert.match(initJson.result?.instructions ?? '', /a new chat in this client.*creative request/);
+    assert.doesNotMatch(initJson.result?.instructions ?? '', /open a new Codex chat/);
+    assert.ok(initJson.result?.instructions?.includes(`${config.APP_PUBLIC_ORIGIN}/mcp-setup`));
     const mcpSessionId = initRes.headers.get('mcp-session-id');
     assert.ok(mcpSessionId);
 
@@ -3386,46 +4073,417 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       };
     };
 
-    // 1. MCP openmotion_import_assets (prepare_upload & import) must reject ungranted projectB with PROJECT_GRANT_REQUIRED
-    const prepUngranted = await callTool(2, 'openmotion_import_assets', {
+    // 1. OAuth agent can immediately read & prepare_upload on web-created projectB without per-project grants
+    const readProjectB = await callTool(2, 'openmotion_get_project', { projectId: projectB });
+    assert.equal(readProjectB.result?.isError, undefined, JSON.stringify(readProjectB.result));
+    const prepProjectB = await callTool(3, 'openmotion_import_assets', {
       action: 'prepare_upload',
       projectId: projectB,
-      requestId: 'req_prep_ungranted_1',
+      requestId: 'req_prep_b_1',
       files: [{ itemId: 'file-1', filename: 'hero.png', bytes: 1024, mimeType: 'image/png' }],
     });
-    assert.equal(prepUngranted.result?.isError, true);
-    assert.match(JSON.stringify(prepUngranted.result), /PROJECT_GRANT_REQUIRED/);
+    assert.equal(prepProjectB.result?.isError, undefined, JSON.stringify(prepProjectB.result));
 
-    const importUngranted = await callTool(3, 'openmotion_import_assets', {
-      action: 'import',
-      projectId: projectB,
-      requestId: 'req_import_ungranted_1',
-      items: [
-        {
-          itemId: 'item-1',
-          source: { kind: 'url', url: 'https://93.184.216.34/sample.png' },
+    // A cloud archive has an absolute, authenticated download URL and can be uploaded through HTTP.
+    const exportArgs = { action: 'export', projectIds: [projectB], requestId: 'archive-export-e2e' };
+    const exported = await callTool(20, 'openmotion_project_archive', exportArgs);
+    assert.equal(exported.result?.isError, undefined, JSON.stringify(exported.result));
+    const archive = exported.result?.structuredContent as {
+      archiveId: string; downloadUrl: string; downloadInstructions: string; bytes: number; sha256: string;
+    };
+    const archiveFile = `/motion-api/project-archives/${archive.archiveId}/file`;
+    assert.equal(archive.downloadUrl, `${config.APP_PUBLIC_ORIGIN}${archiveFile}`);
+    assert.match(archive.downloadInstructions, /OAuth.*PAT.*projects:read/);
+
+    const receipt = pgClient.rows('idempotency_receipts').find(row => row.request_id === exportArgs.requestId)!;
+    receipt.response_payload = { ...(receipt.response_payload as object), downloadUrl: archiveFile };
+    const retried = await callTool(21, 'openmotion_project_archive', exportArgs);
+    assert.deepEqual(retried.result?.structuredContent, { ...archive, replayed: true });
+
+    const archiveHeadResponse = await app.request(archive.downloadUrl, {
+      method: 'HEAD',
+      headers: { Authorization: mcpHeaders.Authorization },
+    });
+    assert.equal(archiveHeadResponse.status, 200);
+    assert.equal(archiveHeadResponse.headers.get('content-length'), String(archive.bytes));
+
+    const archiveResponse = await app.request(archive.downloadUrl, {
+      headers: { Authorization: mcpHeaders.Authorization },
+    });
+    assert.equal(archiveResponse.status, 302);
+    const storageUrl = new URL(archiveResponse.headers.get('location')!);
+    const zip = await fixture.storage.getObjectBuffer(decodeURIComponent(storageUrl.pathname.slice(1)));
+    assert.equal(zip.byteLength, archive.bytes);
+    assert.equal(createHash('sha256').update(zip).digest('hex'), archive.sha256);
+
+    // Another OAuth user in the SAME workspace cannot download (GET/HEAD) or replay User A's archive.
+    const sameWorkspaceOtherToken = `om_oat_${'b'.repeat(40)}`;
+    await authStore.createOAuthToken({
+      clientId: 'oauth-client-other-user',
+      userId: otherUserId,
+      workspaceId,
+      accessTokenHash: createHash('sha256').update(sameWorkspaceOtherToken).digest('hex'),
+      refreshTokenHash: null,
+      scope: DEFAULT_PAT_SCOPES.join(' '),
+      resource: `${config.APP_PUBLIC_ORIGIN}/mcp`,
+      accessExpiresAt: new Date(Date.now() + 3600_000),
+      refreshExpiresAt: null,
+    });
+    const otherOAuthHeaders = {
+      Authorization: `Bearer ${sameWorkspaceOtherToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    };
+    assert.equal(
+      (await app.request(archive.downloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      404,
+    );
+    assert.equal(
+      (
+        await app.request(archive.downloadUrl, {
+          method: 'HEAD',
+          headers: { Authorization: otherOAuthHeaders.Authorization },
+        })
+      ).status,
+      404,
+    );
+    const otherInitRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: otherOAuthHeaders,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'codex-other-user-test', version: '1.0.0' },
         },
-      ],
+      }),
     });
-    assert.equal(importUngranted.result?.isError, true);
-    assert.match(JSON.stringify(importUngranted.result), /PROJECT_GRANT_REQUIRED/);
+    assert.equal(otherInitRes.status, 200);
+    const otherMcpSessionId = otherInitRes.headers.get('mcp-session-id');
+    assert.ok(otherMcpSessionId);
+    const otherReplayRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { ...otherOAuthHeaders, 'Mcp-Session-Id': otherMcpSessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'openmotion_project_archive', arguments: exportArgs },
+      }),
+    });
+    assert.equal(otherReplayRes.status, 200);
+    const otherReplayJson = (await otherReplayRes.json()) as {
+      result?: { isError?: boolean; structuredContent?: { error?: { code?: string } } };
+    };
+    assert.equal(otherReplayJson.result?.isError, true);
+    assert.equal(otherReplayJson.result?.structuredContent?.error?.code, 'PROJECT_NOT_FOUND');
 
-    // Granted projectA succeeds on prepare_upload
-    const prepGranted = await callTool(4, 'openmotion_import_assets', {
+    // Confirm the same-workspace colleague OAuth token can export and download its own project archive.
+    const otherExportRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { ...otherOAuthHeaders, 'Mcp-Session-Id': otherMcpSessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: {
+          name: 'openmotion_project_archive',
+          arguments: { action: 'export', projectIds: [otherUserProject], requestId: 'archive-export-other-user' },
+        },
+      }),
+    });
+    assert.equal(otherExportRes.status, 200);
+    const otherExportJson = (await otherExportRes.json()) as {
+      result?: { isError?: boolean; structuredContent?: { downloadUrl?: string } };
+    };
+    assert.equal(otherExportJson.result?.isError, undefined, JSON.stringify(otherExportJson.result));
+    const otherDownloadUrl = otherExportJson.result?.structuredContent?.downloadUrl!;
+    assert.equal(
+      (await app.request(otherDownloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      302,
+    );
+    assert.equal(
+      (await app.request(otherDownloadUrl, { headers: { Authorization: mcpHeaders.Authorization } })).status,
+      404,
+    );
+
+    // Permanently deleting an exported project must keep the archive readable and replayable by its exporter,
+    // while keeping it inaccessible to other OAuth users in the same workspace.
+    const disposableProj = await createProj('Disposable Export Project');
+    const disposableExportArgs = {
+      action: 'export',
+      projectIds: [disposableProj],
+      requestId: 'archive-export-survives-delete',
+    };
+    const disposableExportRes = await callTool(22, 'openmotion_project_archive', disposableExportArgs);
+    assert.equal(disposableExportRes.result?.isError, undefined, JSON.stringify(disposableExportRes.result));
+    const disposableArchive = disposableExportRes.result?.structuredContent as {
+      archiveId: string; downloadUrl: string;
+    };
+    const disposableRowIdx = pgClient.rows('projects').findIndex((row) => row.id === disposableProj);
+    assert.ok(disposableRowIdx >= 0);
+    pgClient.rows('projects').splice(disposableRowIdx, 1);
+
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { method: 'HEAD', headers: { Authorization: mcpHeaders.Authorization } })).status,
+      200,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: mcpHeaders.Authorization } })).status,
+      302,
+    );
+    const disposableReplay = await callTool(23, 'openmotion_project_archive', disposableExportArgs);
+    assert.equal(disposableReplay.result?.isError, undefined, JSON.stringify(disposableReplay.result));
+    assert.equal((disposableReplay.result?.structuredContent as { replayed?: boolean })?.replayed, true);
+    assert.equal(
+      'ownerUserId' in ((disposableReplay.result?.structuredContent as Record<string, unknown>) ?? {}),
+      false,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      404,
+    );
+
+    // Sweeping expired archive:export receipts after 30 days must not revoke OAuth download access
+    // for the exporter (nor widen access to other OAuth users in the same workspace).
+    const receiptIdx = pgClient
+      .rows('idempotency_receipts')
+      .findIndex((row) => row.scope === 'archive:export' && row.resource_id === disposableArchive.archiveId);
+    assert.ok(receiptIdx >= 0);
+    pgClient.rows('idempotency_receipts').splice(receiptIdx, 1);
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { method: 'HEAD', headers: { Authorization: mcpHeaders.Authorization } })).status,
+      200,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: mcpHeaders.Authorization } })).status,
+      302,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { method: 'HEAD', headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      404,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      404,
+    );
+
+    const owner = { ...agent, role: 'owner' as const, authMethod: 'session_cookie' as const };
+    const pat = await createPat(authStore, owner, { name: 'Archive download', scopes: ['projects:read'] });
+    const patHeaders = { Authorization: `Bearer ${pat.token}` };
+    assert.equal((await app.request(archive.downloadUrl, { headers: patHeaders })).status, 302);
+
+    const otherWorkspaceId = randomUUID();
+    authStore.seedWorkspace({ userId: otherUserId, workspaceId: otherWorkspaceId, email: 'other@example.test' });
+    const otherPat = await createPat(authStore, { ...owner, userId: otherUserId, workspaceId: otherWorkspaceId }, {
+      name: 'Another workspace download', scopes: ['projects:read'],
+    });
+    assert.equal((await app.request(archive.downloadUrl, {
+      headers: { Authorization: `Bearer ${otherPat.token}` },
+    })).status, 404);
+
+    const uploadUrl = `${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import?requestId=archive-upload-e2e`;
+    const uploadOptions = {
+      method: 'POST', body: new Uint8Array(zip),
+      headers: { Authorization: mcpHeaders.Authorization, 'Content-Type': 'application/zip' },
+    };
+    assert.equal((await app.request(uploadUrl, { ...uploadOptions, headers: patHeaders })).status, 403);
+    const uploaded = await app.request(uploadUrl, uploadOptions);
+    assert.equal(uploaded.status, 201);
+    const imported = (await uploaded.json()) as { imported: Array<{ projectId: string }> };
+    assert.equal(imported.imported.length, 1);
+    assert.notEqual(imported.imported[0].projectId, projectB);
+    const uploadRetry = await app.request(uploadUrl, uploadOptions);
+    assert.equal(uploadRetry.status, 200);
+    assert.deepEqual((await uploadRetry.json() as typeof imported).imported, imported.imported);
+    const otherImportReplay = await app.request(uploadUrl, {
+      ...uploadOptions,
+      headers: { Authorization: otherOAuthHeaders.Authorization, 'Content-Type': 'application/zip' },
+    });
+    assert.equal(otherImportReplay.status, 404);
+
+    // Overlapping ZIP upload retries with the same requestId must claim the receipt atomically and never create duplicate projects.
+    const projectsBeforeRace = pgClient.rows('projects').length;
+    const raceUploadUrl = `${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import?requestId=archive-upload-race`;
+    const originalCreateProject = workspace.createProject.bind(workspace);
+    let releaseCreateProject!: () => void;
+    let markCreateProjectEntered!: () => void;
+    const createProjectEntered = new Promise<void>((resolve) => {
+      markCreateProjectEntered = resolve;
+    });
+    const createProjectGate = new Promise<void>((resolve) => {
+      releaseCreateProject = resolve;
+    });
+    let intercepted = false;
+    workspace.createProject = (async (...args: Parameters<typeof workspace.createProject>) => {
+      if (!intercepted) {
+        intercepted = true;
+        markCreateProjectEntered();
+        await createProjectGate;
+      }
+      return originalCreateProject(...args);
+    }) as typeof workspace.createProject;
+    try {
+      const firstUploadPromise = app.request(raceUploadUrl, uploadOptions);
+      await createProjectEntered;
+      const overlappingRetry = await app.request(raceUploadUrl, uploadOptions);
+      assert.equal(overlappingRetry.status, 409);
+      const conflictBody = (await overlappingRetry.json()) as { code?: string };
+      assert.equal(conflictBody.code, 'REQUEST_ID_CONFLICT');
+      releaseCreateProject();
+      const firstUploadRes = await firstUploadPromise;
+      assert.equal(firstUploadRes.status, 201);
+      const firstImported = (await firstUploadRes.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+      assert.equal(firstImported.replayed, false);
+      assert.equal(firstImported.imported.length, 1);
+      assert.equal(pgClient.rows('projects').length, projectsBeforeRace + 1);
+      const settledRetry = await app.request(raceUploadUrl, uploadOptions);
+      assert.equal(settledRetry.status, 200);
+      const settledBody = (await settledRetry.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+      assert.equal(settledBody.replayed, true);
+      assert.deepEqual(settledBody.imported, firstImported.imported);
+    } finally {
+      workspace.createProject = originalCreateProject;
+    }
+
+    // A stale pending import receipt (e.g. left behind after a worker crash/OOM) can be reclaimed on retry with the same requestId.
+    const completedRaceReceipt = pgClient
+      .rows('idempotency_receipts')
+      .find((row) => row.scope === 'archive:import' && row.request_id === 'archive-upload-race')!;
+    const staleTimestamp = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    pgClient.seed('idempotency_receipts', {
+      workspace_id: workspaceId,
+      scope: 'archive:import',
+      request_id: 'archive-upload-stale',
+      input_hash: completedRaceReceipt.input_hash,
+      state: 'pending',
+      resource_id: null,
+      response_payload: null,
+      created_at: staleTimestamp,
+      updated_at: staleTimestamp,
+      expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    });
+    const projectsBeforeStale = pgClient.rows('projects').length;
+    const staleUploadUrl = `${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import?requestId=archive-upload-stale`;
+    const reclaimedRes = await app.request(staleUploadUrl, uploadOptions);
+    assert.equal(reclaimedRes.status, 201);
+    const reclaimedBody = (await reclaimedRes.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+    assert.equal(reclaimedBody.replayed, false);
+    assert.equal(reclaimedBody.imported.length, 1);
+    assert.equal(pgClient.rows('projects').length, projectsBeforeStale + 1);
+    const reclaimedRetry = await app.request(staleUploadUrl, uploadOptions);
+    assert.equal(reclaimedRetry.status, 200);
+    const reclaimedRetryBody = (await reclaimedRetry.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+    assert.equal(reclaimedRetryBody.replayed, true);
+    assert.deepEqual(reclaimedRetryBody.imported, reclaimedBody.imported);
+
+    // An active slow import exceeding the lease duration refreshes its lease via heartbeat so
+    // an overlapping retry with the same requestId still gets 409 REQUEST_ID_CONFLICT instead of duplicating projects.
+    const shortLeaseArchive = new ProjectArchiveService({
+      db: drizzle({ client: pgClient as never, schema }) as unknown as Database,
+      storage: fixture.storage,
+      workspace,
+      files: fixture.services.files,
+      publicOrigin: config.APP_PUBLIC_ORIGIN,
+      pendingImportLeaseMs: 80,
+      pendingImportHeartbeatMs: 20,
+    });
+    const projectsBeforeSlow = pgClient.rows('projects').length;
+    const origCreateForSlow = workspace.createProject.bind(workspace);
+    let releaseSlowCreate!: () => void;
+    let markSlowEntered!: () => void;
+    const slowEntered = new Promise<void>((resolve) => {
+      markSlowEntered = resolve;
+    });
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlowCreate = resolve;
+    });
+    let slowIntercepted = false;
+    workspace.createProject = (async (...args: Parameters<typeof workspace.createProject>) => {
+      if (!slowIntercepted) {
+        slowIntercepted = true;
+        markSlowEntered();
+        await slowGate;
+      }
+      return origCreateForSlow(...args);
+    }) as typeof workspace.createProject;
+    try {
+      const slowRequestId = 'archive-upload-lease-refresh';
+      const slowImportPromise = shortLeaseArchive.importProjects(agent, {
+        requestId: slowRequestId,
+        zipBytes: zip,
+      });
+      await slowEntered;
+      const initialReceipt = pgClient
+        .rows('idempotency_receipts')
+        .find((row) => row.scope === 'archive:import' && row.request_id === slowRequestId)!;
+      const initialUpdatedMs =
+        initialReceipt.updated_at instanceof Date
+          ? initialReceipt.updated_at.getTime()
+          : Date.parse(String(initialReceipt.updated_at));
+      // Wait longer than the 80ms lease so the 20ms heartbeat must refresh updated_at to prevent reclaim.
+      await new Promise((resolve) => setTimeout(resolve, 140));
+      const refreshedReceipt = pgClient
+        .rows('idempotency_receipts')
+        .find((row) => row.scope === 'archive:import' && row.request_id === slowRequestId)!;
+      const refreshedUpdatedMs =
+        refreshedReceipt.updated_at instanceof Date
+          ? refreshedReceipt.updated_at.getTime()
+          : Date.parse(String(refreshedReceipt.updated_at));
+      assert.ok(refreshedUpdatedMs > initialUpdatedMs, 'heartbeat must refresh pending receipt updated_at');
+
+      await assert.rejects(
+        shortLeaseArchive.importProjects(agent, { requestId: slowRequestId, zipBytes: zip }),
+        (err: unknown) => err instanceof CloudError && err.code === 'REQUEST_ID_CONFLICT' && err.status === 409,
+      );
+
+      releaseSlowCreate();
+      const slowResult = await slowImportPromise;
+      assert.equal(slowResult.replayed, false);
+      assert.equal(slowResult.imported.length, 1);
+      assert.equal(pgClient.rows('projects').length, projectsBeforeSlow + 1);
+
+      const slowReplay = await shortLeaseArchive.importProjects(agent, {
+        requestId: slowRequestId,
+        zipBytes: zip,
+      });
+      assert.equal(slowReplay.replayed, true);
+      assert.deepEqual(slowReplay.imported, slowResult.imported);
+    } finally {
+      workspace.createProject = origCreateForSlow;
+    }
+
+    // 2. Accessing another user's project returns PROJECT_NOT_FOUND with environment diagnostics
+    const readOther = await callTool(4, 'openmotion_get_project', { projectId: otherUserProject });
+    assert.equal(readOther.result?.isError, true);
+    const errObj = readOther.result?.structuredContent?.error as {
+      code?: string;
+      details?: { serverOrigin?: string; installGuideUrl?: string; connectPageUrl?: string; hint?: string };
+    };
+    assert.equal(errObj?.code, 'PROJECT_NOT_FOUND');
+    assert.equal(errObj?.details?.serverOrigin, 'https://motion.example.test');
+    assert.equal(errObj?.details?.installGuideUrl, 'https://motion.example.test/install.md');
+    assert.equal(errObj?.details?.connectPageUrl, 'https://motion.example.test/mcp-setup');
+    assert.match(errObj?.details?.hint ?? '', /motion\.example\.test\/mcp-setup/);
+    assert.doesNotMatch(errObj?.details?.hint ?? '', /\/install\.md/);
+
+    const prepOther = await callTool(5, 'openmotion_import_assets', {
       action: 'prepare_upload',
-      projectId: projectA,
-      requestId: 'req_prep_granted_1',
+      projectId: otherUserProject,
+      requestId: 'req_prep_other_1',
       files: [{ itemId: 'file-1', filename: 'hero.png', bytes: 1024, mimeType: 'image/png' }],
     });
-    assert.equal(prepGranted.result?.isError, undefined);
+    assert.equal(prepOther.result?.isError, true);
+    assert.match(JSON.stringify(prepOther.result), /PROJECT_NOT_FOUND/);
 
-    // 2. Seed media_generate jobs on both projectA (granted) and projectB (ungranted)
+    // 3. Media jobs on own projects are visible (with remoteTerminal); another user's jobs remain hidden
     const jobAId = randomUUID();
-    const jobBFailedId = randomUUID();
-    const jobBSavePendingId = randomUUID();
     const jobASavePendingId = randomUUID();
+    const jobOtherId = randomUUID();
     const nowIso = new Date().toISOString();
-
     pgClient.seed('jobs', {
       id: jobAId,
       workspace_id: workspaceId,
@@ -3438,7 +4496,7 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       save_pending: false,
       request_id: 'req_job_a',
       idempotency_key: 'req_job_a',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Granted prompt A' },
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Owner prompt A' },
       created_at: nowIso,
       updated_at: nowIso,
     });
@@ -3447,60 +4505,42 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
       workspace_id: workspaceId,
       project_id: projectA,
       kind: 'media_generate',
-      state: 'completed',
-      stage: 'completed',
-      remote_id: null,
+      state: 'failed',
+      stage: 'failed',
+      remote_id: 'upstream-remote-a-save',
       remote_terminal: true,
       save_pending: true,
       request_id: 'req_job_a_save',
       idempotency_key: 'req_job_a_save',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Granted save A' },
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Owner save A' },
       created_at: nowIso,
       updated_at: nowIso,
     });
     pgClient.seed('jobs', {
-      id: jobBFailedId,
+      id: jobOtherId,
       workspace_id: workspaceId,
-      project_id: projectB,
+      project_id: otherUserProject,
       kind: 'media_generate',
       state: 'failed',
       stage: 'failed',
-      remote_id: 'upstream-remote-b',
+      remote_id: 'upstream-remote-other',
       remote_terminal: false,
       save_pending: false,
-      request_id: 'req_job_b',
-      idempotency_key: 'req_job_b',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Secret prompt B' },
-      created_at: nowIso,
-      updated_at: nowIso,
-    });
-    pgClient.seed('jobs', {
-      id: jobBSavePendingId,
-      workspace_id: workspaceId,
-      project_id: projectB,
-      kind: 'media_generate',
-      state: 'completed',
-      stage: 'completed',
-      remote_id: null,
-      remote_terminal: true,
-      save_pending: true,
-      request_id: 'req_job_b_save',
-      idempotency_key: 'req_job_b_save',
-      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Secret save B' },
+      request_id: 'req_job_other',
+      idempotency_key: 'req_job_other',
+      input_payload: { modality: 'image', mode: 'text-to-image', modelId: 'mock', prompt: 'Secret prompt Other' },
       created_at: nowIso,
       updated_at: nowIso,
     });
 
-    // 2a. listJobs without projectId (both MCP openmotion_assets_use and REST /motion-api/models/jobs)
-    // must only return jobs from granted projectA (never projectB)
-    const listAllRes = await callTool(5, 'openmotion_assets_use', { action: 'jobs' });
+    const listAllRes = await callTool(6, 'openmotion_assets_use', { action: 'jobs' });
     assert.equal(listAllRes.result?.isError, undefined, JSON.stringify(listAllRes.result));
     const listedAll = (listAllRes.result?.structuredContent?.jobs ?? []) as Array<{ id: string; projectId: string; remoteTerminal?: boolean }>;
     assert.equal(listedAll.length, 2);
     assert.ok(listedAll.every((j) => j.projectId === projectA));
     assert.equal(listedAll.find((j) => j.id === jobAId)?.remoteTerminal, false);
     assert.equal(listedAll.find((j) => j.id === jobASavePendingId)?.remoteTerminal, true);
-    assert.doesNotMatch(JSON.stringify(listAllRes.result), /Secret prompt B|Secret save B/);
+    assert.doesNotMatch(JSON.stringify(listAllRes.result), /Secret prompt Other/);
 
     const restListAll = await app.request('/motion-api/models/jobs', {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
@@ -3512,59 +4552,41 @@ describe('Cloud API Entrypoint — OAuth Agent Project Grants (Import Assets & M
     assert.equal(restListAllBody.jobs.find((j) => j.id === jobAId)?.remoteTerminal, false);
     assert.equal(restListAllBody.jobs.find((j) => j.id === jobASavePendingId)?.remoteTerminal, true);
 
-    // 2b. listJobs with non-UUID projectId must return empty (never fall back to workspace-wide list)
+    // 3b. listJobs with non-UUID projectId must return empty (never fall back to workspace-wide list)
     const restListBadId = await app.request('/motion-api/models/jobs?projectId=not-a-uuid', {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
     });
     assert.equal(restListBadId.status, 200);
-    const restListBadBody = (await restListBadId.json()) as { jobs: Array<unknown> };
-    assert.equal(restListBadBody.jobs.length, 0);
+    assert.equal(((await restListBadId.json()) as { jobs: unknown[] }).jobs.length, 0);
 
-    // 2c. listJobs with ungranted projectId must reject with PROJECT_GRANT_REQUIRED
-    const restListUngranted = await app.request(`/motion-api/models/jobs?projectId=${projectB}`, {
+    const restListOther = await app.request(`/motion-api/models/jobs?projectId=${otherUserProject}`, {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
     });
-    assert.equal(restListUngranted.status, 403);
-    assert.match(await restListUngranted.text(), /PROJECT_GRANT_REQUIRED/);
+    assert.equal(restListOther.status, 404);
 
-    // 2d. resume on ungranted projectB job must reject with PROJECT_GRANT_REQUIRED
-    const resumeUngranted = await callTool(8, 'openmotion_media_use', {
-      action: 'resume',
-      jobId: jobBFailedId,
-      requestId: 'req_resume_b_1',
-    });
-    assert.equal(resumeUngranted.result?.isError, true);
-    assert.match(JSON.stringify(resumeUngranted.result), /PROJECT_GRANT_REQUIRED/);
-
-    // 2e. retry_save on ungranted projectB job must reject with PROJECT_GRANT_REQUIRED
-    const retrySaveUngranted = await callTool(9, 'openmotion_media_use', {
-      action: 'retry_save',
-      jobId: jobBSavePendingId,
-    });
-    assert.equal(retrySaveUngranted.result?.isError, true);
-    assert.match(JSON.stringify(retrySaveUngranted.result), /PROJECT_GRANT_REQUIRED/);
-
-    // 2f. resume and retry_save on granted projectA jobs succeed
-    const resumeGranted = await callTool(10, 'openmotion_media_use', {
+    const resumeOwn = await callTool(7, 'openmotion_media_use', {
       action: 'resume',
       jobId: jobAId,
       requestId: 'req_resume_a_1',
     });
-    assert.equal(resumeGranted.result?.isError, undefined);
+    assert.equal(resumeOwn.result?.isError, undefined);
 
-    const retrySaveGranted = await callTool(11, 'openmotion_media_use', {
-      action: 'retry_save',
-      jobId: jobASavePendingId,
+    const resumeOther = await callTool(8, 'openmotion_media_use', {
+      action: 'resume',
+      jobId: jobOtherId,
+      requestId: 'req_resume_other_1',
     });
-    assert.equal(retrySaveGranted.result?.isError, undefined);
+    assert.equal(resumeOther.result?.isError, true);
+    assert.match(JSON.stringify(resumeOther.result), /PROJECT_NOT_FOUND/);
   });
 });
 
 describe('Cloud API Entrypoint — OAuth Agent Project Visibility', () => {
-  it('shows an OAuth agent only granted projects and their sessions across catalog, REST and MCP listings', async () => {
+  it('shows an OAuth agent all projects owned by its user while hiding other users projects across catalog, REST and MCP', async () => {
     const fixture = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const { app, config, pgClient, authStore } = fixture;
     const userId = config.DEV_USER_ID;
+    const otherUserId = randomUUID();
     const workspaceId = config.DEV_WORKSPACE_ID;
     const clientId = 'oauth-client-visibility';
     authStore.seedWorkspace({ userId, workspaceId, email: 'owner@example.test', displayName: 'Owner' });
@@ -3590,79 +4612,36 @@ describe('Cloud API Entrypoint — OAuth Agent Project Visibility', () => {
       assert.equal(res.status, 201);
       return ((await res.json()) as { projectId: string }).projectId;
     };
-    const projectA = await createProj('Granted Project A');
-    const projectB = await createProj('Ungranted Project B');
-    pgClient.seed('project_grants', {
-      id: randomUUID(),
-      project_id: projectA,
-      user_id: userId,
-      workspace_id: workspaceId,
-      client_id: clientId,
-      granted_at: new Date().toISOString(),
-      revoked_at: null,
-    });
+    const projectA = await createProj('Owner Web Project A');
+    const projectB = await createProj('Owner Web Project B');
+    const otherUserProject = await createProj('Other User Project C');
+    const otherRow = pgClient.rows('projects').find(row => row.id === otherUserProject)!;
+    otherRow.owner_user_id = otherUserId;
     const sessionA = pgClient.rows('projects').find(row => row.id === projectA)!.session_id as string;
-    const sessionB = pgClient.rows('projects').find(row => row.id === projectB)!.session_id as string;
+    const otherSession = otherRow.session_id as string;
 
     const workspace = fixture.services.workspace;
     const agent: AuthContext = {
       authMode: 'oidc', authMethod: 'oauth_bearer', role: 'editor', scopes: DEFAULT_PAT_SCOPES,
       clientId, userId, workspaceId,
     };
-    const owner: AuthContext = {
-      authMode: 'oidc', authMethod: 'session_cookie', role: 'owner', scopes: DEFAULT_PAT_SCOPES,
-      userId, workspaceId,
-    };
-
-    const ownerCatalog = await workspace.getCatalog(owner);
-    assert.deepEqual(new Set(ownerCatalog.projects.map(p => p.id)), new Set([projectA, projectB]));
-    assert.equal(ownerCatalog.activeId, projectB);
 
     const agentCatalog = await workspace.getCatalog(agent);
-    assert.deepEqual(agentCatalog.projects.map(p => p.id), [projectA]);
-    assert.equal(agentCatalog.activeId, projectA);
-    assert.deepEqual((agentCatalog.sessions ?? []).map(s => s.id), [sessionA]);
-
-    // Session detail carries the project conversation, so it follows the same grant.
+    assert.deepEqual(new Set(agentCatalog.projects.map(p => p.id)), new Set([projectA, projectB]));
     assert.equal((await workspace.getSession(agent, sessionA)).artifacts[0]?.projectId, projectA);
-    await assert.rejects(workspace.getSession(agent, sessionB), { code: 'SESSION_NOT_FOUND' });
-    await assert.rejects(workspace.renameSession(agent, sessionB, 'Renamed'), { code: 'SESSION_NOT_FOUND' });
-    await assert.rejects(workspace.appendMessage(agent, sessionB, { content: 'hello' }), { code: 'SESSION_NOT_FOUND' });
-    await assert.rejects(workspace.openSession(agent, sessionB), { code: 'SESSION_NOT_FOUND' });
-    assert.equal((await workspace.getSession(owner, sessionB)).artifacts[0]?.projectId, projectB);
-
-    // An auto-granted new project must not open an ungranted session's conversation.
-    await assert.rejects(
-      workspace.createProject(agent, { sessionId: sessionB, title: 'Probe' }),
-      { code: 'SESSION_NOT_FOUND' },
-    );
-    // Opening for the editor without a project never picks (or reveals) an ungranted one.
-    await assert.rejects(workspace.openSessionForEditor(agent, sessionB), { code: 'SESSION_NOT_FOUND' });
-
-    // Mixed session: an ungranted project C inside session A stays hidden and is never chosen.
-    const created = await app.request('/motion-api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Ungranted Project C', sessionId: sessionA }),
-    });
-    assert.equal(created.status, 201);
-    const projectC = ((await created.json()) as { projectId: string }).projectId;
-    await workspace.openSession(owner, sessionA, projectC);
-    const mixed = (await workspace.getCatalog(agent)).sessions?.find(s => s.id === sessionA);
-    assert.deepEqual(mixed?.artifacts.map(a => a.projectId), [projectA]);
-    assert.equal(mixed?.activeArtifactId, mixed?.artifacts[0]?.id);
-    const mixedDetail = await workspace.getSession(agent, sessionA);
-    assert.deepEqual(mixedDetail.artifacts.map(a => a.projectId), [projectA]);
-    assert.equal(mixedDetail.activeArtifactId, mixedDetail.artifacts[0]?.id);
-    assert.equal((await workspace.openSessionForEditor(agent, sessionA)).projectId, projectA);
-    await assert.rejects(workspace.openSession(agent, sessionA, projectC), { code: 'PROJECT_GRANT_REQUIRED' });
-    assert.equal((await workspace.getCatalog(owner)).activeId, projectA);
+    await assert.rejects(workspace.getSession(agent, otherSession), { code: 'SESSION_NOT_FOUND' });
+    await assert.rejects(workspace.renameSession(agent, otherSession, 'Renamed'), { code: 'SESSION_NOT_FOUND' });
+    await assert.rejects(workspace.appendMessage(agent, otherSession, { content: 'hello' }), { code: 'SESSION_NOT_FOUND' });
+    await assert.rejects(workspace.openSession(agent, otherSession), { code: 'SESSION_NOT_FOUND' });
 
     const restList = await app.request('/motion-api/projects', {
       headers: { Authorization: `Bearer ${rawAccessToken}` },
     });
     assert.equal(restList.status, 200);
-    assert.deepEqual(((await restList.json()) as { projects: Array<{ id: string }> }).projects.map(p => p.id), [projectA]);
+    assert.deepEqual(
+      new Set(((await restList.json()) as { projects: Array<{ id: string }> }).projects.map(p => p.id)),
+      new Set([projectA, projectB]),
+    );
 
     const mcpHeaders = {
       Authorization: `Bearer ${rawAccessToken}`,
@@ -3696,9 +4675,8 @@ describe('Cloud API Entrypoint — OAuth Agent Project Visibility', () => {
     const listed = ((await listRes.json()) as {
       result?: { structuredContent?: { total?: number; activeId?: string; projects?: Array<{ id: string }> } };
     }).result?.structuredContent;
-    assert.equal(listed?.total, 1);
-    assert.equal(listed?.activeId, projectA);
-    assert.deepEqual(listed?.projects?.map(p => p.id), [projectA]);
+    assert.equal(listed?.total, 2);
+    assert.deepEqual(new Set(listed?.projects?.map(p => p.id)), new Set([projectA, projectB]));
 
     // A session the agent creates has no project yet and stays usable by ID.
     const agentSession = await workspace.createSession(agent, { title: 'Agent session' });
@@ -3762,6 +4740,7 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
       remote_id: 'mit_unknown_timeout',
       remote_terminal: false,
       save_pending: false,
+      failure_stage: 'generate',
       error_code: 'request_state_unknown',
       error_message: 'OpenDesign could not confirm whether this request ran, so it was not resubmitted. Inspect the original task before retrying.',
       result_json: { error: { code: 'request_state_unknown', outcomeUnknown: true } },
@@ -3780,9 +4759,12 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
 
     const resumableRes = await app.request(`/motion-api/models/jobs/${resumableJobId}`);
     assert.equal(resumableRes.status, 200);
-    const resumableBody = (await resumableRes.json()) as { job: { remoteTerminal?: boolean; errorCode?: string } };
+    const resumableBody = (await resumableRes.json()) as {
+      job: { remoteTerminal?: boolean; errorCode?: string; failureStage?: string };
+    };
     assert.equal(resumableBody.job.remoteTerminal, false);
     assert.equal(resumableBody.job.errorCode, 'request_state_unknown');
+    assert.equal(resumableBody.job.failureStage, 'generate');
 
     const phase1ListRes = await app.request('/motion-api/phase1/call', {
       method: 'POST',
@@ -3813,7 +4795,14 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
       }),
     });
     assert.equal(resumeActiveRes.status, 200);
-    const resumed = (await resumeActiveRes.json()) as { job: { state: string } };
+    const resumed = (await resumeActiveRes.json()) as { job: { state: string; failureStage?: string } };
     assert.equal(resumed.job.state, 'queued');
+    assert.equal(resumed.job.failureStage, undefined);
+
+    const statusAfterResume = await app.request(`/motion-api/models/jobs/${resumableJobId}`);
+    assert.equal(statusAfterResume.status, 200);
+    const resumedStatus = (await statusAfterResume.json()) as { job: { state: string; failureStage?: string } };
+    assert.equal(resumedStatus.job.state, 'queued');
+    assert.equal(resumedStatus.job.failureStage, undefined);
   });
 });

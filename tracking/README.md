@@ -147,18 +147,21 @@ retains `billing=plan` and contains no account, installation or credential data.
 AMR must accept the OpenMotion origin and entry source in its attribution
 validation before these parameters can reach its subscription/payment events.
 
-The Black Friday banner above the application header and the header **Pricing** entry link to the
-website Pricing page (`open-design.ai/[zh/]pricing/`) with `od_origin=openmotion`,
-`od_entry_source=openmotion_manage_subscription` (the OpenMotion source AMR already accepts; an unregistered
-source would drop the whole attribution), a fresh `od_entry_id` / UTC `od_entry_at` per
-click, and `utm_source=openmotion`, `utm_medium=banner|header`, `utm_campaign=black_friday_2026`. The
-Pricing page keeps an inbound `od_entry_id` / `od_entry_source` as the first touch through checkout.
-OpenMotion reports `surface_view` (`area=campaign_banner`, `element=banner`) once per page load while the
-banner is shown, and `ui_click` for `claim_offer` and `close_banner` (`area=campaign_banner`) and
-`open_pricing` (`area=header`), each with `campaign_id=black_friday_2026`. The two link clicks also send
-`entry_id`, equal to that click's `od_entry_id`, so a click joins the Pricing visit and payment. `utm_medium`
-and the click's `element` tell the banner and the header entry apart; dedicated entry sources need AMR to register
-them first.
+The Black Friday banner above the application header, the Explore Black Friday hero, model hub promo pills,
+and the header **Pricing** entry link to the website Pricing page (`open-design.ai/[zh/]pricing/`) with
+`od_origin=openmotion`, `od_entry_source=openmotion_manage_subscription` (the OpenMotion source AMR already
+accepts; an unregistered source would drop the whole attribution), a fresh `od_entry_id` / UTC `od_entry_at`
+per click, and `utm_source=openmotion`, `utm_medium=banner|hero|model_hub|header`,
+`utm_campaign=black_friday_2026`. The Pricing page keeps an inbound `od_entry_id` / `od_entry_source` as the
+first touch through checkout. OpenMotion reports `surface_view` (`area=campaign_banner`, `element=banner`,
+`hook_id=bf_banner|bf_hero`) once per page load while each campaign banner or Explore hero is shown, and
+`ui_click` for `claim_offer` and `close_banner` (`area=campaign_banner`, `hook_id=bf_banner|bf_hero`),
+`claim_offer` on model hub promo pills (`page_name=model_hub`, `area=hub_hero`, `hook_id=bf_hub`), and
+`open_pricing` (`area=header`, `hook_id=header_pricing`), each with `campaign_id=black_friday_2026` during
+the campaign window. Pricing clicks also send `entry_id`, equal to that click's `od_entry_id`, and trigger
+checkout-return `entitlement_refresh_result` with the matching `hook_id` and `entry_id` when the window
+regains focus. `utm_medium`, `hook_id`, and the click's `area`/`element` tell each entry apart; dedicated
+entry sources need AMR to register them first.
 The campaign shows from 2026-11-21 18:00 until 2026-12-05 00:00 Beijing time. Outside that window the banner is hidden,
 the Pricing entry has no badge, links omit `utm_campaign` and clicks omit `campaign_id`. A dismissed banner stays
 hidden for the rest of the visitor's local day and returns the next day.
@@ -435,7 +438,10 @@ backend/data directory. Deterministic coverage lives in
   the navigation is shown on), `explore_tabs`, `explore_spotlight`, `explore_featured`, `explore_feed`,
   `explore_collection`, `capability_index`, `studio_bar` and `model_overview`. A generation submitted from a
   Studio form reports `asset_generation_submit_result` with `page_name=creative_studio` and the Studio, scene
-  and model (`model_provider` + `model_id` split from the catalogue key; custom providers send neither). Other destinations are catalogue ids accepted only as `slug`s;
+  and model (`model_provider` + `model_id` split from the catalogue key; custom providers send neither); when
+  the submission came directly from a curated model hub template remix, it also carries `hub_id`,
+  `template_id` and `prompt_edited` (and consumes the draft attribution on success or prompt reset so later
+  unrelated prompts are not misattributed). Other destinations are catalogue ids accepted only as `slug`s;
   prompts, example copy and model labels are never fields. The Design Studio template landing reports
   `studio_id=design, landing=true`. Category changes report `studio_bar/scene_tab` with `scene_id` and template
   opens report `studio_bar/open_template` with both `scene_id` and `template_id`.
@@ -447,9 +453,13 @@ backend/data directory. Deterministic coverage lives in
   A Cinema template card uses `studio_bar/try_prompt` with its `template_id`, `scene_id` and zero-based `position`.
   Opening a template prepares a draft. Generation submission is counted separately.
 - Model hubs (`page=model-hub`): one `page_view` with `page_name=model_hub`, `hub_id` and `signed_in` once the
-  sign-in state is known; clicks in areas `hub_header`, `hub_hero`, `hub_videos`, `hub_video_detail` and
-  `hub_availability` carry `hub_id`, `hub_video_id` (catalogue id), `signed_in` and, for scene filters, a
-  `filter_value` slug. Video titles, creators, post links and search text are never fields.
+  sign-in state is known; showcase cards emit qualified `surface_view` (`area=hub_videos`, `element=card`,
+  `hub_id`, `template_id`, zero-based `position`, `signed_in`, `filter_value`) once at least half visible for
+  one unbroken second per result set. Clicks in areas `hub_header`, `hub_hero`, `hub_videos`,
+  `hub_video_detail` and `hub_availability` carry `hub_id`, `hub_video_id` or `template_id` (catalogue id),
+  `signed_in`, and where applicable `position`, `filter_value`, `prompt_edited`, `copy_status`, `campaign_id`,
+  `hook_id` and `entry_id` (`open_detail`, `category_select`, `copy_prompt`, `start_use`, `open_in_studio`,
+  `claim_offer`). Video titles, creators, post links, prompts and search text are never fields.
 - The template gallery shared with the website (`web/template-gallery.ts`, shown in the
   connection dialog):
   copy click and the actual copy result, preview open, use, category change and

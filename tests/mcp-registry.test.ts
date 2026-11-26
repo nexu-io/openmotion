@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import { cloudMcpPostAuthorizationInstructions } from '../shared/integration.ts';
 import { createToolRegistry } from '../shared/mcp-registry.ts';
 import { phase1Tools } from '../shared/phase1-tools.ts';
 import { workflowEntryGuide, packagedSkills } from '../shared/workflow.ts';
@@ -54,7 +55,7 @@ function makeTestMcp() {
     );
     return { status: res.status, sessionId: res.headers.get('mcp-session-id'), json: await res.json() as any };
   };
-  return { post };
+  return { post, config };
 }
 
 test('MCP-only discovery connects template recommendations to a project-free host presentation', async () => {
@@ -83,12 +84,15 @@ test('MCP-only discovery connects template recommendations to a project-free hos
 test('phase-one target is explicit, unique, and validated by createToolRegistry', () => {
   const registry = createToolRegistry(phase1Tools, 'phase1');
   assert.deepEqual(registry.tools.map((tool) => tool.name), target);
+  const localArchive = registry.tools.find(tool => tool.name === 'openmotion_project_archive');
+  assert.deepEqual(localArchive?.inputSchema.properties.action.enum, ['export', 'import']);
+  assert.equal(localArchive?.inputSchema.properties.sourcePath.type, 'string');
   assert.throws(() => createToolRegistry(phase1Tools, 'unknown'), /Unknown MCP release profile/);
   assert.throws(() => createToolRegistry([...phase1Tools, phase1Tools[0]], 'phase1'), /Duplicate MCP implementation/);
 });
 
 test('one registry governs discovery and rejects hidden calls before domain handlers', async () => {
-  const { post } = makeTestMcp();
+  const { post, config } = makeTestMcp();
   const initialized = await post({
     jsonrpc: '2.0',
     id: 1,
@@ -115,7 +119,15 @@ test('one registry governs discovery and rejects hidden calls before domain hand
   assert.match(call.json.result.content[0].text, /MCP_TOOL_NOT_EXPOSED/);
   assert.equal(
     initialized.json.result.instructions,
-    workflowEntryGuide + ' ' + templateDiscoveryGuide + ' ' + skillDiscoveryGuide + ' ' + phase1.instructions,
+    workflowEntryGuide
+      + ' '
+      + templateDiscoveryGuide
+      + ' '
+      + skillDiscoveryGuide
+      + ' '
+      + phase1.instructions
+      + `\n\nConnected cloud server origin: ${config.APP_PUBLIC_ORIGIN} (workspace: ${config.DEV_WORKSPACE_ID}, auth: dev).`
+      + '\n\n' + cloudMcpPostAuthorizationInstructions(config.APP_PUBLIC_ORIGIN),
   );
   assert.ok(!initialized.json.result.instructions.includes('openmotion_get_workflow'));
 });

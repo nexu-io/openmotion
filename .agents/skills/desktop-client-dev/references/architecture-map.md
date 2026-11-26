@@ -57,7 +57,6 @@ Companion reference for [SKILL.md](../SKILL.md).
 | --- | --- |
 | `studio/src/utils/platformHost.ts` | Unified bridge client (`getDesktopHostBridge()`, `getActiveHostBridge()`, `useHostCapabilities()`, `hasHostCapability()`, chrome/theme/locale/updater/preferences helpers). |
 | `studio/src/utils/localConnectBridge.ts` | Browser loopback adapter implementing `UniversalHostBridge` over `fetch` + SSE with in-memory pairing token. |
-| `studio/src/motion/DesktopConnectPanel.tsx` | Local Agent connection UI driven by `atom.detect` / `atom.exec` / `atom.config` and `minShellVersion` gating. |
 
 ## 2. Frozen capability inventory (v1.0.0)
 

@@ -65,7 +65,7 @@ function GenerationLightbox({
   onReusePrompt: (prompt: string) => void;
   onUseReference?: (item: { reference: AssetReference; name: string }) => void;
   onUseFirstFrame?: (item: { reference: AssetReference; name: string }) => void;
-  onOpenDetail: (asset: LibraryAsset) => void;
+  onOpenDetail: (asset: LibraryAsset, versionId: string) => void;
   onDownload?: () => void;
 }) {
   const { t } = useI18n();
@@ -136,7 +136,7 @@ function GenerationLightbox({
               <RemixIcon name="download-2-line" size={15} />
               {t('Download')}
             </a>
-            <Button variant="plain" className="om-button" onClick={() => { onClose(); onOpenDetail(asset); }}>
+            <Button variant="plain" className="om-button" onClick={() => { onClose(); onOpenDetail(asset, version.id); }}>
               <RemixIcon name="history-line" size={15} />
               {t('Asset details')}
             </Button>
@@ -257,7 +257,7 @@ export function MediaGenerationHistory({
   placeholderJobs: GenerationJob[];
   emptyContent?: React.ReactNode;
   blankCanvas?: boolean;
-  onOpenDetail: (asset: LibraryAsset) => void;
+  onOpenDetail: (asset: LibraryAsset, versionId: string) => void;
   onReusePrompt: (prompt: string) => void;
   onUseReference?: (item: { reference: AssetReference; name: string }) => void;
   onUseFirstFrame?: (item: { reference: AssetReference; name: string }) => void;
@@ -509,7 +509,7 @@ export function MediaGenerationHistory({
                   {t('Use as first frame')}
                 </MenuItem>
               )}
-              <MenuItem icon={<RemixIcon name="history-line" size={14} />} onClick={() => onOpenDetail(asset)}>
+              <MenuItem icon={<RemixIcon name="history-line" size={14} />} onClick={() => onOpenDetail(asset, version.id)}>
                 {t('Asset details')}
               </MenuItem>
             </Menu>

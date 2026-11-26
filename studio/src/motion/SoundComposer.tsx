@@ -366,7 +366,7 @@ export function SoundComposer({
               />
             ) : (
               <>
-                {fallbackModelHeading}
+                {!(cloudEmptyCatalog && hostedPlanUpgrade) && fallbackModelHeading}
                 {cloudGuestSubmit && (failed || cloudEmptyCatalog) ? (
                   <div className="om-creation-setup" role="status" data-guest-model-guide="true">
                     <RemixIcon name="lock-line" size={18} />
@@ -388,10 +388,12 @@ export function SoundComposer({
                 ) : !gateway ? (
                   <Skeleton className="om-asset-model-skeleton" />
                 ) : cloudEmptyCatalog ? (
-                  <CloudEmptyModelsNotice
-                    consoleUrl={gateway.status.consoleUrl}
-                    onOpenSubscription={openSubscription}
-                  />
+                  hostedPlanUpgrade ? null : (
+                    <CloudEmptyModelsNotice
+                      consoleUrl={gateway.status.consoleUrl}
+                      onOpenSubscription={openSubscription}
+                    />
+                  )
                 ) : unifiedCloudOnly ? (
                   <div className="om-creation-setup" role="status">
                     <RemixIcon name="information-line" size={18} />
@@ -427,7 +429,7 @@ export function SoundComposer({
             )}
           </div>
 
-          {unconfiguredPreferred && (
+          {!studio.guestPreview && !cloudGuestSubmit && !hostedPlanUpgrade && unconfiguredPreferred && (
             <div className="om-creation-setup" role="status">
               <RemixIcon name="plug-line" size={18} />
               <p className="om-muted">
@@ -448,7 +450,7 @@ export function SoundComposer({
             </div>
           )}
 
-          {!studio.guestPreview && gateway && !available.length && compatible.length > 0 && !unconfiguredPreferred && (
+          {!studio.guestPreview && !cloudGuestSubmit && !hostedPlanUpgrade && gateway && !available.length && compatible.length > 0 && !unconfiguredPreferred && (
             <Button type="button" variant="ghost" className="om-button h-auto" onClick={openModelSettings}>
               {t('Configure a provider or sign in to use media models.')}
             </Button>
@@ -532,7 +534,7 @@ export function SoundComposer({
             size={17}
             className={busy ? 'om-busy-icon' : undefined}
           />
-          <span>{t(studio.guestPreview ? 'Sign in with OpenDesign' : SUBMIT_LABEL[tabId])}</span>
+          <span>{t(SUBMIT_LABEL[tabId])}</span>
           {!busy && <kbd className="om-sound-kbd" aria-hidden="true">⌘↵</kbd>}
         </Button>
       </div>

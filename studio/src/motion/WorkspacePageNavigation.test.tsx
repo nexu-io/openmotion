@@ -17,7 +17,7 @@ import { workspaceHistoryIndex, writeWorkspaceHistory } from '../utils/workspace
 import { preloadAllWorkspacePages } from '../router/lazyPages';
 import { resetBannerDismissal } from './campaignAttribution';
 
-const editor = vi.hoisted(() => ({ mounts: 0, fail: false, wait: async () => {} }));
+const editor = vi.hoisted(() => ({ mounts: 0, fail: false, blocked: false, wait: async () => {} }));
 vi.mock('./AssetsPage', () => ({ AssetsPage: ({ studio }: { studio?: StudioCreation }) => <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} /> }));
 vi.mock('./MotionProjectEditor', () => ({ preloadMotionProjectEditor: vi.fn() }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
@@ -25,7 +25,7 @@ vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: 
   const { registerEditor } = useWorkspaceChrome();
   useEffect(() => {
     editor.mounts++;
-    registerEditor({ blocked: false, saveState: '', message: '', waitForSaves: async () => {
+    registerEditor({ blocked: editor.blocked, saveState: '', message: editor.blocked ? 'Auto-save paused' : '', waitForSaves: async () => {
       await editor.wait(); if (editor.fail) throw new Error('Unsaved edit');
     } });
     return () => registerEditor(null);
@@ -74,10 +74,13 @@ const returnThroughBreadcrumb = async (label: string) => {
   await act(async () => { link!.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
 };
 async function mount(key = 0) { await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp key={key} /></I18nProvider>)); }
+const DEFAULT_EXPLORE_TEST_TIME = Date.parse('2026-11-25T12:00:00+08:00');
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(DEFAULT_EXPLORE_TEST_TIME);
   localStorage.clear(); history.replaceState(null, '', firstUrl);
   vi.mocked(preloadMotionProjectEditor).mockClear();
-  editor.mounts = 0; editor.fail = false; editor.wait = async () => {};
+  editor.mounts = 0; editor.fail = false; editor.blocked = false; editor.wait = async () => {};
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   fetcher = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, location.origin), projectId = url.searchParams.get('projectId') ?? first;
@@ -113,7 +116,7 @@ beforeEach(() => {
   });
   vi.stubGlobal('fetch', fetcher);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); history.replaceState(null, '', '/'); });
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); history.replaceState(null, '', '/'); });
 
 it('cold-loads whitelisted semantic SPA path URLs directly into the requested surface', async () => {
   history.replaceState(null, '', '/settings/providers');
@@ -935,6 +938,51 @@ it('shows mixed media in one Explore feed and opens templates and editing preset
   expect(page()).toMatchObject({ specialty: { id: 'shorts' }, skill: 'openmotion-shortlist-shorts' });
 });
 
+it.each(['approaching the toolbar', 'opening the industry menu'])('defers the Explore catalogue scan until %s', async trigger => {
+  const observed = new Map<Element, () => void>();
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) { observed.set(target, () => this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }])); }
+    unobserve() {}
+    disconnect() {}
+  });
+  const entries = Array.from({ length: 61 }, (_, i) => ({ id: `work-${i}`, title: `Work ${i}`, kind: 'reference', tags: [], industries: [i === 60 ? 'Healthcare' : 'Business software'] }));
+  const requests: number[][] = [];
+  let finishScan!: () => void;
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((input: string, options?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (!url.pathname.endsWith('/template-catalog')) return fallback(input, options);
+    const limit = Number(url.searchParams.get('limit')), offset = Number(url.searchParams.get('offset'));
+    requests.push([limit, offset]);
+    const response = () => Response.json({ items: entries.slice(offset, offset + limit), next: offset + limit < entries.length ? offset + limit : null });
+    if (offset === 60) return new Promise<Response>(resolve => { finishScan = () => resolve(response()); });
+    return Promise.resolve(response());
+  });
+  history.replaceState(null, '', '/');
+  await mount();
+  const shelf = container.querySelector<HTMLElement>('.om-explore-shelf[aria-label="Templates"]')!;
+  const ids = () => [...shelf.querySelectorAll<HTMLElement>('[data-template-id]')].map(work => work.dataset.templateId);
+  const preview = entries.slice(0, 8).map(work => work.id);
+  expect(ids()).toEqual(preview);
+  expect(requests).toEqual([[10, 0]]);
+
+  if (trigger === 'approaching the toolbar') {
+    const sentinel = [...observed.keys()].find(node => shelf.querySelector('.om-shelf-toolbar')!.contains(node))!;
+    await act(async () => observed.get(sentinel)!());
+  } else {
+    await click('By industry');
+  }
+  expect(requests).toEqual([[10, 0], [60, 0], [60, 60]]);
+  expect(ids()).toEqual(preview);
+  await act(async () => finishScan());
+  if (trigger === 'approaching the toolbar') await click('By industry');
+  const industry = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent === 'Healthcare')!;
+  await act(async () => industry.click());
+  expect(ids()).toEqual(['work-60']);
+  expect(requests).toHaveLength(3);
+});
+
 it('opens a collection with its filters and opens individual Explore cards directly', async () => {
   const fallback = fetcher.getMockImplementation()!;
   const item = (id: string, brand?: string) => ({ id, title: id, brand, author: 'Studio', tags: [], kind: 'reference' });
@@ -1319,11 +1367,11 @@ it('rotates the visible Explore spotlight and plays visible Skill previews witho
   const hero = container.querySelector<HTMLElement>('.om-feature-carousel')!;
   const cards = ['.om-feed-group', '.om-studio-collection-cards'].map(section =>
     container.querySelector<HTMLElement>(section + ' [data-playback-id]')!);
-  vi.useFakeTimers();
+  vi.useFakeTimers({ now: DEFAULT_EXPLORE_TEST_TIME });
   try {
     await act(async () => { observed.get(hero)!(true); cards.forEach(card => observed.get(card)!(true)); });
     expect(hero.dataset.scene).toBe('motion');
-    expect(hero.querySelector('video[src]')?.getAttribute('src')).toMatch(/^blob:/);
+    expect(hero.querySelector('video[src]')?.getAttribute('src')).toMatch(/^https:\/\/releases\.open-design\.ai\/open-motion\/media\/sha256\/[a-f0-9]{64}\.mp4$/);
     for (const card of cards) expect(card.querySelector('video[src]')).toBeTruthy();
     act(() => { vi.advanceTimersByTime(6000); });
     expect(hero.dataset.scene).toBe('black-friday');
@@ -2218,22 +2266,27 @@ it('shows the Explore shortcuts, fills two complete rows across Skills and techn
   expect(footer?.querySelector('h2')?.textContent).toBe('Open Design');
   expect(footer?.closest('.om-discovery-page')).toBeNull();
 });
-it('hides the Black Friday banner on Explore home, shows it on other tabs, and keeps dismissal for the day', async () => {
+it.each([
+  ['2026-11-25T12:00:00+08:00', true],
+  ['2026-11-25T20:00:00+08:00', false],
+] as const)('shows the Explore banner until the hero takes over and honors dismissal at %s', async (now, exploreBannerVisible) => {
   vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
+  vi.setSystemTime(Date.parse(now));
   localStorage.clear();
   resetBannerDismissal();
   try {
     history.replaceState(null, '', '/?page=explore');
     await mount();
     const banner = () => container.querySelector('aside[aria-label="Black Friday campaign banner"]');
-    expect(banner()).toBeNull();
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
 
     await click('Motion Studio');
     expect(banner()).not.toBeNull();
 
     await click('Explore');
-    expect(banner()).toBeNull();
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
 
     await click('Design Studio');
     expect(banner()).not.toBeNull();
@@ -2248,4 +2301,128 @@ it('hides the Black Friday banner on Explore home, shows it on other tabs, and k
     localStorage.clear();
     resetBannerDismissal();
   }
+});
+
+it('recovers Open Motion Editor when /motion carries a stale #project hash that 404s', async () => {
+  const staleId = '2b22bcca-8aca-45c4-808b-f7920af66a48';
+  history.replaceState(null, '', `/motion#project/${staleId}`);
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (url.pathname.endsWith('/project/status') && url.searchParams.get('projectId') === staleId) {
+      return Response.json({ code: 'PROJECT_NOT_FOUND', error: `Project ${staleId} was not found in this workspace.` }, { status: 404 });
+    }
+    return fallback(input, init);
+  });
+
+  await mount();
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+  expect(location.pathname).toBe('/motion');
+  expect(location.hash).toBe('');
+  const openBtn = button('Open Motion Editor');
+  expect(openBtn).toBeTruthy();
+  expect(openBtn.disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(page()).toMatchObject({ motion: false, explore: false, templates: false });
+  expect(container.querySelector('[aria-label="Editor draft"]')?.getAttribute('data-project')).toBe(first);
+});
+
+it('keeps Open Motion Editor enabled when a signed-in workspace has zero active projects and creates a blank project on click', async () => {
+  const createdId = '33333333-3333-3333-3333-333333333333';
+  const createdArtifact = { id: createdId, projectId: createdId, kind: 'motion-project', title: 'Untitled Project' };
+  let workspaceProjects: typeof catalog.projects = [];
+  let workspaceSessions: typeof catalog.sessions = [];
+  history.replaceState(null, '', '/motion');
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (url.pathname.endsWith('/projects') && init?.method === 'POST') {
+      workspaceProjects = [{ id: createdId, title: 'Untitled Project' }];
+      workspaceSessions = [{ id: createdId, artifacts: [createdArtifact] }];
+      return Response.json({ projectId: createdId, sessionId: createdId, revision: 'r-new' }, { status: 201 });
+    }
+    if (url.pathname.endsWith('/projects') && !init?.method) {
+      return Response.json({ activeId: workspaceProjects[0]?.id ?? '', projects: workspaceProjects, sessions: workspaceSessions });
+    }
+    if (url.pathname.includes('/sessions/' + createdId)) {
+      return Response.json(workspaceSessions[0]);
+    }
+    if (url.pathname.endsWith('/project/status')) {
+      const id = url.searchParams.get('projectId') ?? workspaceProjects[0]?.id ?? '';
+      return Response.json({ activeId: id, projectId: id, projectTitle: '', revision: id ? 'r-new' : '', exportJob: null });
+    }
+    return fallback(input, init);
+  });
+
+  await mount();
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+  const openBtn = button('Open Motion Editor');
+  expect(openBtn).toBeTruthy();
+  expect(openBtn.disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(fetcher.mock.calls.some(([url, init]) => String(url).endsWith('/motion-api/projects') && init?.method === 'POST')).toBe(true);
+  expect(container.querySelector('[aria-label="Editor draft"]')?.getAttribute('data-project')).toBe(createdId);
+});
+
+it('lets Open Motion Editor return to a mounted editor even when its write guard is blocked', async () => {
+  editor.blocked = true;
+  history.replaceState(null, '', firstUrl.replaceAll(first, second));
+  await mount();
+  const draft = container.querySelector<HTMLInputElement>('[aria-label="Editor draft"]')!;
+  expect(draft.getAttribute('data-project')).toBe(second);
+
+  await click('Motion Studio');
+  expect(page().motion).toBe(true);
+  const openBtn = button('Open Motion Editor');
+  expect(openBtn).toBeTruthy();
+  expect(openBtn.disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(page().motion).toBe(false);
+  expect(container.querySelector('[aria-label="Editor draft"]')).toBe(draft);
+  expect(editor.mounts).toBe(1);
+});
+
+it('clears a stale #project hash after switching accounts or workspaces on /motion', async () => {
+  let switched = false;
+  history.replaceState(null, '', `/motion#project/${first}`);
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (switched) {
+      if (url.pathname.endsWith('/project/status') && url.searchParams.get('projectId') === first) {
+        return Response.json({ code: 'PROJECT_NOT_FOUND', error: `Project ${first} was not found in this workspace.` }, { status: 404 });
+      }
+      if (url.pathname.endsWith('/projects') && !init?.method) {
+        return Response.json({
+          activeId: second,
+          projects: [{ id: second, title: 'Second project' }],
+          sessions: [catalog.sessions[1]],
+        });
+      }
+      if (url.pathname.endsWith('/project/status')) {
+        return Response.json({ projectId: second, revision: 'r2', exportJob: null });
+      }
+    }
+    return fallback(input, init);
+  });
+
+  await mount();
+  expect(button('Open Motion Editor').disabled).toBe(false);
+
+  switched = true;
+  await act(async () => {
+    window.dispatchEvent(new Event('motion:account-changed'));
+    await new Promise(resolve => setTimeout(resolve, 20));
+  });
+
+  expect(location.hash).toBe('');
+  expect(button('Open Motion Editor').disabled).toBe(false);
+
+  await click('Open Motion Editor');
+  expect(container.querySelector('[aria-label="Editor draft"]')?.getAttribute('data-project')).toBe(second);
 });

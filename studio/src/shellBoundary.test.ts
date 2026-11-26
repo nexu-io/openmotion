@@ -113,6 +113,14 @@ function collectStaticImportGraph(entryFile: string): {
 }
 
 describe("Studio entry shell dependency boundary", () => {
+  it("keeps early Explore discovery independent of React, the page and the routing catalog", () => {
+    const graph = collectStaticImportGraph(path.resolve(studioSrcDir, "startStudio.ts"));
+    for (const file of ["main.tsx", "motion/ExploreStudios.tsx", "router/lazyPages.ts", "../../shared/studio-catalog.ts"]) {
+      expect(graph.files.has(path.resolve(studioSrcDir, file)), file).toBe(false);
+    }
+    expect(graph.externals.has("react")).toBe(false);
+  });
+
   it("keeps @hyperframes/parsers barrel, heavy editor helpers, and lazy workspace pages out of main.tsx static graph", () => {
     const mainEntry = path.resolve(studioSrcDir, "main.tsx");
     const graph = collectStaticImportGraph(mainEntry);
@@ -186,6 +194,20 @@ describe("Studio entry shell dependency boundary", () => {
     const graph = collectStaticImportGraph(breadcrumb);
     expect(graph.files.has(path.resolve(studioSrcDir, "motion/settingsMeta.ts"))).toBe(true);
     expect(graph.files.has(settingsCenter)).toBe(false);
+  });
+
+  it("keeps ExploreStudios decoupled from heavy ModelHub showcase catalogs", () => {
+    const explore = path.resolve(studioSrcDir, "motion/ExploreStudios.tsx");
+    const graph = collectStaticImportGraph(explore);
+    expect(graph.files.has(path.resolve(studioSrcDir, "motion/ExploreBlackFridayHero.tsx"))).toBe(true);
+    expect(graph.files.has(path.resolve(studioSrcDir, "motion/ExploreBlackFridaySpotlight.tsx"))).toBe(true);
+    for (const heavyModule of [
+      "motion/modelHubs.ts",
+      "motion/gemini4Videos.ts",
+      "motion/model-hubs/curatedCases.ts",
+    ]) {
+      expect(graph.files.has(path.resolve(studioSrcDir, heavyModule)), `ExploreStudios must not statically import ${heavyModule}`).toBe(false);
+    }
   });
 
   it("captures side-effect imports and resolves bundler .js -> .ts/.tsx specifiers", () => {

@@ -632,7 +632,7 @@ function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; pro
   const workspace = new WorkspaceService({ db, storage, files, hotTextCache });
   const assetNames = new AssetNamesService({ db, files });
   const workRounds = new WorkRoundsService(db);
-  const archives = new ProjectArchiveService({ db, storage, workspace, files });
+  const archives = new ProjectArchiveService({ db, storage, workspace, files, publicOrigin: 'https://motion.example.test' });
 
   const createStudioApp = () => createDisklessStudioApp({
     db,
@@ -1856,7 +1856,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     const getArchive = await env.archivesApp.request(expJson.downloadUrl);
     assert.equal(getArchive.status, 302);
     assert.equal(getArchive.headers.get('cache-control'), 'private, max-age=60');
-    assert.equal(getArchive.headers.get('vary'), 'Origin, Cookie');
+    assert.equal(getArchive.headers.get('vary'), 'Origin, Cookie, Authorization, X-OpenMotion-Workspace-Id');
 
     // Enqueue failure on POST /api/projects/:id/render marks PG job 'failed' so project is not wedged in EXPORT_BUSY.
     const failingStudio = createDisklessStudioApp({
@@ -2412,7 +2412,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     });
     const viewerSessions = createSessionsRouter({ workspace: env.workspace, resolveAuth: () => viewerAuth });
     const viewerArchives = createArchivesRouter({
-      archives: new ProjectArchiveService({ db, storage: env.storage, workspace: env.workspace, files: env.files }),
+      archives: new ProjectArchiveService({ db, storage: env.storage, workspace: env.workspace, files: env.files, publicOrigin: 'https://motion.example.test' }),
       resolveAuth: () => viewerAuth,
     });
 

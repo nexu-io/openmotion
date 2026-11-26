@@ -4,14 +4,18 @@ import { act, useState, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
+import { resetAccountSummaryCacheForTest } from './AccountSettings';
 import type { Model } from '../../../shared/gateway';
+import { imageFeaturePrompt } from '../../../shared/image-features';
+import { videoFeaturePrompt } from '../../../shared/video-features';
+import { assetPromptForReuse } from './assetPromptForReuse';
 const { generate, loadGateway, gatewayRequest, chrome } = vi.hoisted(() => ({
   generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(),
   chrome: { openModelSettings: vi.fn(), openProviderSettings: vi.fn(), openAccountSettings: vi.fn(), openSubscriptionSettings: vi.fn() },
 }));
 vi.mock('./assetClient', () => ({ assetRequest: generate }));
 vi.mock('./gatewayClient', () => ({ loadGateway, gatewayRequest, invalidateGatewayCache: vi.fn() }));
-vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string) => text }) }));
+vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string) => text, formatNumber: (value: number) => value.toLocaleString() }) }));
 vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => chrome }));
 const model: Model = { id: 'codex:image', provider: 'codex', modelId: 'image', label: 'Codex Image', modality: 'image', source: 'builtin', mode: 'text-to-image' };
 let root: Root, container: HTMLDivElement;
@@ -22,7 +26,7 @@ const props: ComponentProps<typeof AssetComposer> = {
   history: { tasks: [], loading: false, onRetry: vi.fn(), onSelect: vi.fn() }, selectingTask: false,
   onNew: vi.fn(), onCancel: vi.fn(), onView: vi.fn(), onReference: vi.fn(), onCreated: created, onError: vi.fn(), onClose: vi.fn(),
 };
-beforeEach(() => { vi.clearAllMocks(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+beforeEach(() => { vi.clearAllMocks(); gatewayRequest.mockReset(); resetAccountSummaryCacheForTest(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 it('exposes direct generation without a retired local Agent conversation tab', async () => {
   await act(async () => root.render(<AssetComposer {...props} />));
@@ -899,7 +903,9 @@ it('relights one image with Seedream 5.5 by default and writes the chosen light 
   expect(promptInput.labels?.[0]?.textContent).toBe('Detailed description');
   expect(promptInput.parentElement?.getAttribute('data-form-field')).toBe('intrinsic');
   expect([...promptInput.parentElement!.children]).toEqual([promptInput]);
-  expect(promptInput.maxLength).toBe(20000);
+  const relightLimit = 20_000 - (imageFeaturePrompt('relight', 'x', { direction: 'back', temperature: 'cool', mood: 'neon' }).length - 1);
+  expect(promptInput.hasAttribute('maxlength')).toBe(false);
+  expect(document.getElementById(promptInput.getAttribute('aria-describedby')!)!.textContent).toBe(`${'Keep the logo sharp.'.length.toLocaleString()} / ${relightLimit.toLocaleString()}`);
   expect(container.querySelector('button[aria-label="Generation model"]')?.textContent).toContain('Seedream 5.5');
   // One reference is the limit, so the picker offers no second one.
   expect(container.querySelector('.om-source-actions')).toBeNull();
@@ -953,6 +959,135 @@ it('seeds 10s duration and composes camera/multi-shot prompts on video feature s
   expect(request.parameters).toMatchObject({ duration: 10 });
   expect(request.prompt).toContain('3-shot narrative sequence');
   expect(request.prompt).toContain('An astronaut crossing a silver ridge');
+});
+
+async function renderVideoPrompt(scene: 'text-to-video' | 'video-camera-control' | 'video-multi-shot', prompt: string, videoChoices?: AssetDraft['videoChoices']) {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const catalog = cloudState([cloudVideo('doubao-seedance-2-5-260628')]);
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt, videoChoices, references: [] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: sceneDestination(studioScenes.find(item => item.id === scene)!),
+  }} />));
+}
+
+it.each([
+  ['video-camera-control', 'camera-control', { movement: 'pan', pace: 'dynamic' }, { movement: 'push-in', pace: 'slow' }],
+  ['video-multi-shot', 'multi-shot', { shots: '2', style: 'match' }, { shots: '3', style: 'narrative' }],
+] as const)('OPEND-5716 uses only the active %s controls after refill', async (scene, feature, before, after) => {
+  const description = '黄昏时穿过城市街道。';
+  generate.mockResolvedValue({ job: { id: 'video-job' } });
+  await renderVideoPrompt(scene, description, before);
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  await act(async () => submit().click());
+  const firstPrompt = generate.mock.calls[0][0].prompt;
+  expect(firstPrompt).toBe(videoFeaturePrompt(feature, description, before));
+
+  await renderVideoPrompt(scene, assetPromptForReuse(firstPrompt, 'video'), after);
+  expect(container.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe(description);
+  await act(async () => submit().click());
+  expect(generate.mock.calls[1][0].prompt).toBe(videoFeaturePrompt(feature, description, after));
+});
+
+it.each([
+  ['text-to-video', undefined, undefined],
+  ['video-camera-control', 'camera-control', { movement: 'static', pace: 'dynamic' }],
+  ['video-multi-shot', 'multi-shot', { shots: '2', style: 'match' }],
+] as const)('OPEND-5740 matches the submitted limit in %s', async (scene, feature, choices) => {
+  generate.mockResolvedValue({ job: { id: 'video-job' } });
+  const compose = (prompt: string) => feature ? videoFeaturePrompt(feature, prompt, choices) : prompt;
+  const limit = 20_000 - (compose('x').length - 1);
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  const input = () => container.querySelector<HTMLTextAreaElement>('textarea')!;
+
+  await renderVideoPrompt(scene, 'x'.repeat(19_995), choices);
+  expect(input().hasAttribute('maxlength')).toBe(false);
+  expect(submit().disabled).toBe(Boolean(feature));
+  expect(container.querySelector('.om-creation-prompt-footer')!.textContent).toContain(`${(19_995).toLocaleString()} / ${limit.toLocaleString()}`);
+  await renderVideoPrompt(scene, 'x'.repeat(limit + 1), choices);
+  expect(submit().disabled).toBe(true);
+  await act(async () => submit().click());
+  expect(generate).not.toHaveBeenCalled();
+
+  const valid = 'x'.repeat(limit);
+  await renderVideoPrompt(scene, valid, choices);
+  expect(submit().disabled).toBe(false);
+  await act(async () => submit().click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: compose(valid) }));
+  expect(generate.mock.calls[0][0].prompt).toHaveLength(20_000);
+});
+
+it('updates the camera prompt budget when the selected camera movement changes', async () => {
+  const prompt = 'x'.repeat(20_000 - videoFeaturePrompt('camera-control', 'x').length + 1);
+  const input = () => container.querySelector<HTMLTextAreaElement>('textarea')!;
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  await renderVideoPrompt('video-camera-control', prompt);
+  expect(submit().disabled).toBe(false);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  await renderVideoPrompt('video-camera-control', prompt, { movement: 'static' });
+  expect(input().hasAttribute('maxlength')).toBe(false);
+  expect(input().value).toBe(prompt);
+  expect(input().getAttribute('aria-invalid')).toBe('true');
+  expect(submit().disabled).toBe(true);
+  const alert = container.querySelector('[role="alert"]');
+  expect(alert?.textContent).toBe('Remove {count} characters to stay within the {limit}-character limit.');
+  expect(input().getAttribute('aria-describedby')).toContain(alert!.id);
+
+  // One character over shows the singular recovery message.
+  const staticLimit = 20_000 - videoFeaturePrompt('camera-control', 'x', { movement: 'static' }).length + 1;
+  await renderVideoPrompt('video-camera-control', 'x'.repeat(staticLimit + 1), { movement: 'static' });
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe('Remove 1 character to stay within the {limit}-character limit.');
+  expect(submit().disabled).toBe(true);
+
+  // Outer whitespace trimmed before submission must not trigger a false over-limit block or native maxLength clipping.
+  generate.mockResolvedValue({ job: { id: 'trimmed-boundary-job' } });
+  const paddedBoundary = `\n${'x'.repeat(staticLimit)}\n`;
+  await renderVideoPrompt('video-camera-control', paddedBoundary, { movement: 'static' });
+  expect(input().value).toBe(paddedBoundary);
+  expect(input().getAttribute('aria-invalid')).toBeNull();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(submit().disabled).toBe(false);
+  await act(async () => submit().click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    prompt: videoFeaturePrompt('camera-control', paddedBoundary, { movement: 'static' }),
+  }));
+  expect(generate.mock.calls[0][0].prompt).toHaveLength(20_000);
+});
+
+it('accepts outer whitespace on a 20,000-character plain video prompt and submits the trimmed text', async () => {
+  generate.mockResolvedValue({ job: { id: 'plain-trimmed-job' } });
+  const padded = `\n${'x'.repeat(20_000)}\n`;
+  await renderVideoPrompt('text-to-video', padded);
+  const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(submit.disabled).toBe(false);
+  await act(async () => submit.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: 'x'.repeat(20_000) }));
+});
+
+it.each(['remove-background', 'relight', 'character'] as const)('honors the assembled prompt budget for %s', async feature => {
+  const note = '保留细节。';
+  const references = [reference('subject')];
+  const relight = { direction: 'back', temperature: 'cool', mood: 'neon' };
+  const limit = 20_000 - imageFeaturePrompt(feature, 'x', relight).length + 1;
+  const text = note.padEnd(limit, '中');
+  const submitted = imageFeaturePrompt(feature, text, relight);
+  generate.mockResolvedValue({ job: { id: 'image-job' } });
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+
+  await renderFeature(feature, { prompt: text + '中', references, relight });
+  expect(submit().disabled).toBe(true);
+  await act(async () => submit().click());
+  expect(generate).not.toHaveBeenCalled();
+
+  await renderFeature(feature, { prompt: assetPromptForReuse(submitted, 'image'), references, relight });
+  const input = container.querySelector<HTMLTextAreaElement>('.om-image-prompt')!;
+  expect(input.hasAttribute('maxlength')).toBe(false);
+  expect(input.value).toBe(text);
+  expect(document.getElementById(input.getAttribute('aria-describedby')!)!.textContent).toBe(`${limit.toLocaleString()} / ${limit.toLocaleString()}`);
+  expect(submit().disabled).toBe(false);
+  await act(async () => submit().click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: submitted }));
+  expect(submitted).toHaveLength(20_000);
 });
 
 it('exposes the native audio toggle on Text to video and preserves user control over generate_audio', async () => {
@@ -1796,4 +1931,150 @@ it('shows a non-blocking low-balance notice with Top up balance CTA when an enti
   expect(chrome.openSubscriptionSettings).toHaveBeenCalledTimes(1);
   // Keep submit enabled so the user can retry immediately after topping up in another tab.
   expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
+});
+
+it('keeps model picker and parameters visible for signed-in Free users without rendering duplicate setup notices above', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { setCachedCloudDisklessMode } = await import('../utils/cloudRuntime');
+  const { subscribeEntitlementModal } = await import('./entitlementModalBus');
+  const existing = featureModels();
+  setCachedCloudDisklessMode(true);
+  const modalRequests: Array<{ mode: string; hookId: string }> = [];
+  const unsubscribe = subscribeEntitlementModal(req => modalRequests.push(req));
+  gatewayRequest.mockImplementation(async (path: string) => {
+    if (path.startsWith('account/summary')) {
+      return {
+        state: 'signed-in',
+        plan: 'free',
+        billingUnavailable: false,
+        email: 'free@example.com',
+        name: 'Free User',
+      };
+    }
+    return {};
+  });
+  try {
+    const previewCatalog = {
+      models: [existing.sunburst],
+      status: {
+        consoleUrl: 'https://console.example.test',
+        providers: [
+          {
+            id: 'opendesign',
+            label: 'OpenDesign',
+            enabled: true,
+            configured: true,
+            available: false,
+            credentialSource: 'environment' as const,
+            verification: 'verified' as const,
+            reason: 'No media models are currently available for this OpenDesign workspace. Upgrade your plan or sync models.',
+            mediaEntitlement: 'not-included' as const,
+            plan: 'free',
+            hasBalance: false,
+          },
+        ],
+        agents: [],
+        routes: {},
+        capabilities: [],
+      },
+      mode: 'opendesign' as const,
+    };
+    await act(async () => root.render(
+      <AssetComposer
+        {...props}
+        draft={{ modality: 'image', prompt: 'Amber glass bottle', references: [] }}
+        studio={{
+          catalog: { catalog: previewCatalog, failed: false, retry: vi.fn() },
+          chooseModel: vi.fn(),
+          remember: vi.fn(),
+          destination: mediaEditorDestination('text-to-image'),
+        }}
+      />,
+    ));
+    await act(async () => { await Promise.resolve(); });
+    // Model picker renders the preview model; no duplicate setup/empty notice above
+    expect(container.textContent).toContain('GPT Image 2.6 Sunburst');
+    expect(container.querySelector('[data-empty-models="true"]')).toBeNull();
+    expect(container.textContent).not.toContain('needs setup before generating');
+    // Only the bottom-left FreePlanGenerationGate upgrade card is shown
+    expect(container.querySelector('.om-entitlement-gate')).not.toBeNull();
+    // Clicking Generate opens the U1 upgrade modal
+    const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+    expect(submit.disabled).toBe(false);
+    await act(async () => submit.click());
+    expect(modalRequests).toEqual([{ mode: 'upgrade', hookId: 'studio_free_gate' }]);
+  } finally {
+    unsubscribe();
+    setCachedCloudDisklessMode(false);
+  }
+});
+
+it('consumes hub template draft source after a successful submit or clearing the prompt', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const catalog = cloudState([existing.sunburst]);
+  let currentDraft: AssetDraft = {
+    modality: 'image',
+    prompt: 'Studio glass perfume bottle',
+    references: [],
+    source: {
+      hubId: 'gpt-image-2-6',
+      templateId: 'gi-1',
+      promptEdited: false,
+      initialPrompt: 'Studio glass perfume bottle',
+    },
+  };
+  const setDraft = vi.fn((next: AssetDraft | ((prev: AssetDraft) => AssetDraft)) => {
+    currentDraft = typeof next === 'function' ? next(currentDraft) : next;
+  });
+  generate.mockResolvedValueOnce({ job: { id: 'hub-remix-job' } });
+
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={currentDraft}
+      setDraft={setDraft}
+      studio={{
+        catalog: { catalog, failed: false, retry: vi.fn() },
+        chooseModel: vi.fn(),
+        remember: vi.fn(),
+        destination: mediaEditorDestination('text-to-image', existing.sunburst.id),
+      }}
+    />,
+  ));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(currentDraft.source).toBeUndefined();
+
+  // Clearing the prompt before submit also clears stale template attribution.
+  currentDraft = {
+    modality: 'image',
+    prompt: 'Studio glass perfume bottle',
+    references: [],
+    source: {
+      hubId: 'gpt-image-2-6',
+      templateId: 'gi-1',
+      promptEdited: false,
+      initialPrompt: 'Studio glass perfume bottle',
+    },
+  };
+  await act(async () => root.render(
+    <AssetComposer
+      {...props}
+      draft={currentDraft}
+      setDraft={setDraft}
+      studio={{
+        catalog: { catalog, failed: false, retry: vi.fn() },
+        chooseModel: vi.fn(),
+        remember: vi.fn(),
+        destination: mediaEditorDestination('text-to-image', existing.sunburst.id),
+      }}
+    />,
+  ));
+  const textarea = container.querySelector<HTMLTextAreaElement>('textarea')!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    setter.call(textarea, '   ');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(currentDraft.source).toBeUndefined();
 });

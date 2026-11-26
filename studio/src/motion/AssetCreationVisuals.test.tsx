@@ -71,7 +71,7 @@ it('retries only saving retained outputs, disables duplicate clicks and can insp
   const job = { ...initial, state: 'failed' as const, phase: 'save_failed', savePending: true, error: 'Disk unavailable', libraryAssets: [{ assetId: 'asset', versionId: 'version' }] };
   await act(async () => root.render(<AssetGenerationCard job={job} onCancel={cancel} onView={view} onRetrySave={retrySave} />));
   expect(container.textContent).toContain('Saving needs attention');
-  expect(container.textContent).toContain('Generated files are kept locally');
+  expect(container.textContent).toContain('Retry saving without generating again.');
   const retry = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Retry saving')!;
   await act(async () => retry.click());
   expect(retry.disabled).toBe(true); expect(retrySave).toHaveBeenCalledExactlyOnceWith(job);

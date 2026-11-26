@@ -1,5 +1,5 @@
 import { ToolInputError } from './tool-input-error.ts';
-import { phase1Tools, validateInput } from './phase1-tools.ts';
+import { cloudPhase1Tools, phase1Tools, validateInput } from './phase1-tools.ts';
 import { assetReadToolResult } from './asset-library.ts';
 
 function failure(message: string, applied: boolean | 'unknown', fallback = 'WEBMCP_CALL_FAILED', validation?: { invalid_field?: string; validation_rule?: string }) {
@@ -7,10 +7,21 @@ function failure(message: string, applied: boolean | 'unknown', fallback = 'WEBM
   return { isError: true, error: { code, message, applied, ...(validation?.invalid_field ? { invalid_field: validation.invalid_field, validation_rule: validation.validation_rule } : {}) } };
 }
 
+export interface OpenMotionWebMcpToolOptions {
+  readonly cloud?: boolean;
+  readonly publicOrigin?: string;
+}
+
 /** Page registration reuses the public contract and the existing service authority. */
-export function buildOpenMotionWebMcpTools(request: (url: string, init?: RequestInit) => Promise<Response>) {
+export function buildOpenMotionWebMcpTools(
+  request: (url: string, init?: RequestInit) => Promise<Response>,
+  options?: OpenMotionWebMcpToolOptions,
+) {
+  const sourceTools = options?.cloud
+    ? cloudPhase1Tools(options.publicOrigin ?? (typeof location !== 'undefined' && location.origin ? location.origin : 'https://motion.open-design.ai'))
+    : phase1Tools;
   // Game tools serve the user's external Agent over MCP; the in-page WebMCP surface does not expose them.
-  return phase1Tools.filter(tool => !tool.name.startsWith('openmotion_game_')).map(tool => ({
+  return sourceTools.filter(tool => !tool.name.startsWith('openmotion_game_')).map(tool => ({
     name: tool.name,
     title: tool.title,
     description: tool.description + ' WebMCP returns the existing service result on success, or isError=true with error={code,message,applied}. After an uncertain write, read the project or original job before retrying; retain the original requestId.',

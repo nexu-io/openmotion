@@ -38,6 +38,28 @@ describe("usePlayerStore", () => {
     });
   });
 
+  it("keeps the pending filename scoped to the current loading snapshot", () => {
+    const store = usePlayerStore.getState();
+    const pending = () => usePlayerStore.getState().assetReadinessPendingAsset;
+    const loading = { status: "loading" as const, completed: 0, total: 1, failed: [] };
+    const named = { ...loading, pendingAsset: "Lake.jpg" };
+    const first = store.beginAssetReadinessLoad();
+    store.updateAssetReadiness(named, first);
+    expect(pending()).toBe("Lake.jpg");
+    const second = store.beginAssetReadinessLoad();
+    store.updateAssetReadiness(named, first);
+    expect(pending()).toBeUndefined();
+    store.updateAssetReadiness(named, second);
+    store.updateAssetReadiness(loading, second);
+    expect(pending()).toBeUndefined();
+    store.updateAssetReadiness(named, second);
+    store.updateAssetReadiness({ ...named, status: "ready", completed: 1 }, second);
+    expect(pending()).toBeUndefined();
+    store.updateAssetReadiness(named, second);
+    store.reset();
+    expect(pending()).toBeUndefined();
+  });
+
   describe("thumbnail content revision", () => {
     const revisionOf = (path: string) =>
       thumbnailRevisionOf(usePlayerStore.getState().thumbnailRevisions, path);

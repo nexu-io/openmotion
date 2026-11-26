@@ -14,6 +14,7 @@ import { useWorkspaceChrome } from './WorkspaceFrame';
 import { buildLoginUrl, useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { clearPrivateSwrCache } from './swrCache';
+import { markAuthenticatedSession } from './authRecoveryStore';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
@@ -151,10 +152,10 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   async function signOut() {
     try {
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
-      const data = await response.json().catch(() => ({})) as { endSessionUrl?: string };
+      if (!response.ok) throw new Error('Could not sign out');
+      markAuthenticatedSession(false);
       clearPrivateSwrCache();
       window.dispatchEvent(new Event('motion:account-changed'));
-      if (data.endSessionUrl) window.location.assign(data.endSessionUrl);
     } catch {
       openSettings('account');
     }

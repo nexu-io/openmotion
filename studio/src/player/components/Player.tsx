@@ -56,6 +56,9 @@ export interface PlayerProps {
   parked?: boolean;
   /** Show the live preview’s loading indicator until its first displayable frame. */
   showInitialLoading?: boolean;
+  canEditWhileLoading?: boolean;
+  /** Optional host-supplied cover to mount after the first-frame status expires. */
+  loadingPoster?: React.ReactNode;
   /** Track all referenced composition assets for the unified editor readiness gate (live slot only). */
   trackAssets?: boolean;
   /** Keeps a hidden shadow preview out of focus order and the accessibility tree while still rasterizing. */
@@ -198,6 +201,8 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
       suppressLoadingOverlay,
       noLoadTimeout,
       showInitialLoading,
+      canEditWhileLoading,
+      loadingPoster,
       trackAssets,
       inert,
       ...host
@@ -639,12 +644,14 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
     }, [tracksAssets, previewError, loaded, compositionLoading, assetScanTick]);
 
     useEffect(() => {
+      // A live editor waiting for its first frame reports readiness from the player.
+      if (startsWithLoading) return;
       const timer = setTimeout(
         () => usePlayerStore.getState().markPreviewBooted(),
         PREVIEW_BOOT_DEADLINE_MS,
       );
       return () => clearTimeout(timer);
-    }, [projectId]);
+    }, [projectId, startsWithLoading]);
 
     useEffect(() => {
       if (!tracksAssets) return;
@@ -669,7 +676,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
       assetOverlayVisible && !shaderTransitionLoading && !compositionWaitShown && !previewError;
     // Displaying the first frame is local to the canvas. Timeline and editor controls
     // continue to use their existing readiness signals.
-    const initialWait = awaitingFirstFrame && !assetWaitLong;
+    const initialWait = awaitingFirstFrame && (tracksAssets || !assetWaitLong);
     const showCompositionOverlay = studioDraws(!previewError && (initialWait || compositionWaitShown), host.loadingUi);
     const showAssetOverlay = !tracksAssets && studioDraws(!initialWait && assetWaitShown, host.loadingUi);
 
@@ -684,7 +691,11 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         inert={inert || undefined}
       >
         <div ref={containerRef} className="w-full h-full" />
-        {showCompositionOverlay && <PreviewCompositionLoading />}
+        {showCompositionOverlay && <PreviewCompositionLoading
+          canEditWhileLoading={canEditWhileLoading}
+          loadingPoster={loadingPoster}
+          assetGeneration={tracksAssets ? assetReadinessGenRef : undefined}
+        />}
         {showAssetOverlay && (
           <div
             className="absolute inset-0 bg-black flex items-center justify-center z-20 select-none"

@@ -76,4 +76,25 @@ describe('EntitlementModalHost checkout-return telemetry', () => {
     const payload = mocks.trackMotion.mock.calls[0][1];
     expect(validProperties(omEvents, 'entitlement_refresh_result', payload)).toBe(true);
   });
+
+  it.each(['bf_hero', 'bf_hub'] as const)('emits valid entitlement_refresh_result for %s checkout returns', async hookId => {
+    const entryId = '33333333-3333-4333-8333-333333333333';
+    mocks.gatewayRequest.mockResolvedValueOnce({ billing: { plan: 'Pro', unavailable: false } });
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root!.render(<EntitlementModalHost />));
+
+    markExternalCheckoutPending(hookId, entryId);
+    await triggerWindowReturn();
+
+    expect(mocks.trackMotion).toHaveBeenCalledWith('entitlement_refresh_result', {
+      outcome: 'success',
+      hook_id: hookId,
+      entry_id: entryId,
+      plan_after: 'pro',
+    });
+    const payload = mocks.trackMotion.mock.calls[0][1];
+    expect(validProperties(omEvents, 'entitlement_refresh_result', payload)).toBe(true);
+  });
 });

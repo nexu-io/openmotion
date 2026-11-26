@@ -7,13 +7,11 @@ import { heldAudioShiftRange, linkedMembersOf } from "./audioClipLink";
 import { isLinkedSelectionOn } from "../../utils/linkedClipPreferences";
 import { timelineSpansOverlap, timelineTimesTouch } from "./timelineTimeBounds";
 import { classifyZone } from "./timelineZones";
-import { toAuthoredStart, savedClipEdges } from "../store/timelineElement";
+import { savedClipEdges } from "../store/timelineElement";
 import { collisionLane } from "./timelineCollisionIndex";
 
 const keyOf = (element: TimelineElement) => element.key ?? element.id;
 const savedStart = (el: TimelineElement, time: number) => savedClipEdges(el, time).start;
-const after = (el: TimelineElement, time: number) =>
-  time + (Math.ceil(toAuthoredStart(el, time) * 100 - 1e-6) / 100 - toAuthoredStart(el, time));
 
 /** Insert between neighbours without requiring an empty clip-sized gap. */
 export function previewClipInsert(
@@ -55,13 +53,13 @@ export function previewClipInsert(
   const blockEnd = Math.max(...block.map(el => el.start + el.duration));
   const leftEnd = lane[rightIndex - 1].start + lane[rightIndex - 1].duration;
   if (edgeIndex === -1 && lane[rightIndex].start - leftEnd >= blockEnd - blockStart - 0.001) return null;
-  const boundary = after(grabbed, leftEnd);
-  const delta = boundary - blockStart;
+  const delta = leftEnd - blockStart;
   const shift = heldAudioShiftRange(movers, elements, moving);
-  const start = savedStart(grabbed, grabbed.start + delta);
+  const movedStart = (el: TimelineElement) => leftEnd + (el.start - blockStart);
+  const start = savedStart(grabbed, movedStart(grabbed));
   if (start < groupMoveFloor(grabbed, movers) || delta < shift.min || delta > shift.max) return null;
-  const insertion = new Map(movers.map(el => [keyOf(el), savedStart(el, el.start + delta)]));
-  const windows = block.map(el => savedClipEdges(el, el.start + delta)).sort((a, b) => a.start - b.start);
+  const insertion = new Map(movers.map(el => [keyOf(el), savedStart(el, movedStart(el))]));
+  const windows = block.map(el => savedClipEdges(el, movedStart(el))).sort((a, b) => a.start - b.start);
   let end = leftEnd;
   for (const window of windows) {
     if (window.start < end && !timelineTimesTouch(window.start, end)) return null;
@@ -71,7 +69,7 @@ export function previewClipInsert(
   for (let index = rightIndex; index < lane.length; index++) {
     const peer = lane[index];
     if (end <= peer.start || timelineTimesTouch(end, peer.start)) break;
-    const next = after(peer, end);
+    const next = savedStart(peer, end);
     pushes.push({ peer, delta: next - peer.start });
     end = next + peer.duration;
   }

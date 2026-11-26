@@ -24,6 +24,7 @@ import {
 } from "./timelineLayout";
 import { isMultiDragPassenger } from "./timelineMultiDragPreview";
 import { resolveMultiDragPreview } from "./timelineProviderStateBuilders";
+import { collectTimelineSnapTargets } from "./timelineSnapping";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Regression bed for the live-reproduced BUG 1: a PLAIN HORIZONTAL drag of a clip
@@ -409,14 +410,13 @@ describe("guideIfSaved — a guide only where the clip saves", () => {
   });
 
   it("judges a move by the duration it keeps, not a rounded one", () => {
-    // A 31/30 s clip moved so its end meets 3.25s saves its start at 2.22s and ends 4.8px past.
     const el = clip("a", 0, 1, 31 / 30, 0, "div");
     const edge = { time: 3.25, type: "clip-edge" as const };
-    expect(guideIfSaved(el, { start: 2.217 }, edge, 1440)).toBeNull();
+    expect(guideIfSaved(el, { start: 2.22 }, edge, 1440)).toBeNull();
+    expect(guideIfSaved(el, { start: edge.time - el.duration }, edge, 1440)).toBe(edge);
   });
 
-  it("keeps the pointer's start when a move's snap would save off the target", () => {
-    // 1440 px/s: a 31/30 s clip whose end snaps to 3.25s would save at 2.22s and jump 4px on release.
+  it("keeps the trailing edge and its guide aligned at deep zoom", () => {
     const el = clip("a", 0, 1, 31 / 30, 0, "div");
     const { drag } = horizontalDrag(el, 0.5, 0);
     const context = {
@@ -426,10 +426,10 @@ describe("guideIfSaved — a guide only where the clip saves", () => {
     };
     const x = drag.originClientX + 1.22 * 1440;
     const next = computeDragPreview(drag, x, drag.originClientY, context);
-    expect(next).toMatchObject({ previewStart: 2.22, snapTime: null, snapType: null });
+    expect(next).toMatchObject({ previewStart: 3.25 - el.duration, snapTime: 3.25, snapType: "clip-edge", snapEdge: "end" });
   });
 
-  it("draws no guide for a move whose saved start misses the target", () => {
+  it("keeps a nested move at the pointer when only the playhead is in range", () => {
     const nested = { ...moodboard, parentCompositionStart: 1 / 30 };
     const { drag } = horizontalDrag(nested, 0.5, 0);
     const context = {
@@ -443,8 +443,43 @@ describe("guideIfSaved — a guide only where the clip saves", () => {
       drag.originClientY,
       context,
     );
-    expect(next.previewStart).toBeCloseTo(21.0033333333);
+    expect(next.previewStart).toBe(21);
     expect(next.snapTime).toBeNull();
+  });
+});
+
+describe("audio clips meeting on the same authored track", () => {
+  const first = { ...clip("a", 0, 0, 10.733, 0, "audio"), authoredTrack: 1 };
+  const second = { ...clip("b", 0, 14.72, 26.567, 0, "audio"), authoredTrack: 1, playbackStart: 10.733 };
+
+  function dragTo(moving: TimelineElement, peer: TimelineElement, time: number, snapDisabled = false) {
+    // The visual cuts are a third of a millisecond closer to this pointer than the audio cut.
+    const visual = clip("visual", 1, peer.start + 1 / 3000, peer.duration, 1);
+    const elements = [moving, peer, visual];
+    const { drag, clientX, clientY } = horizontalDrag(moving, 0.5, time - moving.start);
+    const preview = computeDragPreview({ ...drag, snapDisabled }, clientX, clientY, {
+      ...ctx(undefined, elements), trackOrder: [0], audioTracks: new Set([0]),
+      buildSnapTargets: (excludeElementKey, _beats, gesture) => collectTimelineSnapTargets({ elements, excludeElementKey, forMove: gesture === "move", playheadTime: null, beatTimes: [] }),
+    });
+    return { preview, elements };
+  }
+
+  it.each([
+    { moving: second, peer: first, start: first.duration, snapTime: first.duration, edge: "start" },
+    { moving: first, peer: second, start: second.start - first.duration, snapTime: second.start, edge: "end" },
+  ])("commits a $edge edge snap as a single timing edit", ({ moving, peer, start, snapTime, edge }) => {
+    const { preview, elements } = dragTo(moving, peer, start + 0.06);
+    expect(preview).toMatchObject({ previewStart: start, snapTime, snapEdge: edge, previewTrack: 0, insertRow: null });
+    const onMoveElement = vi.fn(), onMoveElements = vi.fn();
+    commitDraggedClipMove(preview, { elements, trackOrder: [0], onMoveElement, onMoveElements, updateElement: vi.fn() });
+    expect(onMoveElement).toHaveBeenCalledExactlyOnceWith(moving, { start, track: moving.track });
+    expect(onMoveElements).not.toHaveBeenCalled();
+  });
+
+  it("closes a 3 ms gap exactly, and still opens a row for a real overlap", () => {
+    const moving = { ...second, start: 10.736 };
+    expect(dragTo(moving, first, 10.734).preview).toMatchObject({ previewStart: 10.733, insertRow: null });
+    expect(dragTo(moving, first, 10.73, true).preview).toMatchObject({ insertRow: 0, snapTime: null });
   });
 });
 
@@ -696,7 +731,7 @@ describe("computeDragPreview — the ghost start is the committed start", () => 
   });
 
   describe("a clip released on or near its own spot stays there", () => {
-    // Frame-aligned edges with three decimals: no centisecond start fits m's own slot.
+    // The exact slot edges fall between centiseconds.
     const a = clip("a", 0, 0, 3.333, 1);
     const m = clip("m", 0, 3.333, 3.333, 1);
     const b = clip("b", 0, 6.666, 4, 1);
@@ -711,15 +746,16 @@ describe("computeDragPreview — the ghost start is the committed start", () => 
     it("follows a small nudge and opens above a collision instead of returning to its origin", () => {
       const { drag, clientX, clientY } = horizontalDrag(m, 0.5, 0.1);
       const ghost = computeDragPreview(drag, clientX, clientY, ctx(undefined, row));
-      expect(ghost).toMatchObject({ previewTrack: 0, insertRow: 0, previewStart: 3.43 });
+      expect(ghost).toMatchObject({ previewTrack: 0, insertRow: 0 });
+      expect(ghost.previewStart).toBeCloseTo(3.433, 12);
     });
 
-    it("lands in an exact-length gap on another row when rounding needs a minimal push", () => {
+    it("lands in an exact-length gap on another row without moving its neighbours", () => {
       const c = clip("c", 1, 0, 3.333, 1);
       const d = clip("d", 1, 6.666, 4, 1);
       const ghost = preview(m, [...row, c, d], 0, 1.5);
-      expect(ghost).toMatchObject({ previewTrack: 1, insertRow: null, previewStart: 3.34 });
-      expect(ghost.insertion).toEqual(new Map([["m", 3.34], ["d", 6.68]]));
+      expect(ghost).toMatchObject({ previewTrack: 1, insertRow: null, previewStart: 3.333 });
+      expect(ghost.insertion).toBeUndefined();
     });
   });
 

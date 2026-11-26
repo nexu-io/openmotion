@@ -253,13 +253,11 @@ export function applyTimelineMoveAttributes(
     );
     return original;
   }
-  // A clip that only changes lane keeps its authored start text: re-rounding an
-  // unchanged start to centiseconds while data-duration keeps full precision
-  // shifts its end past the next clip's start and makes the pair overlap.
+  // A lane-only edit keeps the original authored start text.
   let patched = hasAuthoredStart(original, target, start) ? original : applyPatchByTarget(original, target, {
     type: "attribute",
     property: "start",
-    value: formatTimelineAttributeNumber(start),
+    value: String(start),
   });
   if (track != null && Number.isFinite(track)) {
     patched = applyPatchByTarget(patched, target, {

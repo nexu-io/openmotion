@@ -29,7 +29,69 @@ const OAUTH_TOUCH_THROTTLE_SEC = 60;
 // Concurrent refreshes from one client lose the rotation race within this window; that is not theft.
 const REFRESH_REUSE_GRACE_SEC = 30;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-export const DEFAULT_DCR_ALLOWED_HTTPS_HOSTS: readonly string[] = ['chatgpt.com', 'claude.ai'];
+export const DEFAULT_DCR_ALLOWED_HTTPS_HOSTS: readonly string[] = [
+  'chatgpt.com',
+  '*.chatgpt.com',
+  'chat.openai.com',
+  '*.openai.com',
+  'claude.ai',
+  '*.claude.ai',
+  'claude.com',
+  '*.claude.com',
+  '*.anthropic.com',
+  'cursor.com',
+  '*.cursor.com',
+  '*.cursor.sh',
+  'vscode.dev',
+  '*.vscode.dev',
+  'github.dev',
+  '*.open-design.ai',
+];
+
+const ALLOWED_NATIVE_APP_SCHEMES = new Set([
+  'openmotion:',
+  'cursor:',
+  'vscode:',
+  'vscode-insiders:',
+  'vscode-webview:',
+  'windsurf:',
+  'trae:',
+  'kiro:',
+  'zed:',
+  'raycast:',
+  'claude:',
+  'tauri:',
+  'capacitor:',
+]);
+// RFC 8252 §7.1 private-use reverse-DNS URI scheme (e.g. `com.example.app:`, `io.nexu.openmotion:`).
+// Requires at least two DNS-style labels separated by dots so single-word OS protocol handlers
+// (`jar:`, `ms-msdt:`, `search-ms:`, `ms-officecmd:`, `view-source:`, etc.) are never admitted.
+const REVERSE_DNS_SCHEME_RE = /^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+:$/;
+
+export function isAllowedNativeAppScheme(protocol: string): boolean {
+  const normalized = protocol.toLowerCase();
+  return (
+    ALLOWED_NATIVE_APP_SCHEMES.has(normalized) ||
+    REVERSE_DNS_SCHEME_RE.test(normalized)
+  );
+}
+
+export function isAllowedHttpsHost(
+  host: string,
+  allowedHttpsHosts: readonly string[] = DEFAULT_DCR_ALLOWED_HTTPS_HOSTS,
+): boolean {
+  const normalized = host.trim().toLowerCase();
+  if (!normalized) return false;
+  return allowedHttpsHosts.some((allowed) => {
+    const target = allowed.trim().toLowerCase();
+    if (!target) return false;
+    if (target.startsWith('*.')) {
+      const suffix = target.slice(1);
+      return normalized.endsWith(suffix) && normalized.length > suffix.length;
+    }
+    return normalized === target;
+  });
+}
 
 export type McpOAuthMode = 'proxy' | 'delegated';
 
@@ -79,7 +141,7 @@ export function buildOAuth21Config(
     resourceMetadataUrl,
     supportedScopes: [...DEFAULT_PAT_SCOPES],
     allowedHttpsHosts: parseAllowedHttpsHosts(config.OAUTH_DCR_ALLOWED_HTTPS_HOSTS),
-    dcrRateLimitPerMin: config.OAUTH_DCR_RATE_LIMIT_PER_MIN ?? 10,
+    dcrRateLimitPerMin: config.OAUTH_DCR_RATE_LIMIT_PER_MIN ?? 30,
   };
 }
 
@@ -142,6 +204,10 @@ export function formatRedirectHostLabel(raw: string): string {
     if (parsed.protocol === 'http:' && LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())) {
       return `Local application (${parsed.hostname})`;
     }
+    if (isAllowedNativeAppScheme(parsed.protocol)) {
+      const scheme = parsed.protocol.slice(0, -1);
+      return parsed.host ? `Desktop app (${scheme}://${parsed.host})` : `Desktop app (${scheme})`;
+    }
     return parsed.host;
   } catch {
     return raw;
@@ -161,20 +227,15 @@ export function isAllowedOAuthRedirectUri(
   }
   if (parsed.hash || parsed.username || parsed.password) return false;
   if (parsed.protocol === 'https:') {
-    const host = parsed.hostname.toLowerCase();
-    if (!host) return false;
-    return allowedHttpsHosts.some((allowed) => {
-      const target = allowed.trim().toLowerCase();
-      if (!target) return false;
-      if (target.startsWith('*.')) {
-        const suffix = target.slice(1);
-        return host.endsWith(suffix) && host.length > suffix.length;
-      }
-      return host === target;
-    });
+    return isAllowedHttpsHost(parsed.hostname, allowedHttpsHosts);
   }
   if (parsed.protocol === 'http:') {
     return LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase());
+  }
+  if (isAllowedNativeAppScheme(parsed.protocol)) {
+    const hasAuthorityOrPath =
+      parsed.hostname.length > 0 || (parsed.pathname.length > 0 && parsed.pathname !== '/');
+    return hasAuthorityOrPath;
   }
   return false;
 }
@@ -236,7 +297,7 @@ export async function registerOAuthClient(
     if (typeof uri !== 'string' || !isAllowedOAuthRedirectUri(uri, allowedHttpsHosts)) {
       throw new CloudError(
         'INVALID_ARGUMENT',
-        'redirect_uris must contain only loopback HTTP URIs or allowlisted HTTPS hosts without fragments',
+        'redirect_uris must contain only loopback HTTP URIs, native app custom URI schemes, or allowlisted HTTPS hosts without fragments',
         { status: 400 },
       );
     }
@@ -660,8 +721,8 @@ function escapeHtml(text: string): string {
 }
 
 const SCOPE_DESCRIPTIONS: Readonly<Record<string, { title: string; detail: string }>> = {
-  'projects:read': { title: '查看已授权的视频项目', detail: '读取画面、时间轴与版本历史' },
-  'projects:write': { title: '编辑已授权的视频项目', detail: '修改场景、文案、动画并保存版本' },
+  'projects:read': { title: '查看工作区中的视频项目', detail: '读取画面、时间轴与版本历史' },
+  'projects:write': { title: '编辑工作区中的视频项目', detail: '修改场景、文案、动画并保存版本' },
   'assets:read': { title: '读取工作区素材', detail: '访问素材库与项目中的媒体文件' },
   'assets:write': { title: '上传与导入工作区素材', detail: '导入新的图片、音频和视频素材' },
   'exports:write': { title: '发起视频渲染与导出', detail: '提交导出任务并下载成片' },
@@ -682,8 +743,8 @@ function summarizeConsentScopes(scopes: readonly string[]): ConsentPermissionGro
     remaining.delete('projects:read');
     remaining.delete('projects:write');
     groups.push({
-      title: '查看并编辑已授权的视频项目',
-      detail: '仅限该应用新建及你在网页中手动授权的项目',
+      title: '查看并编辑当前工作区的视频项目',
+      detail: '读取、创建和修改你在所选工作区中的视频项目与版本历史',
     });
   }
 

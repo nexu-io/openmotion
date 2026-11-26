@@ -267,16 +267,17 @@ class InMemoryPgClient {
       : null;
     const withoutReturning = returningMatch ? sqlText.slice(0, returningMatch.index).trim() : sqlText;
 
-    const conflictMatch = /\s+on\s+conflict\s*\(([^)]+)\)\s+do\s+update\s+set\s+([\s\S]+)$/i.exec(
+    const conflictMatch = /\s+on\s+conflict\s*\(([^)]+)\)\s+do\s+(nothing|update\s+set\s+([\s\S]+))$/i.exec(
       withoutReturning,
     );
     const conflictTarget = conflictMatch
       ? splitTopLevel(conflictMatch[1], ',').map((c) => extractColumnName(c))
       : null;
+    const conflictDoNothing = Boolean(conflictMatch && conflictMatch[2].toLowerCase() === 'nothing');
     let conflictSet = '';
     let conflictWhere = '';
-    if (conflictMatch) {
-      const setAndWhere = conflictMatch[2].trim();
+    if (conflictMatch && conflictMatch[3]) {
+      const setAndWhere = conflictMatch[3].trim();
       const whereIdx = findTopLevelKeyword(setAndWhere, 'where');
       if (whereIdx >= 0) {
         conflictSet = setAndWhere.slice(0, whereIdx).trim();
@@ -349,6 +350,7 @@ class InMemoryPgClient {
       if (conflictTarget) {
         const existing = tableRows.find((r) => conflictTarget.every((k) => r[k] === newRow[k]));
         if (existing) {
+          if (conflictDoNothing) continue;
           if (conflictWhere && !evalWhere(existing, conflictWhere, params)) {
             continue;
           }
@@ -1026,7 +1028,7 @@ function createHarness(options: { historyCoalesceWindowMs?: number; now?: () => 
   const workspace = new WorkspaceService({ db, storage, files, hotTextCache });
   const assetNames = new AssetNamesService({ db, files });
   const workRounds = new WorkRoundsService(db);
-  const archives = new ProjectArchiveService({ db, storage, workspace, files });
+  const archives = new ProjectArchiveService({ db, storage, workspace, files, publicOrigin: 'https://motion.example.test' });
 
   const queues: StudioQueuesPort = {
     enqueueMediaIngest: async () => ({}),

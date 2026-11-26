@@ -112,6 +112,20 @@ describe('WebMCP registration and invocation tracking', () => {
     expect(track.mock.calls.every(([event]) => event.startsWith('webmcp_'))).toBe(true);
   });
 
+  it('exposes the export-only cloud project archive schema when cloud mode is enabled', async () => {
+    const request = vi.fn();
+    const archiveTool = buildOpenMotionWebMcpTools(request, {
+      cloud: true,
+      publicOrigin: 'https://motion.example.test',
+    }).find(tool => tool.name === 'openmotion_project_archive')!;
+    expect(archiveTool).toBeDefined();
+    expect(archiveTool.description).toContain('https://motion.example.test/motion-api/project-archives/import');
+    expect(archiveTool.description).not.toContain('sourcePath');
+    const rejected = await archiveTool.execute({ action: 'import', sourcePath: '/tmp/a.zip', requestId: 'req-1' });
+    expect(rejected).toMatchObject({ isError: true, error: { code: 'INVALID_ARGUMENT', applied: false } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('reports export actions and closed error dimensions without forwarding arbitrary error fields', async () => {
     const tool = withWebMcpTracking({
       ...descriptor(async () => ({ isError: true, error: {

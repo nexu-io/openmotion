@@ -15,6 +15,7 @@ import {
   notifyAuthRecovery,
   readAuthPendingDraft,
   saveAuthPendingDraft,
+  type AuthRecoveryDetail,
 } from './authRecoveryStore';
 import { clearPrivateSwrCache, readSwrCache, writeSwrCache } from './swrCache';
 
@@ -27,9 +28,14 @@ export type WorkspaceStatus = { revision: string; projectId: string; projectTitl
 export type ProjectCatalog = { activeId: string; projects: SavedProject[]; sessions?: CreativeSession[]; activeSessionId?: string };
 const workspaceStatusPath = '/project/status?view=summary';
 
-export async function motionApi<T>(path: string, init?: RequestInit, projectId?: string): Promise<T> {
+export type MotionApiRequestInit = RequestInit & {
+  suppressAuthRecovery?: boolean;
+};
+
+export async function motionApi<T>(path: string, init?: MotionApiRequestInit, projectId?: string): Promise<T> {
+  const { suppressAuthRecovery, ...fetchInit } = init ?? {};
   const response = await diagnosticFetch('/motion-api' + path
-    + (projectId ? (path.includes('?') ? '&' : '?') + 'projectId=' + encodeURIComponent(projectId) : ''), init);
+    + (projectId ? (path.includes('?') ? '&' : '?') + 'projectId=' + encodeURIComponent(projectId) : ''), fetchInit);
   let data: Record<string, unknown> = {};
   try {
     data = (await response.json()) as Record<string, unknown>;
@@ -39,14 +45,22 @@ export async function motionApi<T>(path: string, init?: RequestInit, projectId?:
   if (!response.ok) {
     if (response.status === 401) clearPrivateSwrCache();
     const message = typeof data.error === 'string' ? data.error : 'Workspace connection failed';
-    const error = new Error(message) as Error & { status?: number; code?: string; errorCode?: string };
+    const error = new Error(message) as Error & {
+      status?: number;
+      code?: string;
+      errorCode?: string;
+      sessionExpired?: boolean;
+      authRecovery?: AuthRecoveryDetail;
+    };
     error.status = response.status;
     if (typeof data.code === 'string') error.code = data.code;
     if (typeof data.errorCode === 'string') error.errorCode = data.errorCode;
+    if (typeof data.sessionExpired === 'boolean') error.sessionExpired = data.sessionExpired;
     const authRecovery = classifyAuthHttpError(response.status, data, message);
-    const method = (init?.method ?? 'GET').toUpperCase();
+    if (authRecovery) error.authRecovery = authRecovery;
+    const method = (fetchInit.method ?? 'GET').toUpperCase();
     const isMutating = method !== 'GET' && method !== 'HEAD';
-    if (authRecovery && (authRecovery.kind === 'auth_unavailable' || isMutating)) {
+    if (authRecovery && (authRecovery.kind === 'auth_unavailable' || (!suppressAuthRecovery && isMutating))) {
       notifyAuthRecovery(authRecovery);
     }
     throw error;
@@ -69,10 +83,23 @@ export function useWorkspace(
   projectId?: string,
   sessionId?: string,
   navigate: Navigate = navigateWorkspace,
-  options?: { externalHistoryGuard?: boolean },
+  options?: {
+    externalHistoryGuard?: boolean;
+    allowUnscopedStatusFallback?: boolean;
+    onStaleProjectId?: (projectId: string) => void;
+  },
 ) {
   const externalHistoryGuard = Boolean(options?.externalHistoryGuard);
+  const allowUnscopedStatusFallbackRef = useRef(Boolean(options?.allowUnscopedStatusFallback));
+  allowUnscopedStatusFallbackRef.current = Boolean(options?.allowUnscopedStatusFallback);
+  const onStaleProjectIdRef = useRef(options?.onStaleProjectId);
+  onStaleProjectIdRef.current = options?.onStaleProjectId;
   const { t } = useI18n();
+  const [staleProjectId, setStaleProjectId] = useState<string | null>(null);
+  useEffect(() => {
+    setStaleProjectId(previous => (previous && previous !== projectId ? null : previous));
+  }, [projectId]);
+  const effectiveProjectId = projectId && projectId !== staleProjectId ? projectId : undefined;
   const initialCachedCatalog = useRef<ProjectCatalog | null | undefined>(undefined);
   if (initialCachedCatalog.current === undefined) {
     const cached = readSwrCache<ProjectCatalog>('private', WORKSPACE_CATALOG_CACHE_KEY);
@@ -106,7 +133,7 @@ export function useWorkspace(
   const acting = useRef(false);
   const pendingSession = useRef<{ key: string; id: string } | null>(null);
   // Once a project is known, resolving its session does not change the read scope.
-  const sessionWithoutProject = projectId ? undefined : sessionId;
+  const sessionWithoutProject = effectiveProjectId ? undefined : sessionId;
   useEffect(() => {
     acting.current = false;
     setBusy(false);
@@ -114,11 +141,11 @@ export function useWorkspace(
     setError('');
     setNavigationError(null);
     setStatusRead(previous => previous.error ? { ...previous, error: '' } : previous);
-    if (projectId && knownCatalog.current && !knownCatalog.current.some(project => project.id === projectId)) {
+    if (effectiveProjectId && knownCatalog.current && !knownCatalog.current.some(project => project.id === effectiveProjectId)) {
       refreshWorkspaceCatalog.current?.(0);
     }
-  }, [projectId, sessionWithoutProject]);
-  const request = useCallback(<T,>(path: string, init?: RequestInit) => motionApi<T>(path, init, projectId), [projectId]);
+  }, [effectiveProjectId, sessionWithoutProject]);
+  const request = useCallback(<T,>(path: string, init?: RequestInit) => motionApi<T>(path, init, effectiveProjectId), [effectiveProjectId]);
   const updateCatalog = useCallback((catalog: ProjectCatalog) => {
     // The catalog keeps project order; opening a project must not move its sidebar row.
     const ordered = catalog.projects;
@@ -178,7 +205,7 @@ export function useWorkspace(
   }, [navigate, projectId, sessionId, waitForSaves, externalHistoryGuard]);
   // The project list belongs to the workspace. Keep its in-flight read and refresh
   // schedule when switching between projects in the same mounted workspace.
-  const editingProject = Boolean(projectId);
+  const editingProject = Boolean(effectiveProjectId);
   useEffect(() => {
     const controller = new AbortController();
     const openedAt = Date.now();
@@ -242,10 +269,22 @@ export function useWorkspace(
           }
           return Infinity;
         }
+        if (
+          effectiveProjectId
+          && allowUnscopedStatusFallbackRef.current
+          && (statusCode === 404 || statusCode === 400 || statusCode === 403)
+        ) {
+          if (!controller.signal.aborted) {
+            setStaleProjectId(effectiveProjectId);
+            setStatusRead({ attempt: connectionCheck, error: '' });
+            onStaleProjectIdRef.current?.(effectiveProjectId);
+          }
+          return Infinity;
+        }
         throw err;
       }
       if (controller.signal.aborted) return Infinity;
-      if (projectId && data.projectId !== projectId && !acting.current) {
+      if (effectiveProjectId && data.projectId !== effectiveProjectId && !acting.current && !allowUnscopedStatusFallbackRef.current) {
         throw new Error('项目状态与当前页面不匹配，请重新打开对应项目。');
       }
       setAuthRequired(false);
@@ -257,15 +296,15 @@ export function useWorkspace(
     }, error => setStatusRead({ attempt: connectionCheck, error }));
 
     // Local writes and server-backed history both update the project save store.
-    let savedAt = getStudioSaveSnapshot(projectId ?? null).savedAt;
+    let savedAt = getStudioSaveSnapshot(effectiveProjectId ?? null).savedAt;
     const unsubscribeSaves = subscribeStudioSaves(() => {
-      const next = getStudioSaveSnapshot(projectId ?? null).savedAt;
+      const next = getStudioSaveSnapshot(effectiveProjectId ?? null).savedAt;
       if (next === savedAt) return;
       savedAt = next;
       refreshStatus(activeWorkspaceInterval);
     });
     const unsubscribeActivity = subscribeProjectActivity((id, event) => {
-      if (id !== projectId) return;
+      if (id !== effectiveProjectId) return;
       if (event === 'catalog-changed') { refreshWorkspaceCatalog.current?.(0); return; }
       if (event === 'reconnected') {
         refreshStatus(0);
@@ -288,7 +327,7 @@ export function useWorkspace(
       unsubscribeActivity();
       window.removeEventListener('motion:account-changed', handleAccountChanged);
     };
-  }, [projectId, request, connectionCheck, sessionWithoutProject]);
+  }, [effectiveProjectId, request, connectionCheck, sessionWithoutProject]);
 
   const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string; requestId?: string }, route: { session?: boolean; revealArtifact?: boolean; existing?: OpenTarget } = {}) => {
     if (acting.current) return false;
@@ -316,7 +355,7 @@ export function useWorkspace(
         return true;
       }
       const current = await request<WorkspaceStatus>(workspaceStatusPath);
-      if (projectId && current.projectId !== projectId) throw new Error('当前项目已切换，请刷新后重试。');
+      if (effectiveProjectId && current.projectId !== effectiveProjectId) throw new Error('当前项目已切换，请刷新后重试。');
       const next = await request<WorkspaceStatus>(path, {
         method: 'POST', ...jsonBody({ expectedRevision: current.revision, expectedProjectId: current.projectId, ...options }),
       });
@@ -331,7 +370,7 @@ export function useWorkspace(
           action: options?.templateId ? 'use_template' : 'create_project',
           templateId: options?.templateId,
           instruction: options?.instruction,
-          projectId: options?.projectId ?? projectId,
+          projectId: options?.projectId ?? effectiveProjectId,
         });
         notifyAuthRecovery({ kind: 'auth_required', status: 401, message: apiErr.message, draft });
       }
@@ -339,7 +378,7 @@ export function useWorkspace(
       return false;
     }
     finally { acting.current = false; setBusy(false); }
-  }, [waitForSaves, projectId, request, navigate]);
+  }, [waitForSaves, effectiveProjectId, request, navigate]);
   const open = useCallback((kind: 'templates' | 'projects', id: string) => transition(`/${kind}/${encodeURIComponent(id)}/open`, undefined, { existing: kind === 'projects' ? { projectId: id } : undefined }), [transition]);
   const followActiveProject = useCallback((id: string) => navigate(projectHref(id), true), [navigate]);
   const create = useCallback((instruction?: string, requestId?: string) => {

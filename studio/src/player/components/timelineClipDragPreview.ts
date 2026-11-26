@@ -45,7 +45,7 @@ import { roundTo3 } from "../../utils/rounding";
 type BuildSnapTargets = (
   excludeElementKey: string | null,
   includeBeats: boolean,
-  includePlayhead?: boolean,
+  gesture: "move" | "resize",
 ) => TimelineSnapTarget[];
 
 export interface DragPreviewContext {
@@ -276,16 +276,16 @@ export function computeDragPreview(
   // coordinates recover the same origin after OM's horizontal scroll.
   const scrollDelta = (scroll?.scrollLeft ?? drag.originScrollLeft) - drag.originScrollLeft;
   const delta = (clientX - drag.originClientX + scrollDelta) / Math.max(pps, 1);
-  const requestedStart = drag.element.start + delta;
+  const requestedStart = delta === 0 ? drag.element.start : Number((drag.element.start + delta).toFixed(12));
   const rawStart = clampToHostStart(drag.element, Math.min(resolveDragMaxStart(scroll, pps, duration), requestedStart));
   // OpenReel drag rules: the pointer owns time; edge snapping never grabs the playhead.
   const targets = drag.snapDisabled ? [] : buildSnapTargets(
     drag.element.key ?? drag.element.id,
     !isMusicTrack(drag.element),
-    false,
+    "move",
   );
   const snapped = snapOpenReelMove(rawStart, drag.element.duration, targets, pps,
-    drag.snapDisabled ? 0 : ctx.gridStep);
+    drag.snapDisabled ? 0 : ctx.gridStep, desiredTrack);
   // A snap the saved clip would miss jumps on release, so the clip stays where the pointer put it.
   const target = snapTarget(snapped);
   const missed =
@@ -296,7 +296,7 @@ export function computeDragPreview(
   const shift = group.shift;
   const origin = drag.element.start;
   const floored = Math.max(snap.start, group.floor);
-  const previewStart = origin + Math.max(shift.min, Math.min(floored - origin, shift.max));
+  const previewStart = Math.max(origin + shift.min, Math.min(floored, origin + shift.max));
   // Resolve against the time the native project can actually store.
   const keepOrigin = previewStart === origin && desiredTrack === drag.element.track;
   const authoredStart = savedClipEdges(drag.element, previewStart).start;
@@ -446,6 +446,7 @@ export function computeResizePreview(
   const trimTargets = resize.snapDisabled ? [] : buildSnapTargets(
     resize.element.key ?? resize.element.id,
     !isMusicTrack(resize.element),
+    "resize",
   );
   const gridStep = resize.snapDisabled ? 0 : ctx.gridStep ?? 0;
   let snap: TimelineSnapTarget | null = null;

@@ -9,7 +9,7 @@ let inflightIntegration: { promise: Promise<IntegrationInfo>; controller: AbortC
 
 async function fetchIntegration(signal: AbortSignal): Promise<IntegrationInfo> {
   const combined = AbortSignal.any([signal, AbortSignal.timeout(8000)]);
-  for (const endpoint of ['/motion-api/account/integration', '/motion-api/integration']) {
+  for (const endpoint of ['/motion-api/account/integration', '/motion-api/integration', '/connect/integration']) {
     try {
       const response = await fetch(endpoint, { signal: combined });
       if (!response.ok) continue;

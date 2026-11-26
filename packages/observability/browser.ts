@@ -16,9 +16,18 @@ import {
 
 const MAX_ERROR_EVENTS_PER_SESSION = 50;
 const MAX_QUEUED_BOOT_OPERATIONS = 50;
-const DEFAULT_TRACE_PROPAGATION_TARGETS: ReadonlyArray<string | RegExp> = [
-  /^\/(?:api|motion-api)\//,
-];
+// These API families can redirect to presigned storage. Trace headers attached
+// on the first hop travel to the bucket and turn a simple GET into a preflight.
+const storageRoutes = [
+  /projects\/[^/?#]+\/(?:preview|sprite-sheet|image-thumbnail|thumbnail|renders\/file)/,
+  /assets\/[^/?#]+\/versions\/[^/?#]+\/(?:file|thumbnail)/,
+  /(?:render|exports)\/[^/?#]+\/(?:view|download)/,
+  /project-archives\/[^/?#]+\/file/,
+  /templates\/[^/?#]+\/(?:source|poster|preview)/,
+  /template-source/,
+].map(route => route.source).join('|');
+const apiPrefix = '/(?:api|motion-api)/';
+const storagePath = `${apiPrefix}(?:${storageRoutes})(?=[/?#]|$)`;
 
 export interface SentryBrowserSdkLike {
   init: typeof SentryTypes.init;
@@ -110,13 +119,14 @@ function resolveTracePropagationTargets(
   config: BrowserObservabilityConfig,
 ): Array<string | RegExp> {
   if (config.tracePropagationTargets && config.tracePropagationTargets.length > 0) {
-    return [...config.tracePropagationTargets];
+    // Sentry tests custom strings as substrings, against the full URL and,
+    // for same-origin requests, the pathname. Exclude redirects in both forms.
+    return config.tracePropagationTargets.map(target => new RegExp(
+      `^(?!(?:https?://[^/?#]+)?${storagePath}).*${escapeRegExp(target)}`, 'i',
+    ));
   }
-  const targets: Array<string | RegExp> = [...DEFAULT_TRACE_PROPAGATION_TARGETS];
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    targets.push(new RegExp(`^${escapeRegExp(window.location.origin)}/(?:api|motion-api)/`));
-  }
-  return targets;
+  // A pathname target matches only same-origin requests in the browser SDK.
+  return [new RegExp(`^(?!${storagePath})${apiPrefix}`)];
 }
 
 function buildDenyUrls(previewOrigin: string | null | undefined): Array<string | RegExp> {

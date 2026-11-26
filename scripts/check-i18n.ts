@@ -23,7 +23,6 @@ const LEGACY_PARTIAL_UI_FILES = new Set<string>([
   'studio/src/i18n/brand-kit-ui.json',
   'studio/src/i18n/design-ui.json',
   'studio/src/i18n/mcp-ui.json',
-  'studio/src/i18n/model-hub-ui.json',
   'studio/src/i18n/platform-export-ui.json',
   'studio/src/i18n/settings-ui.json',
   'studio/src/i18n/template-ui.json',

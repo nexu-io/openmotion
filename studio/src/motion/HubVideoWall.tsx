@@ -139,12 +139,12 @@ import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
 /** Recreation brief in the same shape as template handoffs, pointing at the public post instead of a catalog resource. */
 export function hubVideoPrompt(video: HubVideo, model: string, locale: string) {
   const cloudSetupUrl = getCachedCloudDisklessMode() && typeof window !== 'undefined'
-    ? `${window.location.origin.replace(/\/+$/, '')}/mcp-setup`
+    ? `${window.location.origin.replace(/\/+$/, '')}/install.md`
     : null;
   const lead = cloudSetupUrl
     ? (locale === 'zh-CN'
-      ? `使用说明：请使用已连接的 OpenMotion 云端 MCP；如未接入，请先按 ${cloudSetupUrl} 接入云端 MCP 并验证连接（不要按本地 GitHub 仓库重新部署）。`
-      : `Instructions: Use the connected OpenMotion Cloud MCP. If not connected yet, follow ${cloudSetupUrl} to connect Cloud MCP and verify the connection (do not install or self-host locally from GitHub).`)
+      ? `使用说明：请使用已连接的 OpenMotion 云端 MCP；如未接入，请先按 ${cloudSetupUrl} 接入云端 MCP 并完成 OAuth 授权（不要按本地 GitHub 仓库重新部署，不要执行新建模板引导，接入后直接基于下方参考视频继续）。`
+      : `Instructions: Use the connected OpenMotion Cloud MCP. If not connected yet, follow ${cloudSetupUrl} to connect Cloud MCP and authorize via OAuth 2.1 (do not install or self-host locally from GitHub; skip generic template onboarding and continue directly with the reference video below).`)
     : (locale === 'zh-CN'
       ? '使用说明：请使用已连接的 OpenMotion 插件；未安装时先按 https://github.com/nexu-io/openmotion 安装并验证连接。'
       : 'Instructions: Use the connected OpenMotion plugin. If needed, install it from https://github.com/nexu-io/openmotion and verify the connection.');

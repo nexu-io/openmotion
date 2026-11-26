@@ -1,5 +1,5 @@
-import { guideUrl, setupGuideUrl, type IntegrationInfo } from './integration.ts';
-import { projectAgentContext } from './project-agent-prompt.ts';
+import { agentConnectionGuideUrl, isCloudIntegration, isStreamableHttpTransport, setupGuideUrl, type IntegrationInfo, type PartialIntegrationHint } from './integration.ts';
+import { projectAgentContext, type ProjectAgentInfo } from './project-agent-prompt.ts';
 
 /** Editorial starting points, not platform upload limits or encoder presets. */
 export const platformExportTargets = [
@@ -53,8 +53,8 @@ export function platformExportPrompt({ target, goal, locale = 'en', notes = '', 
   notes?: string;
   languages?: string;
   options?: PlatformExportOptions;
-  context?: { info: Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory'>; project: { id: string; title: string } };
-  workspace?: Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory'>;
+  context?: { info: ProjectAgentInfo; project: { id: string; title: string } };
+  workspace?: Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory'> & PartialIntegrationHint;
 }): string {
   const platform = platformExportTargets.find(item => item.id === target);
   if (!platform || !platformExportGoals.some(item => item.id === goal)) throw new Error('Unknown platform export scenario');
@@ -62,9 +62,18 @@ export function platformExportPrompt({ target, goal, locale = 'en', notes = '', 
   const zh = locale === 'zh-CN';
   const selection = zh ? '先用 openmotion_get_project 列出工程，让我指定源工程；不要猜测或修改其他工程。'
     : 'First list projects with openmotion_get_project and ask me to identify the source project; do not guess or modify another project.';
-  const connection = workspace ? (zh ? `工作区：${workspace.dataDirectory}\nStudio 地址：${workspace.previewUrl}\n接入指引：${guideUrl(workspace, 'mcp')}`
-    : `Workspace: ${workspace.dataDirectory}\nStudio URL: ${workspace.previewUrl}\nConnection guide: ${guideUrl(workspace, 'mcp')}`)
-    : `${zh ? '接入指引' : 'Connection guide'}: ${setupGuideUrl(null)}`;
+  const connection = workspace ? (() => {
+    const cloud = isCloudIntegration(workspace);
+    const origin = new URL(workspace.previewUrl).origin;
+    const mcpUrl = isStreamableHttpTransport(workspace.transport) ? workspace.transport.url : `${origin}/mcp`;
+    const guide = agentConnectionGuideUrl(workspace, 'mcp');
+    return [
+      workspace.dataDirectory ? `${zh ? '工作区' : 'Workspace'}${zh ? '：' : ': '}${workspace.dataDirectory}` : null,
+      `${zh ? 'Studio 地址：' : 'Studio URL: '}${workspace.previewUrl}`,
+      cloud ? `${zh ? 'MCP 端点：' : 'MCP endpoint: '}${mcpUrl}` : null,
+      `${zh ? '接入指引：' : 'Connection guide: '}${guide}`,
+    ].filter(Boolean).join('\n');
+  })() : `${zh ? '接入指引' : 'Connection guide'}: ${setupGuideUrl(null)}`;
   const identity = context ? projectAgentContext(context.info, context.project, locale) : `${connection}\n\n${selection}`;
   const intentions = zh ? {
     shorten: `将长视频精简为一条内容完整的 ${duration} 秒短片，保留核心观点和必要上下文。`,

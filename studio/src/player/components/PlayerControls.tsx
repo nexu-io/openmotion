@@ -201,8 +201,8 @@ export const PlayerControls = memo(function PlayerControls({
           {assetRetrying
             ? t("Retrying…")
             : assetFailed.length === 1
-              ? t("1 asset failed · Retry")
-              : t("{count} assets failed · Retry", { count: assetFailed.length })}
+              ? t("1 asset failed to load · Retry")
+              : t("{count} assets failed to load · Retry", { count: assetFailed.length })}
         </span>
       </Button>
     </Tooltip>

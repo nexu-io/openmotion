@@ -1,9 +1,58 @@
-import { modelReferenceLimit, type Modality, type Model } from '../../../shared/gateway';
+import { modelReferenceLimit, type Modality, type Model, type ProviderState } from '../../../shared/gateway';
 import { imageFeatures } from '../../../shared/image-features';
 import { videoFeatures } from '../../../shared/video-features';
 import { isFeatureScene, sceneFeature, sceneVideoFeature, supportsScene, type StudioScene } from './creativeStudios';
 import type { loadGateway } from './gatewayClient';
 import { isOpenDesignProvider, modelFamilyLabel, providerRank, providerReady, studioModelRank } from './imageMenuModels';
+import { hubIdForModelSpec, isModelHubId, matchesModelHubText, prefersModelHubText, type ModelHubId } from './modelHubMeta';
+
+/**
+ * Picks the highest-priority live backend model matching a ModelHub for an optional scene.
+ * Strictly reads from `models` returned by the gateway — returns `undefined` when no matching
+ * model is present so callers never force-select an unavailable model.
+ */
+export function selectModelForHub(
+  hubId: string,
+  models: readonly Model[],
+  scene?: StudioScene,
+  providers: readonly ProviderState[] = [],
+): Model | undefined {
+  if (!isModelHubId(hubId) || !models.length) return undefined;
+  const availableProviders = new Set(
+    providers
+      .filter(item => item.available && item.mediaEntitlement !== 'not-included')
+      .map(item => item.id),
+  );
+  const matches = models.filter(model =>
+    (!scene || supportsScene(model, scene))
+    && matchesModelHubText(hubId, [model.id, model.modelId, model.label]),
+  );
+  if (!matches.length) return undefined;
+  return [...matches].sort((a, b) =>
+    Number(prefersModelHubText(hubId, [b.id, b.modelId, b.label])) - Number(prefersModelHubText(hubId, [a.id, a.modelId, a.label]))
+    || Number(availableProviders.has(b.provider)) - Number(availableProviders.has(a.provider))
+    || Number(isOpenDesignProvider(b.provider)) - Number(isOpenDesignProvider(a.provider))
+    || providerRank(a.provider) - providerRank(b.provider)
+    || studioModelRank(a) - studioModelRank(b)
+    || modelFamilyLabel(a).localeCompare(modelFamilyLabel(b)),
+  )[0];
+}
+
+function findPreferredTemplateModel(
+  models: readonly Model[],
+  templateModelSpec?: string,
+  scene?: StudioScene,
+  providers: readonly ProviderState[] = [],
+): Model | undefined {
+  if (!templateModelSpec || !models.length) return undefined;
+  if (templateModelSpec.startsWith('hub:')) {
+    return selectModelForHub(templateModelSpec.slice(4), models, scene, providers);
+  }
+  const exact = models.find(model => model.id === templateModelSpec || model.modelId === templateModelSpec);
+  if (exact) return exact;
+  const hubId: ModelHubId | undefined = hubIdForModelSpec(templateModelSpec);
+  return hubId ? selectModelForHub(hubId, models, scene, providers) : undefined;
+}
 
 /**
  * Resolves eligible models for Studio scenes and ordinary Assets library generation
@@ -43,9 +92,9 @@ export function creationModels(
   const recommendedId = feature ? imageFeatures[feature].recommended : videoFeature ? videoFeatures[videoFeature].recommended : undefined;
   const recommended = (models: typeof listed) => recommendedId ? models.find(model => model.modelId === recommendedId) : undefined;
   const preferred = pinned ?? (modelId && !restrictToOpenDesign ? undefined
-    : available.find(model => model.modelId === templateModelId) ?? recommended(available)
+    : findPreferredTemplateModel(available, templateModelId, scene, providers) ?? recommended(available)
       ?? available.find(model => model.id === gateway?.status.routes[modality]) ?? available[0]
-      ?? (scene ? recommended(compatible) ?? compatible[0] : undefined));
+      ?? (scene ? findPreferredTemplateModel(compatible, templateModelId, scene, providers) ?? recommended(compatible) ?? compatible[0] : undefined));
   const selected = available.find(model => model.id === preferred?.id);
   const choices = scene ? compatible : available;
   return { available, selected, choices, compatible, preferred };

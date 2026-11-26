@@ -1415,7 +1415,7 @@ describe('CatalogService Zero-Copy Cloning & Tenant Isolation', () => {
       { code: 'SESSION_NOT_FOUND' },
     );
 
-    // OAuth agent template clone sets owner_user_id and auto-grants project_grants so the agent can immediately read/write it
+    // OAuth agent template clone sets owner_user_id (no project_grants rows needed under workspace-scoped OAuth)
     const agentClientId = 'codex-agent-client';
     const oauthAgentCtx = makeAuthContext({
       workspaceId: WID_A,
@@ -1433,14 +1433,8 @@ describe('CatalogService Zero-Copy Cloning & Tenant Isolation', () => {
     assert.ok(agentProjectRow);
     assert.equal(agentProjectRow.owner_user_id, USER_A);
     assert.equal(
-      pg.tables.project_grants.filter(
-        (g) =>
-          g.project_id === agentClone.projectId &&
-          g.user_id === USER_A &&
-          g.client_id === agentClientId &&
-          g.revoked_at === null,
-      ).length,
-      1,
+      pg.tables.project_grants.filter((g) => g.project_id === agentClone.projectId).length,
+      0,
     );
 
     const loadedByCreator = await loadProjectOrThrow(pg.db, WID_A, agentClone.projectId, {
@@ -1455,10 +1449,11 @@ describe('CatalogService Zero-Copy Cloning & Tenant Isolation', () => {
       authMethod: 'oauth_bearer',
       clientId: 'other-agent-client',
     });
-    await assert.rejects(
-      () => loadProjectOrThrow(pg.db, WID_A, agentClone.projectId, { auth: otherClientCtx }),
-      { code: 'PROJECT_GRANT_REQUIRED' },
-    );
+    // Workspace-level OAuth access allows another client authorized by the SAME user to access the project immediately.
+    const loadedBySameUserOtherClient = await loadProjectOrThrow(pg.db, WID_A, agentClone.projectId, {
+      auth: otherClientCtx,
+    });
+    assert.equal(loadedBySameUserOtherClient.id, agentClone.projectId);
 
     const otherUserAgentCtx = makeAuthContext({
       workspaceId: WID_A,

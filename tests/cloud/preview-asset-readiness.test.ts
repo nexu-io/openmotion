@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { runInNewContext } from 'node:vm';
+import { parseHTMLContent } from '@hyperframes/core/compiler/html-document';
 import { PREVIEW_ASSET_READINESS } from '../../src/studio/engine/preview-asset-readiness.ts';
-import { PREVIEW_BRIDGE_SCRIPT } from '../../src/studio/engine/preview-bridge.ts';
+import { bridgeDocumentTags, PREVIEW_BRIDGE_SCRIPT } from '../../src/studio/engine/preview-bridge.ts';
 
 function createFakeImg(src: string, opts: { lazy?: boolean; complete?: boolean; naturalWidth?: number } = {}) {
   const listeners = new Map<string, Set<() => void>>();
@@ -112,7 +113,7 @@ it('promotes lazy images, caps concurrent video preloads, and settles once ready
     assert.equal(videos[1].preload, 'auto');
     assert.equal(videos[2].preload, 'auto');
     assert.equal(videos[3].preload, 'none');
-    assert.deepEqual(snapshots.at(-1), { status: 'loading', completed: 0, total: 5, failed: [] });
+    assert.deepEqual(snapshots.at(-1), { status: 'loading', completed: 0, total: 5, failed: [], pendingAsset: 'slide.png' });
 
     img.triggerLoad();
     videos[0].triggerLoaded();
@@ -381,6 +382,78 @@ it('frees the video concurrency slot when all active video slots stall on HEAD p
   } finally {
     tracker.dispose();
   }
+});
+
+it('reports parsed media at bridge startup before duration, then tracks the mounted document to readiness', () => {
+  const origin = 'https://preview.test';
+  const tags = bridgeDocumentTags(origin, 'p', 'index.html', {});
+  const document = parseHTMLContent(`<html><head>${tags.preload}</head><body>
+    <div data-hyperframes-ignore><img src="ignored.png"></div>
+    <video data-hf-clip-hidden src="hidden.mp4"></video>
+    <img id="deferred" loading="lazy" src="Later%20scene.jpg">
+    <img id="poster" src="/preview/~assets/lease/Opening%20shot.jpg?sig=secret">
+    ${tags.script}</body></html>`);
+  Object.defineProperty(document, 'currentScript', { value: document.querySelector('script') });
+  let duration = 0, readyState = 'loading', imageLoaded = false;
+  Object.defineProperty(document, 'readyState', { get: () => readyState });
+  const poster = document.querySelector<HTMLImageElement>('#poster')!;
+  const deferred = document.querySelector<HTMLImageElement>('#deferred')!;
+  deferred.loading = 'lazy';
+  Object.defineProperty(deferred, 'complete', { value: false });
+  Object.defineProperties(poster, {
+    complete: { get: () => imageLoaded }, naturalWidth: { get: () => imageLoaded ? 320 : 0 },
+    currentSrc: { value: `https://storage.test/derived/${'a'.repeat(64)}/proxy.webp?sig=secret` },
+  });
+  const sent: Array<{ type: string; duration?: number; assets?: unknown }> = [];
+  const ticks = new Map<number, () => void>();
+  runInNewContext(PREVIEW_BRIDGE_SCRIPT, {
+    URL, document, location: { href: `${origin}/preview?pt=grant` },
+    window: { parent: { postMessage: (msg: typeof sent[number]) => sent.push(msg) },
+      addEventListener() {}, __player: { getDuration: () => duration } },
+    setInterval: (fn: () => void, ms: number) => { ticks.set(ms, fn); return ms; },
+    clearInterval: (ms: number) => ticks.delete(ms), setTimeout() {}, clearTimeout() {},
+    innerWidth: 320, innerHeight: 180,
+  });
+  const boot = { status: 'loading', completed: 0, total: 0, failed: [] };
+  const hint = { ...boot, pendingAsset: 'Opening shot.jpg' };
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.find(m => m.type === 'asset-readiness'))), {
+    source: 'openmotion-preview-bridge', version: 1, type: 'asset-readiness', projectId: 'p', token: 'grant', ...hint,
+  });
+  ticks.get(500)!();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1)?.assets)), hint);
+  assert.equal(deferred.loading, 'lazy');
+
+  imageLoaded = true;
+  ticks.get(500)!();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1)?.assets)), boot);
+  const video = document.createElement('video');
+  video.setAttribute('src', '/assets/Next%20scene.mp4');
+  video.preload = 'none';
+  let videoState = 0, networkState = 0, loads = 0;
+  Object.defineProperties(video, { readyState: { get: () => videoState }, networkState: { get: () => networkState } });
+  video.load = () => { loads++; };
+  document.body.appendChild(video);
+  for (networkState of [0, 1, 3]) {
+    ticks.get(500)!();
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1)?.assets)), boot);
+  }
+  networkState = 2;
+  ticks.get(500)!();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1)?.assets)), { ...boot, pendingAsset: 'Next scene.mp4' });
+  assert.equal(video.preload, 'none');
+  assert.equal(loads, 0);
+
+  deferred.remove();
+  duration = 8;
+  readyState = 'interactive';
+  ticks.get(25)!();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1)?.assets)), { ...boot, completed: 1, total: 2, pendingAsset: 'Next scene.mp4' });
+  assert.equal(video.preload, 'auto');
+  assert.equal(loads, 0);
+  videoState = 2;
+  video.dispatchEvent(new document.defaultView!.Event('loadeddata'));
+  ticks.get(500)!();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1)?.assets)), { status: 'ready', completed: 2, total: 2, failed: [] });
 });
 
 it('preview bridge reports live buffering state for active media at the playhead', () => {

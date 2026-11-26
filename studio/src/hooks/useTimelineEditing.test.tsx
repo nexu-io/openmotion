@@ -15,6 +15,11 @@ import { jsonResponse, requestUrl } from "./fetchStubTestUtils";
 import { useElementLifecycleOps } from "./useElementLifecycleOps";
 import { useTimelineEditing } from "./useTimelineEditing";
 import { parseTimelineFromDOM } from "../player/lib/timelineDOM";
+import { openTimelineSource } from "../player/lib/peerTimeline";
+import { hasPendingHistoryTimeline } from "../player/timelineRestorePending";
+import { parseAuthoredTimeline } from "../player/lib/authoredTimeline";
+import { displayAuthoredTimelineLanes } from "../player/components/timelineZones";
+import { observePendingSourceRead, rememberSource } from "../utils/confirmedTextSources";
 import { computeResizePreview } from "../player/components/timelineClipDragPreview";
 import {
   buildTimelineGroupResizeMembers,
@@ -487,6 +492,27 @@ function expectRootDurationExtendedViaFallback(
   );
 }
 
+async function setupPendingResize(source: string, beforeCommit: () => Promise<Response | void>) {
+  const path = "index.html";
+  const projectId = "pending-resize";
+  setCachedCloudDisklessMode(true);
+  const iframe = createPreviewIframe();
+  iframe.contentDocument!.body.innerHTML = source;
+  const parsed = parseAuthoredTimeline(source, path, projectId)!;
+  const elements = displayAuthoredTimelineLanes(parsed.elements);
+  const duration = parsed.duration;
+  usePlayerStore.setState({ timelineProjectId: projectId, elements, duration });
+  const close = openTimelineSource(projectId, path);
+  const server = orderedEditFixture(projectId, { [path]: source }, beforeCommit);
+  rememberSource(projectId, path, { content: source, version: (await server.getVersion(path))! });
+  const history = vi.fn(async () => {});
+  const hook = renderTimelineEditingHook({ timelineElements: elements, iframe, projectId,
+    useFileWriter: true, onZIndexCommit: vi.fn(), recordEdit: history });
+  return { ...hook, server, projectId, history, elements, iframe, cleanup() {
+    hook.unmount(); close(); setCachedCloudDisklessMode(null);
+  } };
+}
+
 describe("useTimelineEditing timeline z-index reorder", () => {
   it.each([
     { edge: "left", updates: { start: 4, duration: 6, playbackStart: 4 } },
@@ -557,35 +583,82 @@ describe("useTimelineEditing timeline z-index reorder", () => {
     }
   });
 
-  it("saves a trim as one ordered file edit and derives the media in-point in core", async () => {
-    setCachedCloudDisklessMode(true);
+  it.each([
+    { edge: "left", start: 1, duration: 3, offset: 3 },
+    { edge: "right", start: 0, duration: 2, offset: 1 },
+  ])("shows the $edge trim and media in-point before the ordered write returns", async ({start, duration, offset}) => {
     const source = '<div data-composition-id="scene" data-duration="4"><video id="clip" data-hf-id="hf-clip" src="a.mp4" data-start="0" data-duration="4" data-media-start="1" data-playback-rate="2"></video></div>';
-    const iframe = createPreviewIframe();
-    iframe.contentDocument!.body.innerHTML = source;
-    const clip = { ...timelineElement({ id: "clip", tag: "video", track: 0, zIndex: 0 }), duration: 4 };
-    usePlayerStore.setState({ elements: [clip], duration: 4 });
-    const server = orderedEditFixture("p1", {"index.html": source});
-    const history = vi.fn(async () => {});
-    const hook = renderTimelineEditingHook({ timelineElements:[clip], iframe, projectId:"p1", useFileWriter:true, onZIndexCommit:vi.fn(), recordEdit:history });
+    const receipt = Promise.withResolvers<void>();
+    const { server, elements, projectId, history, resize, cleanup, iframe } = await setupPendingResize(source, () => receipt.promise);
+    // A warm composition must also paint through an unrelated outstanding SDK read.
+    const read = observePendingSourceRead(projectId, "index.html", receipt.promise);
+    let saving: Promise<void>;
+    act(() => { saving = resize(elements[0]!, { start, duration }); });
     try {
-      await act(() => hook.resize(clip, {start: 1, duration:3}));
-      expect(server.packets).toHaveLength(1);
+      await act(async () => { await vi.waitFor(() => expect(server.packets).toHaveLength(1)); });
+      expect(usePlayerStore.getState().elements[0]).toMatchObject({ start, duration, playbackStart: offset });
+      expect(history).not.toHaveBeenCalled();
+      expect(server.request).toHaveBeenCalledTimes(1);
+      expect(hasPendingHistoryTimeline(iframe)).toBe(false);
+      receipt.resolve();
+      await act(() => saving);
       expect(server.packets[0]).toHaveLength(1);
-      expect(server.files["index.html"]).toContain('data-media-start="3"');
-      expect(history).toHaveBeenCalledWith(expect.objectContaining({files: {"index.html":{before:source, after:expect.stringContaining('data-media-start="3"')}}}));
+      expect(server.files["index.html"]).toContain(`data-media-start="${offset}"`);
+      expect(history).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        files: { "index.html": { before: source, after: server.files["index.html"] } },
+      }));
     } finally {
-      hook.unmount();
-      setCachedCloudDisklessMode(null);
+      receipt.resolve();
+      await act(async () => { await Promise.all([saving, read]); });
+      cleanup();
     }
   });
 
-  it("shows a cloud move before the save completes and sends one ordered file edit", async () => {
+  it("projects a second ripple trim while the first receipt is held and restores the accepted prefix on rejection", async () => {
+    const source = '<div data-composition-id="scene" data-duration="8"><div id="a" data-hf-id="hf-a" data-start="0" data-duration="4" data-track-index="1"></div><div id="b" data-hf-id="hf-b" data-start="4" data-duration="4" data-track-index="1"></div></div>';
+    const receipt = Promise.withResolvers<void>();
+    let requests = 0;
+    const h = await setupPendingResize(source, async () => {
+      if (++requests === 1) await receipt.promise;
+      else return new Response("Refused", { status: 400 });
+    });
+    usePlayerStore.setState({ rippleEditEnabled: true });
+    const rows = () => usePlayerStore.getState().elements.map(({start, duration}) => [start, duration]);
+    let first: Promise<void>;
+    let second: Promise<unknown> | undefined;
+    try {
+      act(() => { first = h.resize(h.elements[0]!, { start: 0, duration: 3 }); });
+      await act(async () => { await vi.waitFor(() => expect(h.server.packets).toHaveLength(1)); });
+      expect(rows()).toEqual([[0, 3], [3, 4]]);
+      act(() => {
+        second = expect(h.resize(usePlayerStore.getState().elements[0]!, { start: 0, duration: 2 })).rejects.toThrow();
+      });
+      await act(async () => { await vi.waitFor(() => expect(rows()).toEqual([[0, 2], [2, 4]])); });
+      expect(h.server.packets).toHaveLength(1);
+      expect(h.history).not.toHaveBeenCalled();
+      receipt.resolve();
+      await act(async () => { await Promise.all([first, second]); });
+      expect(rows()).toEqual([[0, 3], [3, 4]]);
+      expect(h.history).toHaveBeenCalledTimes(1);
+      expect(h.server.packets).toHaveLength(2);
+    } finally {
+      receipt.resolve();
+      await act(async () => { await Promise.allSettled([first, second]); });
+      usePlayerStore.setState({ rippleEditEnabled: false });
+      h.cleanup();
+    }
+  });
+
+  it("shows the exact audio seam before the cloud save completes and preserves the authored lane and media offset", async () => {
     setCachedCloudDisklessMode(true);
-    const source = ROOT_DURATION_FALLBACK_SOURCE;
+    const source = `<div data-composition-id="main" data-duration="42">
+      <audio id="first" data-hf-id="hf-first" data-start="0" data-duration="10.733" data-track-index="1" src="track.mp3"></audio>
+      <audio id="clip" data-hf-id="hf-clip" data-start="14.72" data-duration="26.567" data-media-start="10.733" data-track-index="1" src="track.mp3"></audio>
+    </div>`;
     const iframe = createPreviewIframe();
     iframe.contentDocument!.body.innerHTML = source;
-    const clip = timelineElement({ id: "clip", track: 0, zIndex: 0 });
-    usePlayerStore.setState({ elements: [clip], duration: 4 });
+    const clip = { ...timelineElement({ id: "clip", tag: "audio", start: 14.72, duration: 26.567, track: 0, zIndex: 0 }), authoredTrack: 1, playbackStart: 10.733 };
+    usePlayerStore.setState({ elements: [clip], duration: 42 });
     const session = await openComposition(source);
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
@@ -595,14 +668,16 @@ describe("useTimelineEditing timeline z-index reorder", () => {
       onZIndexCommit: vi.fn(), recordEdit: history, sdkSession: session,
       publishSdkSession: () => "rejected-active-target" });
     try {
-      const saving = hook.move(clip, { start: 1.234, track: 0 });
-      expect(iframe.contentDocument!.getElementById("clip")!.getAttribute("data-start")).toBe("1.23");
+      const saving = hook.move(clip, { start: 10.733, track: clip.track });
+      expect(iframe.contentDocument!.getElementById("clip")!.getAttribute("data-start")).toBe("10.733");
       await vi.waitFor(() => expect(server.packets).toHaveLength(1));
       expect(history).not.toHaveBeenCalled();
       release();
       await act(() => saving);
       expect(history).toHaveBeenCalledTimes(1);
-      expect(server.files["index.html"]).toContain('data-start="1.23"');
+      const saved = new DOMParser().parseFromString(server.files["index.html"], "text/html");
+      expect(saved.getElementById("first")!.getAttribute("data-duration")).toBe("10.733");
+      expect(saved.getElementById("clip")!.dataset).toMatchObject({ start: "10.733", duration: "26.567", trackIndex: "1", mediaStart: "10.733" });
     } finally {
       release();
       hook.unmount();
@@ -2124,13 +2199,13 @@ describe("useTimelineEditing: nested rows write composition-local starts", () =>
     expect(logo.start).toBe(5);
 
     await act(async () => {
-      await h.move(logo, { start: 6, track: logo.track });
+      await h.move(logo, { start: 6.733, track: logo.track });
     });
 
-    expect(h.written("compositions/intro.html", "logo", "data-start")).toBe("4");
-    expect(h.doc.getElementById("logo")?.getAttribute("data-start")).toBe("4");
-    expect(h.row("logo").start).toBe(6);
-    expect(h.playsAt("logo")).toBe(6);
+    expect(h.written("compositions/intro.html", "logo", "data-start")).toBe("4.733");
+    expect(h.doc.getElementById("logo")?.getAttribute("data-start")).toBe("4.733");
+    expect(h.row("logo").start).toBe(6.733);
+    expect(h.playsAt("logo")).toBe(6.733);
     expect(h.writtenRootDuration("compositions/intro.html")).toBe("10");
     h.unmount();
   });

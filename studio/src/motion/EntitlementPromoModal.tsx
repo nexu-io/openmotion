@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/I18n';
 import { buildLoginUrl } from './AccountSettings';
 import { campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
 import { markExternalCheckoutPending, type EntitlementHookId, type EntitlementModalMode } from './entitlementModalBus';
+import { PromoClip, usePromoPlayback } from './EntitlementPromoMedia';
 import { trackMotion } from './tracking';
 import './EntitlementPromoModal.css';
 
@@ -14,14 +15,14 @@ const SHOW_STARTER_GIFT_BAR = false;
 
 const LEFT_TILES = [
   { v: 'bar-chart-skyline.webm', c: 'Data motion' },
-  { i: 'game-lanternfall.jpg', c: 'Games' },
+  { i: 'game-lanternfall-thumb.webp', c: 'Games' },
   { v: 'motion-hero.mp4', c: 'Promo film' },
   { v: 'remix-linear-loops.mp4', c: 'Viral remix' },
 ] as const;
 
 const RIGHT_TILES = [
   { v: 'glide.webm', c: 'Brand film' },
-  { i: 'graphic-1.webp', c: 'Product poster' },
+  { i: 'graphic-1-thumb.webp', c: 'Product poster' },
   { v: 'gradients-haze.webm', c: 'Motion backdrop' },
   { v: 'jake-figma-draw.mp4', c: 'Product demo' },
   { i: 'game-style-voxel.webp', c: '3D style' },
@@ -62,6 +63,7 @@ export function EntitlementPromoModal({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [entryId, setEntryId] = useState(newCampaignEntryId);
   const [busy, setBusy] = useState(false);
+  const playable = usePromoPlayback(dialogRef, open);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -86,13 +88,9 @@ export function EntitlementPromoModal({
   if (!open) return null;
 
   const isGuest = mode === 'guest';
-  const prefersReducedMotion =
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const videoPlaybackProps = prefersReducedMotion
-    ? { autoPlay: false, muted: true, loop: false, playsInline: true, preload: 'metadata' as const }
-    : { autoPlay: true, muted: true, loop: true, playsInline: true };
+  const renderClip = (file: string, priority: 'high' | 'auto' | 'low' = 'auto', slot = file) => (
+    <PromoClip src={mediaUrl(file)} slot={slot} playable={playable.has(slot)} priority={priority} />
+  );
 
   const handleClose = () => {
     void trackMotion('ui_click', {
@@ -133,9 +131,9 @@ export function EntitlementPromoModal({
         {[...list, ...list].map((item, idx) => (
           <div className="om-epm-tile" key={`${side}-${idx}`}>
             {item.v ? (
-              <video src={mediaUrl(item.v)} {...videoPlaybackProps} />
+              renderClip(item.v, 'low', `${side}-${idx}`)
             ) : (
-              <img src={mediaUrl(item.i!)} alt="" />
+              <img src={mediaUrl(item.i!)} alt="" loading="lazy" fetchPriority="low" />
             )}
             <span className="om-epm-chip">{t(item.c)}</span>
           </div>
@@ -191,22 +189,22 @@ export function EntitlementPromoModal({
 
                 <div className="om-epm-grid">
                   <div className="om-epm-card">
-                    <div className="om-epm-vis"><video src={mediaUrl('hadal-play.mp4')} {...videoPlaybackProps} /></div>
+                    <div className="om-epm-vis">{renderClip('hadal-play.mp4', 'high')}</div>
                     <h4>{t('Playable games')}</h4>
                     <p>{t('One prompt, playable on mobile')}</p>
                   </div>
                   <div className="om-epm-card">
-                    <div className="om-epm-vis"><img className="om-epm-kb" src={mediaUrl('card-media.webp')} alt="" /></div>
+                    <div className="om-epm-vis"><img className="om-epm-kb" src={mediaUrl('card-media.webp')} fetchPriority="high" loading="lazy" alt="" /></div>
                     <h4>{t('Images, video & audio')}</h4>
                     <p>{t('Covers, characters, promos & music')}</p>
                   </div>
                   <div className="om-epm-card">
-                    <div className="om-epm-vis"><video src={mediaUrl('top1-figma.mp4')} {...videoPlaybackProps} /></div>
+                    <div className="om-epm-vis">{renderClip('top1-figma.mp4')}</div>
                     <h4>{t('Remix viral videos')}</h4>
                     <p>{t('Paste a link to recreate & export MP4')}</p>
                   </div>
                   <div className="om-epm-card">
-                    <div className="om-epm-vis is-crop"><video src={mediaUrl('happy-faces-landing-page.webm')} {...videoPlaybackProps} /></div>
+                    <div className="om-epm-vis is-crop">{renderClip('happy-faces-landing-page.webm')}</div>
                     <h4>{t('Prototypes & websites')}</h4>
                     <p>{t('Build and share with one click')}</p>
                   </div>
@@ -218,11 +216,11 @@ export function EntitlementPromoModal({
                         <span>{t('Code')}</span>
                       </div>
                       <div className="om-epm-strip-cell">
-                        <img className="om-epm-kb" src={mediaUrl('strip-image.webp')} alt="" />
+                        <img className="om-epm-kb" src={mediaUrl('strip-image-thumb.webp')} loading="lazy" alt="" />
                         <span>{t('Image')}</span>
                       </div>
                       <div className="om-epm-strip-cell">
-                        <video src={mediaUrl('spotify-next-level.mp4')} {...videoPlaybackProps} />
+                        {renderClip('spotify-next-level.mp4')}
                         <span>{t('Video')}</span>
                       </div>
                       <div className="om-epm-strip-cell om-epm-strip-audio">
@@ -245,22 +243,22 @@ export function EntitlementPromoModal({
                   </div>
 
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('themes-animated-gallery.webm')} {...videoPlaybackProps} /></div>
+                    <div className="om-epm-vis">{renderClip('themes-animated-gallery.webm')}</div>
                     <h4><span className="om-epm-num">291</span> {t('Motion templates')}</h4>
                     <p>{t('Ready to edit & export')}</p>
                   </div>
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('blurry-text-spin.webm')} {...videoPlaybackProps} /></div>
+                    <div className="om-epm-vis">{renderClip('blurry-text-spin.webm')}</div>
                     <h4><span className="om-epm-num">104</span> {t('Skills')}</h4>
                     <p>{t('Guided Agent workflows')}</p>
                   </div>
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('animated-ui-kit.webm')} {...videoPlaybackProps} /></div>
+                    <div className="om-epm-vis">{renderClip('animated-ui-kit.webm')}</div>
                     <h4><span className="om-epm-num">890+</span> {t('Creative assets')}</h4>
                     <p>{t('Motion components & clips')}</p>
                   </div>
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('type-trail.webm')} {...videoPlaybackProps} /></div>
+                    <div className="om-epm-vis">{renderClip('type-trail.webm')}</div>
                     <h4><span className="om-epm-num">100+</span> {t('Brand Kit')}</h4>
                     <p>{t('Colors, typography & logos')}</p>
                   </div>

@@ -1,4 +1,6 @@
 import { isLottieAnimationLoaded } from "@hyperframes/core/runtime/lottie-readiness";
+import { previewAssetName } from "../../../../shared/preview-asset-name";
+export { isDisplayablePreviewAssetName } from "../../../../shared/preview-asset-name";
 
 export type PreviewAssetKind = "image" | "video" | "audio" | "font" | "lottie";
 
@@ -14,6 +16,7 @@ export interface PreviewAssetProgress {
   completed: number;
   total: number;
   failed: PreviewAssetFailure[];
+  pendingAsset?: string;
   skipped?: boolean;
 }
 
@@ -145,6 +148,7 @@ async function isUrlRetryable(
 interface TrackedAssetItem {
   id: string;
   label: string;
+  pendingAsset?: string;
   kind: PreviewAssetKind;
   settled: boolean;
   failedReason: "error" | "timeout" | null;
@@ -191,9 +195,11 @@ export function trackDocumentAssetReadiness(
   const buildSnapshot = (): PreviewAssetProgress => {
     const total = items.length;
     let completed = 0;
+    let pendingAsset: string | undefined;
     const failed: PreviewAssetFailure[] = [];
     for (const item of items) {
       if (item.settled) completed += 1;
+      else pendingAsset ??= item.pendingAsset;
       if (item.failedReason) {
         failed.push({
           id: item.id,
@@ -209,6 +215,7 @@ export function trackDocumentAssetReadiness(
       completed,
       total,
       failed,
+      ...(!done && pendingAsset ? { pendingAsset } : {}),
       ...(skipped ? { skipped: true } : {}),
     };
   };
@@ -217,7 +224,7 @@ export function trackDocumentAssetReadiness(
   const emit = (force = false) => {
     if (disposed) return;
     const snap = buildSnapshot();
-    const signature = `${snap.status}:${snap.completed}:${snap.total}:${snap.skipped ? 1 : 0}:${snap.failed.map((f) => `${f.id}:${f.reason}`).join(",")}`;
+    const signature = `${snap.status}:${snap.completed}:${snap.total}:${snap.skipped ? 1 : 0}:${snap.pendingAsset ?? ""}:${snap.failed.map((f) => `${f.id}:${f.reason}`).join(",")}`;
     if (!force && signature === lastSignature) return;
     lastSignature = signature;
     onProgress(snap);
@@ -276,6 +283,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `img-${index}`,
       label: assetLabelFromUrl(originalSrc, `image-${index + 1}`),
+      pendingAsset: readyNow ? undefined : previewAssetName(img),
       kind: "image",
       settled: readyNow,
       failedReason: null,
@@ -551,6 +559,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `audio-${index}`,
       label: assetLabelFromUrl(originalSrc, `audio-${index + 1}`),
+      pendingAsset: readyNow ? undefined : previewAssetName(audio),
       kind: "audio",
       settled: readyNow,
       failedReason: null,
@@ -585,6 +594,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `video-${index}`,
       label: assetLabelFromUrl(originalSrc, `video-${index + 1}`),
+      pendingAsset: readyNow ? undefined : previewAssetName(video),
       kind: "video",
       settled: readyNow,
       failedReason: null,

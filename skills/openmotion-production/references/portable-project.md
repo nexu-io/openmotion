@@ -31,7 +31,7 @@ The team gallery owns catalog registration and template IDs. A delivered folder 
 
 ## Import a native ZIP into Studio
 
-Use **Import projects** in Studio, or `openmotion_project_archive` with `action: "import"`, an absolute local `sourcePath`, and a stable `requestId`. To bring an independent folder into Studio, package it as a native ZIP first. Import creates a copy.
+Use **Import projects** in Studio to upload a ZIP. In Cloud, programmatic ZIP import uses authenticated `POST /motion-api/project-archives/import` (with `projects:write` and a stable `requestId`); `openmotion_project_archive` with `action: "import"` and an absolute local `sourcePath` is desktop-only and returns `LOCAL_PATH_UNSUPPORTED_IN_CLOUD` in Cloud. To bring an independent folder into Studio, package it as a native ZIP first. Import creates a copy.
 
 Open the copy from Studio's project list and wait for the editor to load its media before calling `openmotion_get_project` with the returned project ID. A project-specific call starts managed version capture even when it only requests an HTML file. Workspace listing with `openmotion_get_project({})` is safe while Studio loads. The pinned Studio runtime adopts larger files after first open, and an early project-specific read can record an incomplete version.
 

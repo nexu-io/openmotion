@@ -18,9 +18,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { serve, type ServerType } from '@hono/node-server';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { routePath } from 'hono/route';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Redis } from 'ioredis';
 import {
@@ -38,13 +39,14 @@ import {
 import { commitProjectEdit } from '../services/project-edit.ts';
 import type { CanvasFit, CanvasRatio } from '../../shared/composition-canvas.ts';
 import {
-  agentGuide,
   buildCloudIntegrationInfo,
   integrationConfig,
   integrationHost,
 } from '../../shared/integration.ts';
 import { loadLibrarySkills, skillNextStep } from '../../shared/library-skill-catalog.ts';
-import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts';
+import { cloudPhase1Tools, phase1McpCapabilities } from '../../shared/phase1-tools.ts';
+import { MAX_GENERATION_PROMPT_LENGTH } from '../../shared/asset-limits.ts';
+import { cloudProjectArchiveDownloadInstructions } from '../../shared/project-archive.ts';
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
@@ -91,7 +93,7 @@ import type { StoragePort } from '../contracts/storage.ts';
 import { createDbHandle, type Database, type DbHandle } from '../db/client.ts';
 import { asInsert, asUpdate } from '../db/helpers.ts';
 import { jobs } from '../db/schema/jobs.ts';
-import { projectGrants, projects } from '../db/schema/projects.ts';
+import { projects } from '../db/schema/projects.ts';
 import { getConfig, type AppConfig } from '../infra/config.ts';
 import { createLogger, type Logger } from '../infra/logger.ts';
 import { QueueService } from '../infra/queues.ts';
@@ -123,6 +125,7 @@ import { createCatalogRoutes } from '../routes/catalog.ts';
 import { createExportRoutes } from '../routes/exports.ts';
 import { createModelRoutes, type MediaJobPort } from '../routes/models.ts';
 import { createOnboardingRoutes } from '../routes/onboarding.ts';
+import { renderCloudInstallGuide } from '../services/cloud-onboarding.ts';
 import { createProjectsRouter } from '../routes/projects.ts';
 import { createSessionsRouter } from '../routes/sessions.ts';
 import { AssetLibraryService } from '../services/asset-library-service.ts';
@@ -243,6 +246,7 @@ const STATIC_MIME_TYPES: Readonly<Record<string, string>> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
+  '.avif': 'image/avif',
   '.gif': 'image/gif',
   '.ico': 'image/x-icon',
   '.woff': 'font/woff',
@@ -570,6 +574,7 @@ function createCloudMediaJobsPort(deps: {
       remoteId: row.remoteId ?? null,
       remoteTerminal: Boolean(row.remoteTerminal),
       savePending: row.savePending,
+      ...(row.failureStage ? { failureStage: row.failureStage } : {}),
       requestId: row.requestId ?? null,
       ...(row.resultJson ? { result } : {}),
       ...(typeof result.assetId === 'string' ? { assetId: result.assetId } : {}),
@@ -595,8 +600,8 @@ function createCloudMediaJobsPort(deps: {
       });
     }
     const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
-    if (!prompt || prompt.length > 20_000) {
-      throw new CloudError('INVALID_ARGUMENT', 'prompt must contain 1-20000 characters', {
+    if (!prompt || prompt.length > MAX_GENERATION_PROMPT_LENGTH) {
+      throw new CloudError('INVALID_ARGUMENT', `prompt must contain 1-${MAX_GENERATION_PROMPT_LENGTH} characters`, {
         status: 400,
         applied: false,
       });
@@ -804,36 +809,15 @@ function createCloudMediaJobsPort(deps: {
         };
       }
 
-      if (!auth.clientId) {
-        return { jobs: [], total: 0, offset, limit };
-      }
-
-      const grantedRows = await deps.db
-        .select({ projectId: projectGrants.projectId })
-        .from(projectGrants)
-        .where(
-          and(
-            eq(projectGrants.workspaceId, auth.workspaceId),
-            eq(projectGrants.userId, auth.userId),
-            eq(projectGrants.clientId, auth.clientId),
-            isNull(projectGrants.revokedAt),
-          ),
-        );
-
-      const candidateProjectIds = [...new Set(grantedRows.map((row) => row.projectId))];
-      if (candidateProjectIds.length === 0) {
-        return { jobs: [], total: 0, offset, limit };
-      }
-
       const accessibleProjects = await deps.db
         .select({ id: projects.id, ownerUserId: projects.ownerUserId })
         .from(projects)
-        .where(and(eq(projects.workspaceId, auth.workspaceId), inArray(projects.id, candidateProjectIds)));
+        .where(eq(projects.workspaceId, auth.workspaceId));
 
-      const grantedProjectIds = accessibleProjects
+      const accessibleProjectIds = accessibleProjects
         .filter((project) => !project.ownerUserId || project.ownerUserId === auth.userId)
         .map((project) => project.id);
-      if (grantedProjectIds.length === 0) {
+      if (accessibleProjectIds.length === 0) {
         return { jobs: [], total: 0, offset, limit };
       }
 
@@ -844,7 +828,7 @@ function createCloudMediaJobsPort(deps: {
           and(
             eq(jobs.workspaceId, auth.workspaceId),
             eq(jobs.kind, 'media_generate'),
-            inArray(jobs.projectId, grantedProjectIds),
+            inArray(jobs.projectId, accessibleProjectIds),
           ),
         )
         .orderBy(desc(jobs.createdAt))
@@ -906,40 +890,68 @@ function createCloudMediaJobsPort(deps: {
     if (!isUuid(jobId)) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }
-    const [existing] = await deps.db
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const [existing] = await deps.db
+        .select()
+        .from(jobs)
+        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.kind, 'media_generate')))
+        .limit(1);
+      if (!existing) {
+        throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
+      }
+      if (existing.projectId && auth.authMethod === 'oauth_bearer') {
+        await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
+      }
+      if (['completed', 'failed', 'cancelled'].includes(existing.state)) {
+        return { job: serializeJob(existing) };
+      }
+      if (existing.state === 'cancelling') {
+        await deps.eventBus.publish(cancelChannel(jobId), {
+          jobId,
+          workspaceId: auth.workspaceId,
+          requestedAt: Date.now(),
+        });
+        return { job: serializeJob(existing) };
+      }
+      const nextState = existing.state === 'queued' ? 'cancelled' : 'cancelling';
+      const [updated] = await deps.db
+        .update(jobs)
+        .set(
+          asUpdate(jobs, {
+            state: nextState,
+            stage: nextState,
+            ...(nextState === 'cancelled' ? { savePending: false, terminalAt: sql`now()` } : {}),
+            updatedAt: sql`now()`,
+          }),
+        )
+        .where(
+          and(
+            eq(jobs.workspaceId, auth.workspaceId),
+            eq(jobs.id, jobId),
+            eq(jobs.kind, 'media_generate'),
+            eq(jobs.state, existing.state),
+          ),
+        )
+        .returning();
+
+      if (updated) {
+        await deps.eventBus.publish(cancelChannel(jobId), {
+          jobId,
+          workspaceId: auth.workspaceId,
+          requestedAt: Date.now(),
+        });
+        return { job: serializeJob(updated) };
+      }
+    }
+    const [latest] = await deps.db
       .select()
       .from(jobs)
       .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.kind, 'media_generate')))
       .limit(1);
-    if (!existing) {
+    if (!latest) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }
-    if (existing.projectId && auth.authMethod === 'oauth_bearer') {
-      await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
-    }
-    if (['completed', 'failed', 'cancelled'].includes(existing.state)) {
-      return { job: serializeJob(existing) };
-    }
-    const nextState = existing.state === 'queued' ? 'cancelled' : 'cancelling';
-    const [updated] = await deps.db
-      .update(jobs)
-      .set(
-        asUpdate(jobs, {
-          state: nextState,
-          stage: nextState,
-          ...(nextState === 'cancelled' ? { terminalAt: sql`now()` } : {}),
-          updatedAt: sql`now()`,
-        }),
-      )
-      .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId)))
-      .returning();
-
-    await deps.eventBus.publish(cancelChannel(jobId), {
-      jobId,
-      workspaceId: auth.workspaceId,
-      requestedAt: Date.now(),
-    });
-    return { job: serializeJob(updated ?? existing) };
+    return { job: serializeJob(latest) };
   };
 
   const resumeJob = async (
@@ -962,7 +974,7 @@ function createCloudMediaJobsPort(deps: {
     if (existing.projectId && auth.authMethod === 'oauth_bearer') {
       await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
     }
-    if (!existing.remoteId || existing.remoteTerminal || existing.state !== 'failed') {
+    if (!existing.remoteId || existing.remoteTerminal || existing.savePending || existing.state !== 'failed') {
       throw new CloudError(
         'INVALID_ARGUMENT',
         'Only failed media jobs with an active upstream remoteId can be resumed without re-submitting.',
@@ -976,6 +988,7 @@ function createCloudMediaJobsPort(deps: {
         asUpdate(jobs, {
           state: 'queued',
           stage: 'resuming',
+          failureStage: null,
           errorCode: null,
           errorMessage: null,
           terminalAt: null,
@@ -998,7 +1011,22 @@ function createCloudMediaJobsPort(deps: {
     return { job: serializeJob(updated ?? existing) };
   };
 
-  const retrySaveJob = async (auth: AuthContext, jobId: string): Promise<Record<string, unknown>> => {
+  const retrySaveJob = async (
+    auth: AuthContext,
+    jobId: string,
+    requestId: string,
+  ): Promise<Record<string, unknown>> => {
+    try {
+      validateStableRequestId(requestId);
+    } catch {
+      throw new CloudError(
+        'INVALID_ARGUMENT',
+        requestId.trim().length === 0
+          ? 'requestId is required for retry_save'
+          : 'Valid stable requestId is required for retry_save',
+        { status: 400, applied: false },
+      );
+    }
     if (!isUuid(jobId)) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }
@@ -1013,18 +1041,126 @@ function createCloudMediaJobsPort(deps: {
     if (existing.projectId && auth.authMethod === 'oauth_bearer') {
       await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
     }
-    if (!existing.savePending) {
+    const readRetrySaveRequestId = (row: typeof jobs.$inferSelect): string | null => {
+      const result = row.resultJson;
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        const value = (result as Record<string, unknown>).retrySaveRequestId;
+        if (typeof value === 'string' && value.length > 0) return value;
+      }
+      return null;
+    };
+    const buildRetrySaveQueueJobId = (row: typeof jobs.$inferSelect): string =>
+      `${jobId}__retry_save__${row.claimToken ?? 'init'}__${requestId}`;
+
+    if (
+      existing.state === 'queued' &&
+      existing.stage === 'saving' &&
+      existing.savePending &&
+      existing.remoteId &&
+      readRetrySaveRequestId(existing) === requestId
+    ) {
+      await deps.queues.enqueueMediaGenerate(
+        'retry_save_generation',
+        { jobId, workspaceId: auth.workspaceId },
+        { jobId: buildRetrySaveQueueJobId(existing) },
+      );
+      return { job: serializeJob(existing) };
+    }
+    if (!existing.savePending || !existing.remoteId || existing.state !== 'failed') {
       throw new CloudError('INVALID_ARGUMENT', 'Media job does not have a pending save to retry.', {
         status: 409,
         applied: false,
       });
     }
-    await deps.queues.enqueueMediaGenerate(
-      'retry_save_generation',
-      { jobId, workspaceId: auth.workspaceId },
-      { jobId: `${jobId}__retry_save__${Date.now()}` },
-    );
-    return { job: serializeJob(existing) };
+    const existingResultJson =
+      existing.resultJson && typeof existing.resultJson === 'object' && !Array.isArray(existing.resultJson)
+        ? (existing.resultJson as Record<string, unknown>)
+        : {};
+    const [updated] = await deps.db
+      .update(jobs)
+      .set(
+        asUpdate(jobs, {
+          state: 'queued',
+          stage: 'saving',
+          failureStage: null,
+          errorCode: null,
+          errorMessage: null,
+          resultJson: { ...existingResultJson, retrySaveRequestId: requestId },
+          terminalAt: null,
+          updatedAt: sql`now()`,
+        }),
+      )
+      .where(
+        and(
+          eq(jobs.workspaceId, auth.workspaceId),
+          eq(jobs.id, jobId),
+          eq(jobs.kind, 'media_generate'),
+          eq(jobs.state, 'failed'),
+          eq(jobs.savePending, true),
+          isNotNull(jobs.remoteId),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      const [current] = await deps.db
+        .select()
+        .from(jobs)
+        .where(and(eq(jobs.workspaceId, auth.workspaceId), eq(jobs.id, jobId), eq(jobs.kind, 'media_generate')))
+        .limit(1);
+      if (
+        current &&
+        current.state === 'queued' &&
+        current.stage === 'saving' &&
+        current.savePending &&
+        current.remoteId &&
+        readRetrySaveRequestId(current) === requestId
+      ) {
+        await deps.queues.enqueueMediaGenerate(
+          'retry_save_generation',
+          { jobId, workspaceId: auth.workspaceId },
+          { jobId: buildRetrySaveQueueJobId(current) },
+        );
+        return { job: serializeJob(current) };
+      }
+      throw new CloudError('INVALID_ARGUMENT', 'Media job does not have a pending save to retry.', {
+        status: 409,
+        applied: false,
+      });
+    }
+    try {
+      await deps.queues.enqueueMediaGenerate(
+        'retry_save_generation',
+        { jobId, workspaceId: auth.workspaceId },
+        { jobId: buildRetrySaveQueueJobId(updated) },
+      );
+    } catch (error) {
+      await deps.db
+        .update(jobs)
+        .set(
+          asUpdate(jobs, {
+            state: 'failed',
+            stage: existing.stage ?? 'failed',
+            failureStage: existing.failureStage ?? 'saving',
+            savePending: true,
+            errorCode: existing.errorCode,
+            errorMessage: existing.errorMessage,
+            resultJson: existing.resultJson ?? null,
+            terminalAt: existing.terminalAt ?? sql`now()`,
+            updatedAt: sql`now()`,
+          }),
+        )
+        .where(
+          and(
+            eq(jobs.workspaceId, auth.workspaceId),
+            eq(jobs.id, jobId),
+            eq(jobs.state, 'queued'),
+            eq(jobs.stage, 'saving'),
+          ),
+        )
+        .catch(() => {});
+      throw error;
+    }
+    return { job: serializeJob(updated) };
   };
 
   const handleMediaAction = async (
@@ -1048,7 +1184,7 @@ function createCloudMediaJobsPort(deps: {
       case 'resume':
         return resumeJob(auth, String(args.jobId ?? ''), String(args.requestId ?? ''));
       case 'retry_save':
-        return retrySaveJob(auth, String(args.jobId ?? ''));
+        return retrySaveJob(auth, String(args.jobId ?? ''), String(args.requestId ?? ''));
       default:
         throw new CloudError('INVALID_ARGUMENT', `Unsupported media action '${action}'`, {
           status: 400,
@@ -1873,25 +2009,13 @@ function createMcpDomainPorts(deps: {
 
     archive: {
       async handleProjectArchive(auth, args) {
-        const action = String(args.action ?? '');
-        const requestId = String(args.requestId ?? randomUUID());
-        if (action === 'export') {
-          const res = await deps.archives.exportProjects(auth, {
-            requestId,
-            projectIds: Array.isArray(args.projectIds) ? (args.projectIds as string[]) : undefined,
-            all: args.all === true,
-            expectedRevisions:
-              args.expectedRevisions && typeof args.expectedRevisions === 'object'
-                ? (args.expectedRevisions as Record<string, string>)
-                : undefined,
-          });
-          return res as unknown as Record<string, unknown>;
-        }
-        throw new CloudError(
-          'INVALID_ARGUMENT',
-          'LOCAL_PATH_UNSUPPORTED_IN_CLOUD: Upload project archives via POST /motion-api/project-archives/import in cloud deployments.',
-          { status: 400, applied: false, details: { legacyCode: 'LOCAL_PATH_UNSUPPORTED_IN_CLOUD' } },
-        );
+        const result = await deps.archives.exportProjects(auth, {
+          requestId: args.requestId as string,
+          projectIds: args.projectIds as string[] | undefined,
+          all: args.all === true,
+          expectedRevisions: args.expectedRevisions as Record<string, string> | undefined,
+        });
+        return { ...result, downloadInstructions: cloudProjectArchiveDownloadInstructions };
       },
     },
 
@@ -1977,7 +2101,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   });
   const assetNames = new AssetNamesService({ db, files });
   const workRounds = new WorkRoundsService(db);
-  const archives = new ProjectArchiveService({ db, storage, workspace, files });
+  const archives = new ProjectArchiveService({ db, storage, workspace, files, publicOrigin: config.APP_PUBLIC_ORIGIN });
   const assets = new AssetLibraryService({
     db,
     storage,
@@ -2159,7 +2283,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const auth = c.get('auth') as AuthContext | undefined;
     logger.info('HTTP request completed', {
       method: c.req.method,
-      path,
+      path: routePath(c),
       status: c.res.status,
       durationMs: Date.now() - startedAt,
       ...(auth
@@ -2461,17 +2585,17 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   // 6. Authenticated Cloud Integration, Runtime, Connect & Telemetry Endpoints
   // -------------------------------------------------------------------------
 
-  const buildIntegrationPayload = (auth: AuthContext) =>
+  const buildIntegrationPayload = (auth?: AuthContext) =>
     buildCloudIntegrationInfo({
       publicOrigin: config.APP_PUBLIC_ORIGIN,
       version: VERSION,
-      workspaceId: auth.workspaceId,
+      ...(auth ? { workspaceId: auth.workspaceId } : {}),
       authMode: config.AUTH_MODE,
       oauth2Enabled: true,
       patEnabled: true,
       authorizationServerUrl: oauth21.issuer,
       resourceMetadataUrl: oauth21.resourceMetadataUrl,
-      tools: phase1Tools.map((tool) => ({ name: tool.name, description: tool.description })),
+      tools: cloudPhase1Tools(config.APP_PUBLIC_ORIGIN).map(tool => ({ name: tool.name, description: tool.description })),
     });
 
   app.get('/motion-api/integration', authWithWelcome, (c) => {
@@ -2480,9 +2604,16 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.get('/api/integration', authWithWelcome, (c) => {
     return c.json(buildIntegrationPayload(getAuthContext(c)));
   });
+  // Public read-only cloud MCP discovery (no workspaceId or private user data) so guests on
+  // `/mcp-setup` still receive the deployment's Streamable HTTP endpoint and `/install.md` guide.
+  app.get('/connect/integration', (c) => {
+    return c.json(buildIntegrationPayload(), 200, {
+      'Cache-Control': 'public, max-age=60',
+    });
+  });
 
-  app.get('/connect/config', authWithWelcome, (c) => {
-    const info = buildIntegrationPayload(getAuthContext(c));
+  app.get('/connect/config', (c) => {
+    const info = buildIntegrationPayload();
     const host = integrationHost(c.req.query('host') ?? null);
     const configFile = integrationConfig(info, host);
     return new Response(configFile.text, {
@@ -2490,19 +2621,41 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       headers: {
         'Content-Type': configFile.contentType,
         'Content-Disposition': `attachment; filename="${configFile.filename}"`,
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'public, max-age=60',
       },
     });
   });
 
-  app.get('/connect/guide', authWithWelcome, (c) => {
-    const info = buildIntegrationPayload(getAuthContext(c));
-    const host = integrationHost(c.req.query('host') ?? null);
-    return new Response(agentGuide(info, host), {
+  // Backwards-compatible `/connect/guide` entry:
+  // - Browser HTML navigation redirects to the interactive `/mcp-setup` page.
+  // - Agent / CLI / non-HTML requests receive the public origin-bound `/install.md` guide directly
+  //   without requiring authentication so legacy handoff links still install cleanly.
+  app.get('/connect/guide', async (c) => {
+    const accept = (c.req.header('accept') ?? '').toLowerCase();
+    const prefersHtml =
+      accept.includes('text/html') &&
+      !accept.includes('text/markdown') &&
+      !accept.includes('text/plain');
+    if (prefersHtml) {
+      const rawHost = c.req.query('host');
+      const target = rawHost
+        ? `/mcp-setup?host=${encodeURIComponent(integrationHost(rawHost))}`
+        : '/mcp-setup';
+      c.header('Vary', 'Accept');
+      c.header('Cache-Control', 'no-store');
+      return c.redirect(target, 302);
+    }
+    const markdown = await renderCloudInstallGuide({
+      runtimeRoot,
+      publicOrigin: config.APP_PUBLIC_ORIGIN,
+    });
+    return new Response(markdown, {
       status: 200,
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-store',
+        'Content-Type': 'text/markdown; charset=utf-8',
+        'Cache-Control': 'public, max-age=60',
+        Vary: 'Accept',
+        'X-Content-Type-Options': 'nosniff',
       },
     });
   });

@@ -10,11 +10,31 @@ export function validateInstruction(value: unknown): string {
   return value.trim();
 }
 
+function originInstallGuide(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return `${parsed.origin}/install.md`;
+    }
+  } catch {
+    // Ignore non-URL strings.
+  }
+  return null;
+}
+
 /** A handoff to an external Agent, never a claim that a task has been executed. */
 export function projectInstruction(url: string, content: string) {
-  return `请打开这个 OpenMotion 工程：${url}\n先调用 openmotion_get_project，确认 projectId 与链接一致，读取该工程的 conversation，再继续制作。\n\n${content}`;
+  const guide = originInstallGuide(url);
+  const setupLine = guide
+    ? `如当前尚未接入该环境的 OpenMotion 云端 MCP，请先按 ${guide} 完成接入与 OAuth 授权（不要执行新建模板引导，完成后直接继续本项目）。\n`
+    : '';
+  return `请打开这个 OpenMotion 工程：${url}\n${setupLine}先调用 openmotion_get_project，确认 projectId 与链接一致，读取该工程的 conversation，再继续制作。\n\n${content}`;
 }
 
 export function sessionInstruction(url: string, sessionId: string, content: string) {
-  return `继续这个 OpenMotion 会话：${url}\n先调用 openmotion_get_session（sessionId: ${sessionId}），读取模式、需求和 artifacts，按返回的 skill 与 templateId 制作。若没有产物，先用 openmotion_create_artifact 在这个会话中创建。操作前调用 openmotion_get_project，确认 projectId 与链接或所选产物一致；如不一致，用最新 revision 调用 openmotion_open_artifact 切到本会话对应的产物后再读取。不要覆盖其他会话的工程。\n\n${content}`;
+  const guide = originInstallGuide(url);
+  const setupLine = guide
+    ? `如当前尚未接入该环境的 OpenMotion 云端 MCP，请先按 ${guide} 完成接入与 OAuth 授权（不要执行新建模板引导，完成后直接继续本会话）。\n`
+    : '';
+  return `继续这个 OpenMotion 会话：${url}\n${setupLine}先调用 openmotion_get_session（sessionId: ${sessionId}），读取模式、需求和 artifacts，按返回的 skill 与 templateId 制作。若没有产物，先用 openmotion_create_artifact 在这个会话中创建。操作前调用 openmotion_get_project，确认 projectId 与链接或所选产物一致；如不一致，用最新 revision 调用 openmotion_open_artifact 切到本会话对应的产物后再读取。不要覆盖其他会话的工程。\n\n${content}`;
 }

@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SkillsPage, skillSubmissionUrl } from './SkillsPage';
 import { SkillMedia } from './SkillMedia';
-import { motionSkills, skillPreviewSnapshot, skillPrompt, skillShortcut, studioSkillDefaults } from './skillCatalog';
+import { motionSkills, skillPrompt, skillShortcut, studioSkillDefaults } from './skillCatalog';
 import { readWorkspacePage, workspacePageHref } from './workspacePageRouting';
 import { findTechniqueStudio } from '../../../shared/studio-catalog';
 import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
@@ -276,56 +276,28 @@ it('opens the contribution guide section for submitting a skill, like the templa
   expect(section).toContain('draft pull request');
 });
 
-it('ships static WebP posters and waits to fetch archived video until playback starts', async () => {
-  const archived = motionSkills.filter(skill => (skill.cover?.video ?? skill.cover?.gif)?.startsWith(skillPreviewSnapshot));
-  expect(archived.length).toBeGreaterThan(100);
-  for (const skill of archived) expect(skill.cover?.poster, skill.id).toMatch(/\.webp(?:\?|$)/);
-  const skill = motionSkills.find(skill => skill.id === 'motionmaxxing')!;
-  const videoUrl = skill.cover!.video!;
-  const fetcher = vi.mocked(fetch).mockImplementation(async input => String(input) === videoUrl
-    ? new Response('sample', { headers: { 'Content-Type': 'application/octet-stream' } })
-    : new Response(null, { status: 404 }));
-  const videoRequests = () => fetcher.mock.calls.map(([input]) => String(input))
-    .filter(url => url.startsWith(skillPreviewSnapshot) && url.endsWith('.mp4'));
-  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:skill-preview');
-  act(() => root.render(<SkillMedia skill={skill} />));
-  expect(container.querySelectorAll('img')).toHaveLength(2);
-  expect(videoRequests()).toEqual([]);
-  await act(async () => root.render(<SkillMedia skill={skill} playing />));
-  expect(create).toHaveBeenCalled();
-  expect(videoRequests()).toEqual([videoUrl]);
-  act(() => root.render(<SkillMedia skill={skill} playing={false} />));
-  expect(container.querySelectorAll('video')).toHaveLength(0);
-  expect(container.querySelectorAll('img')).toHaveLength(2);
-  // Re-entering playback reuses the cached Blob instead of re-fetching from GitHub Raw.
-  await act(async () => root.render(<SkillMedia skill={skill} playing />));
-  expect(videoRequests()).toEqual([videoUrl]);
-  act(() => root.render(<SkillMedia skill={skill} playing={false} />));
-});
-
-it('keeps a shared in-flight archived preview alive when one of two subscribers unmounts', async () => {
-  const skill = motionSkills.find(entry => entry.cover?.video?.startsWith(skillPreviewSnapshot) && entry.id !== 'motionmaxxing')!;
-  const videoUrl = skill.cover!.video!;
-  let resolveFetch!: (response: Response) => void;
-  let capturedSignal: AbortSignal | undefined;
-  const fetcher = vi.mocked(fetch).mockImplementation((input, init) => {
-    if (String(input) === videoUrl) {
-      capturedSignal = init?.signal ?? undefined;
-      return new Promise<Response>(resolve => { resolveFetch = resolve; });
+it('serves Skill covers from first-party assets and streams previews only during playback', async () => {
+  const firstPartyMedia = /^https:\/\/releases\.open-design\.ai\/open-motion\/media\/sha256\/[a-f0-9]{64}\.(mp4|gif|webp)$/;
+  const previews = motionSkills.flatMap(skill => [skill.cover?.video, skill.cover?.gif].filter(Boolean));
+  expect(previews.length).toBeGreaterThan(120);
+  expect(previews.every(url => firstPartyMedia.test(url!))).toBe(true);
+  for (const { cover, id } of motionSkills) {
+    if (!cover) continue;
+    for (const url of [cover.video, cover.gif, cover.poster]) {
+      if (!url) continue;
+      if (/^https?:\/\//.test(url)) expect(url, id).toMatch(firstPartyMedia);
+      else expect(url, id).toMatch(/\.webp$/);
     }
-    return Promise.resolve(new Response(null, { status: 404 }));
-  });
-  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:shared-preview');
-  act(() => root.render(<><SkillMedia key="a" skill={skill} playing /><SkillMedia key="b" skill={skill} playing /></>));
-  expect(fetcher.mock.calls.filter(([input]) => String(input) === videoUrl)).toHaveLength(1);
-  // Unmounting the first subscriber must not abort the shared request for the remaining subscriber.
-  act(() => root.render(<><SkillMedia key="b" skill={skill} playing /></>));
-  expect(capturedSignal?.aborted).toBe(false);
-  await act(async () => {
-    resolveFetch(new Response('sample', { headers: { 'Content-Type': 'application/octet-stream' } }));
-  });
-  expect(container.querySelectorAll('video')).toHaveLength(1);
-  expect(container.querySelector('video')!.getAttribute('src')).toBe('blob:shared-preview');
+    if (cover.video || cover.gif) expect(cover.poster, id).toMatch(/\.webp$/);
+  }
+  const skill = motionSkills.find(entry => entry.id === 'motionmaxxing')!;
+  act(() => root.render(<SkillMedia skill={skill} />));
+  expect(container.querySelector('video')).toBeNull();
+  act(() => root.render(<SkillMedia skill={skill} playing />));
+  expect(container.querySelector('video')?.getAttribute('src')).toBe(skill.cover?.video);
+  act(() => root.render(<SkillMedia skill={skill} playing={false} />));
+  expect(container.querySelector('video')).toBeNull();
+  expect(container.querySelectorAll('img')).toHaveLength(2);
 });
 
 it('merges same-repository cover credits while retaining external sources and attribution', () => {

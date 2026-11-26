@@ -335,11 +335,131 @@ describe('AUTH_MODE=oidc Authorization Code + PKCE, Browser Sessions, CSRF & JWK
       },
     });
     assert.equal(logoutRes.status, 200);
+    const logoutBody = (await logoutRes.json()) as { ok: boolean; endSessionUrl?: string };
+    assert.equal(logoutBody.ok, true);
+    assert.equal(logoutBody.endSessionUrl, undefined);
 
     const afterLogoutMe = await app.request('/auth/me', {
       headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` },
     });
     assert.equal(afterLogoutMe.status, 401);
+  });
+
+  it('calls IdP end_session_endpoint server-side with id_token_hint on logout without exposing endSessionUrl to the browser (OPEND-5726)', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const jwk = await exportJWK(publicKey);
+    jwk.kid = 'logout-key-1';
+    jwk.alg = 'RS256';
+    jwk.use = 'sig';
+
+    let currentNonce = '';
+    let issuedIdToken = '';
+    const endSessionRequests: URL[] = [];
+    let endSessionStatus = 200;
+
+    const oidc = new OidcService(
+      {
+        issuer: 'https://idp.example.test',
+        clientId: 'openmotion-web',
+        clientSecret: 'super-secret-client',
+        callbackUrl: 'https://motion.example.test/auth/callback',
+        scopes: 'openid profile email',
+        claimSub: 'sub',
+        claimEmail: 'email',
+        claimName: 'name',
+        discovery: {
+          issuer: 'https://idp.example.test',
+          authorization_endpoint: 'https://idp.example.test/authorize',
+          token_endpoint: 'https://idp.example.test/token',
+          jwks_uri: 'https://idp.example.test/jwks',
+          end_session_endpoint: 'https://idp.example.test/oauth2/end-session',
+        },
+        jwks: createLocalJWKSet({ keys: [jwk] }),
+        fetcher: async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname === '/token') {
+            issuedIdToken = await new SignJWT({
+              sub: 'opendesign-logout-user',
+              email: 'logout@example.test',
+              name: 'Logout User',
+              nonce: currentNonce,
+              sid: 'upstream-session-1',
+            })
+              .setProtectedHeader({ alg: 'RS256', kid: 'logout-key-1' })
+              .setIssuer('https://idp.example.test')
+              .setAudience('openmotion-web')
+              .setIssuedAt()
+              .setExpirationTime('10m')
+              .sign(privateKey);
+            return new Response(
+              JSON.stringify({ id_token: issuedIdToken, access_token: 'opaque' }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          if (url.pathname === '/oauth2/end-session') {
+            endSessionRequests.push(url);
+            return new Response(null, { status: endSessionStatus });
+          }
+          return new Response('not found', { status: 404 });
+        },
+      },
+      cache,
+    );
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, oidc }));
+
+    async function loginAndGetSession() {
+      const loginRes = await app.request('/auth/login?returnTo=/explore');
+      const authUrl = new URL(loginRes.headers.get('location')!);
+      currentNonce = authUrl.searchParams.get('nonce')!;
+      const txCookie = extractCookieValue(loginRes.headers.getSetCookie(), 'om_oidc_tx')!;
+      const cbRes = await app.request(
+        `/auth/callback?code=code-1&state=${encodeURIComponent(authUrl.searchParams.get('state')!)}`,
+        { headers: { Cookie: `om_oidc_tx=${encodeURIComponent(txCookie)}` } },
+      );
+      assert.equal(cbRes.status, 302);
+      return extractCookieValue(cbRes.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+    }
+
+    // 1. Normal logout revokes local session AND calls IdP end-session server-side with id_token_hint.
+    const session1 = await loginAndGetSession();
+    const idToken1 = issuedIdToken;
+    const logout1 = await app.request('/auth/logout', {
+      method: 'POST',
+      headers: {
+        Cookie: `${SESSION_COOKIE_NAME}=${session1}`,
+        Origin: 'https://motion.example.test',
+      },
+    });
+    assert.equal(logout1.status, 200);
+    const body1 = (await logout1.json()) as { ok: boolean; endSessionUrl?: string };
+    assert.equal(body1.ok, true);
+    assert.equal(body1.endSessionUrl, undefined);
+    assert.equal(endSessionRequests.length, 1);
+    assert.equal(endSessionRequests[0]!.searchParams.get('id_token_hint'), idToken1);
+    assert.equal(endSessionRequests[0]!.searchParams.get('client_id'), 'openmotion-web');
+
+    // 2. Upstream end-session failure does NOT fail local logout or return a broken browser redirect.
+    endSessionStatus = 500;
+    const session2 = await loginAndGetSession();
+    const logout2 = await app.request('/auth/logout', {
+      method: 'POST',
+      headers: {
+        Cookie: `${SESSION_COOKIE_NAME}=${session2}`,
+        Origin: 'https://motion.example.test',
+      },
+    });
+    assert.equal(logout2.status, 200);
+    assert.deepEqual(await logout2.json(), { ok: true });
+    assert.equal(endSessionRequests.length, 2);
+    const afterLogout2 = await app.request('/auth/me', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session2}` },
+    });
+    assert.equal(afterLogout2.status, 401);
   });
 });
 

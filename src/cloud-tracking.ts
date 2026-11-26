@@ -5,6 +5,11 @@ import { omEvents, studioEvents } from '../tracking/events.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 
 const MAX_BROWSER_BATCH_SIZE = 25;
+// Cloud pods aggregate browser telemetry from many concurrent users through one shared tracker;
+// size the buffer above the single-user desktop default (64) so bursts of card impressions do not
+// drop conversion events while keeping each PostHog /batch/ request within its 16-event / 64 KB cap.
+const STUDIO_TRACKER_MAX_QUEUE = 1024;
+const STUDIO_TRACKER_FLUSH_INTERVAL_MS = 500;
 
 export interface CloudTrackingHandle {
   isEnabled(): boolean;
@@ -111,6 +116,8 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
     registry: studioEvents,
     entrypoint: 'studio',
     enabled: true,
+    maxQueue: STUDIO_TRACKER_MAX_QUEUE,
+    flushIntervalMs: STUDIO_TRACKER_FLUSH_INTERVAL_MS,
     isEnabled: isActive,
     send: sender,
   });

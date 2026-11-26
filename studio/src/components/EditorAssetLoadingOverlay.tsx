@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useI18n } from "../i18n/I18n";
 import {
   EDITOR_ASSET_AUTO_RELEASE_MS,
@@ -16,9 +16,6 @@ import type { PreviewAssetFailure } from "../player/lib/previewAssetReadiness";
 import type { AppToast } from "../utils/studioHelpers";
 
 export { EDITOR_ASSET_AUTO_RELEASE_MS, EDITOR_ASSET_ESCAPE_HATCH_MS };
-export const EDITOR_ASSET_PROGRESS_DEBOUNCE_MS = 120;
-export const EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS = 300;
-const EXIT_FADE_MS = 200;
 
 export interface EditorAssetLoadingOverlayProps {
   visible: boolean;
@@ -79,98 +76,6 @@ export function EditorAssetLoadingOverlay({
   );
 }
 
-export interface EditorAssetProgressBarProps {
-  loading: boolean;
-  completed: number;
-  total: number;
-  indeterminate?: boolean;
-  debounceMs?: number;
-}
-
-/**
- * Non-blocking slim progress bar pinned directly beneath the editor header
- * while composition assets preload or retry in the background. Appears after
- * a brief debounce, holds long enough to read once shown, and never blocks input.
- */
-export function EditorAssetProgressBar({
-  loading,
-  completed,
-  total,
-  indeterminate = false,
-  debounceMs = EDITOR_ASSET_PROGRESS_DEBOUNCE_MS,
-}: EditorAssetProgressBarProps) {
-  const { t } = useI18n();
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const shownAtRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (!loading) {
-      if (!mounted) {
-        setVisible(false);
-        return;
-      }
-      const elapsed = shownAtRef.current > 0 ? Date.now() - shownAtRef.current : EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS;
-      const holdMs = Math.max(0, EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS - elapsed);
-      let unmountTimer: ReturnType<typeof setTimeout> | undefined;
-      const fadeTimer = setTimeout(() => {
-        setVisible(false);
-        unmountTimer = setTimeout(() => {
-          shownAtRef.current = 0;
-          setMounted(false);
-        }, EXIT_FADE_MS);
-      }, holdMs);
-      return () => {
-        clearTimeout(fadeTimer);
-        if (unmountTimer) clearTimeout(unmountTimer);
-      };
-    }
-
-    if (mounted) {
-      setVisible(true);
-      return;
-    }
-
-    let rafId = 0;
-    const showTimer = setTimeout(() => {
-      shownAtRef.current = Date.now();
-      setMounted(true);
-      rafId = requestAnimationFrame(() => setVisible(true));
-    }, debounceMs);
-    return () => {
-      clearTimeout(showTimer);
-      cancelAnimationFrame(rafId);
-    };
-  }, [debounceMs, loading, mounted]);
-
-  if (!mounted) return null;
-
-  const hasDeterminateCount = !indeterminate && total > 0;
-  const boundedCompleted = hasDeterminateCount ? Math.min(total, Math.max(0, completed)) : 0;
-  const ratio = hasDeterminateCount ? boundedCompleted / total : 0;
-  const displayRatio = hasDeterminateCount ? Math.max(loading ? 0.06 : 1, ratio) : 0;
-  const percent = Math.round(ratio * 100);
-
-  return (
-    <div
-      className="motion-editor-asset-bar"
-      data-visible={visible ? "true" : "false"}
-      data-testid="editor-asset-progress-bar"
-      role="progressbar"
-      aria-label={t("Preparing project assets")}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={hasDeterminateCount ? percent : undefined}
-    >
-      <div
-        className="motion-editor-asset-bar-fill"
-        data-indeterminate={hasDeterminateCount ? undefined : "true"}
-        style={hasDeterminateCount ? { transform: `scaleX(${displayRatio})` } : undefined}
-      />
-    </div>
-  );
-}
-
 type ShowToastFn = (
   message: string,
   tone?: AppToast["tone"],
@@ -217,7 +122,7 @@ export async function triggerEditorAssetRetry(): Promise<void> {
   }
 }
 
-/** Keep the project cover until its file tree arrives; report media progress and failures independently. */
+/** Keep the project cover until its file tree arrives and report media failures independently. */
 export function useEditorAssetReadiness({
   projectId,
   fileTreeLoaded,
@@ -235,17 +140,13 @@ export function useEditorAssetReadiness({
 }) {
   const { t } = useI18n();
   const assetPhase = usePlayerStore((s) => s.assetReadinessPhase);
-  const completed = usePlayerStore((s) => s.assetReadinessCompleted);
-  const total = usePlayerStore((s) => s.assetReadinessTotal);
   const failed = usePlayerStore((s) => s.assetReadinessFailed);
   const skipped = usePlayerStore((s) => s.assetReadinessSkipped);
-  const retrying = usePlayerStore((s) => s.assetReadinessRetrying);
   const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
   const previewLoadError = usePlayerStore((s) => s.previewLoadError);
   const suppress = !projectId || previewLoadError || unreachableProject || compositionMissing;
   // The file tree belongs to this project. Each panel owns readiness of its own contents.
   const blocking = !suppress && !skipped && !fileTreeLoaded;
-  const backgroundLoading = !suppress && !blocking && (assetPhase === "loading" || retrying);
 
   useEffect(() => {
     usePlayerStore.getState().setEditorInputLocked(blocking);
@@ -343,13 +244,7 @@ export function useEditorAssetReadiness({
 
   return {
     blocking,
-    backgroundLoading,
-    loading: backgroundLoading,
-    completed,
-    total,
-    indeterminate: retrying || total === 0,
     failed,
-    retrying,
     skip,
     retryFailedAssets,
   };

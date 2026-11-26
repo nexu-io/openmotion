@@ -24,7 +24,7 @@ import {
   type HistoryActorKind,
   type ProjectVersionSource,
 } from '../db/schema/project-files.ts';
-import { projectGrants, projects } from '../db/schema/projects.ts';
+import { projects } from '../db/schema/projects.ts';
 import { projectChannel, workspaceCatalogChannel } from '../infra/redis.ts';
 import { assertTenantScopedKey, catalogBlobKey, textRevisionKey, workspaceBlobKey } from '../infra/storage.ts';
 import {
@@ -280,30 +280,19 @@ export async function readCommitReceipt(
 export type AgentProjectFilter = (project: { id: string; ownerUserId: string | null }) => boolean;
 
 /**
- * OAuth agents only see projects granted to their connection, matching `assertAgentProjectAccess`.
- * Returns null for callers that are not restricted by project grants.
+ * OAuth agents have workspace-level access to the authenticated user's projects
+ * (and legacy workspace projects without an ownerUserId), matching `assertAgentProjectAccess`.
+ * Returns null for callers that are not restricted by user ownership filtering.
  */
-export async function agentProjectFilter(db: DbExecutor, auth: AuthContext): Promise<AgentProjectFilter | null> {
+export async function agentProjectFilter(_db: DbExecutor, auth: AuthContext): Promise<AgentProjectFilter | null> {
   if (auth.authMethod !== 'oauth_bearer') return null;
-  if (!auth.clientId) return () => false;
-  const rows = await db
-    .select({ projectId: projectGrants.projectId })
-    .from(projectGrants)
-    .where(
-      and(
-        eq(projectGrants.userId, auth.userId),
-        eq(projectGrants.clientId, auth.clientId),
-        isNull(projectGrants.revokedAt),
-      ),
-    );
-  const granted = new Set(rows.map((row) => row.projectId));
-  return (project) =>
-    granted.has(project.id) && (!project.ownerUserId || project.ownerUserId === auth.userId);
+  return (project) => !project.ownerUserId || project.ownerUserId === auth.userId;
 }
 
 /**
- * A session's conversation belongs to its projects: an OAuth agent may address a session only when it
- * holds no project yet or at least one granted project. Other sessions look missing.
+ * A session's conversation belongs to its projects: an OAuth agent may address a session when it
+ * holds no project yet or at least one project accessible to the authenticated user. Other users'
+ * private sessions look missing.
  */
 export async function assertAgentSessionAccess(db: DbExecutor, auth: AuthContext, sessionId: string): Promise<void> {
   const visible = await agentProjectFilter(db, auth);
@@ -318,7 +307,7 @@ export async function assertAgentSessionAccess(db: DbExecutor, auth: AuthContext
 }
 
 export async function assertAgentProjectAccess(
-  db: DbExecutor,
+  _db: DbExecutor,
   auth: AuthContext,
   project: ProjectRecord,
 ): Promise<void> {
@@ -340,35 +329,6 @@ export async function assertAgentProjectAccess(
       status: 404,
       applied: false,
     });
-  }
-
-  if (!auth.clientId) {
-    throw new CloudError(
-      'PROJECT_GRANT_REQUIRED',
-      'This agent connection does not have project authorization. Grant access in OpenDesign project settings.',
-      { status: 403, applied: false, details: { projectId: project.id } },
-    );
-  }
-
-  const [grant] = await db
-    .select({ id: projectGrants.id })
-    .from(projectGrants)
-    .where(
-      and(
-        eq(projectGrants.projectId, project.id),
-        eq(projectGrants.userId, auth.userId),
-        eq(projectGrants.clientId, auth.clientId),
-        isNull(projectGrants.revokedAt),
-      ),
-    )
-    .limit(1);
-
-  if (!grant) {
-    throw new CloudError(
-      'PROJECT_GRANT_REQUIRED',
-      'This agent connection is not authorized for this project. Open the project in OpenDesign and grant access.',
-      { status: 403, applied: false, details: { projectId: project.id, clientId: auth.clientId } },
-    );
   }
 }
 

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import type { MotionSkill, SkillMotif } from './skillCatalog';
-import { useSkillPreview } from './useSkillPreview';
 import { CoverPlaceholder } from '../components/ui/CoverPlaceholder';
 import { ExploreCoverImage } from './ExploreCoverImage';
 import './skills.css';
@@ -13,7 +12,7 @@ export function SkillMedia({ skill, playing = false, large = false, brandedFallb
   const [failed, setFailed] = useState(false);
   const cover = failed ? undefined : skill.cover;
   const play = large || playing;
-  const video = useSkillPreview(cover?.video, play);
+  const video = play ? cover?.video : undefined;
   if (!cover || (!video && !cover.poster && !(play && cover.gif))) {
     return brandedFallback ? <CoverPlaceholder fill /> : <SkillCover motif={skill.motif} name={skill.name} large={large} playing={play} />;
   }

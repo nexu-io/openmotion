@@ -712,5 +712,81 @@ describe('Hono Routes: /motion-api/models/* & /motion-api/account/*', () => {
     };
     assert.equal(summaryBody.billing.unavailable, true);
     assert.equal(summaryBody.modelGateway.availableModelCount, 0);
+
+    // When billing is unavailable (not confirmed Free/Go), /models/catalog preserves the honest empty list.
+    const unavailableCatalogRes = await app.request('/motion-api/models/catalog', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(unavailableCatalogRes.status, 200);
+    const unavailableCatalogBody = (await unavailableCatalogRes.json()) as { models: unknown[] };
+    assert.equal(unavailableCatalogBody.models.length, 0);
+  });
+
+  it('serves built-in preview models on /models/catalog only for non-entitled workspaces and keeps IDs/caps aligned with shared tables', async () => {
+    const { openDesignModels, openDesignImageReferenceCap } = await import('../../shared/opendesign-models.ts');
+    const { modelReferenceLimit } = await import('../../shared/gateway.ts');
+    type SharedModel = import('../../shared/gateway.ts').Model;
+    const config = makeGatewayConfig({ OPENDESIGN_CONSOLE_URL: 'https://console.example.test' });
+    const authStore = new InMemoryAuthStore();
+    const freeWs = authStore.seedWorkspace({ role: 'owner', name: 'Free Workspace' });
+    const plusWs = authStore.seedWorkspace({ role: 'owner', name: 'Plus Workspace' });
+    const freeSession = await createBrowserSession(authStore, { userId: freeWs.user.id, workspaceId: freeWs.workspace.id });
+    const plusSession = await createBrowserSession(authStore, { userId: plusWs.user.id, workspaceId: plusWs.workspace.id });
+
+    const makeEmptyGateway = (plan: string, mediaEntitlement: 'included' | 'not-included') => {
+      const base = new OpenDesignModelGateway({
+        apiUrl: 'https://amr-api.open-design.ai',
+        linkUrl: 'https://amr-link.open-design.ai',
+        internalToken: 'test-token',
+        billingSyncEnabled: false,
+        fetcher: async () =>
+          new Response(JSON.stringify({ models: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      });
+      base.getBillingSummary = async () => ({
+        plan,
+        mediaEntitlement,
+        hasBalance: mediaEntitlement === 'included',
+      });
+      return base;
+    };
+
+    const freeApp = new Hono<AuthEnv>();
+    freeApp.use('/motion-api/*', createAuthMiddleware({ config, store: authStore }));
+    freeApp.route('/motion-api/models', createModelRoutes({ gateway: makeEmptyGateway('free', 'not-included'), authStore }));
+
+    const freeCatalogRes = await freeApp.request('/motion-api/models/catalog', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${freeSession.token}` },
+    });
+    assert.equal(freeCatalogRes.status, 200);
+    const freeCatalogBody = (await freeCatalogRes.json()) as { models: SharedModel[] };
+    assert.deepEqual(
+      freeCatalogBody.models.map((m) => m.modelId),
+      openDesignModels.map((m) => m.modelId),
+    );
+    assert.ok(freeCatalogBody.models.every((m) => m.source === 'builtin'));
+    for (const model of freeCatalogBody.models) {
+      const expectedCap = openDesignImageReferenceCap(model.modelId);
+      if (expectedCap !== undefined) {
+        assert.equal(modelReferenceLimit(model), expectedCap);
+      }
+      if (model.modality === 'video') {
+        assert.ok(Array.isArray(model.nativeOptions?.ratios));
+        assert.ok(model.generationOptions?.fields.some((f) => f.key === 'ratio'));
+      }
+    }
+
+    const plusApp = new Hono<AuthEnv>();
+    plusApp.use('/motion-api/*', createAuthMiddleware({ config, store: authStore }));
+    plusApp.route('/motion-api/models', createModelRoutes({ gateway: makeEmptyGateway('plus', 'included'), authStore }));
+
+    const plusCatalogRes = await plusApp.request('/motion-api/models/catalog', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${plusSession.token}` },
+    });
+    assert.equal(plusCatalogRes.status, 200);
+    const plusCatalogBody = (await plusCatalogRes.json()) as { models: unknown[] };
+    assert.equal(plusCatalogBody.models.length, 0);
   });
 });

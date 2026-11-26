@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LibraryAsset } from '../../../shared/asset-library';
@@ -12,7 +12,9 @@ import soundStudioUi from '../i18n/sound-studio-ui.json';
 import type { AssetDraft } from './AssetComposer';
 import type { useAssetBrowser } from './AssetBrowser';
 import { studioDestination } from './creativeStudios';
-import type { StudioCreation } from './CreativeWorkspace';
+import { CreativeWorkspace, type StudioCreation } from './CreativeWorkspace';
+import { clearPersistedStudioDraft } from './authRecoveryStore';
+import { useMediaCatalog } from './useMediaCatalog';
 import { SoundSceneTabs } from './SoundSceneTabs';
 import { SoundStudioWorkspace } from './SoundStudioWorkspace';
 import {
@@ -45,6 +47,8 @@ const chromeMocks = vi.hoisted(() => ({
 vi.mock('./assetClient', () => ({
   assetRequest: assetRequestMock,
 }));
+
+vi.mock('./useMediaCatalog', () => ({ useMediaCatalog: vi.fn() }));
 
 vi.mock('./WorkspaceFrame', () => ({
   useWorkspaceChrome: () => chromeMocks,
@@ -592,6 +596,67 @@ describe('SoundStudioWorkspace', () => {
       fetchMock.mockRestore();
       URL.createObjectURL = originalCreateObjectUrl;
       URL.revokeObjectURL = originalRevokeObjectUrl;
+    }
+  });
+
+  it.each([
+    { tab: 'music', model: accountMusic, prompt: 'A 15-second electronic track', parameters: { duration: 15 } },
+    { tab: 'speech', model: elevenSpeech, prompt: 'Welcome to OpenMotion', parameters: { voice: 'JBFqnCBsd6RMkjVDRZzb' } },
+  ] as const)('recreates the selected audio version from details in the $tab composer', async ({ tab, model, prompt, parameters }) => {
+    const studio = makeStudio('music', accountMusic.id);
+    vi.mocked(useMediaCatalog).mockReturnValue(studio.catalog);
+    const asset = makeAsset('recreate-detail', {}, { audioKind: tab, model: model.id, prompt, parameters, waveform: [0.5, 0.8] });
+    asset.versions.push({ ...asset.versions[0], id: 'v2', audioKind: 'music', model: accountMusic.id, prompt: 'Current version', parameters: { duration: 60 } });
+    asset.currentVersionId = 'v2';
+    const createJob = assetRequestMock.getMockImplementation()!;
+    assetRequestMock.mockImplementation(async input => {
+      if (input.action === 'list') return { assets: [asset], total: 1, nextOffset: null };
+      if (input.action === 'get') return { asset };
+      if (input.action === 'jobs') return { jobs: [] };
+      return createJob(input);
+    });
+
+    function Workspace() {
+      const [destination, setDestination] = useState(studio.destination);
+      const drafts = useRef(new Map<string, AssetDraft>());
+      return <CreativeWorkspace active destination={destination} drafts={drafts} visit={0} hasProject={false} skill={null}
+        onNavigate={setDestination} onOpenStudio={setDestination} onExplore={vi.fn()} onCollection={vi.fn()} />;
+    }
+
+    try {
+      await act(async () => root.render(<I18nProvider><Workspace /></I18nProvider>));
+      const openDetails = () => host.querySelector<HTMLButtonElement>('.om-sound-track-row button[aria-label="Asset details"]');
+      await act(async () => vi.waitFor(() => expect(openDetails()).not.toBeNull()));
+      const composer = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Asset prompt"]')!;
+      const durationButton = (value: string) => [...host.querySelectorAll<HTMLButtonElement>('.om-sound-pill')].find(button => button.textContent === value);
+      await act(async () => {
+        const input = composer();
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Unrelated music draft');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        durationButton('30s')!.click();
+      });
+      expect(composer().value).toBe('Unrelated music draft');
+      expect(durationButton('30s')?.getAttribute('aria-pressed')).toBe('true');
+
+      await act(async () => openDetails()!.click());
+      const detail = host.querySelector('.om-asset-workspace')!;
+      expect(detail.querySelector('.om-asset-provenance p')?.textContent).toBe('Current version');
+      await act(async () => [...detail.querySelectorAll<HTMLButtonElement>('.om-asset-version')].find(button => button.querySelector('strong')?.textContent === 'V1')!.click());
+      expect(detail.querySelector('.om-asset-provenance p')?.textContent).toBe(prompt);
+      await act(async () => [...detail.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Recreate')!.click());
+
+      expect(host.querySelector('.om-asset-workspace')).toBeNull();
+      expect(composer().value).toBe(prompt);
+      if (tab === 'music') expect(durationButton('15s')?.getAttribute('aria-pressed')).toBe('true');
+      const generate = host.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+      expect(generate.textContent).toContain(tab === 'music' ? 'Generate music' : 'Generate speech');
+      await act(async () => generate.click());
+      expect(assetRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'generate', prompt, model: model.id, parameters: expect.objectContaining(parameters),
+      }));
+    } finally {
+      clearPersistedStudioDraft('sound/music');
+      clearPersistedStudioDraft('sound/speech');
     }
   });
 

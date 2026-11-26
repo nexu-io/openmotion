@@ -500,3 +500,64 @@ it('keeps finding artifacts for a long-idle empty conversation at a bounded slow
     expect(replace).toHaveBeenCalledWith(`/editor/${first}?session=conversation&openArtifact=1#project/${first}`);
   } finally { vi.useRealTimers(); }
 });
+
+it('falls back to unscoped status and reports a stale projectId on 404/400 when fallback is enabled', async () => {
+  const staleId = '2b22bcca-8aca-45c4-808b-f7920af66a48';
+  const onStaleProjectId = vi.fn();
+  const seenUrls: string[] = [];
+  fetcher.mockImplementation(async (url: string, init?: RequestInit) => {
+    seenUrls.push(url);
+    const parsed = new URL(url, location.origin);
+    if (parsed.pathname.endsWith('/projects') && !init?.method) {
+      return Response.json({ activeId: first, projects: [{ id: first, title: 'First' }] });
+    }
+    if (parsed.pathname.endsWith('/project/status') && parsed.searchParams.get('projectId') === staleId) {
+      return Response.json({ code: 'PROJECT_NOT_FOUND', error: 'Project was not found in this workspace.' }, { status: 404 });
+    }
+    if (init?.method === 'POST') return Response.json({ ...status, projectId: first });
+    return Response.json(status);
+  });
+  function Harness() {
+    workspace = useWorkspace(async () => {}, staleId, undefined, undefined, {
+      allowUnscopedStatusFallback: true,
+      onStaleProjectId,
+    });
+    return null;
+  }
+  await act(async () => root.render(<Harness />));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+  expect(onStaleProjectId).toHaveBeenCalledWith(staleId);
+  expect(workspace.status?.projectId).toBe(first);
+  expect(workspace.connectionError).toBe('');
+  expect(seenUrls).toContain(`/motion-api/project/status?view=summary&projectId=${staleId}`);
+  expect(seenUrls).toContain('/motion-api/project/status?view=summary');
+
+  seenUrls.length = 0;
+  await act(() => workspace.open('projects', first));
+  expect(seenUrls.some(url => url.includes(staleId))).toBe(false);
+  expect(navigate).toHaveBeenCalledWith(`/editor/${first}#project/${first}`);
+});
+
+it('does not fall back on 404 status when editing an active project route', async () => {
+  const staleId = '2b22bcca-8aca-45c4-808b-f7920af66a48';
+  const onStaleProjectId = vi.fn();
+  fetcher.mockImplementation(async (url: string) => {
+    const parsed = new URL(url, location.origin);
+    if (parsed.pathname.endsWith('/projects')) {
+      return Response.json({ activeId: first, projects: [{ id: first, title: 'First' }] });
+    }
+    return Response.json({ code: 'PROJECT_NOT_FOUND', error: 'Project was not found in this workspace.' }, { status: 404 });
+  });
+  function Harness() {
+    workspace = useWorkspace(async () => {}, staleId, undefined, undefined, {
+      allowUnscopedStatusFallback: false,
+      onStaleProjectId,
+    });
+    return null;
+  }
+  await act(async () => root.render(<Harness />));
+  expect(onStaleProjectId).not.toHaveBeenCalled();
+  expect(workspace.status).toBeNull();
+  expect(workspace.connectionError).toContain('not found');
+});

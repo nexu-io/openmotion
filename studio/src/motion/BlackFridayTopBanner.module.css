@@ -207,6 +207,13 @@
   outline-offset: 2px;
 }
 
+/* Desktop app: the main application header occupies row 1 aligned with native
+   window controls; the promo banner sits directly below it on row 2. */
+:global([data-desktop="true"]) .banner {
+  grid-row: 2;
+  -webkit-app-region: no-drag;
+}
+
 @media (max-width: 1280px) and (min-width: 1081px) {
   .content {
     gap: var(--motion-space-10);

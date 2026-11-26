@@ -1,6 +1,6 @@
 import { Button } from 'open-design-ui/button';
 import { ExploreCoverImage } from './ExploreCoverImage';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { mediaEditorDestination, mediaLabels, motionStudio, type StudioDestination, type StudioScene } from './creativeStudios';
@@ -8,7 +8,6 @@ import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { sceneExamples } from './sceneShowcase';
 import { gemini4Spotlight as geminiHub } from './gemini4Spotlight';
 import { motionSkills, motionStudioCover } from './skillCatalog';
-import { useSkillPreview } from './useSkillPreview';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import type { ScenarioId } from '../../../shared/scenarios';
 import aiInfluencerMarketing from './scene-art/ai-influencer-marketing.webp';
@@ -56,21 +55,37 @@ const slides: FeaturedSlide[] = [{
   scenario: 'ai-influencer',
 }];
 
-function FeaturedClip({ src, playing }: { src: string; playing: boolean }) {
-  const player = useRef<HTMLVideoElement>(null);
-  const [failed, setFailed] = useState(false);
+function playClip(video: HTMLVideoElement, src: string) {
+  // The pinned MP4 supports byte ranges. Let the player buffer it directly.
+  if (!video.hasAttribute('src') || video.error) video.src = src;
+  void video.play().catch(() => { /* Keep the poster if playback is blocked. */ });
+}
+
+function FeaturedClip({ src, playing, player, onManualPlayback }: {
+  src: string; playing: boolean; player: RefObject<HTMLVideoElement | null>; onManualPlayback?: (playing: boolean) => void;
+}) {
   const [ready, setReady] = useState(false);
-  const [started, setStarted] = useState(playing);
-  const videoSource = useSkillPreview(src, (started || playing) && !failed);
-  useEffect(() => { if (playing) setStarted(true); }, [playing]);
+  useEffect(() => {
+    const video = player.current;
+    return () => {
+      // Removing a playing video from the DOM alone need not stop its request.
+      if (video?.hasAttribute('src')) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      }
+      onManualPlayback?.(false);
+    };
+  }, [player, src, onManualPlayback]);
   useEffect(() => {
     const video = player.current;
     if (!video) return;
-    if (playing) void video.play().catch(() => { /* The poster remains available if autoplay is blocked. */ });
+    if (playing) playClip(video, src);
     else video.pause();
-  }, [playing, videoSource]);
-  return videoSource && !failed ? <video ref={player} src={videoSource} muted loop playsInline preload="none" aria-hidden="true"
-    style={{ opacity: ready ? 1 : 0 }} onLoadedData={() => setReady(true)} onError={() => setFailed(true)} /> : null;
+  }, [playing, player, src]);
+  return <video ref={player} muted loop playsInline preload="none" aria-hidden="true" style={{ opacity: ready ? 1 : 0 }}
+    onPlaying={() => setReady(true)} onPlay={() => onManualPlayback?.(true)} onPause={() => onManualPlayback?.(false)}
+    onError={() => { setReady(false); onManualPlayback?.(false); }} />;
 }
 
 export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motionEditorDisabled, onOpenBlackFriday, onModelHub, onStartScenario }: {
@@ -90,8 +105,18 @@ export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motio
   const [paused, setPaused] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [visible, setVisible] = useState(false);
   const [readingSlide, setReadingSlide] = useState(false);
+  const player = useRef<HTMLVideoElement>(null);
+  const connection = (navigator as Navigator & { connection?: EventTarget & { saveData?: boolean } }).connection;
+  const [saveData, setSaveData] = useState(Boolean(connection?.saveData));
+  const [manualPlayback, setManualPlayback] = useState(false);
   const clock = useRef({ index: 0, remaining: slideDuration });
-  const playing = active && visible && !paused && !readingSlide;
+  const playing = active && visible && !paused && !readingSlide && !manualPlayback;
+
+  useEffect(() => {
+    const change = () => setSaveData(Boolean(connection?.saveData));
+    connection?.addEventListener?.('change', change);
+    return () => connection?.removeEventListener?.('change', change);
+  }, [connection]);
 
   useEffect(() => {
     const preference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -143,7 +168,8 @@ export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motio
         onClick={slide.hub ? event => { if ((event.target as Element).closest('button')) return; track('slide_action', { slide: slide.id, position: i }); onModelHub(slide.hub!); } : undefined}>
         <div className="om-feature-art" aria-hidden="true"><div className="om-feature-camera">
           <ExploreCoverImage src={slide.poster} eager={current} />
-          {current && active && visible && slide.clip && <FeaturedClip src={slide.clip} playing={playing} />}
+          {current && active && visible && slide.clip && <FeaturedClip key={saveData ? 'manual' : 'auto'} src={slide.clip} player={player}
+            playing={!saveData && playing} onManualPlayback={saveData ? setManualPlayback : undefined} />}
         </div></div>
         {slide.credit && <small className="om-scene-credit">{slide.credit}</small>}
         <div className="om-discovery-hero-copy">
@@ -171,6 +197,11 @@ export function ExploreSpotlight({ active, onNavigate, onOpenMotionEditor, motio
             }}>
               {t('Open in Motion Editor')}<RemixIcon name="arrow-right-line" size={16} />
             </Button> : null}
+            {current && saveData && slide.clip && <Button variant="ghost" type="button" className="om-button h-auto" disabled={!active || !visible} onClick={() => {
+              const video = player.current;
+              if (!video) return;
+              if (video.paused || video.error) playClip(video, slide.clip!); else video.pause();
+            }}><RemixIcon name={manualPlayback ? 'pause-fill' : 'play-fill'} size={16} />{t(manualPlayback ? 'Pause' : 'Play')}</Button>}
           </div>
         </div>
       </div>;

@@ -160,7 +160,8 @@ test('public writes are conditional, confined to the media prefix and verified b
   } };
   await publishMedia(lock, f.bytes, options); assert.equal(puts, 1);
   await publishMedia(lock, f.bytes, options); assert.equal(puts, 1);
-  await assert.rejects(publishMedia(lock, Buffer.alloc(f.bytes.length), options), /Assertion/);
+  await assert.rejects(publishMedia(lock, Buffer.alloc(f.bytes.length), options),
+    (error: Error) => error.message.startsWith(`Media SHA-256 mismatch: ${lock.path}`));
   await assert.rejects(publishMedia(lock, f.bytes, { ...options, fetcher: (async () => new Response(new Uint8Array(Buffer.alloc(lock.bytes)), { status: 200 })) as typeof fetch }), /SHA-256 mismatch/);
 });
 

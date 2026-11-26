@@ -38,6 +38,14 @@ describe("collectTimelineSnapTargets", () => {
     expect(targets).toContainEqual({ time: 10, type: "clip-edge" });
   });
 
+  it("preserves distinct authored clip edges within the same millisecond", () => {
+    const targets = collectTimelineSnapTargets({
+      elements: [{ id: "a", start: 0, duration: 10.7333333333 }, { id: "b", start: 10.7334, duration: 4 }],
+      beatTimes: [], playheadTime: null, forMove: true,
+    });
+    expect(targets.map(target => target.time)).toEqual([0, 10.7333333333, 10.7334, 14.7334]);
+  });
+
   it("omits playhead when null and dedupes identical times preferring playhead > clip-edge > beat", () => {
     const targets = collectTimelineSnapTargets({
       elements: [{ start: 1, duration: 1, key: "x", id: "x" }],

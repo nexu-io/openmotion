@@ -44,7 +44,7 @@ export type GeneratedAsset = { path: string; mimeType: string; bytes: number; av
 export type GenerationJob = { id: string; projectId?: string; library?: LibraryGeneration & { assetId: string; createNew?: boolean }; libraryAssets?: { assetId: string; versionId: string }[]; state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   /** New generation results also belong to the local workspace library. */
   saveToLibrary?: boolean;
-  /** Durable local outputs remain; retry_save never invokes a model. */
+  /** Existing outputs are eligible for retry_save without another generation. */
   savePending?: boolean;
   providerOrigin?: string;
   providerRevision?: string;

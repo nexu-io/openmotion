@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { matchesTracePropagationTargets } from '@sentry/core';
 import {
   RUNTIME_CONFIG_GLOBAL_KEY,
   type BrowserObservabilityConfig,
@@ -62,6 +63,36 @@ describe('@openmotion/observability/browser', () => {
   afterEach(() => {
     resetBrowserObservabilityForTests();
     delete (window as unknown as Record<string, unknown>)[RUNTIME_CONFIG_GLOBAL_KEY];
+  });
+
+  it.each([false, true])('omits trace headers on storage redirect routes (custom targets: %s)', custom => {
+    const { sdk, getOptions } = createFakeSdk();
+    const origin = window.location.origin;
+    initBrowserObservability({ sdk, config: {
+      dsn: TEST_DSN, environment: 'test', tracesSampleRate: 1,
+      ...(custom && { tracePropagationTargets: [origin, '/motion-api/', 'https://services.example.test/'] }),
+    } });
+    const targets = getOptions()!.tracePropagationTargets as Array<string | RegExp>;
+    function propagates(input: string) {
+      const url = new URL(input, origin);
+      return matchesTracePropagationTargets(url.href, targets) ||
+        (url.origin === origin && matchesTracePropagationTargets(url.pathname, targets));
+    }
+    for (const path of [
+      '/api/projects/p/preview/assets/soundtrack.m4a?original=1',
+      '/api/projects/p/sprite-sheet/0/video.mp4', '/api/projects/p/thumbnail?time=1',
+      '/api/projects/p/image-thumbnail/assets/image.webp', '/api/projects/p/renders/file/export.mp4',
+      '/motion-api/assets/a/versions/v/file', '/motion-api/assets/a/versions/v/thumbnail',
+      '/motion-api/project-archives/a/file', '/motion-api/exports/j/view', '/api/render/j/download',
+      '/api/templates/t/poster', '/motion-api/templates/t/source/assets/font.woff2', '/api/template-source/t/logo.svg',
+      'https://storage.example.test/catalog/blobs/b',
+    ]) expect(propagates(path), path).toBe(false);
+    for (const path of [
+      '/motion-api/projects', '/api/projects/p/waveform/assets/soundtrack.m4a',
+      '/api/projects/p/file-source?path=assets/soundtrack.m4a', '/motion-api/preview/open',
+      '/api/render/j/progress', '/motion-api/templates/t/clone',
+    ]) expect(propagates(path), path).toBe(true);
+    expect(propagates('https://services.example.test/health')).toBe(custom);
   });
 
   it('stays completely disabled (no-op) and never triggers lazy loader when runtime config is absent', async () => {

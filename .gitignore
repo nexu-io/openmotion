@@ -135,3 +135,6 @@ web/inline-video.html
 /mcp-ui/template-recommendations/build/
 
 /docs/readme/maintainer-media-merge-smoke.webm
+/studio/src/motion/skill-covers/*.mp4
+/studio/src/motion/skill-covers/*.webp
+/studio/src/motion/skill-covers/*.gif

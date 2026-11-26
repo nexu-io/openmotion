@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { buildCloudIntegrationInfo } from '../../shared/integration.ts';
-import { phase1Tools } from '../../shared/phase1-tools.ts';
+import { cloudPhase1Tools } from '../../shared/phase1-tools.ts';
 import { isUuid } from '../../shared/project-validation.ts';
 import { VERSION } from '../../shared/version.ts';
 import { getAuthContext, type AuthEnv } from '../auth/middleware.ts';
@@ -154,7 +154,7 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
       patEnabled: true,
       authorizationServerUrl: oauthCfg.issuer,
       resourceMetadataUrl: oauthCfg.resourceMetadataUrl,
-      tools: phase1Tools.map((tool) => ({ name: tool.name, description: tool.description })),
+      tools: cloudPhase1Tools(deps.config.APP_PUBLIC_ORIGIN).map(tool => ({ name: tool.name, description: tool.description })),
     });
     return c.json(info);
   });
