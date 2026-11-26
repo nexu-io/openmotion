@@ -23,6 +23,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 
 export interface CloudTrackingOptions {
   readonly tracertFetch?: typeof fetch;
+  readonly posthogFetch?: typeof fetch;
 }
 
 export interface CloudTrackingHandle {
@@ -166,6 +167,7 @@ export function createCloudTracking(
         appVersion,
         env: trackingEnv,
         testRunId: (env.OPENMOTION_TRACKING_TEST_RUN_ID ?? '').trim() || undefined,
+        ...(options.posthogFetch ? { fetch: options.posthogFetch } : {}),
       });
     } catch {
       sender = null;
@@ -225,6 +227,34 @@ export function createCloudTracking(
         send: sender,
       })
     : null;
+
+  async function drainPosthogTracker(
+    tracker: { flush(): Promise<string>; pending(): number } | null,
+    timeoutMs: number,
+  ): Promise<void> {
+    if (!tracker) return;
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (tracker.pending() > 0 && Date.now() < deadline) {
+      const remaining = Math.max(1, deadline - Date.now());
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const receipt = await Promise.race([
+        tracker.flush(),
+        new Promise<'timeout'>((resolve) => {
+          timer = setTimeout(() => resolve('timeout'), remaining);
+          timer.unref?.();
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+      if (
+        receipt === 'timeout' ||
+        receipt === 'disabled' ||
+        receipt === 'empty' ||
+        receipt === 'retry'
+      ) {
+        break;
+      }
+    }
+  }
 
   return {
     isEnabled: isActive,
@@ -321,8 +351,8 @@ export function createCloudTracking(
     async flush(flushOptions) {
       const timeoutMs = flushOptions?.timeoutMs ?? 3000;
       await Promise.allSettled([
-        studioTracker ? studioTracker.flush() : Promise.resolve(),
-        serverTracker ? serverTracker.flush() : Promise.resolve(),
+        drainPosthogTracker(studioTracker, timeoutMs),
+        drainPosthogTracker(serverTracker, timeoutMs),
       ]);
       if (!tracertNode || !isTracertActive()) return null;
       try {
@@ -334,8 +364,8 @@ export function createCloudTracking(
     async shutdown(shutdownOptions) {
       const timeoutMs = shutdownOptions?.timeoutMs ?? 3000;
       await Promise.allSettled([
-        studioTracker ? studioTracker.flush() : Promise.resolve(),
-        serverTracker ? serverTracker.flush() : Promise.resolve(),
+        drainPosthogTracker(studioTracker, timeoutMs),
+        drainPosthogTracker(serverTracker, timeoutMs),
         tracertNode ? tracertNode.shutdown({ timeoutMs }) : Promise.resolve(),
       ]);
       studioTracker?.close();

@@ -520,6 +520,58 @@ test('createCloudTracking handles relative OPENMOTION_TRACERT_ENDPOINT safely fo
   await withOrigin.shutdown({ timeoutMs: 200 });
 });
 
+test('createCloudTracking shutdown drains all queued PostHog batches (> 16 events) before closing trackers', async () => {
+  const deliveredBatchSizes: number[] = [];
+  const deliveredEventIds: string[] = [];
+  const mockPosthogFetch: typeof fetch = async (_input, init) => {
+    const parsed = JSON.parse(String(init?.body ?? '{}')) as {
+      batch?: Array<{ uuid?: string }>;
+    };
+    const batch = parsed.batch ?? [];
+    deliveredBatchSizes.push(batch.length);
+    for (const item of batch) {
+      if (item.uuid) deliveredEventIds.push(item.uuid);
+    }
+    return new Response(JSON.stringify({ status: 1 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  const tracker = createCloudTracking('1.4.0', BASE_ENV, { posthogFetch: mockPosthogFetch });
+  const browserEvents = Array.from({ length: 25 }, (_, i) => ({
+    event: 'surface_view',
+    event_id: crypto.randomUUID(),
+    occurred_at: new Date().toISOString(),
+    entrypoint: 'studio',
+    device_timezone: 'Asia/Shanghai',
+    utc_offset_minutes: 480,
+    properties: {
+      page_name: 'model_hub',
+      area: 'hub_videos',
+      element: 'card',
+      hub_id: 'seedance-2-5',
+      template_id: `drain-${i + 1}`,
+      position: i,
+      signed_in: true,
+      filter_value: 'all',
+    },
+  }));
+
+  assert.equal(tracker.acceptBrowserBatch({ events: browserEvents }), 25);
+  tracker.trackWebSignInResult({ outcome: 'success', userId: 'amr_drain_user', durationMs: 40 });
+
+  await tracker.shutdown({ timeoutMs: 3000 });
+
+  // 25 browser events exceed the 16-event PostHog transport chunk (16 + 9), plus 1 server event.
+  assert.equal(deliveredEventIds.length, 26);
+  assert.ok(deliveredBatchSizes.includes(16));
+  assert.ok(deliveredBatchSizes.includes(9));
+  for (const ev of browserEvents) {
+    assert.ok(deliveredEventIds.includes(ev.event_id), `missing browser event ${ev.event_id}`);
+  }
+});
+
 test('shared/tracking createAppTracking stays disabled without explicit PostHog env vars (no hardcoded token)', async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), 'om-shared-tracking-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

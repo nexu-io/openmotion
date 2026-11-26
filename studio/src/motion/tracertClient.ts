@@ -22,6 +22,7 @@ export interface TracertClientLike {
   setConsent(consent: ConsentState): void;
   flush(options?: { timeoutMs?: number }): Promise<FlushResult>;
   destroy(): void;
+  toPosthog?: () => { get_property?: (key: string) => unknown };
 }
 
 export interface TracertModuleLike {
@@ -165,6 +166,15 @@ function buildUserContext(identity: TrackingUserIdentity): Record<string, string
   });
 }
 
+function readPersistedSdkUserId(client: TracertClientLike): string | null {
+  try {
+    const userId = client.toPosthog?.()?.get_property?.('$user_id');
+    return typeof userId === 'string' && userId.trim().length > 0 ? userId.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function applyIdentityToClient(client: TracertClientLike, identity: TrackingUserIdentity): void {
   if (!enabled || browserDntEnabled()) return;
   try {
@@ -184,12 +194,19 @@ function applyIdentityToClient(client: TracertClientLike, identity: TrackingUser
         lastUserContextKey = serializedKey;
       }
     } else {
-      // Passive signed-out state must NOT call reset(), because reset() rotates
-      // anonymous_id and device_id. Explicit sign-out calls resetTracertIdentity().
+      // Clear previously authenticated SDK identity when a session expires or is revoked
+      // (including identities restored from storage across reloads), while avoiding reset()
+      // for genuinely anonymous visitors so anonymous device_id continuity is preserved.
+      const hadAuthenticatedIdentity =
+        lastIdentifiedUserId !== null || readPersistedSdkUserId(client) !== null;
       lastIdentifiedUserId = null;
       if (lastUserContextKey !== '') {
         client.clearContext('user');
         lastUserContextKey = '';
+      }
+      if (hadAuthenticatedIdentity) {
+        client.clearContext('user');
+        client.reset();
       }
     }
   } catch {
@@ -358,20 +375,24 @@ export function configureTracert(
     prevConfig?.environment !== config?.environment ||
     prevConfig?.appVersion !== config?.appVersion;
 
-  if (configChanged && activeClient) {
-    try {
-      activeClient.setConsent('denied');
-      activeClient.destroy();
-    } catch {
-      // Ignore destroy errors.
+  if (configChanged) {
+    bootEpoch += 1;
+    loadPromise = null;
+    if (activeClient) {
+      try {
+        activeClient.setConsent('denied');
+        activeClient.destroy();
+      } catch {
+        // Ignore destroy errors.
+      }
+      activeClient = null;
+      lastIdentifiedUserId = null;
+      lastUserContextKey = '';
     }
-    activeClient = null;
-    lastIdentifiedUserId = null;
-    lastUserContextKey = '';
+    activeConfig = config;
   }
 
-  activeConfig = config;
-  setTracertEnabled(Boolean(config) && shouldEnable);
+  setTracertEnabled(Boolean(activeConfig) && shouldEnable);
 }
 
 export function setTracertEnabled(nextEnabled: boolean): void {

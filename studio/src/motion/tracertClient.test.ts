@@ -178,18 +178,75 @@ describe('tracertClient adapter', () => {
       },
     ]);
 
-    // Passive signed-out update clears user context but MUST NOT rotate device/anonymous identity via reset().
+    // Session expiry after authentication clears user context AND resets SDK identity once,
+    // while a subsequent signed-out update while already anonymous does NOT call reset() again.
     syncTracertIdentity({ signedIn: false });
-    expect(calls.reset).toBe(0);
+    expect(calls.reset).toBe(1);
     expect(calls.clearContext).toContain('user');
+
+    syncTracertIdentity({ signedIn: false });
+    expect(calls.reset).toBe(1);
 
     // Explicit sign-out calls reset().
     resetTracertIdentity();
-    expect(calls.reset).toBe(1);
+    expect(calls.reset).toBe(2);
 
     // Disabling calls setConsent('denied') to wipe memory + cross-page outbox.
     setTracertEnabled(false);
     expect(calls.setConsent).toEqual(['granted', 'denied']);
+  });
+
+  it('preserves in-flight initialization for equivalent configs and restarts load when config genuinely changes', async () => {
+    const first = createFakeTracertModule();
+    const second = createFakeTracertModule();
+    const resolvers: Array<(value: typeof first.mod) => void> = [];
+    const loader = vi.fn(
+      () => new Promise<typeof first.mod>((resolve) => {
+        resolvers.push(resolve);
+      }),
+    );
+    setTracertSdkLoaderForTests(loader);
+
+    // Simulate account hydration parsing the injected config tag first, then tracking init
+    // parsing the exact same tag into a second distinct object while import() is still pending.
+    configureTracert({ spmA: 3, environment: 'test', appVersion: '0.1.0' }, true);
+    syncTracertIdentity({ signedIn: true, userId: 'app-user-race', workspaceId: 'ws-race' });
+    configureTracert({ spmA: 3, environment: 'test', appVersion: '0.1.0' }, true);
+    const eventId = '33333333-3333-4333-8333-333333333333';
+    captureTracertEvent('session_start', {}, { eventId, occurredAt: new Date('2026-11-26T09:00:00.000Z') });
+
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(resolvers).toHaveLength(1);
+    resolvers[0]!(first.mod);
+    await flushTracert();
+
+    expect(getTracertStatus()).toEqual({ configured: true, loaded: true, enabled: true, queued: 0 });
+    expect(first.calls.init).toHaveLength(1);
+    expect(first.calls.identify).toEqual([{ id: 'app-user-race', traits: undefined }]);
+    expect(first.calls.capture).toHaveLength(1);
+
+    // Now test genuinely changed config while a load is in flight: stale import must be ignored
+    // and the new config must start a fresh load immediately.
+    resetTracertForTests();
+    resolvers.length = 0;
+    loader.mockClear();
+    setTracertSdkLoaderForTests(loader);
+
+    configureTracert({ spmA: 3, environment: 'test', appVersion: '0.1.0' }, true);
+    configureTracert({ spmA: 99, environment: 'prod', appVersion: '0.2.0' }, true);
+    expect(loader).toHaveBeenCalledTimes(2);
+    expect(resolvers).toHaveLength(2);
+
+    // Resolve stale first load first (must be ignored), then resolve second load.
+    resolvers[0]!(first.mod);
+    await Promise.resolve();
+    expect(getTracertStatus().loaded).toBe(false);
+
+    resolvers[1]!(second.mod);
+    await flushTracert();
+    expect(getTracertStatus()).toMatchObject({ configured: true, loaded: true, enabled: true });
+    expect(second.calls.init).toHaveLength(1);
+    expect(second.calls.init[0]).toMatchObject({ spmA: 99, environment: 'prod', appVersion: '0.2.0' });
   });
 
   it('integrates cleanly with the real @powerformer/tracert SDK over Collector v1', async () => {
@@ -206,10 +263,13 @@ describe('tracertClient adapter', () => {
           id: item.id,
           status: 'accepted',
         }));
-        return new Response(JSON.stringify({ results }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({ schema_version: 1, request_id: `req-${sentRequests.length}`, results }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        );
       }),
     );
 
@@ -266,5 +326,116 @@ describe('tracertClient adapter', () => {
       element: 'open_detail',
     });
     expect('hub_id' in (captureEnv?.properties as Record<string, unknown>)).toBe(false);
+  });
+
+  it('clears persisted SDK user_id on session expiry (same-tab and across reloads) while preserving anonymous reload continuity', async () => {
+    const envelopes: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        const parsed = JSON.parse(String(init?.body ?? '{}')) as {
+          batch?: Array<{ id: string } & Record<string, unknown>>;
+        };
+        const batch = parsed.batch ?? [];
+        envelopes.push(...batch);
+        return new Response(
+          JSON.stringify({
+            schema_version: 1,
+            request_id: `req-${envelopes.length}`,
+            results: batch.map((item, index) => ({ index, id: item.id, status: 'accepted' })),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    );
+
+    const realMod = await import('@powerformer/tracert');
+    const config = {
+      spmA: 3,
+      endpoint: 'http://127.0.0.1:4173/t/events',
+      environment: 'test' as const,
+      appVersion: '0.1.0-test',
+    };
+    const simulatePageReload = () => {
+      const persisted = Array.from({ length: localStorage.length }, (_, i) => {
+        const key = localStorage.key(i)!;
+        return [key, localStorage.getItem(key)!] as const;
+      });
+      resetTracertForTests();
+      localStorage.clear();
+      for (const [k, v] of persisted) localStorage.setItem(k, v);
+      setTracertSdkLoaderForTests(async () => realMod as unknown as { Tracert: new () => TracertClientLike });
+      configureTracert(config, true);
+    };
+
+    // 1. Genuinely anonymous visitor: reload while signed out keeps the same device_id & anonymous_id.
+    setTracertSdkLoaderForTests(async () => realMod as unknown as { Tracert: new () => TracertClientLike });
+    configureTracert(config, true);
+    await flushTracert();
+    syncTracertIdentity({ signedIn: false });
+    const anonId1 = '44444444-4444-4444-8444-444444444441';
+    captureTracertEvent('session_start', {}, { eventId: anonId1, occurredAt: new Date() });
+    await flushTracert();
+
+    simulatePageReload();
+    await flushTracert();
+    syncTracertIdentity({ signedIn: false });
+    const anonId2 = '44444444-4444-4444-8444-444444444442';
+    captureTracertEvent('session_start', {}, { eventId: anonId2, occurredAt: new Date() });
+    await flushTracert();
+
+    const anonEv1 = envelopes.find((e) => e.id === anonId1)?.identity as Record<string, unknown>;
+    const anonEv2 = envelopes.find((e) => e.id === anonId2)?.identity as Record<string, unknown>;
+    expect(anonEv1.user_id).toBeNull();
+    expect(anonEv2.user_id).toBeNull();
+    expect(anonEv2.device_id).toBe(anonEv1.device_id);
+    expect(anonEv2.anonymous_id).toBe(anonEv1.anonymous_id);
+
+    // 2. Alice signs in, then session expires in the same tab without clicking Sign Out.
+    syncTracertIdentity({
+      signedIn: true,
+      userId: 'amr_alice_expiry',
+      workspaceId: 'ws_alice',
+      workspaceRole: 'owner',
+      planTier: 'pro',
+    });
+    const aliceEvId = '44444444-4444-4444-8444-444444444443';
+    captureTracertEvent('session_start', {}, { eventId: aliceEvId, occurredAt: new Date() });
+    await flushTracert();
+    expect((envelopes.find((e) => e.id === aliceEvId)?.identity as Record<string, unknown>).user_id).toBe(
+      'amr_alice_expiry',
+    );
+
+    syncTracertIdentity({ signedIn: false });
+    const afterSameTabExpiryId = '44444444-4444-4444-8444-444444444444';
+    captureTracertEvent('session_start', {}, { eventId: afterSameTabExpiryId, occurredAt: new Date() });
+    await flushTracert();
+    const afterSameTab = envelopes.find((e) => e.id === afterSameTabExpiryId);
+    expect((afterSameTab?.identity as Record<string, unknown>).user_id).toBeNull();
+    expect((afterSameTab?.properties as Record<string, unknown>).workspace_id).toBeUndefined();
+
+    // 3. Alice signs in again, page reloads with persisted storage, and server reports session expired.
+    syncTracertIdentity({ signedIn: true, userId: 'amr_alice_expiry', workspaceId: 'ws_alice' });
+    await flushTracert();
+
+    simulatePageReload();
+    await flushTracert();
+    syncTracertIdentity({ signedIn: false });
+    const afterReloadExpiryId = '44444444-4444-4444-8444-444444444445';
+    captureTracertEvent('session_start', {}, { eventId: afterReloadExpiryId, occurredAt: new Date() });
+    await flushTracert();
+    const afterReloadExpiry = envelopes.find((e) => e.id === afterReloadExpiryId)?.identity as Record<string, unknown>;
+    expect(afterReloadExpiry.user_id).toBeNull();
+
+    // 4. Another reload while still signed out preserves the new anonymous device_id without resetting again.
+    simulatePageReload();
+    await flushTracert();
+    syncTracertIdentity({ signedIn: false });
+    const afterSecondAnonReloadId = '44444444-4444-4444-8444-444444444446';
+    captureTracertEvent('session_start', {}, { eventId: afterSecondAnonReloadId, occurredAt: new Date() });
+    await flushTracert();
+    const afterSecondAnonReload = envelopes.find((e) => e.id === afterSecondAnonReloadId)?.identity as Record<string, unknown>;
+    expect(afterSecondAnonReload.user_id).toBeNull();
+    expect(afterSecondAnonReload.device_id).toBe(afterReloadExpiry.device_id);
   });
 });
