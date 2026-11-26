@@ -6,8 +6,7 @@ import { Hono } from 'hono';
 import { FONT_EXT } from '../../../shared/asset-names.ts';
 import { extractIndexHeadMarkup, isNonVisualPreviewFile } from '../../../shared/preview-impact.ts';
 import {
-  isStyleOrScriptCodePath,
-  isVendorOrMinifiedScriptPath,
+  extractReferencedCodeAssetPaths,
   isVisualMediaPath,
   resolveReferencedVisualMediaPaths,
 } from '../engine/composition-filmstrip-sprite.ts';
@@ -291,22 +290,54 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
     const virtual = await deps.files.loadVirtualProject(
       auth,
       projectId,
-      editor
-        ? (filePath) =>
-            /\.html?$/i.test(filePath) ||
-            (isStyleOrScriptCodePath(filePath) && !isVendorOrMinifiedScriptPath(filePath))
-        : undefined,
+      editor ? (filePath) => /\.html?$/i.test(filePath) : undefined,
     );
     const fileList = virtual.listFiles();
     const filePaths = fileList.map((f) => f.path);
     const compositions = listVirtualCompositions(fileList);
     const revision = editor ? virtual.revision : detail.revision;
+    const indexHtml = virtual.readText('index.html');
+    const extraCodeText = new Map<string, string | null>();
+    if (editor && fileList.some((f) => isVisualMediaPath(f.path))) {
+      const htmlSources = new Map<string, string | null>();
+      if (indexHtml !== null) htmlSources.set('index.html', indexHtml);
+      for (const comp of compositions) {
+        htmlSources.set(comp, virtual.readText(comp));
+      }
+      const codeQueue = extractReferencedCodeAssetPaths({
+        files: fileList,
+        indexHead: indexHtml !== null ? extractIndexHeadMarkup(indexHtml) : null,
+        htmlSources,
+      });
+      const loadedCode = new Set<string>();
+      while (codeQueue.length > 0) {
+        const codePath = codeQueue.shift()!;
+        if (loadedCode.has(codePath)) continue;
+        loadedCode.add(codePath);
+        try {
+          const read = await deps.files.readTextFile(auth, projectId, codePath);
+          const content = read?.content ?? null;
+          extraCodeText.set(codePath, content);
+          if (content && /\.css$/i.test(codePath)) {
+            const nested = extractReferencedCodeAssetPaths({
+              files: fileList,
+              htmlSources: new Map([[codePath, `<style>${content}</style>`]]),
+            });
+            for (const nextPath of nested) {
+              if (!loadedCode.has(nextPath)) codeQueue.push(nextPath);
+            }
+          }
+        } catch {
+          extraCodeText.set(codePath, null);
+        }
+      }
+    }
     const compositionRevisions = computeCompositionRevisions(
       fileList,
       compositions,
-      virtual.readText('index.html'),
+      indexHtml,
       revision,
-      (filePath) => virtual.readText(filePath),
+      (filePath) => virtual.readText(filePath) ?? extraCodeText.get(filePath) ?? null,
     );
     const info = editor ? null : infoInMemory(virtual);
 

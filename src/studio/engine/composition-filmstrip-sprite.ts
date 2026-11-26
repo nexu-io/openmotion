@@ -208,15 +208,17 @@ export function extractReferencedCodeAssetPaths(input: {
 export function resolveReferencedVisualMediaPaths(input: {
   readonly compPath: string;
   readonly includedComps: ReadonlySet<string>;
-  readonly files: ReadonlyArray<{ readonly path: string }>;
+  readonly files: ReadonlyArray<{ readonly path: string; readonly sizeBytes?: number }>;
   readonly indexHead?: string | null;
   readonly readText?: (filePath: string) => string | null;
 }): ReadonlySet<string> | null {
   if (!input.readText) return null;
   const knownPaths = new Set<string>();
+  const sizeByPath = new Map<string, number | undefined>();
   let hasVisualMedia = false;
   for (const f of input.files) {
     knownPaths.add(f.path);
+    sizeByPath.set(f.path, f.sizeBytes);
     if (!hasVisualMedia && isVisualMediaPath(f.path)) {
       hasVisualMedia = true;
     }
@@ -256,6 +258,8 @@ export function resolveReferencedVisualMediaPaths(input: {
   enqueueCodeRefs();
   while (codeQueue.length > 0) {
     const codePath = codeQueue.shift()!;
+    const size = sizeByPath.get(codePath);
+    if (typeof size === 'number' && size > MAX_DEPENDENCY_SCAN_CODE_BYTES) return null;
     const text = input.readText(codePath);
     if (text === null) return null;
     if (/\.css$/i.test(codePath)) {
