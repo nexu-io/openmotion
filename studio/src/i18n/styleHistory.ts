@@ -1,6 +1,6 @@
 import type { Translate } from './messages';
 
-const PREFIX = 'Edit layer style: ';
+export const STYLE_HISTORY_PREFIX = 'Edit layer style: ';
 const propertyLabels: Record<string, string> = {
   opacity: 'Opacity', 'font-size': 'Font size', color: 'Color',
   'font-family': 'Font', 'text-align': 'Align', 'background-color': 'Background',
@@ -28,13 +28,13 @@ export function styleHistoryLabel(target: string, styles: Record<string, string>
       const shown = (key === 'opacity' ? opacityPercent(value) : undefined) ?? compact(value, 60);
       return [key, shown];
     });
-  return PREFIX + JSON.stringify([compact(target, 48), changes]);
+  return STYLE_HISTORY_PREFIX + JSON.stringify([compact(target, 48), changes]);
 }
 
 function readStyleHistory(label: string): { target: string; changes: [string, string][] } | null {
-  if (!label.startsWith(PREFIX)) return null;
+  if (!label.startsWith(STYLE_HISTORY_PREFIX)) return null;
   try {
-    const data: unknown = JSON.parse(label.slice(PREFIX.length));
+    const data: unknown = JSON.parse(label.slice(STYLE_HISTORY_PREFIX.length));
     if (!Array.isArray(data) || data.length !== 2 || typeof data[0] !== 'string' || !Array.isArray(data[1]) || !data[1].length) return null;
     const changes: [string, string][] = [];
     for (const change of data[1]) {
@@ -54,7 +54,7 @@ export function formatStyleHistoryLabel(label: string, t: Translate): string | n
 }
 
 export function formatStyleToast(label: string, action: 'apply' | 'undo' | 'redo', t: Translate): string | null {
-  if (!label.startsWith(PREFIX)) return null;
+  if (!label.startsWith(STYLE_HISTORY_PREFIX)) return null;
   const entry = readStyleHistory(label);
   if (entry?.changes.length === 1) {
     const [property, value] = entry.changes[0];
