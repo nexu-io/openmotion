@@ -730,4 +730,76 @@ describe("composition card thumbnails", () => {
       vi.useRealTimers();
     }
   });
+
+  it("skips hidden child clips when selecting the Root cover scene and computing its source window", () => {
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    setCachedProjectRevision("demo", "proj-rev-hidden", {
+      "index.html": '"sha256:root"|shared:head1:assets1',
+      "compositions/hidden-first.html": '"sha256:hf"|shared:head1:assets1',
+      "compositions/visible-next.html": '"sha256:vn"|shared:head1:assets1',
+    });
+
+    const hiddenUrl = "/api/projects/demo/preview/comp/compositions/hidden-first.html";
+    const visibleUrl = "/api/projects/demo/preview/comp/compositions/visible-next.html";
+    const hiddenSprite = seedClientCompositionSpriteForTest(
+      { projectId: "demo", previewUrl: hiddenUrl, contentRevision: 0, frameCount: 8 },
+      new Blob(["hidden-sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+    const visibleSprite = seedClientCompositionSpriteForTest(
+      { projectId: "demo", previewUrl: visibleUrl, contentRevision: 0, frameCount: 8 },
+      new Blob(["visible-sprite"], { type: "image/jpeg" }),
+      { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
+    );
+    expect(hiddenSprite.kind).toBe("sprite");
+    expect(visibleSprite.kind).toBe("sprite");
+
+    usePlayerStore.setState({
+      elements: [
+        {
+          id: "clip-hidden",
+          tag: "div",
+          start: 0,
+          duration: 5,
+          track: 0,
+          hidden: true,
+          compositionSrc: "compositions/hidden-first.html",
+        },
+        {
+          id: "clip-visible-hidden-dup",
+          tag: "div",
+          start: 2,
+          duration: 40,
+          track: 0,
+          hidden: true,
+          compositionSrc: "compositions/visible-next.html",
+        },
+        {
+          id: "clip-visible",
+          tag: "div",
+          start: 5,
+          duration: 5,
+          playbackStart: 5,
+          track: 0,
+          compositionSrc: "compositions/visible-next.html",
+        },
+      ],
+    });
+
+    const host = mountCompositionsTab({
+      compositions: ["index.html", "compositions/hidden-first.html", "compositions/visible-next.html"],
+      activeComposition: "index.html",
+      masterCompositionPath: "index.html",
+    });
+
+    const rootSpriteEl = host.querySelectorAll<HTMLElement>("[data-sprite-frame]")[0];
+    expect(rootSpriteEl).toBeTruthy();
+    // Root cover must pick visible-next.html (not hidden-first.html) and ignore the hidden 40s clip in maxSourceEnd
+    // (windowStartFraction = 5/10 = 0.5 -> frame 4; including the hidden 40s clip would give 5/40 = 0.125 -> frame 1).
+    expect(rootSpriteEl?.getAttribute("data-sprite-url")).toBe(
+      visibleSprite.kind === "sprite" ? visibleSprite.url : "",
+    );
+    expect(rootSpriteEl?.getAttribute("data-sprite-frame")).toBe("4");
+  });
 });

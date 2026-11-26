@@ -1100,6 +1100,7 @@ const rememberedRootCoverByProject = new Map<string, RootCoverSpec>();
 
 interface MasterChildClipLike {
   compositionSrc?: string;
+  hidden?: boolean;
   start: number;
   duration?: number;
   playbackStart?: number;
@@ -1119,7 +1120,7 @@ function findEarliestChildCompositionSpec(
   let earliestEl: MasterChildClipLike | null = null;
   let earliestComp: string | null = null;
   for (const el of elements) {
-    if (!el.compositionSrc) continue;
+    if (!el.compositionSrc || el.hidden) continue;
     const normalized = normalizeChildCompPath(el.compositionSrc);
     if (normalized === masterCompositionPath) continue;
     if (el.start < earliestStart) {
@@ -1132,7 +1133,7 @@ function findEarliestChildCompositionSpec(
 
   let maxSourceEnd = 0;
   for (const el of elements) {
-    if (!el.compositionSrc || normalizeChildCompPath(el.compositionSrc) !== earliestComp) continue;
+    if (!el.compositionSrc || el.hidden || normalizeChildCompPath(el.compositionSrc) !== earliestComp) continue;
     const rate = el.playbackRate && el.playbackRate > 0 ? el.playbackRate : 1;
     const playedEnd = Math.max(0, el.playbackStart ?? 0) + Math.max(0, el.duration ?? 0) * rate;
     const candidate =
