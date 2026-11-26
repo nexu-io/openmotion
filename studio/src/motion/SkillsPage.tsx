@@ -165,8 +165,10 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     else tracking.reportSkillDetailClick(selected, 'copy_instruction', view, attempt);
     try {
       if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
-      setManualCopy(null);
-      if (!hasDismissedLocalAgentHandoff()) setCopiedHandoff(true);
+      if (latest.current[surface] === text) {
+        setManualCopy(null);
+        if (!hasDismissedLocalAgentHandoff()) setCopiedHandoff(true);
+      }
       toast.showToast(t('Copied. Paste into your Agent.'), 'info');
       tracking.reportSkillCopyResult(selected, surface, 'clipboard_written', attempt, brief, view);
     }
