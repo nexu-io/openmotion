@@ -143,13 +143,15 @@ export const DURATION_PRESETS = [15, 30, 60] as const;
 export const SFX_DURATION_PRESETS = [2, 5, 10] as const;
 export const SPEED_PRESETS = [0.8, 1, 1.2] as const;
 
+const tagBoundary = /[,，、;；.!?。！？\n]/.source;
+const leadingTagSeparator = new RegExp(`^[ \\t]*${tagBoundary}+[ \\t]*`);
+
 /** Match the whole tag, including punctuation inside a translated phrase. */
 function findPromptTag(prompt: string, tagText: string) {
   const tag = tagText.trim();
   if (!tag) return null;
   const literal = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const boundary = '[,，、;；.!?。！？\\n]';
-  return new RegExp(`(^|${boundary})([ \\t]*)${literal}(?=[ \\t]*(?:$|${boundary}))`, 'i').exec(prompt);
+  return new RegExp(`(^|${tagBoundary})([ \\t]*)${literal}(?=[ \\t]*(?:$|${tagBoundary}))`, 'i').exec(prompt);
 }
 
 export function hasPromptTag(prompt: string, tagText: string): boolean {
@@ -162,7 +164,7 @@ export function togglePromptTag(prompt: string, tagText: string, cjkSeparator = 
   const match = findPromptTag(prompt, cleanTag);
   if (match) {
     const after = prompt.slice(match.index + match[0].length);
-    if (!match[1]) return after.replace(/^[ \t]*[,，、;；][ \t]*/, '');
+    if (!match[1]) return after.replace(leadingTagSeparator, '');
     const before = prompt.slice(0, match.index);
     if (/^[,，、]$/.test(match[1])) return before + after;
     const nextTag = after.match(/^[ \t]*[,，、][ \t]*/);

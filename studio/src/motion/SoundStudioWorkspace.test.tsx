@@ -203,6 +203,16 @@ describe('sound domain helpers', () => {
     expect(togglePromptTag('电影感，轻柔钢琴', '轻柔钢琴', true)).toBe('电影感');
   });
 
+  it.each([
+    ['instrumental, no vocals', '. ', 'Soft piano.'],
+    ['instrumental, no vocals', '?! ', 'Soft piano!'],
+    ['instrumental, no vocals', '\n', 'Soft piano.\nKeep the beat.'],
+    ['纯音乐、无人声', '。', '轻松背景。'],
+    ['纯音乐、无人声', '！？', '轻松背景！'],
+  ])('removes a leading tag and its separator from %s%s%s', (tag, separator, remainder) => {
+    expect(togglePromptTag(tag + separator + remainder, tag)).toBe(remainder);
+  });
+
   it('estimates speaking time for Latin and CJK text while accounting for speed', () => {
     expect(estimateSpeechSeconds('')).toBe(0);
     const normal = estimateSpeechSeconds('Build polished motion graphics quickly with OpenMotion Studio every day.');
