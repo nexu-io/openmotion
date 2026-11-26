@@ -3,7 +3,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { Slider } from 'open-design-ui/slider';
 import { useId, useState } from 'react';
 import type { Model } from '../../../shared/gateway';
-import { generationOptions, type GenerationOption } from '../../../shared/generation-options';
+import { generationOptions, resolveSpeechVoice, type GenerationOption } from '../../../shared/generation-options';
 import { Select } from '../components/ui/Select';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n } from '../i18n/I18n';
@@ -121,15 +121,12 @@ export function SoundParameters({
     });
     const compactGrid = parsed.length <= 8;
     const allowCustomVoice = Boolean(field.allowCustom && customVoiceIdEnabled);
-    const isKnownChoice = (field.choices ?? []).some(choice => String(choice.value) === currentStr);
-    const effectiveVoiceStr = !allowCustomVoice && currentStr && !isKnownChoice
-      ? (field.default === undefined ? '' : String(field.default))
-      : currentStr;
+    const effectiveVoiceStr = resolveSpeechVoice(model, current, allowCustomVoice) ?? '';
     const featured = selectFeaturedVoices(parsed, effectiveVoiceStr);
     const isCustomVoice = Boolean(
       allowCustomVoice
       && currentStr.trim()
-      && !isKnownChoice,
+      && !(field.choices ?? []).some(choice => String(choice.value) === currentStr),
     );
     const customBoxExpanded = allowCustomVoice && (customVoiceOpen || isCustomVoice);
 

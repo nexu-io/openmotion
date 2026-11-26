@@ -6,7 +6,7 @@ import { assetMediaUrl, assetVersion, type AssetVersion, type LibraryAsset } fro
 import { classifyAudioKind, type AudioKind } from '../../../shared/audio-kind';
 import { hasSavedGeneration, matchesGenerationQuery } from './assetTasks';
 import { resumableJob, type GenerationJob, type Model } from '../../../shared/gateway';
-import { generationOptions } from '../../../shared/generation-options';
+import { generationOptions, sanitizeSpeechVoiceParameters } from '../../../shared/generation-options';
 import { formatDuration } from '../components/sidebar/assetHelpers';
 import { Menu, MenuItem, MenuSeparator } from '../components/ui/Menu';
 import { Select } from '../components/ui/Select';
@@ -105,25 +105,12 @@ function buildAssetTrack(
   };
 }
 
-function stripDisallowedCustomVoice(
-  params: Record<string, unknown> | undefined,
-  model: Model | undefined,
-  allowCustomVoice: boolean,
-): Record<string, unknown> | undefined {
-  if (!params || allowCustomVoice || !model) return params;
-  const voiceField = (model.generationOptions ?? generationOptions(model, false))?.fields.find(field => field.key === 'voice');
-  if (!voiceField || voiceField.kind !== 'choice' || params.voice === undefined) return params;
-  if ((voiceField.choices ?? []).some(choice => String(choice.value) === String(params.voice))) return params;
-  const { voice: _dropped, ...rest } = params;
-  return rest;
-}
-
 function parameterDraftFromParams(
   params: Record<string, unknown>,
   model?: Model,
   allowCustomVoice = true,
 ): ParameterDraft {
-  const sanitized = stripDisallowedCustomVoice(params, model, allowCustomVoice) ?? {};
+  const sanitized = sanitizeSpeechVoiceParameters(model, params, allowCustomVoice) ?? {};
   const structuredKeys = new Set(model ? ((model.generationOptions ?? generationOptions(model, false))?.fields.map(field => field.key) ?? []) : []);
   const values: Record<string, unknown> = {};
   const extra: Record<string, unknown> = {};
@@ -842,7 +829,7 @@ export function SoundStudioWorkspace({
     const classified = classifyAudioTrackTab(modelId, models, undefined, savedAudioKind);
     const targetTab: SoundLiveTabId = classified === 'upload' ? liveTab : classified;
 
-    const sanitizedParams = stripDisallowedCustomVoice(parameters, matchedModel, customVoiceIdEnabled);
+    const sanitizedParams = sanitizeSpeechVoiceParameters(matchedModel, parameters, customVoiceIdEnabled);
 
     if (modelId && parameters && Object.keys(parameters).length > 0) {
       const key = matchedModel?.id ?? modelId;
