@@ -248,11 +248,13 @@ export function EntitlementPromoModal({
                     </div>
                     <div className="om-epm-mlist">
                       <h4><em>46</em> {t('top AI models')}</h4>
-                      <div className="om-epm-mrow"><span>{t('Flagship')}</span><div>Claude Fable 5.2, GPT-6.2 Astra</div><span className="om-epm-st is-pro">Pro</span></div>
-                      <div className="om-epm-mrow"><span>{t('Chat & Code')}</span><div>{t('Claude Opus 5.5 & 29 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
-                      <div className="om-epm-mrow"><span>{t('Image')}</span><div>{t('Seedream 5.5, GPT Image 2.6 & 6 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
-                      <div className="om-epm-mrow"><span>{t('Video')}</span><div>{t('SeeDance 2.5, Wan 2.7 & 3 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
-                      <div className="om-epm-mrow"><span>{t('Audio & Music')}</span><div>{t('ElevenLabs V3, Music V2 & 3 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
+                      <div className="om-epm-mrows">
+                        <div className="om-epm-mrow"><span>{t('Flagship')}</span><div>Claude Fable 5.2, GPT-6.2 Astra</div><span className="om-epm-st is-pro">Pro</span></div>
+                        <div className="om-epm-mrow"><span>{t('Chat & Code')}</span><div>{t('Claude Opus 5.5 & 29 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
+                        <div className="om-epm-mrow"><span>{t('Image')}</span><div>{t('Seedream 5.5, GPT Image 2.6 & 6 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
+                        <div className="om-epm-mrow"><span>{t('Video')}</span><div>{t('SeeDance 2.5, Wan 2.7 & 3 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
+                        <div className="om-epm-mrow"><span>{t('Audio & Music')}</span><div>{t('ElevenLabs V3, Music V2 & 3 more')}</div><span className="om-epm-st is-plus">Plus</span></div>
+                      </div>
                     </div>
                   </div>
 
