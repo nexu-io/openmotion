@@ -11,6 +11,7 @@ import {
 import {
   createDesktopHandoffRoutes,
   DesktopOidcProvenanceStore,
+  isSafeOpenDesignHandoffUrl,
 } from '../../src/auth/desktop-handoff.ts';
 import {
   AmrIdentityClient,
@@ -1331,6 +1332,31 @@ describe('Desktop System-Browser Session Handoff API', () => {
       assert.deepEqual(statuses, [200, 401], 'Exactly one replica may exchange a desktop handoff code');
       assert.equal(store.sessions.size - initialSessions, 1, 'Exactly one desktop session may be created');
       assert.equal(ticketMintCalls, 1, 'Exactly one AMR Pricing handoff ticket may be minted');
+    });
+  });
+
+  describe('isSafeOpenDesignHandoffUrl', () => {
+    it('follows only configured OpenDesign origins over https, without credentials or control characters', () => {
+      const config = makeConfig({
+        OPENDESIGN_API_URL: 'https://amr-api.open-design.test',
+        OPENDESIGN_CONSOLE_URL: 'https://open-design.test/cloud',
+        OPENDESIGN_PRICING_URL: 'https://www.open-design.test/pricing',
+      });
+      assert.equal(isSafeOpenDesignHandoffUrl('https://amr-api.open-design.test/api/auth/one-tap/handoff?ticket=oth_1', config), true);
+      assert.equal(isSafeOpenDesignHandoffUrl('https://open-design.test/cloud/dashboard', config), true);
+      assert.equal(isSafeOpenDesignHandoffUrl('https://www.open-design.test/zh/pricing', config), true);
+      assert.equal(isSafeOpenDesignHandoffUrl('https://evil.example/api/auth/one-tap/handoff', config), false);
+      assert.equal(isSafeOpenDesignHandoffUrl('https://amr-api.open-design.test.evil.example/x', config), false);
+      assert.equal(isSafeOpenDesignHandoffUrl('http://amr-api.open-design.test/api/auth/one-tap/handoff', config), false);
+      assert.equal(isSafeOpenDesignHandoffUrl('https://user:pass@amr-api.open-design.test/x', config), false);
+      assert.equal(isSafeOpenDesignHandoffUrl('https://amr-api.open-design.test/x\nSet-Cookie: a=b', config), false);
+      assert.equal(isSafeOpenDesignHandoffUrl('javascript:alert(1)', config), false);
+      assert.equal(isSafeOpenDesignHandoffUrl('', config), false);
+
+      // http is accepted only for an origin configured as http (local development).
+      const localConfig = makeConfig({ OPENDESIGN_API_URL: 'http://127.0.0.1:8080' });
+      assert.equal(isSafeOpenDesignHandoffUrl('http://127.0.0.1:8080/api/auth/one-tap/handoff?ticket=oth_2', localConfig), true);
+      assert.equal(isSafeOpenDesignHandoffUrl('http://127.0.0.1:9090/api/auth/one-tap/handoff', localConfig), false);
     });
   });
 });

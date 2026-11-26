@@ -8,6 +8,7 @@ import { isAmrOneTapError, type AmrOneTapAttribution, type AmrOneTapError } from
 import {
   DESKTOP_OIDC_CTX_TTL_SEC,
   DesktopOidcProvenanceStore,
+  isSafeOpenDesignHandoffUrl,
   mountDesktopHandoffRoutes,
   parseDesktopStartReturnTo,
 } from './desktop-handoff.ts';
@@ -153,7 +154,7 @@ function resolveGuestPricingRedirectUrl(targetPath: string, config: AppConfig): 
     const baseUrl = new URL(baseSource);
     const pathname = parsedTarget.pathname === '/plans' ? '/pricing' : parsedTarget.pathname;
     const dest = new URL(`${pathname}${parsedTarget.search}`, baseUrl.origin);
-    return isSafeUpgradeHandoffUrl(dest.toString(), config) ? dest.toString() : null;
+    return isSafeOpenDesignHandoffUrl(dest.toString(), config) ? dest.toString() : null;
   } catch {
     return null;
   }
@@ -231,7 +232,7 @@ function resolveFallbackUpgradeRedirectUrl(targetPath: string, config: AppConfig
         ? `${basePrefix}${pathname}`
         : pathname;
     const dest = new URL(`${resolvedPathname}${parsedTarget.search}`, baseUrl.origin);
-    return isSafeUpgradeHandoffUrl(dest.toString(), config) ? dest.toString() : null;
+    return isSafeOpenDesignHandoffUrl(dest.toString(), config) ? dest.toString() : null;
   } catch {
     return null;
   }
@@ -317,36 +318,6 @@ function isTerminalSessionProofRejection(error: AmrOneTapError): boolean {
     (error.status === 401 && error.code === 'SESSION_PROOF_INVALID') ||
     (error.status === 404 && error.code === 'USER_NOT_FOUND')
   );
-}
-
-function isSafeUpgradeHandoffUrl(rawUrl: string, config: AppConfig): boolean {
-  if (!rawUrl || ONETAP_CONTROL_CHAR_RE.test(rawUrl)) return false;
-  try {
-    const parsed = new URL(rawUrl);
-    if (parsed.username || parsed.password) return false;
-    const allowedOrigins = new Set<string>();
-    const configuredUrls = [
-      config.OPENDESIGN_API_URL,
-      config.OPENDESIGN_CONSOLE_URL,
-      config.OPENDESIGN_PRICING_URL,
-    ].filter((u): u is string => Boolean(u));
-    let allowHttp = false;
-    for (const candidate of configuredUrls) {
-      try {
-        const u = new URL(candidate);
-        allowedOrigins.add(u.origin);
-        if (u.protocol === 'http:') allowHttp = true;
-      } catch {
-        // Ignore invalid configured URL.
-      }
-    }
-    if (parsed.protocol !== 'https:' && !(allowHttp && parsed.protocol === 'http:')) {
-      return false;
-    }
-    return allowedOrigins.has(parsed.origin);
-  } catch {
-    return false;
-  }
 }
 
 function parseBasicClientAuth(header: string | undefined): { clientId: string; clientSecret: string } | null {
@@ -1436,7 +1407,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           sessionProof,
           targetPath,
         });
-        if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
+        if (isSafeOpenDesignHandoffUrl(ticket.handoffUrl, deps.config)) {
           return c.redirect(ticket.handoffUrl, 302);
         }
       } catch (error) {

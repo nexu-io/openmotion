@@ -9,6 +9,7 @@ import {
   type DesktopHandoffPlanTier,
 } from '../../shared/desktop-auth-handoff.ts';
 import { isCloudError } from '../contracts/errors.ts';
+import type { AppConfig } from '../infra/config.ts';
 import type { AuthEnv, AuthMiddlewareDeps } from './middleware.ts';
 import {
   DEFAULT_SESSION_TTL_SEC,
@@ -156,6 +157,42 @@ export function parseDesktopStartReturnTo(
     return { codeChallenge, redirectUri };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Whether an AMR-issued billing handoff URL may be followed: no control characters or credentials, an
+ * origin that is one of the configured OpenDesign API, console or Pricing origins, and https unless a
+ * configured OpenDesign URL itself is http (local development). Shared by the browser upgrade handoff
+ * and the desktop Pricing handoff.
+ */
+export function isSafeOpenDesignHandoffUrl(rawUrl: string, config: AppConfig): boolean {
+  if (!rawUrl || CONTROL_CHAR_RE.test(rawUrl)) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.username || parsed.password) return false;
+    const allowedOrigins = new Set<string>();
+    const configuredUrls = [
+      config.OPENDESIGN_API_URL,
+      config.OPENDESIGN_CONSOLE_URL,
+      config.OPENDESIGN_PRICING_URL,
+    ].filter((u): u is string => Boolean(u));
+    let allowHttp = false;
+    for (const candidate of configuredUrls) {
+      try {
+        const u = new URL(candidate);
+        allowedOrigins.add(u.origin);
+        if (u.protocol === 'http:') allowHttp = true;
+      } catch {
+        // Ignore an unparseable configured URL.
+      }
+    }
+    if (parsed.protocol !== 'https:' && !(allowHttp && parsed.protocol === 'http:')) {
+      return false;
+    }
+    return allowedOrigins.has(parsed.origin);
+  } catch {
+    return false;
   }
 }
 
@@ -383,39 +420,6 @@ function parseExchangeBody(raw: unknown):
     ok: true,
     body: { code, codeVerifier, redirectUri },
   };
-}
-
-function isSafeDesktopPricingHandoffUrl(
-  rawUrl: string,
-  config: AuthMiddlewareDeps['config'],
-): boolean {
-  if (!rawUrl || CONTROL_CHAR_RE.test(rawUrl)) return false;
-  try {
-    const parsed = new URL(rawUrl);
-    if (parsed.username || parsed.password) return false;
-    const allowedOrigins = new Set<string>();
-    const configured = [
-      config.OPENDESIGN_API_URL,
-      config.OPENDESIGN_CONSOLE_URL,
-      config.OPENDESIGN_PRICING_URL,
-    ].filter((u): u is string => Boolean(u));
-    let allowHttp = false;
-    for (const candidate of configured) {
-      try {
-        const u = new URL(candidate);
-        allowedOrigins.add(u.origin);
-        if (u.protocol === 'http:') allowHttp = true;
-      } catch {
-        // Ignore unparseable configured URL.
-      }
-    }
-    if (parsed.protocol !== 'https:' && !(allowHttp && parsed.protocol === 'http:')) {
-      return false;
-    }
-    return allowedOrigins.has(parsed.origin);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -665,7 +669,7 @@ export function mountDesktopHandoffRoutes(
               sessionProof: record.sessionProof,
               targetPath: '/pricing',
             });
-            if (isSafeDesktopPricingHandoffUrl(ticket.handoffUrl, deps.config)) {
+            if (isSafeOpenDesignHandoffUrl(ticket.handoffUrl, deps.config)) {
               pricingHandoffUrl = ticket.handoffUrl;
             }
           } catch {
