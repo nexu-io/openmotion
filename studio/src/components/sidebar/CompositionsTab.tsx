@@ -5,6 +5,7 @@ import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
+import { useNearViewport } from "../../hooks/useNearViewport";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import {
   thumbnailScheduler,
@@ -286,28 +287,6 @@ function useRetainedCardCover({
   return activeRetained;
 }
 
-function useNearViewport<T extends Element>(enabled: boolean): [(element: T | null) => void, boolean] {
-  const [element, setElement] = useState<T | null>(null);
-  const [near, setNear] = useState(false);
-  useEffect(() => {
-    if (!enabled || !element) {
-      setNear(false);
-      return;
-    }
-    if (typeof IntersectionObserver === "undefined") {
-      setNear(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => setNear(entry.isIntersecting),
-      { root: element.closest("[data-composition-list]"), rootMargin: "80px" },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [element, enabled]);
-  return [setElement, enabled && near];
-}
-
 function resolveCoverFrameBounds(
   totalFrames: number,
   windowStartFraction?: number,
@@ -501,7 +480,10 @@ function CompCard({
   const coverPreviewUrl = compositionPreviewUrl(projectId, coverComp);
   const coverIdentity = `${projectId}|${coverComp}`;
   const thumbnailUrl = compositionCardThumbnailUrl(projectId, coverComp, coverContentRevision);
-  const [thumbnailBox, nearViewport] = useNearViewport<HTMLDivElement>(panelVisible);
+  const [thumbnailEl, thumbnailBox] = useState<HTMLDivElement | null>(null);
+  const nearViewport = useNearViewport(thumbnailEl, panelVisible, {
+    rootSelector: "[data-composition-list]",
+  });
   const timelineSessionEpoch = usePlayerStore((state) => state.timelineSessionEpoch);
   const captureEnabled = nearViewport && getCachedCloudDisklessMode() && canCaptureCompositionInBrowser();
   const subscribeCacheRev = useCallback(

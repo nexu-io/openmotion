@@ -1,10 +1,22 @@
 import { useEffect, useState } from "react";
 
-/** Keep metadata work out of long off-screen asset lists (and hibernate while hidden). */
-export function useNearViewport(element: Element | null, enabled = true) {
+export interface UseNearViewportOptions {
+  /** Optional scroll-container selector resolved via `element.closest(rootSelector)`. */
+  rootSelector?: string;
+  rootMargin?: string;
+}
+
+/** Keep metadata work out of long off-screen asset/composition lists (and hibernate while hidden). */
+export function useNearViewport(
+  element: Element | null,
+  enabled = true,
+  options?: UseNearViewportOptions,
+) {
+  const rootSelector = options?.rootSelector;
+  const rootMargin = options?.rootMargin ?? "80px";
   const [visible, setVisible] = useState(() => enabled && typeof IntersectionObserver === "undefined");
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !element) {
       setVisible(false);
       return;
     }
@@ -12,10 +24,13 @@ export function useNearViewport(element: Element | null, enabled = true) {
       setVisible(true);
       return;
     }
-    if (!element) return;
-    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: "80px" });
+    const root = rootSelector ? element.closest(rootSelector) : null;
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), {
+      root,
+      rootMargin,
+    });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [element, enabled]);
+  }, [element, enabled, rootMargin, rootSelector]);
   return enabled && visible;
 }
