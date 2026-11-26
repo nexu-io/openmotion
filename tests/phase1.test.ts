@@ -2,7 +2,9 @@ import test from 'node:test';
 import { createTracker } from '../tracking/core.ts';
 import { omEvents } from '../tracking/events.ts';
 import assert from 'node:assert/strict';
-import { readFile, writeFile, rm, mkdir, stat, truncate } from 'node:fs/promises';
+import fs, { readFileSync } from 'node:fs';
+import { readFile, readdir, writeFile, rm, mkdir, stat, truncate } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { fixture } from './fixtures.ts';
 import { Phase1Service } from '../phase1.ts';
@@ -518,4 +520,73 @@ test('edit_project VERSION_CONFLICT keeps work round open for retry, exposes top
     },
   });
   assert.equal(displayed.previewHandoff.state, 'confirmed');
+}, false));
+
+// Windows rejects a rename with EPERM while another process holds the target open.
+function failRename(shouldFail: (from: string, to: string) => boolean) {
+  const real = fs.promises.rename;
+  fs.promises.rename = (async (from: any, to: any) => {
+    if (shouldFail(String(from), String(to))) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+    return real(from, to);
+  }) as typeof real;
+  syncBuiltinESMExports();
+  return () => { fs.promises.rename = real; syncBuiltinESMExports(); };
+}
+const journalWrite = (state: string) => (from: string) =>
+  from.includes(path.sep + 'requests' + path.sep) && readFileSync(from, 'utf8').includes('"state":"' + state + '"');
+function onPlatform(platform: NodeJS.Platform) {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  Object.defineProperty(process, 'platform', { ...real, value: platform });
+  return () => { Object.defineProperty(process, 'platform', real); };
+}
+
+test('atomicJson retries a rename that is briefly locked and gives up cleanly when it stays locked', () => fixture(async store => {
+  const file = path.join(store.directory, 'phase1', 'requests', 'locked.json');
+  const restorePlatform = onPlatform('win32');
+  try {
+    let failures = 2;
+    let restore = failRename(() => failures-- > 0);
+    try { await atomicJson(file, { state: 'pending' }); } finally { restore(); }
+    assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { state: 'pending' });
+    restore = failRename(() => true);
+    try { await assert.rejects(atomicJson(file, { state: 'completed' }), { code: 'EPERM' }); } finally { restore(); }
+  } finally { restorePlatform(); }
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { state: 'pending' });
+  assert.deepEqual((await readdir(path.dirname(file))).filter(name => name.endsWith('.tmp')), []);
+}, false));
+
+test('atomicJson does not retry a rename error off Windows', () => fixture(async store => {
+  const file = path.join(store.directory, 'phase1', 'requests', 'immutable.json');
+  await atomicJson(file, { state: 'pending' });
+  const restorePlatform = onPlatform('linux');
+  let attempts = 0;
+  const restore = failRename(() => { attempts++; return true; });
+  try { await assert.rejects(atomicJson(file, { state: 'completed' }), { code: 'EPERM' }); } finally { restore(); restorePlatform(); }
+  assert.equal(attempts, 1);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { state: 'pending' });
+  assert.deepEqual((await readdir(path.dirname(file))).filter(name => name.endsWith('.tmp')), []);
+}, false));
+
+test('an export whose result record cannot be written still returns its job and a retry recovers it', () => fixture(async store => {
+  const service = api(store), p = await create(service);
+  const args = { projectId: p.projectId, requestId: 'export-locked', expectedRevision: p.revision, versionId: p.version.versionId, audio: 'silent' };
+  const restore = failRename(journalWrite('completed'));
+  let exported: any;
+  try { exported = await service.call('openmotion_export_request', args); } finally { restore(); }
+  assert.ok(exported.job.id);
+  const retried = await service.call('openmotion_export_request', args);
+  assert.equal(retried.job.id, exported.job.id);
+  assert.equal(retried.recovered, true);
+  const events = await readFile(path.join(store.directory, 'diagnostics', 'events.log'), 'utf8');
+  assert.match(events, /request_journal_failed/);
+  assert.match(events, /result record not written: EPERM/);
+}, false));
+
+test('a failed request reports its own error when its failure record cannot be written', () => fixture(async store => {
+  const service = api(store), p = await create(service);
+  await edit(service, p, 'newer version');
+  const args = { projectId: p.projectId, requestId: 'export-stale', expectedRevision: p.revision, versionId: p.version.versionId, audio: 'silent' };
+  const restore = failRename(journalWrite('failed'));
+  try { await assert.rejects(service.call('openmotion_export_request', args), /VERSION_CONFLICT/); } finally { restore(); }
+  assert.equal(await store.job(), null);
 }, false));
