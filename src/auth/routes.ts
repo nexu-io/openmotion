@@ -474,24 +474,32 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   };
   const recordUserLogoutBarrier = async (userId: string): Promise<void> => {
     const epoch = nextBarrierEpoch();
-    localUserLogoutEpochs.set(userId, epoch);
     if (deps.cache) {
       await deps.cache.set(userLogoutEpochCacheKey(userId), String(epoch), ONETAP_CTX_TTL_SEC);
+      return;
     }
+    const cutoffEpoch = (Date.now() - ONETAP_CTX_TTL_SEC * 1000) * 1000;
+    for (const [key, recordedEpoch] of localUserLogoutEpochs.entries()) {
+      if (recordedEpoch < cutoffEpoch) {
+        localUserLogoutEpochs.delete(key);
+      }
+    }
+    localUserLogoutEpochs.set(userId, epoch);
   };
   const hasUserLoggedOutSince = async (userId: string, startedEpoch: number): Promise<boolean> => {
-    const localEpoch = localUserLogoutEpochs.get(userId);
-    if (localEpoch !== undefined && localEpoch > startedEpoch) {
-      return true;
-    }
     if (deps.cache) {
       const raw = await deps.cache.get(userLogoutEpochCacheKey(userId));
       const parsed = raw ? Number(raw) : NaN;
-      if (Number.isFinite(parsed) && parsed > startedEpoch) {
-        return true;
-      }
+      return Number.isFinite(parsed) && parsed > startedEpoch;
     }
-    return false;
+    const localEpoch = localUserLogoutEpochs.get(userId);
+    if (localEpoch === undefined) return false;
+    const cutoffEpoch = (Date.now() - ONETAP_CTX_TTL_SEC * 1000) * 1000;
+    if (localEpoch < cutoffEpoch) {
+      localUserLogoutEpochs.delete(userId);
+      return false;
+    }
+    return localEpoch > startedEpoch;
   };
 
   // -------------------------------------------------------------------------
@@ -759,10 +767,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   });
 
   // -------------------------------------------------------------------------
-  // Same-Origin Google One Tap & Upgrade Handoff (OIDC + AMR Identity only)
+  // Same-Origin Google One Tap & Upgrade Handoff (OIDC + configured One Tap S2S)
   // -------------------------------------------------------------------------
 
-  if (deps.config.AUTH_MODE === 'oidc' && deps.amrIdentity) {
+  if (deps.config.AUTH_MODE === 'oidc' && deps.amrIdentity?.isOneTapConfigured()) {
     const amrIdentity = deps.amrIdentity;
     const expectedOrigin = new URL(deps.config.APP_PUBLIC_ORIGIN).origin;
 

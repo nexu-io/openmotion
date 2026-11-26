@@ -2172,6 +2172,70 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         fallbackDashboard.headers.get('location'),
         'https://open-design.ai/cloud/dashboard?billing=plan&od_origin=openmotion',
       );
+
+      // 4. OIDC deployment WITH OPENDESIGN_INTERNAL_API_TOKEN (AMR client present) but WITHOUT
+      //    One Tap S2S env vars MUST also report upgradeHandoffEnabled: false and use the safe fallback redirect
+      //    instead of entering the One Tap handoff branch and failing with 503 ONE_TAP_UNAVAILABLE.
+      const amrNoOneTapClient = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input: string | URL | Request) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_noproof`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'ba_usr_noproof',
+              appUserId: 'usr_app_noproof',
+              email: 'noproof@open-design.ai',
+              name: 'Legacy User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_amr_noproof',
+                workspaceName: 'Legacy Workspace',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_noproof',
+                role: 'owner',
+              },
+            });
+          }
+          return new Response('unexpected', { status: 404 });
+        }) as typeof fetch,
+      });
+      assert.equal(amrNoOneTapClient.isOneTapConfigured(), false);
+      const { app: amrNoOneTapApp } = createApiApp({
+        config: makeConfig({
+          OPENDESIGN_INTERNAL_API_TOKEN: INTERNAL_TOKEN,
+          OPENDESIGN_ONE_TAP_INTERNAL_URL: undefined,
+          OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: undefined,
+        }),
+        db: {} as never,
+        storage: {} as never,
+        queues: {} as never,
+        eventBus: {} as never,
+        authStore: store,
+        authCache: cache,
+        amrIdentity: amrNoOneTapClient,
+        disableWelcomeBootstrap: true,
+        runtimeRoot: tmpRoot,
+      });
+
+      const amrNoOneTapSummary = await amrNoOneTapApp.request('/motion-api/account/summary', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` },
+      });
+      assert.equal(amrNoOneTapSummary.status, 200);
+      assert.equal(((await amrNoOneTapSummary.json()) as { upgradeHandoffEnabled?: boolean }).upgradeHandoffEnabled, false);
+
+      const amrNoOneTapPricing = await amrNoOneTapApp.request(
+        '/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1&od_origin=openmotion&od_entry_id=amr-no-onetap',
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` } },
+      );
+      assert.equal(amrNoOneTapPricing.status, 302);
+      assert.equal(
+        amrNoOneTapPricing.headers.get('location'),
+        'https://open-design.ai/pricing?od_origin=openmotion&od_entry_id=amr-no-onetap',
+      );
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

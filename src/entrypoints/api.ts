@@ -3193,7 +3193,9 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       authStore,
       gateway,
       cache: authCache,
-      upgradeHandoffEnabled: Boolean(config.AUTH_MODE === 'oidc' && authDeps.amrIdentity),
+      upgradeHandoffEnabled: Boolean(
+        config.AUTH_MODE === 'oidc' && authDeps.amrIdentity?.isOneTapConfigured(),
+      ),
     }),
   );
 

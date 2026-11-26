@@ -234,3 +234,36 @@ it('propagates explicit deviceIdConsented=true from cloud /motion-api/tracking i
     odDeviceIdConsent: true,
   });
 });
+
+it('does not treat toggling usage-data sharing on via setMotionTrackingEnabled(true) as device-ID consent', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ enabled: false, locked: false, mode: 'cloud', deviceIdConsented: false })),
+  );
+  history.replaceState(
+    null,
+    '',
+    '/explore?od_origin=open_design&od_entry_id=ent_3&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T00:00:00.000Z&od_device_id=dev_toggle_blocked',
+  );
+  const tracking = await import('./tracking');
+  const { isMotionTrackingConsented, setMotionTrackingConsented } = await import('./trackingIdentity');
+  const { collectOneTapAttribution } = await import('./googleOneTap');
+
+  setMotionTrackingConsented(false);
+  await tracking.initializeTracking();
+  expect(isMotionTrackingConsented()).toBe(false);
+
+  // Enabling usage-data sharing must NOT grant device-ID consent
+  tracking.setMotionTrackingEnabled(true);
+  expect(tracking.getMotionTrackingStatus()).toMatchObject({ configuration: 'ready', enabled: true });
+  expect(isMotionTrackingConsented()).toBe(false);
+  expect(collectOneTapAttribution().attribution.odEntry).not.toHaveProperty('odDeviceId');
+
+  // Explicit device-ID consent enables it, turning sharing off clears it, and turning sharing back on restores explicit consent
+  tracking.setMotionDeviceIdConsented(true);
+  expect(isMotionTrackingConsented()).toBe(true);
+  tracking.setMotionTrackingEnabled(false);
+  expect(isMotionTrackingConsented()).toBe(false);
+  tracking.setMotionTrackingEnabled(true);
+  expect(isMotionTrackingConsented()).toBe(true);
+});

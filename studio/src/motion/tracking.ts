@@ -16,6 +16,7 @@ let initialization: Promise<void> | undefined;
 let configuration: 'uninitialized' | 'loading' | 'ready' | 'disabled' | 'unavailable' = 'uninitialized';
 let controller: AbortController | undefined;
 let retryAt = 0;
+let explicitDeviceIdConsented = false;
 
 function retryDelay(ms: number, signal: AbortSignal) {
   return new Promise<void>(resolve => {
@@ -43,14 +44,10 @@ export function initializeTracking() {
         tracking.setEnabled(config.enabled);
         // Server availability (`config.enabled`) is NEVER user consent for device-ID transmission.
         // Reflect the explicit `deviceIdConsented` boolean returned by /motion-api/tracking.
-        if (!config.enabled) {
-          setMotionTrackingConsented(false);
-        } else {
-          setMotionTrackingConsented(
-            'deviceIdConsented' in config &&
-              (config as { deviceIdConsented?: unknown }).deviceIdConsented === true,
-          );
-        }
+        explicitDeviceIdConsented =
+          'deviceIdConsented' in config &&
+          (config as { deviceIdConsented?: unknown }).deviceIdConsented === true;
+        setMotionTrackingConsented(config.enabled && explicitDeviceIdConsented);
         configuration = config.enabled ? 'ready' : 'disabled'; retryAt = 0;
         return;
       } catch {
@@ -74,8 +71,13 @@ export function flushMotionTracking() { return tracking.flush(); }
 export function setMotionTrackingEnabled(enabled: boolean) {
   controller?.abort(); retryAt = 0;
   tracking.setEnabled(enabled);
-  setMotionTrackingConsented(enabled);
+  // Usage-data sharing preference is independent of explicit device-ID consent (`om_metrics_consent`).
+  setMotionTrackingConsented(enabled && explicitDeviceIdConsented);
   configuration = enabled ? 'ready' : 'disabled';
+}
+export function setMotionDeviceIdConsented(consented: boolean) {
+  explicitDeviceIdConsented = consented;
+  setMotionTrackingConsented(consented && tracking.enabled());
 }
 
 window.addEventListener('pagehide', () => { void tracking.flush(); });
