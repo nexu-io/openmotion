@@ -6,7 +6,7 @@ import { assetMediaUrl, assetVersion, type AssetVersion, type LibraryAsset } fro
 import { classifyAudioKind, type AudioKind } from '../../../shared/audio-kind';
 import { hasSavedGeneration, matchesGenerationQuery } from './assetTasks';
 import { resumableJob, type GenerationJob, type Model } from '../../../shared/gateway';
-import { generationOptions } from '../../../shared/generation-options';
+import { generationOptions, sanitizeSpeechVoiceParameters } from '../../../shared/generation-options';
 import { formatDuration } from '../components/sidebar/assetHelpers';
 import { Menu, MenuItem, MenuSeparator } from '../components/ui/Menu';
 import { Select } from '../components/ui/Select';
@@ -105,11 +105,16 @@ function buildAssetTrack(
   };
 }
 
-function parameterDraftFromParams(params: Record<string, unknown>, model?: Model): ParameterDraft {
-  const structuredKeys = new Set(model ? (generationOptions(model, false)?.fields.map(field => field.key) ?? []) : []);
+function parameterDraftFromParams(
+  params: Record<string, unknown>,
+  model?: Model,
+  allowCustomVoice = true,
+): ParameterDraft {
+  const sanitized = sanitizeSpeechVoiceParameters(model, params, allowCustomVoice) ?? {};
+  const structuredKeys = new Set(model ? ((model.generationOptions ?? generationOptions(model, false))?.fields.map(field => field.key) ?? []) : []);
   const values: Record<string, unknown> = {};
   const extra: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(params)) {
+  for (const [key, value] of Object.entries(sanitized)) {
     if (value === undefined) continue;
     if (structuredKeys.has(key)) values[key] = value;
     else extra[key] = value;
@@ -462,6 +467,7 @@ export function SoundStudioWorkspace({
   onDownload: () => void;
 }) {
   const { t, formatDate } = useI18n();
+  const customVoiceIdEnabled = useCloudFeatureEnabled('customVoiceId');
   const soundEffectsEnabled = useCloudFeatureEnabled('soundEffects');
   const guestLibrary = browser.authRequired || studio.guestPreview;
   const requestLibrarySignIn = () => openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
@@ -495,7 +501,7 @@ export function SoundStudioWorkspace({
 
   const [parameterDrafts, setParameterDrafts] = useState<Record<string, ParameterDraft>>(() =>
     initialParamModel && draft.parameters && Object.keys(draft.parameters).length > 0
-      ? { [initialParamModel.id]: parameterDraftFromParams(draft.parameters, initialParamModel) }
+      ? { [initialParamModel.id]: parameterDraftFromParams(draft.parameters, initialParamModel, customVoiceIdEnabled) }
       : {},
   );
   const seededDraftKeyRef = useRef<string | undefined>(
@@ -515,12 +521,12 @@ export function SoundStudioWorkspace({
     const targetModel = (draft.model ? models?.find(model => model.id === draft.model) : undefined) ?? activeModel;
     if (!targetModel) return;
     seededDraftKeyRef.current = currentDraftKey;
-    const seeded = parameterDraftFromParams(draft.parameters, targetModel);
+    const seeded = parameterDraftFromParams(draft.parameters, targetModel, customVoiceIdEnabled);
     setParameterDrafts(current => ({
       ...current,
       [targetModel.id]: seeded,
     }));
-  }, [currentDraftKey, draft.model, draft.parameters, models, activeModel]);
+  }, [currentDraftKey, draft.model, draft.parameters, models, activeModel, customVoiceIdEnabled]);
 
   // Track any active audio job observed on screen so reload-recovered jobs transition cleanly
   // in-place to either their completed track row (with New badge) or an inline failed row.
@@ -831,11 +837,13 @@ export function SoundStudioWorkspace({
           ? 'music'
           : classified;
 
+    const sanitizedParams = sanitizeSpeechVoiceParameters(matchedModel, parameters, customVoiceIdEnabled);
+
     if (modelId && parameters && Object.keys(parameters).length > 0) {
       const key = matchedModel?.id ?? modelId;
       setParameterDrafts(current => ({
         ...current,
-        [key]: parameterDraftFromParams(parameters, matchedModel),
+        [key]: parameterDraftFromParams(sanitizedParams ?? {}, matchedModel, customVoiceIdEnabled),
       }));
     }
 
@@ -843,7 +851,7 @@ export function SoundStudioWorkspace({
       modality: 'audio',
       prompt,
       model: matchedModel?.id ?? modelId,
-      parameters,
+      parameters: sanitizedParams,
       references: [],
     };
 
@@ -866,7 +874,7 @@ export function SoundStudioWorkspace({
       ...current,
       prompt,
       model: matchedModel?.id ?? current.model,
-      parameters,
+      parameters: sanitizedParams,
     }));
     setMobileView('create');
     requestAnimationFrame(() => promptRef.current?.focus());

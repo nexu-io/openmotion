@@ -15,6 +15,7 @@ export const CLOUD_P1_FEATURES = {
   asr: false,
   brandKit: false,
   reviewComments: false,
+  customVoiceId: false,
   soundEffects: false,
 } as const;
 
