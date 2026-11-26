@@ -8,7 +8,7 @@ import type { Database } from '../db/client.ts';
 import { asInsert, asUpdate } from '../db/helpers.ts';
 import { idempotencyReceipts } from '../db/schema/jobs.ts';
 import { projects } from '../db/schema/projects.ts';
-import { archiveKey, assertTenantScopedKey } from '../infra/storage.ts';
+import { archiveKey, archiveMetaKey, assertTenantScopedKey } from '../infra/storage.ts';
 import { PROJECT_ARCHIVE_LIMITS } from '../../shared/project-archive.ts';
 import { firstFoldedDuplicate, unsafePortableSegment } from '../../shared/project-name.ts';
 import {
@@ -299,6 +299,26 @@ export class ProjectArchiveService {
     await this.assertArchiveProjectsAccess(ctx, projectIds);
   }
 
+  private async readArchiveMetadata(
+    workspaceId: string,
+    archiveId: string,
+  ): Promise<{ ownerUserId?: string | null; projects?: Array<{ projectId?: string }> } | null> {
+    try {
+      const metaKey = assertTenantScopedKey(workspaceId, archiveMetaKey(workspaceId, archiveId));
+      const { stream } = await this.storage.getObjectStream(metaKey);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+      return parsed && typeof parsed === 'object'
+        ? (parsed as { ownerUserId?: string | null; projects?: Array<{ projectId?: string }> })
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async canReadArchive(ctx: AuthContext, archiveId: string): Promise<boolean> {
     if (ctx.authMethod !== 'oauth_bearer') return true;
     const receipts = await this.db
@@ -313,11 +333,15 @@ export class ProjectArchiveService {
         ),
       );
     const receipt = receipts[0];
-    if (!receipt?.responsePayload || typeof receipt.responsePayload !== 'object') {
+    const aclSource =
+      receipt?.responsePayload && typeof receipt.responsePayload === 'object'
+        ? receipt.responsePayload
+        : await this.readArchiveMetadata(ctx.workspaceId, archiveId);
+    if (!aclSource) {
       return false;
     }
     try {
-      await this.assertReceiptProjectsReadable(ctx, receipt.responsePayload, 'projects');
+      await this.assertReceiptProjectsReadable(ctx, aclSource, 'projects');
       return true;
     } catch {
       return false;
@@ -518,6 +542,19 @@ export class ProjectArchiveService {
     const archiveId = randomUUID();
     const s3Key = assertTenantScopedKey(ctx.workspaceId, archiveKey(ctx.workspaceId, archiveId));
     await this.storage.putObject(s3Key, zipBytes, 'application/zip', zipBytes.byteLength);
+    // Persist durable archive ownership metadata alongside the ZIP so OAuth download
+    // authorization survives after the 30-day idempotency receipt is swept.
+    const metaBytes = Buffer.from(
+      JSON.stringify({
+        archiveId,
+        ownerUserId: ctx.userId ?? null,
+        projects: exportedEntries.map((entry) => ({ projectId: entry.projectId })),
+        createdAt: new Date().toISOString(),
+      }),
+      'utf8',
+    );
+    const metaKey = assertTenantScopedKey(ctx.workspaceId, archiveMetaKey(ctx.workspaceId, archiveId));
+    await this.storage.putObject(metaKey, metaBytes, 'application/json', metaBytes.byteLength);
 
     const filename =
       exportedEntries.length === 1

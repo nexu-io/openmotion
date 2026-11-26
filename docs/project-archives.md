@@ -81,7 +81,7 @@ Use `openmotion_get_project` to page through available projects, then call `open
 
 To import, upload the ZIP in Studio or send its bytes to `POST <origin>/motion-api/project-archives/import?requestId=<stable-id>` with `Content-Type: application/zip`. API clients use the same Bearer authentication with `projects:write` and at least editor access. The response's `imported` array gives the new project and session IDs. Studio uses its signed-in session.
 
-**Desktop.** Export also returns the immutable local ZIP path. The `action=import` tool takes an absolute local `sourcePath` and a stable `requestId`. Browser import uses the same ZIP upload route under the installation's loopback and same-origin protections.
+**Desktop.** The `action=import` tool takes an absolute local `sourcePath` and a stable `requestId`. Browser import uses the same ZIP upload route under the installation's loopback and same-origin protections.
 
 In both environments, reusing a request ID with different inputs is rejected. Importing the same file with a new request deliberately creates another copy.
 

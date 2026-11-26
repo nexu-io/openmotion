@@ -4,6 +4,7 @@ import { I18nProvider } from '../i18n/I18n';
 import { readStudioUiPreferences } from '../utils/studioUiPreferences';
 import { getModelContext } from '../webmcp/types';
 import { installEditorTracking } from './editorTracking';
+import { useCloudWebMode } from './entitlementModalBus';
 import { StudioHostContext, type StudioHost } from './StudioHost';
 import { trackMotion } from './tracking';
 
@@ -35,6 +36,7 @@ const shellHost: StudioHost = {
  * double-register when entering the editor.
  */
 function NativeWebMcpRegistrar() {
+  const cloudMode = useCloudWebMode();
   useEffect(() => {
     if (readStudioUiPreferences().agentToolsEnabled === false) return;
     const context = getModelContext();
@@ -47,13 +49,20 @@ function NativeWebMcpRegistrar() {
     ])
       .then(([{ buildOpenMotionWebMcpTools }, { registerStudioTools }, { studioApiFetch }]) => {
         if (controller.signal.aborted) return;
-        return registerStudioTools(context, buildOpenMotionWebMcpTools(studioApiFetch), controller.signal);
+        return registerStudioTools(
+          context,
+          buildOpenMotionWebMcpTools(studioApiFetch, {
+            cloud: cloudMode,
+            publicOrigin: typeof window !== 'undefined' ? window.location.origin : undefined,
+          }),
+          controller.signal,
+        );
       })
       .catch(() => {});
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [cloudMode]);
   return null;
 }
 

@@ -204,6 +204,12 @@ export function archiveKey(workspaceId: string, archiveId: string): string {
   return `workspaces/${workspaceId}/archives/${archiveId}.zip`;
 }
 
+export function archiveMetaKey(workspaceId: string, archiveId: string): string {
+  assertUuid(workspaceId, 'workspaceId');
+  assertUuid(archiveId, 'archiveId');
+  return `workspaces/${workspaceId}/archives/${archiveId}.meta.json`;
+}
+
 export function blobThumbnailsPrefix(workspaceId: string, sha256: string): string {
   assertUuid(workspaceId, 'workspaceId');
   assertSha256(sha256);

@@ -4247,6 +4247,30 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
       404,
     );
 
+    // Sweeping expired archive:export receipts after 30 days must not revoke OAuth download access
+    // for the exporter (nor widen access to other OAuth users in the same workspace).
+    const receiptIdx = pgClient
+      .rows('idempotency_receipts')
+      .findIndex((row) => row.scope === 'archive:export' && row.resource_id === disposableArchive.archiveId);
+    assert.ok(receiptIdx >= 0);
+    pgClient.rows('idempotency_receipts').splice(receiptIdx, 1);
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { method: 'HEAD', headers: { Authorization: mcpHeaders.Authorization } })).status,
+      200,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: mcpHeaders.Authorization } })).status,
+      302,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { method: 'HEAD', headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      404,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      404,
+    );
+
     const owner = { ...agent, role: 'owner' as const, authMethod: 'session_cookie' as const };
     const pat = await createPat(authStore, owner, { name: 'Archive download', scopes: ['projects:read'] });
     const patHeaders = { Authorization: `Bearer ${pat.token}` };

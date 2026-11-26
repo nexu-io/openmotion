@@ -5,10 +5,12 @@ import { makeStudioDebugLogger } from '../utils/studioDebug';
 import { getModelContext } from '../webmcp/types';
 import { loadModelContextPolyfill } from '../webmcp/polyfill';
 import { registerStudioTools } from '../webmcp/registrar';
+import { useCloudWebMode } from './entitlementModalBus';
 
 const log = makeStudioDebugLogger('webmcp');
 
 export function OpenMotionAgentTools({ polyfillOnly = false }: { polyfillOnly?: boolean } = {}) {
+  const cloudMode = useCloudWebMode();
   useEffect(() => {
     if (readStudioUiPreferences().agentToolsEnabled === false) return;
     if (polyfillOnly && getModelContext()) return;
@@ -26,8 +28,14 @@ export function OpenMotionAgentTools({ polyfillOnly = false }: { polyfillOnly?: 
         if (!context || controller.signal.aborted) return;
         const { buildOpenMotionWebMcpTools } = await import('../../../shared/webmcp-tools');
         if (controller.signal.aborted) return;
-        const report = await registerStudioTools(context,
-          buildOpenMotionWebMcpTools(studioApiFetch), controller.signal);
+        const report = await registerStudioTools(
+          context,
+          buildOpenMotionWebMcpTools(studioApiFetch, {
+            cloud: cloudMode,
+            publicOrigin: typeof window !== 'undefined' ? window.location.origin : undefined,
+          }),
+          controller.signal,
+        );
         log('openmotion_registered', { ...report });
       })().catch(error => log('openmotion_registration_failed', {
         message: error instanceof Error ? error.message : String(error),
@@ -54,6 +62,6 @@ export function OpenMotionAgentTools({ polyfillOnly = false }: { polyfillOnly?: 
         globalThis.clearTimeout(timeoutHandle);
       }
     };
-  }, [polyfillOnly]);
+  }, [polyfillOnly, cloudMode]);
   return null;
 }

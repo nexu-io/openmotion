@@ -99,7 +99,7 @@ List trashed projects with `openmotion_get_project({ trashed: true })`. Use `tra
 
 ### openmotion_project_archive
 
-`action=export` accepts `projectIds` or `all=true`, a stable `requestId`, and optional `expectedRevisions`. It validates the finished ZIP and returns `archiveId`, `downloadUrl`, `filename`, `bytes`, `sha256` and source project revisions. Export-all excludes Trash. Desktop also returns the local `archivePath`.
+`action=export` accepts `projectIds` or `all=true`, a stable `requestId`, and optional `expectedRevisions`. It validates the finished ZIP and returns `archiveId`, `downloadUrl`, `filename`, `bytes`, `sha256` and source project revisions. Export-all excludes Trash.
 
 Cloud MCP exposes the export action. Its absolute `downloadUrl` uses the deployment's public origin. Open it while signed in to the same Studio workspace or send an OAuth access token or workspace PAT in the `Authorization: Bearer` header with `projects:read`. Follow the short-lived storage redirect and compare the ZIP's SHA-256 to `sha256`.
 
