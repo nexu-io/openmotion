@@ -12,8 +12,10 @@ import {
   setClientCompositionCaptureCapabilityForTest,
 } from "../../player/lib/clientCompositionCapture";
 import { setCachedCloudDisklessMode } from "../../utils/cloudRuntime";
+import { clearCachedCompositionTimelinesForTest } from "../../player/lib/compositionTimelineCache";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { renderPosterForNextOpen } from "../nle/PreviewPoster";
+import { clearRememberedRootCoversForTest, CompositionsTab } from "./CompositionsTab";
 import { mountCompositionsTab } from "./compositionsTabTestUtils";
 
 class DecodingImage {
@@ -99,6 +101,9 @@ afterEach(() => {
   setCachedCloudDisklessMode(null);
   setClientCompositionCaptureCapabilityForTest(null);
   clearClientCompositionCaptureCacheForTest();
+  clearCachedCompositionTimelinesForTest();
+  clearRememberedRootCoversForTest();
+  usePlayerStore.setState({ elements: [] });
   Object.assign(globalThis, {
     fetch: real.fetch,
     Image: real.Image,
@@ -386,6 +391,61 @@ describe("composition card thumbnails", () => {
     // Editing only index.html bumps index.html's revision without triggering a re-fetch for Root.
     act(() => usePlayerStore.getState().bumpThumbnailRevisions(["index.html"]));
     expect(renders).toHaveLength(2);
+  });
+
+  it("keeps the Root card pinned to the master timeline's earliest scene cover after clicking into another sub-composition", async () => {
+    // Master timeline starts with intro.html at t=0, while choice.html comes first alphabetically.
+    usePlayerStore.setState({
+      elements: [
+        { id: "c", tag: "div", start: 10, duration: 5, track: 0, compositionSrc: "compositions/choice.html" },
+        { id: "i", tag: "div", start: 0, duration: 5, track: 0, compositionSrc: "compositions/intro.html" },
+      ],
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = {
+      projectId: "demo",
+      compositions: ["index.html", "compositions/choice.html", "compositions/intro.html"],
+      masterCompositionPath: "index.html",
+      onSelect: vi.fn(),
+    };
+    try {
+      act(() => {
+        root.render(<CompositionsTab {...props} activeComposition="index.html" />);
+      });
+      // First request is intro.html (shared by Root and intro), second is choice.html.
+      expect(renders.map((r) => r.url.pathname)).toEqual([
+        "/api/projects/demo/thumbnail/compositions/intro.html",
+        "/api/projects/demo/thumbnail/compositions/choice.html",
+      ]);
+      renders[0]!.answer();
+      renders[1]!.answer();
+      await settle();
+
+      const srcOf = (idx: number) =>
+        host.querySelectorAll<HTMLElement>('[draggable="true"]')[idx]?.querySelector("img")?.getAttribute("src");
+      expect(srcOf(0)).toBe("blob:frame-1"); // Root -> intro.html
+      expect(srcOf(1)).toBe("blob:frame-2"); // choice.html
+      expect(srcOf(2)).toBe("blob:frame-1"); // intro.html
+
+      // Clicking choice.html replaces playerStore.elements with choice's inner elements (no compositionSrc).
+      act(() => {
+        usePlayerStore.setState({
+          elements: [{ id: "choice-heading", tag: "h1", start: 0, duration: 4, track: 0 }],
+        });
+        root.render(<CompositionsTab {...props} activeComposition="compositions/choice.html" />);
+      });
+      await settle();
+
+      // Root card must STAY on intro.html's cover (blob:frame-1), never jumping to choice.html (blob:frame-2).
+      expect(srcOf(0)).toBe("blob:frame-1");
+      expect(srcOf(1)).toBe("blob:frame-2");
+      expect(srcOf(2)).toBe("blob:frame-1");
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
   });
 
   it("uses the same placeholder if the poster image fails, and recovers on a new revision", async () => {

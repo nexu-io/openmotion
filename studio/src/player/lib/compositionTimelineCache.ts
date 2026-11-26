@@ -73,6 +73,19 @@ export function getCachedCompositionTimeline(
   return existing;
 }
 
+/**
+ * Read the last cached timeline structure for a composition regardless of revision,
+ * useful for non-critical UI metadata (e.g. preserving the Root card's earliest child cover
+ * after switching into a sub-composition).
+ */
+export function peekCachedCompositionTimeline(
+  projectId: string,
+  compPath: string,
+): CachedCompositionTimeline | null {
+  if (!projectId) return null;
+  return cache.get(cacheKey(projectId, compPath)) ?? null;
+}
+
 /** Drop cached timeline snapshots for a project (or a single composition within it). */
 export function invalidateCachedCompositionTimelines(projectId: string, compPath?: string): void {
   if (compPath !== undefined) {

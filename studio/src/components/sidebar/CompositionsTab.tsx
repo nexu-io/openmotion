@@ -33,6 +33,7 @@ import { setPreviewMediaMuted } from "../../player/lib/timelineIframeHelpers";
 import { postFrameDisplayScale } from "../../player/lib/runtimeProtocol";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { thumbnailRevisionOf } from "../../player/store/thumbnailSlice";
+import { peekCachedCompositionTimeline } from "../../player/lib/compositionTimelineCache";
 import { encodePreviewPath } from "../../player/components/thumbnailUtils";
 import { SpriteFrame } from "../../player/components/SpriteFrame";
 import { TIMELINE_COMPOSITION_MIME } from "../../utils/timelineCompositionDrop";
@@ -830,6 +831,43 @@ function CompCard({
   );
 }
 
+const MAX_REMEMBERED_ROOT_COVERS = 64;
+const rememberedRootCoverByProject = new Map<string, string>();
+
+function findEarliestChildComposition(
+  elements: readonly { compositionSrc?: string; start: number }[],
+  masterCompositionPath: string,
+): string | null {
+  let earliestStart = Infinity;
+  let earliestComp: string | null = null;
+  for (const el of elements) {
+    if (!el.compositionSrc) continue;
+    const normalized = el.compositionSrc.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
+    if (normalized === masterCompositionPath) continue;
+    if (el.start < earliestStart) {
+      earliestStart = el.start;
+      earliestComp = normalized;
+    }
+  }
+  return earliestComp;
+}
+
+function rememberProjectRootCover(projectId: string, compPath: string): void {
+  if (!projectId || !compPath) return;
+  rememberedRootCoverByProject.delete(projectId);
+  rememberedRootCoverByProject.set(projectId, compPath);
+  while (rememberedRootCoverByProject.size > MAX_REMEMBERED_ROOT_COVERS) {
+    const oldest = rememberedRootCoverByProject.keys().next().value;
+    if (!oldest) break;
+    rememberedRootCoverByProject.delete(oldest);
+  }
+}
+
+/** Tests only: reset remembered per-project Root card cover paths. */
+export function clearRememberedRootCoversForTest(): void {
+  rememberedRootCoverByProject.clear();
+}
+
 export const CompositionsTab = memo(function CompositionsTab({
   projectId,
   compositions,
@@ -842,20 +880,12 @@ export const CompositionsTab = memo(function CompositionsTab({
 }: CompositionsTabProps) {
   const { t } = useI18n();
   const thumbnailRevisions = usePlayerStore((state) => state.thumbnailRevisions);
-  const firstTimelineChildComp = usePlayerStore((state) => {
-    if (!masterCompositionPath) return null;
-    let earliestStart = Infinity;
-    let earliestComp: string | null = null;
-    for (const el of state.elements) {
-      if (!el.compositionSrc) continue;
-      const normalized = el.compositionSrc.replace(/\\/g, "/").replace(/^(\.\/|\/)+/, "");
-      if (normalized === masterCompositionPath) continue;
-      if (el.start < earliestStart) {
-        earliestStart = el.start;
-        earliestComp = normalized;
-      }
-    }
-    return earliestComp;
+  const viewingMaster =
+    masterCompositionPath !== null &&
+    (!activeComposition || activeComposition === masterCompositionPath);
+  const liveMasterFirstChildComp = usePlayerStore((state) => {
+    if (!viewingMaster || !masterCompositionPath) return null;
+    return findEarliestChildComposition(state.elements, masterCompositionPath);
   });
   const sortedCompositions = useMemo(
     () =>
@@ -864,15 +894,29 @@ export const CompositionsTab = memo(function CompositionsTab({
       ),
     [compositions, masterCompositionPath],
   );
-  // Reuse the earliest child composition's cover for the Root card so editing the master
-  // timeline never triggers redundant SnapDOM captures or cover reloads for index.html.
+  // Reuse the master timeline's earliest child composition cover for the Root card, and keep it
+  // pinned across sub-composition switches so drilling into another scene (whose own timeline has
+  // no sub-compositions) never makes the Root card jump to the alphabetically first scene.
   const rootCoverComp = useMemo(() => {
     if (!masterCompositionPath) return null;
-    if (firstTimelineChildComp && compositions.includes(firstTimelineChildComp)) {
-      return firstTimelineChildComp;
+    if (liveMasterFirstChildComp && compositions.includes(liveMasterFirstChildComp)) {
+      rememberProjectRootCover(projectId, liveMasterFirstChildComp);
+      return liveMasterFirstChildComp;
+    }
+    const remembered = rememberedRootCoverByProject.get(projectId);
+    if (remembered && remembered !== masterCompositionPath && compositions.includes(remembered)) {
+      return remembered;
+    }
+    const cachedMaster = peekCachedCompositionTimeline(projectId, masterCompositionPath);
+    const cachedFirst = cachedMaster
+      ? findEarliestChildComposition(cachedMaster.elements, masterCompositionPath)
+      : null;
+    if (cachedFirst && compositions.includes(cachedFirst)) {
+      rememberProjectRootCover(projectId, cachedFirst);
+      return cachedFirst;
     }
     return sortedCompositions.find((c) => c !== masterCompositionPath) ?? null;
-  }, [compositions, firstTimelineChildComp, masterCompositionPath, sortedCompositions]);
+  }, [compositions, liveMasterFirstChildComp, masterCompositionPath, projectId, sortedCompositions]);
 
   if (compositions.length === 0) {
     return (
