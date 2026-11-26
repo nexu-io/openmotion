@@ -1450,6 +1450,18 @@ describe('CatalogService Zero-Copy Cloning & Tenant Isolation', () => {
     // Product Promo (contains vendor/gsap-3.14.2/dist/gsap.min.js) also clones cleanly zero-copy
     const promoClone = await catalog.cloneTemplateToProject(ctxA, { templateId: 'product-promo' });
     assert.ok(promoClone.files.some((f) => f.path === 'vendor/gsap-3.14.2/dist/gsap.min.js'));
+    const promoBlob = (filePath: string) => {
+      const file = promoClone.files.find(f => f.path === filePath);
+      assert.ok(file, filePath);
+      return storage.objects.get(catalogBlobKey(file.sha256))!.body;
+    };
+    const manifest = JSON.parse(promoBlob('vendor/manifest.json').toString('utf8'));
+    const font = manifest.files.find((entry: { file: string }) => entry.file.endsWith('.woff2'));
+    const fontBytes = promoBlob(`vendor/${font.file}`);
+    assert.equal(fontBytes.toString('ascii', 0, 4), 'wOF2');
+    assert.equal(fontBytes.length, font.bytes);
+    assert.equal(createHash('sha256').update(fontBytes).digest('hex'), font.sha256);
+    assert.match(promoBlob('vendor/fonts/inter-OFL.txt').toString('utf8'), /The Inter Project Authors/);
     pg.assertZeroWorkspaceBlobWrites();
 
     // Non-HTML template fails with TEMPLATE_NOT_COPYABLE

@@ -111,13 +111,14 @@ export const PREVIEW_ASSET_READINESS = String.raw`
       }
     }
     if(document.fonts && document.fonts.size>0){
-      var fItem={id:'fonts',label:'Fonts',kind:'font',settled:document.fonts.status==='loaded',failedReason:null};
+      var fontFailure=function(){return Array.from(document.fonts).some(function(face){return face.status==='error';})?'error':null;};
+      var fItem={id:'fonts',label:'Fonts',kind:'font',settled:document.fonts.status==='loaded',failedReason:fontFailure()};
       items.push(fItem);
       if(!fItem.settled){
         var cancelF=later(ASSET_TIMEOUT_MS,function(){ if(!fItem.settled) settle(fItem,'timeout'); });
         Promise.resolve(document.fonts.ready).then(
-          function(){ cancelF(); if(!fItem.settled) settle(fItem,null); },
-          function(){ cancelF(); if(!fItem.settled) settle(fItem,'error'); }
+          function(){ cancelF(); settle(fItem,fontFailure()); },
+          function(){ cancelF(); settle(fItem,'error'); }
         );
       }
     }
