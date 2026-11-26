@@ -1683,7 +1683,17 @@ it('opens upgrade modal directly when a Plus user clicks 2K on a size-based host
       await act(async () => twoKButton!.click());
     }
 
-    expect(modalRequests).toEqual([{ mode: 'upgrade', hookId: 'studio_res_gate' }]);
+    expect(modalRequests).toEqual([{
+      mode: 'upgrade',
+      hookId: 'studio_res_gate',
+      attribution: {
+        gateReason: 'resolution_locked',
+        modality: 'image',
+        modelId: 'seedream-5.5',
+        modelProvider: 'account',
+        userPlan: 'plus',
+      },
+    }]);
     expect(latestDraft.parameters?.size).toBe('1K');
     expect(container.querySelector('.om-entitlement-gate')).toBeNull();
     expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
@@ -1747,7 +1757,17 @@ it('gates an untouched Plus draft whose hosted model profile defaults to 2K and 
 
     await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
     expect(generate).not.toHaveBeenCalled();
-    expect(modalRequests).toEqual([{ mode: 'upgrade', hookId: 'studio_res_gate' }]);
+    expect(modalRequests).toEqual([{
+      mode: 'upgrade',
+      hookId: 'studio_res_gate',
+      attribution: {
+        gateReason: 'resolution_locked',
+        modality: 'image',
+        modelId: 'nano-banana-2',
+        modelProvider: 'account',
+        userPlan: 'plus',
+      },
+    }]);
   } finally {
     unsubscribe();
     setCachedCloudDisklessMode(null);
