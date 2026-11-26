@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
-import { and, asc, desc, eq, getTableColumns, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { brandWebsite, publicBrandAddress } from '../../gateway/brand-network.ts';
 import { MAX_ASSET_BYTES } from '../../shared/asset-limits.ts';
 import type { AssetListInput, AssetReference, AssetVersion, LibraryAsset } from '../../shared/asset-library.ts';
@@ -32,9 +32,7 @@ import {
 import { idempotencyReceipts, jobs } from '../db/schema/jobs.ts';
 import {
   projectFiles,
-  projectHistoryEntries,
   projectVersionFiles,
-  projectVersions,
 } from '../db/schema/project-files.ts';
 import { projects } from '../db/schema/projects.ts';
 import type { QueueService } from '../infra/queues.ts';
@@ -47,6 +45,10 @@ import {
   workspaceBlobKey,
 } from '../infra/storage.ts';
 import { loadProjectOrThrow } from './project-files-service.ts';
+import {
+  commitProjectVersionAndHistory,
+  resolveProjectHistoryActor,
+} from './project-snapshot.ts';
 
 export const MAX_FONT_LICENSE_BYTES = 131_072; // 128 KiB per Spike 2 §3.2.5
 export const DEFAULT_UPLOAD_TICKET_TTL_SEC = 900;
@@ -560,154 +562,67 @@ export class AssetLibraryService {
               hash: f.sha256,
             }));
             const nextRevision = computeProjectRevision(sourceFiles);
-            const now = new Date();
-            const maxVerRow = await tx
-              .select({ maxVer: sql<number>`COALESCE(MAX(${projectVersions.versionNumber}), 0)` })
-              .from(projectVersions)
-              .where(
-                and(
-                  eq(projectVersions.workspaceId, ctx.workspaceId),
-                  eq(projectVersions.projectId, targetProjectId),
-                ),
-              );
-            const nextVersionNumber =
-              Math.max(Number(project.currentVersionNumber ?? 0), Number(maxVerRow[0]?.maxVer ?? 0)) + 1;
-
-            const maxSeqRow = await tx
-              .select({ maxSeq: sql<number>`COALESCE(MAX(${projectHistoryEntries.seq}), 0)` })
-              .from(projectHistoryEntries)
-              .where(
-                and(
-                  eq(projectHistoryEntries.workspaceId, ctx.workspaceId),
-                  eq(projectHistoryEntries.projectId, targetProjectId),
-                ),
-              );
-            const currentHistorySeq = Number(project.currentHistorySeq ?? 0);
-            const nextHistorySeq = Math.max(currentHistorySeq, Number(maxSeqRow[0]?.maxSeq ?? 0)) + 1;
-
-            const parentRows =
-              currentHistorySeq > 0
-                ? await tx
-                    .select({ id: projectHistoryEntries.id })
-                    .from(projectHistoryEntries)
-                    .where(
-                      and(
-                        eq(projectHistoryEntries.workspaceId, ctx.workspaceId),
-                        eq(projectHistoryEntries.projectId, targetProjectId),
-                        eq(projectHistoryEntries.seq, currentHistorySeq),
-                      ),
-                    )
-                    .limit(1)
-                : [];
-            const parentEntryId = parentRows[0]?.id ?? null;
-
             const summary = `Instant import ${filename}`.slice(0, 256);
+            const historyActor = resolveProjectHistoryActor(ctx);
 
-            const [newVersion] = await tx
-              .insert(projectVersions)
-              .values(
-                asInsert(projectVersions, {
-                  workspaceId: ctx.workspaceId,
-                  projectId: targetProjectId,
-                  versionNumber: nextVersionNumber,
-                  revision: nextRevision,
-                  source: 'studio',
-                  summary,
-                  requestId: input.requestId ? input.requestId.slice(0, 128) : null,
-                }),
-              )
-              .returning();
+            const snapshot = await commitProjectVersionAndHistory(tx, {
+              workspaceId: ctx.workspaceId,
+              projectId: targetProjectId,
+              currentVersionNumber: project.currentVersionNumber,
+              currentHistorySeq: project.currentHistorySeq,
+              revision: nextRevision,
+              source: 'studio',
+              summary,
+              requestId: input.requestId ? input.requestId.slice(0, 128) : null,
+              actorKind: historyActor.actorKind,
+              actorName: historyActor.actorName,
+              afterVersionInsert: async (versionId) => {
+                for (const file of nextFiles) {
+                  await tx.insert(projectVersionFiles).values(
+                    asInsert(projectVersionFiles, {
+                      versionId,
+                      workspaceId: ctx.workspaceId,
+                      projectId: targetProjectId,
+                      path: file.path,
+                      blobScope: file.blobScope,
+                      sha256: file.sha256,
+                      sizeBytes: Number(file.sizeBytes),
+                      mimeType: file.mimeType,
+                    }),
+                  );
+                }
 
-            for (const file of nextFiles) {
-              await tx.insert(projectVersionFiles).values(
-                asInsert(projectVersionFiles, {
-                  versionId: newVersion.id,
-                  workspaceId: ctx.workspaceId,
-                  projectId: targetProjectId,
-                  path: file.path,
-                  blobScope: file.blobScope,
-                  sha256: file.sha256,
-                  sizeBytes: Number(file.sizeBytes),
-                  mimeType: file.mimeType,
-                }),
-              );
-            }
-
-            const deltas: BlobRefDelta[] = [
-              {
-                sha256: blob.sha256,
-                delta: 1,
-                sizeBytes: Number(blob.sizeBytes),
-                mimeType: resolvedMime,
+                const deltas: BlobRefDelta[] = [
+                  {
+                    sha256: blob.sha256,
+                    delta: 1,
+                    sizeBytes: Number(blob.sizeBytes),
+                    mimeType: resolvedMime,
+                  },
+                ];
+                if (replaced && replaced.blobScope === 'workspace') {
+                  deltas.push({ sha256: replaced.sha256, delta: -1 });
+                }
+                for (const file of nextFiles) {
+                  if (file.blobScope === 'workspace') {
+                    deltas.push({
+                      sha256: file.sha256,
+                      delta: 1,
+                      sizeBytes: Number(file.sizeBytes),
+                      mimeType: file.mimeType,
+                    });
+                  }
+                }
+                await applyWorkspaceBlobRefDeltas(tx, ctx.workspaceId, deltas);
               },
-            ];
-            if (replaced && replaced.blobScope === 'workspace') {
-              deltas.push({ sha256: replaced.sha256, delta: -1 });
-            }
-            for (const file of nextFiles) {
-              if (file.blobScope === 'workspace') {
-                deltas.push({
-                  sha256: file.sha256,
-                  delta: 1,
-                  sizeBytes: Number(file.sizeBytes),
-                  mimeType: file.mimeType,
-                });
-              }
-            }
-            await applyWorkspaceBlobRefDeltas(tx, ctx.workspaceId, deltas);
-
-            await tx
-              .delete(projectHistoryEntries)
-              .where(
-                and(
-                  eq(projectHistoryEntries.workspaceId, ctx.workspaceId),
-                  eq(projectHistoryEntries.projectId, targetProjectId),
-                  eq(projectHistoryEntries.undone, true),
-                  gt(projectHistoryEntries.seq, currentHistorySeq),
-                ),
-              );
-
-            const isStudioUser = ctx.authMethod === 'session_cookie' || ctx.authMethod === 'dev_bypass';
-            const actorKind = isStudioUser ? 'user' : 'agent';
-            const actorName = (ctx.displayName?.trim() || ctx.email?.trim() || actorKind).slice(0, 128);
-            await tx.insert(projectHistoryEntries).values(
-              asInsert(projectHistoryEntries, {
-                id: randomUUID(),
-                workspaceId: ctx.workspaceId,
-                projectId: targetProjectId,
-                seq: nextHistorySeq,
-                versionId: newVersion.id,
-                parentEntryId,
-                actorKind,
-                actorName,
-                label: summary,
-                windowId: null,
-                pinned: false,
-                undone: false,
-                startedAt: now,
-                endedAt: now,
-              }),
-            );
-
-            await tx
-              .update(projects)
-              .set(
-                asUpdate(projects, {
-                  revision: nextRevision,
-                  currentVersionId: newVersion.id,
-                  currentVersionNumber: nextVersionNumber,
-                  currentHistorySeq: nextHistorySeq,
-                  updatedAt: now,
-                }),
-              )
-              .where(and(eq(projects.workspaceId, ctx.workspaceId), eq(projects.id, targetProjectId)));
+            });
 
             const resultPayload = {
               instantCommitted: true,
               projectPath: validatedTargetPath,
               sha256: blob.sha256,
               projectRevision: nextRevision,
-              projectVersionId: newVersion.id,
+              projectVersionId: snapshot.versionId,
             };
             await tx.insert(uploadTickets).values(
               asInsert(uploadTickets, {
@@ -731,7 +646,7 @@ export class AssetLibraryService {
               }),
             );
 
-            return { nextRevision, versionId: newVersion.id, historySeq: nextHistorySeq };
+            return { nextRevision, versionId: snapshot.versionId, historySeq: snapshot.historySeq };
           });
 
           if (this.eventBus) {

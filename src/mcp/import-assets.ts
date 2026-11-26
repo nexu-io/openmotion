@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import path from 'node:path';
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { brandWebsite } from '../../gateway/brand-network.ts';
 import { isPublicAddress } from '../../gateway/network.ts';
 import { MAX_ASSET_BYTES } from '../../shared/asset-limits.ts';
@@ -39,9 +39,7 @@ import {
 import { idempotencyReceipts, jobs } from '../db/schema/jobs.ts';
 import {
   projectFiles,
-  projectHistoryEntries,
   projectVersionFiles,
-  projectVersions,
 } from '../db/schema/project-files.ts';
 import { projects } from '../db/schema/projects.ts';
 import type { AppConfig } from '../infra/config.ts';
@@ -49,6 +47,10 @@ import type { QueueService } from '../infra/queues.ts';
 import { projectChannel, type RedisEventBus } from '../infra/redis.ts';
 import { uploadLicenseStagingKey, uploadStagingKey } from '../infra/storage.ts';
 import { loadProjectOrThrow } from '../services/project-files-service.ts';
+import {
+  commitProjectVersionAndHistory,
+  resolveProjectHistoryActor,
+} from '../services/project-snapshot.ts';
 
 // ---------------------------------------------------------------------------
 // Hardened SSRF Pre-Validation (Public HTTPS URLs Only)
@@ -633,153 +635,62 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
           hash: f.sha256,
         }));
         const nextRevision = computeProjectRevision(sourceFiles);
-        const now = new Date();
-
-        // After Undo, projects.current_version_number points back to an earlier snapshot while
-        // higher version numbers still exist in project_versions (for Redo). Allocate strictly
-        // above MAX(version_number) to avoid violating uq_project_versions_number.
-        const maxVerRow = await tx
-          .select({ maxVer: sql<number>`COALESCE(MAX(${projectVersions.versionNumber}), 0)` })
-          .from(projectVersions)
-          .where(
-            and(
-              eq(projectVersions.workspaceId, input.workspaceId),
-              eq(projectVersions.projectId, input.projectId),
-            ),
-          );
-        const nextVersionNumber =
-          Math.max(Number(project.currentVersionNumber ?? 0), Number(maxVerRow[0]?.maxVer ?? 0)) + 1;
-
-        const maxSeqRow = await tx
-          .select({ maxSeq: sql<number>`COALESCE(MAX(${projectHistoryEntries.seq}), 0)` })
-          .from(projectHistoryEntries)
-          .where(
-            and(
-              eq(projectHistoryEntries.workspaceId, input.workspaceId),
-              eq(projectHistoryEntries.projectId, input.projectId),
-            ),
-          );
-        const currentHistorySeq = Number(project.currentHistorySeq ?? 0);
-        const nextHistorySeq = Math.max(currentHistorySeq, Number(maxSeqRow[0]?.maxSeq ?? 0)) + 1;
-
-        const parentRows =
-          currentHistorySeq > 0
-            ? await tx
-                .select({ id: projectHistoryEntries.id })
-                .from(projectHistoryEntries)
-                .where(
-                  and(
-                    eq(projectHistoryEntries.workspaceId, input.workspaceId),
-                    eq(projectHistoryEntries.projectId, input.projectId),
-                    eq(projectHistoryEntries.seq, currentHistorySeq),
-                  ),
-                )
-                .limit(1)
-            : [];
-        const parentEntryId = parentRows[0]?.id ?? null;
-
         const summary = `Import library asset ${input.name || asset.name}`.slice(0, 256);
 
-        const [newVersion] = await tx
-          .insert(projectVersions)
-          .values(
-            asInsert(projectVersions, {
-              workspaceId: input.workspaceId,
-              projectId: input.projectId,
-              versionNumber: nextVersionNumber,
-              revision: nextRevision,
-              source: input.source ?? 'agent',
-              summary,
-              requestId: `${input.requestId}:${asset.id}`.slice(0, 128),
-            }),
-          )
-          .returning();
+        const committed = await commitProjectVersionAndHistory(tx, {
+          workspaceId: input.workspaceId,
+          projectId: input.projectId,
+          currentVersionNumber: project.currentVersionNumber,
+          currentHistorySeq: project.currentHistorySeq,
+          revision: nextRevision,
+          source: input.source ?? 'agent',
+          summary,
+          requestId: `${input.requestId}:${asset.id}`.slice(0, 128),
+          actorKind: input.actorKind ?? 'agent',
+          actorName: input.actorName,
+          afterVersionInsert: async (versionId) => {
+            for (const file of nextFiles) {
+              await tx.insert(projectVersionFiles).values(
+                asInsert(projectVersionFiles, {
+                  versionId,
+                  workspaceId: input.workspaceId,
+                  projectId: input.projectId,
+                  path: file.path,
+                  blobScope: file.blobScope,
+                  sha256: file.sha256,
+                  sizeBytes: Number(file.sizeBytes),
+                  mimeType: file.mimeType,
+                }),
+              );
+            }
 
-        for (const file of nextFiles) {
-          await tx.insert(projectVersionFiles).values(
-            asInsert(projectVersionFiles, {
-              versionId: newVersion.id,
-              workspaceId: input.workspaceId,
-              projectId: input.projectId,
-              path: file.path,
-              blobScope: file.blobScope,
-              sha256: file.sha256,
-              sizeBytes: Number(file.sizeBytes),
-              mimeType: file.mimeType,
-            }),
-          );
-        }
-
-        // Exact CAS refcount accounting in sorted sha256 order:
-        // - Live project_files: +1 for newly linked asset, -1 if an old workspace blob was replaced.
-        // - New project_version_files snapshot: +1 for every workspace-scoped file in the snapshot.
-        const deltas: BlobRefDelta[] = [
-          {
-            sha256: version.sha256,
-            delta: 1,
-            sizeBytes: versionSizeBytes,
-            mimeType: version.mimeType,
+            // Exact CAS refcount accounting in sorted sha256 order:
+            // - Live project_files: +1 for newly linked asset, -1 if an old workspace blob was replaced.
+            // - New project_version_files snapshot: +1 for every workspace-scoped file in the snapshot.
+            const deltas: BlobRefDelta[] = [
+              {
+                sha256: version.sha256,
+                delta: 1,
+                sizeBytes: versionSizeBytes,
+                mimeType: version.mimeType,
+              },
+            ];
+            if (replaced && replaced.blobScope === 'workspace') {
+              deltas.push({ sha256: replaced.sha256, delta: -1 });
+            }
+            for (const file of nextFiles) {
+              if (file.blobScope === 'workspace') {
+                deltas.push({
+                  sha256: file.sha256,
+                  delta: 1,
+                  sizeBytes: Number(file.sizeBytes),
+                  mimeType: file.mimeType,
+                });
+              }
+            }
+            await applyWorkspaceBlobRefDeltas(tx, input.workspaceId, deltas);
           },
-        ];
-        if (replaced && replaced.blobScope === 'workspace') {
-          deltas.push({ sha256: replaced.sha256, delta: -1 });
-        }
-        for (const file of nextFiles) {
-          if (file.blobScope === 'workspace') {
-            deltas.push({
-              sha256: file.sha256,
-              delta: 1,
-              sizeBytes: Number(file.sizeBytes),
-              mimeType: file.mimeType,
-            });
-          }
-        }
-        await applyWorkspaceBlobRefDeltas(tx, input.workspaceId, deltas);
-
-        await tx
-          .delete(projectHistoryEntries)
-          .where(
-            and(
-              eq(projectHistoryEntries.workspaceId, input.workspaceId),
-              eq(projectHistoryEntries.projectId, input.projectId),
-              eq(projectHistoryEntries.undone, true),
-              gt(projectHistoryEntries.seq, currentHistorySeq),
-            ),
-          );
-
-        const actorKind = input.actorKind ?? 'agent';
-        const actorName = (input.actorName?.trim() || actorKind).slice(0, 128);
-        await tx.insert(projectHistoryEntries).values(
-          asInsert(projectHistoryEntries, {
-            id: randomUUID(),
-            workspaceId: input.workspaceId,
-            projectId: input.projectId,
-            seq: nextHistorySeq,
-            versionId: newVersion.id,
-            parentEntryId,
-            actorKind,
-            actorName,
-            label: summary,
-            windowId: null,
-            pinned: false,
-            undone: false,
-            startedAt: now,
-            endedAt: now,
-          }),
-        );
-
-        await tx
-          .update(projects)
-          .set(
-            asUpdate(projects, {
-              revision: nextRevision,
-              currentVersionId: newVersion.id,
-              currentVersionNumber: nextVersionNumber,
-              currentHistorySeq: nextHistorySeq,
-              updatedAt: now,
-            }),
-          )
-          .where(and(eq(projects.workspaceId, input.workspaceId), eq(projects.id, input.projectId)));
+        });
 
         return {
           assetId: asset.id,
@@ -789,9 +700,9 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
           bytes: versionSizeBytes,
           mimeType: version.mimeType,
           projectRevision: nextRevision,
-          projectVersionId: newVersion.id,
-          projectVersionNumber: nextVersionNumber,
-          projectHistorySeq: nextHistorySeq,
+          projectVersionId: committed.versionId,
+          projectVersionNumber: committed.versionNumber,
+          projectHistorySeq: committed.historySeq,
         };
       });
     },
@@ -1432,9 +1343,7 @@ export class CloudImportAssetsService {
             status: 400,
           });
         }
-        const isStudioUser = auth.authMethod === 'session_cookie' || auth.authMethod === 'dev_bypass';
-        const actorKind = isStudioUser ? 'user' : 'agent';
-        const actorName = (auth.displayName?.trim() || auth.email?.trim() || actorKind).slice(0, 128);
+        const historyActor = resolveProjectHistoryActor(auth);
         const committed = await this.deps.store.commitLibraryAssetZeroCopy({
           workspaceId: auth.workspaceId,
           projectId,
@@ -1442,9 +1351,9 @@ export class CloudImportAssetsService {
           versionId: source.versionId,
           name: item.name,
           requestId,
-          source: isStudioUser ? 'studio' : 'agent',
-          actorKind,
-          actorName,
+          source: historyActor.source,
+          actorKind: historyActor.actorKind,
+          actorName: historyActor.actorName,
         });
         if (this.deps.eventBus) {
           const ts = Date.now();
