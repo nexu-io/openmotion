@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import path from 'node:path';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import { brandWebsite } from '../../gateway/brand-network.ts';
 import { isPublicAddress } from '../../gateway/network.ts';
 import { MAX_ASSET_BYTES } from '../../shared/asset-limits.ts';
@@ -39,6 +39,7 @@ import {
 import { idempotencyReceipts, jobs } from '../db/schema/jobs.ts';
 import {
   projectFiles,
+  projectHistoryEntries,
   projectVersionFiles,
   projectVersions,
 } from '../db/schema/project-files.ts';
@@ -179,6 +180,7 @@ export interface LibraryAssetZeroCopyResult {
   projectRevision: string;
   projectVersionId: string;
   projectVersionNumber: number;
+  projectHistorySeq?: number;
 }
 
 export interface ImportAssetsStore {
@@ -240,6 +242,9 @@ export interface ImportAssetsStore {
     versionId: string;
     name?: string;
     requestId: string;
+    source?: 'studio' | 'agent';
+    actorKind?: 'user' | 'agent';
+    actorName?: string;
   }): Promise<LibraryAssetZeroCopyResult>;
 }
 
@@ -580,6 +585,8 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
 
         const replaced = existingFiles.find((f) => f.path === targetPath);
 
+        const versionSizeBytes = Number(version.sizeBytes);
+
         await tx
           .insert(projectFiles)
           .values(
@@ -589,7 +596,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
               path: targetPath,
               blobScope: 'workspace',
               sha256: version.sha256,
-              sizeBytes: version.sizeBytes,
+              sizeBytes: versionSizeBytes,
               mimeType: version.mimeType,
               isText: false,
             }),
@@ -599,7 +606,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
             set: asUpdate(projectFiles, {
               blobScope: 'workspace',
               sha256: version.sha256,
-              sizeBytes: version.sizeBytes,
+              sizeBytes: versionSizeBytes,
               mimeType: version.mimeType,
               isText: false,
               updatedAt: sql`now()`,
@@ -614,7 +621,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
             path: targetPath,
             blobScope: 'workspace' as const,
             sha256: version.sha256,
-            sizeBytes: version.sizeBytes,
+            sizeBytes: versionSizeBytes,
             mimeType: version.mimeType,
             isText: false,
           },
@@ -622,11 +629,56 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
 
         const sourceFiles: SourceFile[] = nextFiles.map((f) => ({
           path: f.path,
-          size: f.sizeBytes,
+          size: Number(f.sizeBytes),
           hash: f.sha256,
         }));
         const nextRevision = computeProjectRevision(sourceFiles);
-        const nextVersionNumber = project.currentVersionNumber + 1;
+        const now = new Date();
+
+        // After Undo, projects.current_version_number points back to an earlier snapshot while
+        // higher version numbers still exist in project_versions (for Redo). Allocate strictly
+        // above MAX(version_number) to avoid violating uq_project_versions_number.
+        const maxVerRow = await tx
+          .select({ maxVer: sql<number>`COALESCE(MAX(${projectVersions.versionNumber}), 0)` })
+          .from(projectVersions)
+          .where(
+            and(
+              eq(projectVersions.workspaceId, input.workspaceId),
+              eq(projectVersions.projectId, input.projectId),
+            ),
+          );
+        const nextVersionNumber =
+          Math.max(Number(project.currentVersionNumber ?? 0), Number(maxVerRow[0]?.maxVer ?? 0)) + 1;
+
+        const maxSeqRow = await tx
+          .select({ maxSeq: sql<number>`COALESCE(MAX(${projectHistoryEntries.seq}), 0)` })
+          .from(projectHistoryEntries)
+          .where(
+            and(
+              eq(projectHistoryEntries.workspaceId, input.workspaceId),
+              eq(projectHistoryEntries.projectId, input.projectId),
+            ),
+          );
+        const currentHistorySeq = Number(project.currentHistorySeq ?? 0);
+        const nextHistorySeq = Math.max(currentHistorySeq, Number(maxSeqRow[0]?.maxSeq ?? 0)) + 1;
+
+        const parentRows =
+          currentHistorySeq > 0
+            ? await tx
+                .select({ id: projectHistoryEntries.id })
+                .from(projectHistoryEntries)
+                .where(
+                  and(
+                    eq(projectHistoryEntries.workspaceId, input.workspaceId),
+                    eq(projectHistoryEntries.projectId, input.projectId),
+                    eq(projectHistoryEntries.seq, currentHistorySeq),
+                  ),
+                )
+                .limit(1)
+            : [];
+        const parentEntryId = parentRows[0]?.id ?? null;
+
+        const summary = `Import library asset ${input.name || asset.name}`.slice(0, 256);
 
         const [newVersion] = await tx
           .insert(projectVersions)
@@ -636,8 +688,8 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
               projectId: input.projectId,
               versionNumber: nextVersionNumber,
               revision: nextRevision,
-              source: 'agent',
-              summary: `Import library asset ${input.name || asset.name}`.slice(0, 256),
+              source: input.source ?? 'agent',
+              summary,
               requestId: `${input.requestId}:${asset.id}`.slice(0, 128),
             }),
           )
@@ -652,7 +704,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
               path: file.path,
               blobScope: file.blobScope,
               sha256: file.sha256,
-              sizeBytes: file.sizeBytes,
+              sizeBytes: Number(file.sizeBytes),
               mimeType: file.mimeType,
             }),
           );
@@ -665,7 +717,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
           {
             sha256: version.sha256,
             delta: 1,
-            sizeBytes: version.sizeBytes,
+            sizeBytes: versionSizeBytes,
             mimeType: version.mimeType,
           },
         ];
@@ -677,12 +729,44 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
             deltas.push({
               sha256: file.sha256,
               delta: 1,
-              sizeBytes: file.sizeBytes,
+              sizeBytes: Number(file.sizeBytes),
               mimeType: file.mimeType,
             });
           }
         }
         await applyWorkspaceBlobRefDeltas(tx, input.workspaceId, deltas);
+
+        await tx
+          .delete(projectHistoryEntries)
+          .where(
+            and(
+              eq(projectHistoryEntries.workspaceId, input.workspaceId),
+              eq(projectHistoryEntries.projectId, input.projectId),
+              eq(projectHistoryEntries.undone, true),
+              gt(projectHistoryEntries.seq, currentHistorySeq),
+            ),
+          );
+
+        const actorKind = input.actorKind ?? 'agent';
+        const actorName = (input.actorName?.trim() || actorKind).slice(0, 128);
+        await tx.insert(projectHistoryEntries).values(
+          asInsert(projectHistoryEntries, {
+            id: randomUUID(),
+            workspaceId: input.workspaceId,
+            projectId: input.projectId,
+            seq: nextHistorySeq,
+            versionId: newVersion.id,
+            parentEntryId,
+            actorKind,
+            actorName,
+            label: summary,
+            windowId: null,
+            pinned: false,
+            undone: false,
+            startedAt: now,
+            endedAt: now,
+          }),
+        );
 
         await tx
           .update(projects)
@@ -691,7 +775,8 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
               revision: nextRevision,
               currentVersionId: newVersion.id,
               currentVersionNumber: nextVersionNumber,
-              updatedAt: sql`now()`,
+              currentHistorySeq: nextHistorySeq,
+              updatedAt: now,
             }),
           )
           .where(and(eq(projects.workspaceId, input.workspaceId), eq(projects.id, input.projectId)));
@@ -701,11 +786,12 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
           versionId: version.id,
           path: targetPath,
           sha256: version.sha256,
-          bytes: version.sizeBytes,
+          bytes: versionSizeBytes,
           mimeType: version.mimeType,
           projectRevision: nextRevision,
           projectVersionId: newVersion.id,
           projectVersionNumber: nextVersionNumber,
+          projectHistorySeq: nextHistorySeq,
         };
       });
     },
@@ -1346,6 +1432,9 @@ export class CloudImportAssetsService {
             status: 400,
           });
         }
+        const isStudioUser = auth.authMethod === 'session_cookie' || auth.authMethod === 'dev_bypass';
+        const actorKind = isStudioUser ? 'user' : 'agent';
+        const actorName = (auth.displayName?.trim() || auth.email?.trim() || actorKind).slice(0, 128);
         const committed = await this.deps.store.commitLibraryAssetZeroCopy({
           workspaceId: auth.workspaceId,
           projectId,
@@ -1353,8 +1442,12 @@ export class CloudImportAssetsService {
           versionId: source.versionId,
           name: item.name,
           requestId,
+          source: isStudioUser ? 'studio' : 'agent',
+          actorKind,
+          actorName,
         });
         if (this.deps.eventBus) {
+          const ts = Date.now();
           const fileEvt: ProjectEvent = {
             type: 'file-change',
             workspaceId: auth.workspaceId,
@@ -1363,11 +1456,25 @@ export class CloudImportAssetsService {
             versionId: committed.projectVersionId,
             paths: [committed.path],
             affectsPreview: true,
-            ts: Date.now(),
+            ts,
           };
           await this.deps.eventBus
             .publish(projectChannel(auth.workspaceId, projectId), fileEvt)
             .catch(() => {});
+          if (typeof committed.projectHistorySeq === 'number') {
+            const historyEvt: ProjectEvent = {
+              type: 'history-changed',
+              workspaceId: auth.workspaceId,
+              projectId,
+              revision: committed.projectRevision,
+              versionId: committed.projectVersionId,
+              historySeq: committed.projectHistorySeq,
+              ts,
+            };
+            await this.deps.eventBus
+              .publish(projectChannel(auth.workspaceId, projectId), historyEvt)
+              .catch(() => {});
+          }
         }
         return {
           result: {

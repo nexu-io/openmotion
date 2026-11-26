@@ -17,12 +17,40 @@ type AssetImportMenuProps = {
   onUpload: () => void;
   onImported?: (projectId: string, paths: string[]) => Promise<void>;
 };
+type ImportItemError = string | { code?: string; message?: string };
+type ImportResultItem = {
+  itemId?: string;
+  assetId?: string;
+  versionId?: string;
+  path?: string;
+  status: string;
+  error?: ImportItemError;
+};
 type ImportResult = {
   projectId: string;
-  status: string;
-  items: { itemId: string; path?: string; status: string; error?: string }[];
+  status?: string;
+  item?: ImportResultItem;
+  items?: ImportResultItem[];
 };
 type ImportAttempt = { requestId: string; paths?: string[] };
+
+function findImportedItem(result: ImportResult, reference: AssetReference): ImportResultItem | undefined {
+  const expectedItemId = `library-${reference.assetId}-${reference.versionId}`;
+  return (
+    result.items?.find(
+      item =>
+        item.itemId === expectedItemId
+        || item.itemId === reference.assetId
+        || (item.assetId === reference.assetId && (!item.versionId || item.versionId === reference.versionId)),
+    ) ?? result.item
+  );
+}
+
+function importItemErrorMessage(error: ImportItemError | undefined): string | undefined {
+  if (typeof error === 'string') return error.trim() || undefined;
+  if (error && typeof error.message === 'string') return error.message.trim() || undefined;
+  return undefined;
+}
 
 export function AssetImportMenu(props: AssetImportMenuProps) {
   return <ProjectAssetImportMenu key={props.projectId} {...props} />;
@@ -49,12 +77,14 @@ function ProjectAssetImportMenu({ projectId, importing, onUpload, onImported }: 
       if (!mounted.current) return;
       if (!attempt.paths) {
         const result = await assetRequest<ImportResult>({ action: 'import_to_project', projectId, requestId: attempt.requestId, ...reference });
-        const item = result.items?.find(item => item.itemId === `library-${reference.assetId}-${reference.versionId}`);
-        if (result.projectId !== projectId || result.status !== 'completed' || item?.status !== 'completed' || !item.path) {
+        const item = findImportedItem(result, reference);
+        const itemSucceeded = item?.status === 'completed' || item?.status === 'imported';
+        const resultSucceeded = result.status === 'completed' || (result.status === undefined && Boolean(result.item));
+        if (result.projectId !== projectId || !resultSucceeded || !itemSucceeded || !item?.path) {
           // A definite failure can be retried with a fresh request. Keep the
           // request identity on transport errors whose outcome is unknown.
           attempts.current.delete(key);
-          throw new Error(item?.error || t('Import failed'));
+          throw new Error(importItemErrorMessage(item?.error) || t('Import failed'));
         }
         attempt.paths = [item.path];
       }

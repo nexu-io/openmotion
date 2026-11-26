@@ -14,6 +14,7 @@ import {
 import { idempotencyReceipts, jobs } from '../../src/db/schema/jobs.ts';
 import {
   projectFiles,
+  projectHistoryEntries,
   projectVersionFiles,
   projectVersions,
 } from '../../src/db/schema/project-files.ts';
@@ -1022,20 +1023,31 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     const casKey = workspaceBlobKey(WID_A, SHA_A);
     storage.objects.set(casKey, { bytes: Buffer.alloc(sizeBytes, 0x11), contentType: 'video/mp4' });
 
-    // 1. Same-workspace CAS instant commit ("秒传"): skips S3 presign PUT and publishes file-change SSE.
+    // 1. Same-workspace CAS instant commit ("秒传"): skips S3 presign PUT, allocates past MAX(version_number)
+    //    even after Undo (currentVersionNumber < maxVer), writes a history entry, and publishes file-change + history-changed.
+    let insertedVersionNumber: number | undefined;
+    let insertedHistorySeq: number | undefined;
     const { db: instantDb } = createScriptedDb({
       selectQueue: [
         [{ id: PID_A, trashed: false }], // project exists check
         [{ workspaceId: WID_A, sha256: SHA_A, sizeBytes, mimeType: 'video/mp4', gcState: 'active' }], // workspaceBlobs lookup
-        [{ id: PID_A, workspaceId: WID_A, trashed: false, currentVersionNumber: 2, revision: REV_1 }], // locked project FOR UPDATE
+        [{ id: PID_A, workspaceId: WID_A, trashed: false, currentVersionNumber: 1, currentHistorySeq: 1, revision: REV_1 }], // locked project FOR UPDATE (rewound by Undo)
         [], // existing project_files
+        [{ maxVer: 3 }], // MAX(project_versions.version_number) still holds undone versions
+        [{ maxSeq: 3 }], // MAX(project_history_entries.seq)
+        [{ id: '99999999-9999-4999-8999-999999999999' }], // parent history entry
       ],
-      insertImpl: (table) =>
-        table === projectVersions
-          ? [{ id: VID_A }]
-          : table === workspaceBlobs
-            ? [{ sha256: SHA_A }]
-            : [],
+      insertImpl: (table, values) => {
+        if (table === projectVersions) {
+          insertedVersionNumber = (values as { versionNumber?: number }).versionNumber;
+          return [{ id: VID_A }];
+        }
+        if (table === projectHistoryEntries) {
+          insertedHistorySeq = (values as { seq?: number }).seq;
+          return [];
+        }
+        return table === workspaceBlobs ? [{ sha256: SHA_A }] : [];
+      },
     });
     const instantSvc = new AssetLibraryService({
       db: instantDb,
@@ -1056,12 +1068,21 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     assert.equal(instantTicket.instantCommitted, true);
     assert.equal(instantTicket.projectPath, 'assets/dup.mp4');
     assert.equal(instantTicket.sha256, SHA_A);
+    assert.equal(insertedVersionNumber, 4);
+    assert.equal(insertedHistorySeq, 4);
     assert.equal(storage.presignedPuts.length, 0);
     assert.ok(
       eventBus.published.some(
         (e) =>
           e.channel === projectChannel(WID_A, PID_A) &&
           (e.payload as { type?: string }).type === 'file-change',
+      ),
+    );
+    assert.ok(
+      eventBus.published.some(
+        (e) =>
+          e.channel === projectChannel(WID_A, PID_A) &&
+          (e.payload as { type?: string }).type === 'history-changed',
       ),
     );
 

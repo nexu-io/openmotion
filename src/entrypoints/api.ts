@@ -1947,28 +1947,13 @@ function createMcpDomainPorts(deps: {
             requestId,
             items: [
               {
-                itemId: assetId,
+                itemId: `library-${assetId}-${versionId}`,
                 source: { kind: 'library_asset', assetId, versionId },
                 ...(typeof args.name === 'string' && args.name.trim() ? { name: args.name.trim() } : {}),
               },
             ],
           });
-          const item = imported.items[0];
-          if (item?.status === 'failed') {
-            throw new CloudError(
-              (item.error?.code as never) || 'IMPORT_FAILED',
-              item.error?.message || 'Failed to import asset into project',
-              { status: 400, applied: false },
-            );
-          }
-          return {
-            projectId: imported.projectId,
-            revision: imported.revision,
-            versionId: imported.versionId,
-            item,
-            ...(item?.path ? { path: item.path } : {}),
-            replayed: imported.replayed ?? false,
-          };
+          return imported as unknown as Record<string, unknown>;
         }
 
         if (action === 'rename') {

@@ -840,7 +840,7 @@ export class McpToolDispatcher {
           requestId: String(args.requestId ?? ''),
           items: [
             {
-              itemId: String(args.assetId),
+              itemId: `library-${args.assetId}-${args.versionId}`,
               source: {
                 kind: 'library_asset',
                 assetId: args.assetId,
