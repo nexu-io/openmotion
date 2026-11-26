@@ -417,10 +417,8 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
     if (videoFields.length) fields = videoFields;
   }
   // Speech models without checked voices keep a free voice ID: the API publishes no voice list.
+  // Eleven v3 has no speed control: ElevenLabs does not apply speed to v3, and 0.8x/1.2x produced the same duration.
   if (cloudSpeech(model)) { const voices = checkedVoices(model); fields = [voices ? { key: 'voice', label: 'Speech voice', kind: 'choice', choices: voices, default: voices[0].value, allowCustom: true } : text('voice', 'Voice ID', true)]; }
-  if (model.provider === 'opendesign' && model.modelId === 'elevenlabs-v3' && fields && cloudSpeech(model)) {
-    fields.push(number('speed', 'Speech speed', undefined, 0.7, 1.2, 0.1));
-  }
   // ElevenLabs documents up to 600 s, but the media gateway gives each music request 360 s, and
   // 599–600 s requests ended with an unknown outcome. Keep to the five minutes the Music overview documents.
   if (model.provider === 'opendesign' && model.modelId === 'elevenlabs-music-v2' && model.mode === 'text-to-audio') {

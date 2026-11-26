@@ -27,7 +27,7 @@ These controls cover a maintained subset, not all models or all provider paramet
 
 The embedded Codex conversation separately exposes model selection and discovered reasoning efforts. Effort is passed as `turn/start.effort`, with `null` restoring the model default on subsequent turns. This field was checked against the installed Codex app-server JSON schema. Other Agents continue to use external MCP; selecting a local CLI in settings does not add an embedded runner.
 
-Guest creation pages use the public OpenDesign model descriptions to preview settings before sign-in. The authenticated gateway determines which models the workspace can run. For `opendesign:elevenlabs-v3`, the speech speed control maps to `parameters.voice_settings.speed` on submission.
+Guest creation pages use the public OpenDesign model descriptions to preview settings before sign-in. The authenticated gateway determines which models the workspace can run. `opendesign:elevenlabs-v3` has no speech speed control because ElevenLabs does not apply speed to Eleven v3. A `speed` value supplied in advanced parameters is still sent as `parameters.voice_settings.speed`.
 
 ## Interaction and validation
 
