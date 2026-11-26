@@ -51,6 +51,7 @@ import { useWorkspaceChrome } from './WorkspaceFrame';
 import { GeneratingWaveform, InteractiveWaveform } from './SoundWaveforms';
 import { useAudioWaveforms } from './useAudioWaveforms';
 import { useVoiceAudition } from './voicePreviews';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import './soundStudio.css';
 
 type AudioTypeFilter = 'all' | AudioKind;
@@ -104,11 +105,29 @@ function buildAssetTrack(
   };
 }
 
-function parameterDraftFromParams(params: Record<string, unknown>, model?: Model): ParameterDraft {
-  const structuredKeys = new Set(model ? (generationOptions(model, false)?.fields.map(field => field.key) ?? []) : []);
+function stripDisallowedCustomVoice(
+  params: Record<string, unknown> | undefined,
+  model: Model | undefined,
+  allowCustomVoice: boolean,
+): Record<string, unknown> | undefined {
+  if (!params || allowCustomVoice || !model) return params;
+  const voiceField = (model.generationOptions ?? generationOptions(model, false))?.fields.find(field => field.key === 'voice');
+  if (!voiceField || voiceField.kind !== 'choice' || params.voice === undefined) return params;
+  if ((voiceField.choices ?? []).some(choice => String(choice.value) === String(params.voice))) return params;
+  const { voice: _dropped, ...rest } = params;
+  return rest;
+}
+
+function parameterDraftFromParams(
+  params: Record<string, unknown>,
+  model?: Model,
+  allowCustomVoice = true,
+): ParameterDraft {
+  const sanitized = stripDisallowedCustomVoice(params, model, allowCustomVoice) ?? {};
+  const structuredKeys = new Set(model ? ((model.generationOptions ?? generationOptions(model, false))?.fields.map(field => field.key) ?? []) : []);
   const values: Record<string, unknown> = {};
   const extra: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(params)) {
+  for (const [key, value] of Object.entries(sanitized)) {
     if (value === undefined) continue;
     if (structuredKeys.has(key)) values[key] = value;
     else extra[key] = value;
@@ -461,6 +480,7 @@ export function SoundStudioWorkspace({
   onDownload: () => void;
 }) {
   const { t, formatDate } = useI18n();
+  const customVoiceIdEnabled = useCloudFeatureEnabled('customVoiceId');
   const guestLibrary = browser.authRequired || studio.guestPreview;
   const requestLibrarySignIn = () => openEntitlementModal({ mode: 'guest', hookId: 'assets_empty' });
   const activeTab: SoundTabId = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
@@ -492,7 +512,7 @@ export function SoundStudioWorkspace({
 
   const [parameterDrafts, setParameterDrafts] = useState<Record<string, ParameterDraft>>(() =>
     initialParamModel && draft.parameters && Object.keys(draft.parameters).length > 0
-      ? { [initialParamModel.id]: parameterDraftFromParams(draft.parameters, initialParamModel) }
+      ? { [initialParamModel.id]: parameterDraftFromParams(draft.parameters, initialParamModel, customVoiceIdEnabled) }
       : {},
   );
   const seededDraftKeyRef = useRef<string | undefined>(
@@ -512,12 +532,12 @@ export function SoundStudioWorkspace({
     const targetModel = (draft.model ? models?.find(model => model.id === draft.model) : undefined) ?? activeModel;
     if (!targetModel) return;
     seededDraftKeyRef.current = currentDraftKey;
-    const seeded = parameterDraftFromParams(draft.parameters, targetModel);
+    const seeded = parameterDraftFromParams(draft.parameters, targetModel, customVoiceIdEnabled);
     setParameterDrafts(current => ({
       ...current,
       [targetModel.id]: seeded,
     }));
-  }, [currentDraftKey, draft.model, draft.parameters, models, activeModel]);
+  }, [currentDraftKey, draft.model, draft.parameters, models, activeModel, customVoiceIdEnabled]);
 
   // Track any active audio job observed on screen so reload-recovered jobs transition cleanly
   // in-place to either their completed track row (with New badge) or an inline failed row.
@@ -822,11 +842,13 @@ export function SoundStudioWorkspace({
     const classified = classifyAudioTrackTab(modelId, models, undefined, savedAudioKind);
     const targetTab: SoundLiveTabId = classified === 'upload' ? liveTab : classified;
 
+    const sanitizedParams = stripDisallowedCustomVoice(parameters, matchedModel, customVoiceIdEnabled);
+
     if (modelId && parameters && Object.keys(parameters).length > 0) {
       const key = matchedModel?.id ?? modelId;
       setParameterDrafts(current => ({
         ...current,
-        [key]: parameterDraftFromParams(parameters, matchedModel),
+        [key]: parameterDraftFromParams(sanitizedParams ?? {}, matchedModel, customVoiceIdEnabled),
       }));
     }
 
@@ -834,7 +856,7 @@ export function SoundStudioWorkspace({
       modality: 'audio',
       prompt,
       model: matchedModel?.id ?? modelId,
-      parameters,
+      parameters: sanitizedParams,
       references: [],
     };
 
@@ -857,7 +879,7 @@ export function SoundStudioWorkspace({
       ...current,
       prompt,
       model: matchedModel?.id ?? current.model,
-      parameters,
+      parameters: sanitizedParams,
     }));
     setMobileView('create');
     requestAnimationFrame(() => promptRef.current?.focus());

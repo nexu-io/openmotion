@@ -31,6 +31,7 @@ import {
 import { isSfxModel, type SoundLiveTabId } from './soundTabs';
 import type { VoicePreviewController } from './voicePreviews';
 import { useWorkspaceChrome } from './WorkspaceFrame';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 
 export function resolveSoundModels(studio: StudioCreation, tabId: SoundLiveTabId) {
   const gateway = studio.catalog.catalog;
@@ -101,6 +102,7 @@ export function SoundComposer({
   onError: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
+  const customVoiceIdEnabled = useCloudFeatureEnabled('customVoiceId');
   const { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
   const modelId = studio.destination.model;
   const promptId = useId();
@@ -149,9 +151,18 @@ export function SoundComposer({
     const studioContext = { studio: studio.destination.studio.id, scene: tabId, model: selected.id };
     try {
       const parsed = requestParameters(parameters, selected, false);
+      const voiceField = (selected.generationOptions ?? generationOptions(selected))?.fields.find(f => f.key === 'voice');
+      if (
+        !customVoiceIdEnabled
+        && voiceField?.kind === 'choice'
+        && parsed.voice !== undefined
+        && !(voiceField.choices ?? []).some(choice => String(choice.value) === String(parsed.voice))
+      ) {
+        delete parsed.voice;
+      }
       const effectiveVoice = selected.mode === 'text-to-speech' && !parsed.voice
         ? resolveGenerationParameters(selected, parsed, false).voice
-          ?? (selected.generationOptions ?? generationOptions(selected))?.fields.find(f => f.key === 'voice')?.default
+          ?? voiceField?.default
         : undefined;
       const submitParams = typeof effectiveVoice === 'string' && effectiveVoice.trim()
         ? { ...parsed, voice: effectiveVoice }

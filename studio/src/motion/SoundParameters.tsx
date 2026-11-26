@@ -8,6 +8,7 @@ import { Select } from '../components/ui/Select';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
+import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { durationUnitsPerSecond, requestParameters, type ParameterDraft } from './GenerationParameters';
 import { DURATION_PRESETS, SFX_DURATION_PRESETS, SPEED_PRESETS, parseVoiceChoice, voiceCharacterDetail } from './soundPresets';
 import type { SoundLiveTabId } from './soundTabs';
@@ -74,6 +75,7 @@ export function SoundParameters({
 }) {
   const { t } = useI18n();
   const idPrefix = useId();
+  const customVoiceIdEnabled = useCloudFeatureEnabled('customVoiceId');
   const [customVoiceOpen, setCustomVoiceOpen] = useState(false);
   const [customVoiceInput, setCustomVoiceInput] = useState('');
   const { fields, primaryFields, valueOf } = resolveParameterState(model, draft);
@@ -118,13 +120,18 @@ export function SoundParameters({
       };
     });
     const compactGrid = parsed.length <= 8;
-    const featured = selectFeaturedVoices(parsed, currentStr);
+    const allowCustomVoice = Boolean(field.allowCustom && customVoiceIdEnabled);
+    const isKnownChoice = (field.choices ?? []).some(choice => String(choice.value) === currentStr);
+    const effectiveVoiceStr = !allowCustomVoice && currentStr && !isKnownChoice
+      ? (field.default === undefined ? '' : String(field.default))
+      : currentStr;
+    const featured = selectFeaturedVoices(parsed, effectiveVoiceStr);
     const isCustomVoice = Boolean(
-      field.allowCustom
+      allowCustomVoice
       && currentStr.trim()
-      && !(field.choices ?? []).some(choice => String(choice.value) === currentStr),
+      && !isKnownChoice,
     );
-    const customBoxExpanded = customVoiceOpen || isCustomVoice;
+    const customBoxExpanded = allowCustomVoice && (customVoiceOpen || isCustomVoice);
 
     return (
       <div className="om-sound-param-field" key={field.key}>
@@ -144,7 +151,7 @@ export function SoundParameters({
           aria-label={t(field.label)}
         >
           {featured.map(voice => {
-            const active = currentStr === voice.value;
+            const active = effectiveVoiceStr === voice.value;
             const previewSource = voicePreview?.resolve(model, voice);
             const trackId = voicePreviewTrackId(model.id, voice.value);
             const isCurrent = voicePreview?.activeTrackId === trackId;
@@ -208,7 +215,7 @@ export function SoundParameters({
             <Select
               label={t('All voices')}
               disabled={disabled}
-              value={currentStr || '__auto'}
+              value={effectiveVoiceStr || '__auto'}
               onCommit={next => {
                 setCustomVoiceOpen(false);
                 setCustomVoiceInput('');
@@ -225,7 +232,7 @@ export function SoundParameters({
           </div>
         )}
 
-        {field.allowCustom && (
+        {allowCustomVoice && (
           customBoxExpanded ? (
             <div className="om-sound-custom-voice-box">
               <div className="om-sound-param-head">

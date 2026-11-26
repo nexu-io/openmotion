@@ -15,6 +15,10 @@ import { TimelineCaptionActions } from './TimelineCaptionActions';
 import { TimelineCaptionsMenu } from './TimelineCaptionsMenu';
 import { ReviewPlayerControls } from './ReviewPlayerControls';
 import { ReviewCommentsPanel } from './ReviewCommentsPanel';
+import { SoundParameters } from './SoundParameters';
+import { emptyParameters } from './GenerationParameters';
+import { generationOptions } from '../../../shared/generation-options';
+import type { Model } from '../../../shared/gateway';
 import { useDockLayoutStore } from '../components/dock/dockLayoutStore';
 
 const studioMocks = vi.hoisted(() => ({
@@ -359,5 +363,35 @@ describe('Cloud Phase 1 feature gates', () => {
 
     expect(container.innerHTML).toBe('');
     expect(calledUrls().some(u => u.includes('/phase1/call'))).toBe(false);
+  });
+
+  it('hides Custom voice ID in SoundParameters for Cloud speech models while preserving preset voices', async () => {
+    const speechModelBase: Model = {
+      id: 'opendesign:elevenlabs-v3',
+      provider: 'opendesign',
+      modelId: 'elevenlabs-v3',
+      label: 'Eleven v3',
+      modality: 'audio',
+      mode: 'text-to-speech',
+      source: 'live',
+    };
+    const speechModel: Model = { ...speechModelBase, generationOptions: generationOptions(speechModelBase) };
+
+    await act(async () => root.render(
+      <I18nProvider initialLocale="en">
+        <SoundParameters
+          tabId="speech"
+          model={speechModel}
+          draft={emptyParameters}
+          onChange={vi.fn()}
+        />
+      </I18nProvider>,
+    ));
+
+    expect(container.querySelectorAll('.om-sound-voice-select').length).toBeGreaterThan(0);
+    expect(container.querySelector('.om-sound-custom-voice-toggle')).toBeNull();
+    expect(container.querySelector('.om-sound-custom-voice-box')).toBeNull();
+    expect(container.querySelector('input[aria-label="Custom voice ID"]')).toBeNull();
+    expect(container.textContent).not.toContain('Custom voice ID');
   });
 });
