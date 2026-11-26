@@ -94,9 +94,9 @@ export function useProjectArchives(
     acting.current = true; setBusy('import');
     try {
       type ImportedProjects = { projectId: string }[];
-      const result = await motionApi<{ imported: ImportedProjects } | { projects: ImportedProjects }>('/project-archives/import?requestId=' + requestId,
+      const result = await motionApi<{ imported: ImportedProjects }>('/project-archives/import?requestId=' + requestId,
         { method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file });
-      const imported = 'imported' in result ? result.imported : result.projects;
+      const imported = result.imported;
       workspace.retryConnection();
       tracking.reportProjectManage('import', 'success', imported.length);
       setQuery('');

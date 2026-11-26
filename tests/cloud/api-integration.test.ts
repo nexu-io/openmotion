@@ -1552,7 +1552,8 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     assert.equal(unauthMcpBody.authGuidance?.installGuideUrl, 'https://motion.example.test/install.md');
     assert.equal(unauthMcpBody.authGuidance?.installGuideAudience, 'agent');
     assert.equal(unauthMcpBody.authGuidance?.connectPageUrl, 'https://motion.example.test/mcp-setup');
-    assert.match(unauthMcpBody.authGuidance?.postAuthorizationInstructions ?? '', /new Codex chat/);
+    assert.match(unauthMcpBody.authGuidance?.postAuthorizationInstructions ?? '', /a new chat in this client/);
+    assert.doesNotMatch(unauthMcpBody.authGuidance?.postAuthorizationInstructions ?? '', /\bCodex\b/);
 
     // OAuth 2.1 discovery endpoints are public
     const prmRes = await app.request('/.well-known/oauth-protected-resource');
@@ -4045,7 +4046,8 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     const initJson = (await initRes.json()) as { result?: { instructions?: string } };
     assert.match(initJson.result?.instructions ?? '', /https:\/\/motion\.example\.test/);
     assert.match(initJson.result?.instructions ?? '', /After authorization, keep \/install\.md internal/);
-    assert.match(initJson.result?.instructions ?? '', /new Codex chat.*creative request/);
+    assert.match(initJson.result?.instructions ?? '', /a new chat in this client.*creative request/);
+    assert.doesNotMatch(initJson.result?.instructions ?? '', /open a new Codex chat/);
     assert.ok(initJson.result?.instructions?.includes(`${config.APP_PUBLIC_ORIGIN}/mcp-setup`));
     const mcpSessionId = initRes.headers.get('mcp-session-id');
     assert.ok(mcpSessionId);
@@ -4205,6 +4207,43 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     );
     assert.equal(
       (await app.request(otherDownloadUrl, { headers: { Authorization: mcpHeaders.Authorization } })).status,
+      404,
+    );
+
+    // Permanently deleting an exported project must keep the archive readable and replayable by its exporter,
+    // while keeping it inaccessible to other OAuth users in the same workspace.
+    const disposableProj = await createProj('Disposable Export Project');
+    const disposableExportArgs = {
+      action: 'export',
+      projectIds: [disposableProj],
+      requestId: 'archive-export-survives-delete',
+    };
+    const disposableExportRes = await callTool(22, 'openmotion_project_archive', disposableExportArgs);
+    assert.equal(disposableExportRes.result?.isError, undefined, JSON.stringify(disposableExportRes.result));
+    const disposableArchive = disposableExportRes.result?.structuredContent as {
+      archiveId: string; downloadUrl: string;
+    };
+    const disposableRowIdx = pgClient.rows('projects').findIndex((row) => row.id === disposableProj);
+    assert.ok(disposableRowIdx >= 0);
+    pgClient.rows('projects').splice(disposableRowIdx, 1);
+
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { method: 'HEAD', headers: { Authorization: mcpHeaders.Authorization } })).status,
+      200,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: mcpHeaders.Authorization } })).status,
+      302,
+    );
+    const disposableReplay = await callTool(23, 'openmotion_project_archive', disposableExportArgs);
+    assert.equal(disposableReplay.result?.isError, undefined, JSON.stringify(disposableReplay.result));
+    assert.equal((disposableReplay.result?.structuredContent as { replayed?: boolean })?.replayed, true);
+    assert.equal(
+      'ownerUserId' in ((disposableReplay.result?.structuredContent as Record<string, unknown>) ?? {}),
+      false,
+    );
+    assert.equal(
+      (await app.request(disposableArchive.downloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
       404,
     );
 

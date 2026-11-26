@@ -57,8 +57,8 @@ it('exports the selected project from an opened menu and retries with the same r
   expect(JSON.parse(vi.mocked(motionApi).mock.calls[1][1]!.body as string)).toEqual(first);
 });
 
-it.each(['imported', 'projects'])('uploads ZIP bytes and reads the %s result without opening the new project', async key => {
-  vi.mocked(motionApi).mockResolvedValue({ [key]: [{ projectId: 'new' }] });
+it('uploads ZIP bytes and reads the imported result without opening the new project', async () => {
+  vi.mocked(motionApi).mockResolvedValue({ imported: [{ projectId: 'new' }] });
   const input = document.querySelector<HTMLInputElement>('input[type=file]')!;
   const file = new File(['zip bytes'], 'shared.zip', { type: 'application/zip' });
   Object.defineProperty(input, 'files', { configurable: true, value: [file] });

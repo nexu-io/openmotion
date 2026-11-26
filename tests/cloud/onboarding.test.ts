@@ -376,6 +376,10 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     );
     assert.ok(setupPrompt(cloudInfo, 'codex', 'zh-CN').includes('https://motion.open-design.ai/install.md'));
     assert.ok(setupPrompt(cloudInfo, 'codex', 'en').includes('https://motion.open-design.ai/install.md'));
+    assert.match(setupPrompt(cloudInfo, 'codex', 'en'), /open a new Codex chat/);
+    assert.match(setupPrompt(cloudInfo, 'claude', 'en'), /open a new Claude Code chat/);
+    assert.doesNotMatch(setupPrompt(cloudInfo, 'claude', 'en'), /open a new Codex chat/);
+    assert.match(setupPrompt(cloudInfo, 'claude', 'zh-CN'), /新的 Claude Code 聊天/);
 
     // Every cloud handoff prompt builder must point Agents to `<ORIGIN>/install.md`, never `/connect/guide` or `/mcp-setup`.
     const handoffOutputs = [

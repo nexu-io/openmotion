@@ -364,9 +364,19 @@ export function setupGuideUrl(info: IntegrationInfo | null) {
   return `https://releases.open-design.ai/open-motion/${environment === 'dev' ? 'dev/' : ''}install.md`;
 }
 
-export function cloudMcpPostAuthorizationInstructions(publicOrigin: string) {
+export function cloudMcpPostAuthorizationInstructions(
+  publicOrigin: string,
+  host?: IntegrationHost,
+  locale: 'zh-CN' | 'en' = 'en',
+) {
   const helpUrl = new URL('/mcp-setup', publicOrigin).href;
-  return `After authorization, keep /install.md internal to the Agent. When the tools are ready, continue the user's existing request or tell them they can send a creative request. If the OpenMotion tools are unavailable in the current chat, tell the user to open a new Codex chat and send their creative request there (or start a new conversation in their MCP client). If the user needs a setup help link, use ${helpUrl}.`;
+  const hostName = host ? hostNames[host] : null;
+  if (locale === 'zh-CN') {
+    const newChatTarget = hostName ? `新的 ${hostName} 聊天` : '当前客户端的新聊天';
+    return `授权成功后，如果工具已可用，请继续我已经提出的创作需求，或直接告诉我可以发送创作需求。安装文档 /install.md 仅供 Agent 内部阅读，请勿在回复里展示。如果当前聊天还没加载 OpenMotion 工具，请提示我打开${newChatTarget}并发送创作需求。如需分享接入帮助，请使用 ${helpUrl}。`;
+  }
+  const newChatTarget = hostName ? `a new ${hostName} chat` : 'a new chat in this client';
+  return `After authorization, keep /install.md internal to the Agent. When the tools are ready, continue the user's existing request or tell them they can send a creative request. If the OpenMotion tools are unavailable in the current chat, tell the user to open ${newChatTarget} and send their creative request there. If the user needs a setup help link, use ${helpUrl}.`;
 }
 
 // Bootstrap instructions must work before an installation or local server exists.
@@ -393,7 +403,7 @@ export function setupPrompt(
         `请阅读 ${guide}，帮我将 ${hostNames[host]} 接入 OpenMotion 云端 MCP（${mcpUrl}）。`,
         '不要安装 npm 包、克隆仓库、启动本地运行时或使用 docker exec。',
         '导入素材时使用 openmotion_import_assets 的 upload_ticket / url / library_asset 模式。',
-        `授权成功后，如果工具已可用，请继续我已经提出的创作需求，或直接告诉我可以发送创作需求。安装文档 /install.md 仅供 Agent 内部阅读，请勿在回复里展示。如果当前聊天还没加载 OpenMotion 工具，请提示我打开新的 ${hostNames[host]} 聊天并发送创作需求。如需分享接入帮助，请使用 ${new URL('/mcp-setup', mcpUrl).href}。`,
+        cloudMcpPostAuthorizationInstructions(mcpUrl, host, 'zh-CN'),
       ];
       if (waitForBrief) lines.push('等我给出创作要求后再创建或修改工程。');
       return lines.join('\n');
@@ -402,7 +412,7 @@ export function setupPrompt(
       `Follow ${guide} to connect ${hostNames[host]} to OpenMotion Cloud MCP (${mcpUrl}).`,
       'Do not install an npm package, clone the repository, start a local runtime, or wrap commands with docker exec.',
       'Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).',
-      cloudMcpPostAuthorizationInstructions(mcpUrl),
+      cloudMcpPostAuthorizationInstructions(mcpUrl, host, 'en'),
     ];
     if (waitForBrief) lines.push('Wait for my creative brief before creating or modifying a project.');
     return lines.join('\n');

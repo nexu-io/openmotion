@@ -272,6 +272,12 @@ export class ProjectArchiveService {
     }
   }
 
+  private stripReceiptOwnerMeta<T extends object>(payload: unknown): T {
+    const record = { ...(payload as Record<string, unknown>) };
+    delete record.ownerUserId;
+    return record as unknown as T;
+  }
+
   private async assertReceiptProjectsReadable(
     ctx: AuthContext,
     payload: unknown,
@@ -279,6 +285,13 @@ export class ProjectArchiveService {
   ): Promise<void> {
     if (ctx.authMethod !== 'oauth_bearer') return;
     const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+    const ownerUserId =
+      typeof record?.ownerUserId === 'string' && record.ownerUserId.length > 0 ? record.ownerUserId : null;
+    // The exporting/importing user keeps access to their own archive receipt even if an
+    // underlying project is permanently deleted afterwards.
+    if (ownerUserId && ctx.userId && ownerUserId === ctx.userId) {
+      return;
+    }
     const entries = Array.isArray(record?.[listKey]) ? (record[listKey] as Array<{ projectId?: unknown }>) : [];
     const projectIds = entries
       .map((entry) => entry?.projectId)
@@ -352,8 +365,8 @@ export class ProjectArchiveService {
         });
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
-        const result = existingReceipt[0].responsePayload as unknown as ArchiveExportResult;
-        await this.assertReceiptProjectsReadable(ctx, result, 'projects');
+        await this.assertReceiptProjectsReadable(ctx, existingReceipt[0].responsePayload, 'projects');
+        const result = this.stripReceiptOwnerMeta<ArchiveExportResult>(existingReceipt[0].responsePayload);
         return { ...result, downloadUrl: this.archiveDownloadUrl(result.archiveId), replayed: true };
       }
     }
@@ -522,6 +535,11 @@ export class ProjectArchiveService {
       replayed: false,
     };
 
+    const storedExportPayload: Record<string, unknown> = {
+      ...(result as unknown as Record<string, unknown>),
+      ...(ctx.userId ? { ownerUserId: ctx.userId } : {}),
+    };
+
     await this.db
       .insert(idempotencyReceipts)
       .values(
@@ -532,7 +550,7 @@ export class ProjectArchiveService {
           inputHash,
           state: 'completed',
           resourceId: archiveId,
-          responsePayload: result as unknown as Record<string, unknown>,
+          responsePayload: storedExportPayload,
           updatedAt: new Date(),
         }),
       )
@@ -541,7 +559,7 @@ export class ProjectArchiveService {
         set: asUpdate(idempotencyReceipts, {
           state: 'completed',
           resourceId: archiveId,
-          responsePayload: result as unknown as Record<string, unknown>,
+          responsePayload: storedExportPayload,
           updatedAt: new Date(),
         }),
       });
@@ -587,8 +605,8 @@ export class ProjectArchiveService {
         });
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
-        const replayedResult = existingReceipt[0].responsePayload as unknown as ArchiveImportResult;
-        await this.assertReceiptProjectsReadable(ctx, replayedResult, 'imported');
+        await this.assertReceiptProjectsReadable(ctx, existingReceipt[0].responsePayload, 'imported');
+        const replayedResult = this.stripReceiptOwnerMeta<ArchiveImportResult>(existingReceipt[0].responsePayload);
         return {
           ...replayedResult,
           replayed: true,
@@ -723,8 +741,8 @@ export class ProjectArchiveService {
           });
         }
         if (current && current.state === 'completed' && current.responsePayload) {
-          const replayedResult = current.responsePayload as unknown as ArchiveImportResult;
-          await this.assertReceiptProjectsReadable(ctx, replayedResult, 'imported');
+          await this.assertReceiptProjectsReadable(ctx, current.responsePayload, 'imported');
+          const replayedResult = this.stripReceiptOwnerMeta<ArchiveImportResult>(current.responsePayload);
           return {
             ...replayedResult,
             replayed: true,
@@ -826,13 +844,18 @@ export class ProjectArchiveService {
 
       await stopHeartbeat();
 
+      const storedImportPayload: Record<string, unknown> = {
+        ...(result as unknown as Record<string, unknown>),
+        ...(ctx.userId ? { ownerUserId: ctx.userId } : {}),
+      };
+
       const completed = await this.db
         .update(idempotencyReceipts)
         .set(
           asUpdate(idempotencyReceipts, {
             state: 'completed',
             resourceId: imported[0]?.projectId ?? null,
-            responsePayload: result as unknown as Record<string, unknown>,
+            responsePayload: storedImportPayload,
             updatedAt: new Date(),
           }),
         )
