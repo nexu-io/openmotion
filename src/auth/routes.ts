@@ -339,13 +339,6 @@ function parseBasicClientAuth(header: string | undefined): { clientId: string; c
 export interface AuthRoutesDeps extends AuthMiddlewareDeps {
   oauth21?: OAuth21Config;
   cloudTracking?: CloudTrackingHandle;
-  onOneTapTelemetry?: (event: {
-    event: 'onetap_login_success' | 'onetap_login_failed';
-    appUserId?: string;
-    isNewUser?: boolean;
-    planTier?: string;
-    errorCode?: string;
-  }) => void;
 }
 
 const AUTH_ATTR_COOKIE_NAME = 'om_auth_attr';
@@ -941,10 +934,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       const browserBindingHash = sha256Hex(ctxToken);
       if (await isOneTapBindingRevoked(browserBindingHash)) {
         c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
-        deps.onOneTapTelemetry?.({
-          event: 'onetap_login_failed',
-          errorCode: 'CHALLENGE_INVALID',
-        });
         return c.json(
           {
             code: 'CHALLENGE_INVALID',
@@ -986,10 +975,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
         if (bindingRevokedDuringExchange || userLoggedOutDuringExchange) {
           c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
-          deps.onOneTapTelemetry?.({
-            event: 'onetap_login_failed',
-            errorCode: 'CHALLENGE_INVALID',
-          });
           return c.json(
             {
               code: 'CHALLENGE_INVALID',
@@ -1017,10 +1002,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         if (bindingRevokedAfterCommit || userLoggedOutAfterCommit) {
           await revokeBrowserSession(deps.store, { rawToken: session.token }, deps.cache).catch(() => {});
           c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
-          deps.onOneTapTelemetry?.({
-            event: 'onetap_login_failed',
-            errorCode: 'CHALLENGE_INVALID',
-          });
           return c.json(
             {
               code: 'CHALLENGE_INVALID',
@@ -1055,10 +1036,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             await deleteSessionProof(session.tokenHash).catch(() => {});
             await revokeBrowserSession(deps.store, { rawToken: session.token }, deps.cache).catch(() => {});
             c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
-            deps.onOneTapTelemetry?.({
-              event: 'onetap_login_failed',
-              errorCode: 'CHALLENGE_INVALID',
-            });
             return c.json(
               {
                 code: 'CHALLENGE_INVALID',
@@ -1087,13 +1064,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
         headers.append('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
 
-        deps.onOneTapTelemetry?.({
-          event: 'onetap_login_success',
-          appUserId: exchanged.appUserId,
-          isNewUser: exchanged.isNewUser,
-          planTier: exchanged.planTier,
-        });
-
         return new Response(
           JSON.stringify({
             authenticated: true,
@@ -1111,17 +1081,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       } catch (error) {
         if (isAmrOneTapError(error)) {
-          deps.onOneTapTelemetry?.({
-            event: 'onetap_login_failed',
-            errorCode: error.code,
-          });
           return c.json(error.toJSON(), error.status);
         }
         if (isCloudError(error)) {
-          deps.onOneTapTelemetry?.({
-            event: 'onetap_login_failed',
-            errorCode: error.code,
-          });
           return c.json(error.toJSON(), error.status as 400 | 401 | 403 | 409 | 500 | 503);
         }
         throw error;
