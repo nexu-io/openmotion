@@ -425,7 +425,7 @@ test('export handbook localizes the guarded recovery example', () => {
   assert.match(entry.prompt, /diagnostics are unavailable, use the original error/);
   assert.match(entry.prompt, /expectedRevision and expectedVersionId/);
   assert.match(entry.prompt, /Retry once .*new requestId/);
-  const translations = JSON.parse(readFileSync(new URL('../studio/src/i18n/mcp-ui.json', import.meta.url), 'utf8'));
+  const translations = JSON.parse(readFileSync(new URL('../studio/src/i18n/mcp-tools-ui.json', import.meta.url), 'utf8'));
   for (const locale of Object.values(translations) as Record<string, string>[]) {
     assert.ok(locale[entry.description]);
     assert.match(locale[entry.prompt], /openmotion_edit_project .*expectedRevision, expectedVersionId/);
