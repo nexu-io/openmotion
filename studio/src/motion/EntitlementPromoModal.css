@@ -205,14 +205,14 @@
   border-radius: 18px;
   text-align: left;
   overflow: hidden;
-  background: linear-gradient(100deg, color-mix(in srgb, var(--motion-entitlement-accent) 50%, transparent) 0%, color-mix(in srgb, var(--motion-entitlement-accent-mint) 50%, transparent) 55%, color-mix(in srgb, var(--motion-entitlement-ink-strong) 50%, transparent) 100%), var(--motion-entitlement-surface-card);
-  border: 1px solid color-mix(in srgb, var(--motion-entitlement-accent) 50%, transparent);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--motion-entitlement-accent) 14%, transparent) 0%, color-mix(in srgb, var(--motion-entitlement-accent-mint) 7%, transparent) 55%, color-mix(in srgb, var(--motion-entitlement-ink-strong) 3%, transparent) 100%), var(--motion-entitlement-surface-card);
+  border: 1px solid color-mix(in srgb, var(--motion-entitlement-accent) 26%, transparent);
 }
 .om-epm-giftbar::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--motion-entitlement-accent) 50%, transparent), transparent 70%);
+  background: radial-gradient(60% 120% at 0% 50%, color-mix(in srgb, var(--motion-entitlement-accent) 14%, transparent), transparent 70%);
   pointer-events: none;
 }
 .om-epm-gm {
