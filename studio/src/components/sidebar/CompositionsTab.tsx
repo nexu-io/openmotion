@@ -38,6 +38,13 @@ import { thumbnailRevisionOf } from "../../player/store/thumbnailSlice";
 import { peekCachedCompositionTimeline } from "../../player/lib/compositionTimelineCache";
 import { encodePreviewPath } from "../../player/components/thumbnailUtils";
 import { SpriteFrame } from "../../player/components/SpriteFrame";
+import {
+  detectFirstVisibleFilmstripFrame,
+  detectFirstVisibleSpriteFrame,
+  OPENING_COVER_SEEK_TIME_SECONDS,
+  openingFrameCacheKey,
+  peekFirstVisibleCoverFrame,
+} from "./coverOpeningFrame";
 import { TIMELINE_COMPOSITION_MIME } from "../../utils/timelineCompositionDrop";
 import { useDockPanelVisible } from "../dock/Dock";
 import { ItemLoadErrorBadge } from "../ui/ItemLoadErrorBadge";
@@ -64,6 +71,8 @@ const THUMBNAIL_PLAYBACK_SYNC_ATTEMPTS = 10;
 const SPRITE_HOVER_DEBOUNCE_MS = 120;
 const SPRITE_HOVER_INTERVAL_MS = 360;
 const IFRAME_HOVER_DEBOUNCE_MS = 300;
+const SCRUB_DRAG_THRESHOLD_PX = 6;
+const SCRUB_IDLE_RESUME_MS = 550;
 const EDIT_COVER_REFRESH_DEBOUNCE_MS = 250;
 const EDIT_COVER_REFRESH_FRAMES = 4;
 
@@ -177,7 +186,7 @@ const coverUrlOf = (value: ThumbnailValue | null | undefined): string | null =>
     : value?.kind === "sprite"
       ? (value.frameCount > 0 ? value.url : null)
       : value?.kind === "filmstrip"
-        ? (value.urls[Math.min(value.urls.length - 1, Math.floor(value.urls.length / 2))] ?? value.urls[0] ?? null)
+        ? (value.urls[0] ?? null)
         : null;
 
 function prefersReducedMotion(): boolean {
@@ -317,7 +326,7 @@ function resolveCoverFrameBounds(
     return {
       minFrame: 0,
       maxFrame: safeTotal - 1,
-      defaultFrame: Math.floor(safeTotal / 2),
+      defaultFrame: 0,
     };
   }
   const toFrame = (fraction: number) => {
@@ -328,11 +337,62 @@ function resolveCoverFrameBounds(
   const endFrac = Math.max(startFrac, Math.min(1, windowEndFraction));
   const minFrame = toFrame(startFrac);
   const maxFrame = Math.max(minFrame, toFrame(endFrac));
-  // Bias slightly into the trimmed opening window so swapped/trimmed opening clips display
-  // their own opening content immediately instead of staying on the full-clip midpoint.
-  const targetFrac = startFrac + Math.min((endFrac - startFrac) * 0.2, 0.05);
-  const defaultFrame = Math.max(minFrame, Math.min(maxFrame, toFrame(targetFrac)));
-  return { minFrame, maxFrame, defaultFrame };
+  return { minFrame, maxFrame, defaultFrame: minFrame };
+}
+
+function usePreferredOpeningFrame(
+  value: ThumbnailValue | null | undefined,
+  minFrame: number,
+  maxFrame: number,
+  defaultFrame: number,
+): number {
+  const detectionKey = useMemo(() => {
+    if (!value || maxFrame <= minFrame) return null;
+    if (value.kind === "sprite" && value.frameCount > 1 && value.url) {
+      return openingFrameCacheKey(value.url, minFrame, maxFrame);
+    }
+    if (value.kind === "filmstrip" && value.urls.length > 1) {
+      const slice = value.urls.slice(minFrame, maxFrame + 1).join("|");
+      return slice ? openingFrameCacheKey(slice, minFrame, maxFrame) : null;
+    }
+    return null;
+  }, [maxFrame, minFrame, value]);
+
+  const syncDetected = detectionKey ? peekFirstVisibleCoverFrame(detectionKey) : null;
+  const [detected, setDetected] = useState<{ key: string; frame: number } | null>(null);
+
+  useEffect(() => {
+    if (!detectionKey || syncDetected !== null || !value) return;
+    let cancelled = false;
+    const promise =
+      value.kind === "sprite"
+        ? detectFirstVisibleSpriteFrame({
+            url: value.url,
+            frameCount: value.frameCount,
+            cols: value.cols,
+            rows: value.rows,
+            minFrame,
+            maxFrame,
+          })
+        : value.kind === "filmstrip"
+          ? detectFirstVisibleFilmstripFrame({
+              urls: value.urls,
+              minFrame,
+              maxFrame,
+            })
+          : null;
+    if (!promise) return;
+    void promise.then((frame) => {
+      if (!cancelled) setDetected({ key: detectionKey, frame });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detectionKey, maxFrame, minFrame, syncDetected, value]);
+
+  if (syncDetected !== null) return syncDetected;
+  if (detectionKey && detected?.key === detectionKey) return detected.frame;
+  return defaultFrame;
 }
 
 // fallow-ignore-next-line complexity
@@ -379,6 +439,9 @@ function CompCard({
   const [failedFrameUrl, setFailedFrameUrl] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrubIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrubAnchorXRef = useRef<number | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draggedRef = useRef(false);
 
@@ -402,6 +465,15 @@ function CompCard({
       clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
     }
+    if (liveHoverTimer.current) {
+      clearTimeout(liveHoverTimer.current);
+      liveHoverTimer.current = null;
+    }
+    if (scrubIdleTimer.current) {
+      clearTimeout(scrubIdleTimer.current);
+      scrubIdleTimer.current = null;
+    }
+    scrubAnchorXRef.current = null;
     if (syncTimer.current) {
       clearTimeout(syncTimer.current);
       syncTimer.current = null;
@@ -422,7 +494,9 @@ function CompCard({
     onSelect();
   };
   const name = comp.replace(/^compositions\//, "").replace(/\.html$/, "");
-  const previewUrl = compositionPreviewUrl(projectId, comp);
+  const previewUrl = isRoot
+    ? buildProjectApiPath(projectId, "/preview")
+    : compositionPreviewUrl(projectId, comp);
   const coverPreviewUrl = compositionPreviewUrl(projectId, coverComp);
   const coverIdentity = `${projectId}|${coverComp}`;
   const thumbnailUrl = compositionCardThumbnailUrl(projectId, coverComp, coverContentRevision);
@@ -542,7 +616,7 @@ function CompCard({
             sessionEpoch: timelineSessionEpoch,
             contentRevision: captureContentRevision,
             frameCount: desiredRefreshFrames,
-            seekTime: desiredRefreshFrames === 1 ? THUMBNAIL_SEEK_TIME_SECONDS : undefined,
+            seekTime: desiredRefreshFrames === 1 ? OPENING_COVER_SEEK_TIME_SECONDS : undefined,
             priority: isPostEditRefresh && isActive ? "interaction" : "overscan",
             rich: true,
           })
@@ -654,6 +728,12 @@ function CompCard({
     coverWindowStartFraction,
     coverWindowEndFraction,
   );
+  const preferredOpeningFrame = usePreferredOpeningFrame(
+    displayedCoverValue,
+    frameBounds.minFrame,
+    frameBounds.maxFrame,
+    frameBounds.defaultFrame,
+  );
   const visibleFrameSpan = frameBounds.maxFrame - frameBounds.minFrame + 1;
   const hasMultiFramePreview =
     visibleFrameSpan > 1 &&
@@ -661,7 +741,7 @@ function CompCard({
   const activeFrameIndex =
     hoverFrameIndex !== null
       ? Math.max(frameBounds.minFrame, Math.min(frameBounds.maxFrame, hoverFrameIndex))
-      : frameBounds.defaultFrame;
+      : preferredOpeningFrame;
   const spriteCoverValue =
     displayedCoverValue?.kind === "sprite" &&
     displayedCoverValue.frameCount > 0 &&
@@ -700,34 +780,68 @@ function CompCard({
       clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
     }
-    if (hasMultiFramePreview) {
+    if (liveHoverTimer.current) {
+      clearTimeout(liveHoverTimer.current);
+      liveHoverTimer.current = null;
+    }
+    const reduced = prefersReducedMotion();
+    if (hasMultiFramePreview && !reduced) {
       hoverTimer.current = setTimeout(() => {
         setSpriteHoverActive(true);
       }, SPRITE_HOVER_DEBOUNCE_MS);
-      return;
     }
-    hoverTimer.current = setTimeout(() => setHovered(true), IFRAME_HOVER_DEBOUNCE_MS);
+    if (!reduced) {
+      liveHoverTimer.current = setTimeout(() => setHovered(true), IFRAME_HOVER_DEBOUNCE_MS);
+    }
   };
   const handleThumbnailPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!panelVisible || !hasMultiFramePreview) return;
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0) return;
+    if (scrubAnchorXRef.current === null) {
+      scrubAnchorXRef.current = event.clientX;
+      return;
+    }
+    if (!isScrubbing && Math.abs(event.clientX - scrubAnchorXRef.current) < SCRUB_DRAG_THRESHOLD_PX) {
+      return;
+    }
     const ratio = Math.max(0, Math.min(0.9999, (event.clientX - rect.left) / rect.width));
     const nextIdx = frameBounds.minFrame + Math.floor(ratio * visibleFrameSpan);
     setIsScrubbing(true);
+    setLivePreviewLoaded(false);
     setHoverFrameIndex(nextIdx);
+    if (scrubIdleTimer.current) clearTimeout(scrubIdleTimer.current);
+    scrubIdleTimer.current = setTimeout(() => {
+      scrubIdleTimer.current = null;
+      scrubAnchorXRef.current = event.clientX;
+      setIsScrubbing(false);
+    }, SCRUB_IDLE_RESUME_MS);
   };
   const handleThumbnailPointerLeave = () => {
+    if (scrubIdleTimer.current) {
+      clearTimeout(scrubIdleTimer.current);
+      scrubIdleTimer.current = null;
+    }
+    scrubAnchorXRef.current = null;
     setIsScrubbing(false);
   };
-  const shouldMountIframeHover = hovered && panelVisible && !hasMultiFramePreview;
+  const shouldMountIframeHover = hovered && panelVisible && !isScrubbing;
+  const showLiveHover = shouldMountIframeHover && livePreviewLoaded;
 
   useEffect(() => {
-    if (!hasMultiFramePreview || !spriteHoverActive || !panelVisible || isScrubbing) return;
+    if (
+      !hasMultiFramePreview ||
+      !spriteHoverActive ||
+      !panelVisible ||
+      isScrubbing ||
+      showLiveHover
+    ) {
+      return;
+    }
     if (prefersReducedMotion()) return;
     const step = (prev: number | null) => {
       if (prev === null || prev < frameBounds.minFrame || prev >= frameBounds.maxFrame) {
-        return frameBounds.minFrame;
+        return prev === null ? preferredOpeningFrame : frameBounds.minFrame;
       }
       return prev + 1;
     };
@@ -742,6 +856,8 @@ function CompCard({
     hasMultiFramePreview,
     isScrubbing,
     panelVisible,
+    preferredOpeningFrame,
+    showLiveHover,
     spriteHoverActive,
   ]);
 
@@ -786,6 +902,8 @@ function CompCard({
   useEffect(() => {
     return () => {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (liveHoverTimer.current) clearTimeout(liveHoverTimer.current);
+      if (scrubIdleTimer.current) clearTimeout(scrubIdleTimer.current);
       if (syncTimer.current) clearTimeout(syncTimer.current);
     };
   }, []);
@@ -847,7 +965,9 @@ function CompCard({
             fit="contain"
             containerWidth={CARD_W}
             containerHeight={CARD_H}
-            className="absolute inset-0"
+            className={`absolute inset-0 transition-opacity ${
+              showLiveHover ? "opacity-0" : "opacity-100"
+            }`}
           />
         )}
         {posterUrl && (
@@ -866,11 +986,11 @@ function CompCard({
               setRenderedCoverIdentity(null);
             }}
             className={`absolute inset-0 h-full w-full object-contain transition-opacity ${
-              livePreviewLoaded || (!posterLoaded && !hasRenderedCover) ? "opacity-0" : "opacity-100"
+              showLiveHover || (!posterLoaded && !hasRenderedCover) ? "opacity-0" : "opacity-100"
             }`}
           />
         )}
-        {hasMultiFramePreview && (spriteHoverActive || isScrubbing) && (
+        {hasMultiFramePreview && (spriteHoverActive || isScrubbing) && !showLiveHover && (
           <div
             className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-neutral-950/60"
             data-testid="composition-hover-progress"
@@ -883,13 +1003,22 @@ function CompCard({
           </div>
         )}
         {shouldMountIframeHover && previewOrigin && (
-          <div className="absolute inset-0 pointer-events-none" style={{ visibility: livePreviewLoaded ? "visible" : "hidden" }}>
-            <IsolatedHoverPlayer source={previewUrl} origin={previewOrigin} onReady={setLivePreviewLoaded}
-              onError={() => setLivePreviewLoaded(false)} />
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ visibility: showLiveHover ? "visible" : "hidden" }}
+          >
+            <IsolatedHoverPlayer
+              key={`${previewUrl}|${contentRevision}|${compCacheRev}`}
+              source={previewUrl}
+              origin={previewOrigin}
+              onReady={setLivePreviewLoaded}
+              onError={() => setLivePreviewLoaded(false)}
+            />
           </div>
         )}
         {shouldMountIframeHover && !previewOrigin && (
           <iframe
+            key={`${previewUrl}|${contentRevision}|${compCacheRev}`}
             ref={iframeRef}
             src={previewUrl}
             sandbox="allow-scripts allow-same-origin"
@@ -901,6 +1030,7 @@ function CompCard({
               left: thumbnailOffsetX,
               top: thumbnailOffsetY,
               transform: `scale(${previewScale})`,
+              visibility: showLiveHover ? "visible" : "hidden",
             }}
             onLoad={(e) => {
               try {

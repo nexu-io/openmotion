@@ -19,6 +19,7 @@ import { clearCachedCompositionTimelinesForTest } from "../../player/lib/composi
 import { usePlayerStore } from "../../player/store/playerStore";
 import { renderPosterForNextOpen } from "../nle/PreviewPoster";
 import { clearRememberedRootCoversForTest, CompositionsTab } from "./CompositionsTab";
+import { clearOpeningCoverFrameCacheForTest } from "./coverOpeningFrame";
 import { mountCompositionsTab } from "./compositionsTabTestUtils";
 
 class DecodingImage {
@@ -106,6 +107,7 @@ afterEach(() => {
   clearClientCompositionCaptureCacheForTest();
   clearCachedCompositionTimelinesForTest();
   clearRememberedRootCoversForTest();
+  clearOpeningCoverFrameCacheForTest();
   usePlayerStore.setState({ elements: [] });
   Object.assign(globalThis, {
     fetch: real.fetch,
@@ -464,7 +466,7 @@ describe("composition card thumbnails", () => {
     expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
   });
 
-  it("renders a zero-slice multi-frame sprite cover, cycles and scrubs on hover with 0 iframes, and respects reduced motion", () => {
+  it("shows opening frame on sprite cover, plays without freezing on thumbnail entry, upgrades to live hover on dwell, scrubs on drag, and respects reduced motion", () => {
     vi.useFakeTimers();
     setCachedCloudDisklessMode(true);
     setClientCompositionCaptureCapabilityForTest(true);
@@ -491,52 +493,60 @@ describe("composition card thumbnails", () => {
 
     try {
       const host = mount();
-      // Static default: middle frame (index 4 of 8), no placeholder, no <img>, no network fetch.
+      // Static default: opening frame (index 0 of 8), no placeholder, no <img>, no network fetch.
       expect(renders).toHaveLength(0);
       expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
       expect(host.querySelector("img")).toBeNull();
       const spriteEl = () => host.querySelector<HTMLElement>("[data-sprite-frame]");
-      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("4");
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
       expect(spriteEl()?.getAttribute("data-sprite-url")).toBe("blob:frame-1");
 
       const card = host.querySelector<HTMLElement>('[aria-label^="Open composition"]')!;
       const thumbBox = spriteEl()!.parentElement!;
       thumbBox.getBoundingClientRect = () => ({ left: 100, width: 80, top: 0, height: 45 }) as DOMRect;
 
-      // Hover starts cycling after 120ms and NEVER mounts an iframe (even past 300ms+).
+      // Hovering onto the thumbnail box anchors pointer without freezing playback.
       act(() => {
         card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 140 }));
       });
       act(() => vi.advanceTimersByTime(120));
       expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
       expect(host.querySelector('[data-testid="composition-hover-progress"]')).not.toBeNull();
-
-      act(() => vi.advanceTimersByTime(360));
-      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("1");
       expect(host.querySelector("iframe")).toBeNull();
 
-      // Pointer scrub across thumbnail maps horizontal position directly to frame index.
+      // Hover dwell past 300ms upgrades to the real live preview iframe (matching actual preview)
+      // while Sprite playback continues underneath until the live frame reports loaded.
+      act(() => vi.advanceTimersByTime(360));
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("1");
+      expect(host.querySelector("iframe")?.getAttribute("src")).toBe(previewUrl);
+
+      // Deliberate horizontal scrub (>= 6px drag) switches immediately to instant sprite scrubbing.
       act(() => {
         thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 175 }));
       });
       expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("7");
+      expect(host.querySelector("iframe")).toBeNull();
 
-      // Pointer leave resets back to static middle frame (index 4) and hides scrub bar.
+      // Pointer leave resets back to static opening frame (index 0), hides scrub bar, and unmounts iframe.
       act(() => {
         card.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
       });
-      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("4");
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
       expect(host.querySelector('[data-testid="composition-hover-progress"]')).toBeNull();
       expect(host.querySelector("iframe")).toBeNull();
 
-      // With prefers-reduced-motion: reduce, hover does not auto-cycle, while pointer scrub still works.
+      // With prefers-reduced-motion: reduce, hover neither auto-cycles nor mounts a live iframe,
+      // while deliberate pointer scrub still works.
       reducedMotion = true;
       act(() => {
         card.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
       });
       act(() => vi.advanceTimersByTime(600));
-      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("4");
+      expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("0");
+      expect(host.querySelector("iframe")).toBeNull();
       act(() => {
+        thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 102 }));
         thumbBox.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 112 }));
       });
       expect(spriteEl()?.getAttribute("data-sprite-frame")).toBe("1");
@@ -547,7 +557,8 @@ describe("composition card thumbnails", () => {
     }
   });
 
-  it("updates the Root card frame in 0ms when splitting/swapping clips on index.html and persists the trimmed window across sub-comp switches", () => {
+  it("updates the Root card opening frame in 0ms when splitting/swapping clips on index.html and hovers using /preview", () => {
+    vi.useFakeTimers();
     setCachedCloudDisklessMode(true);
     setClientCompositionCaptureCapabilityForTest(true);
     seedClientCompositionSpriteForTest(
@@ -561,7 +572,7 @@ describe("composition card thumbnails", () => {
       { frameCount: 8, cols: 8, rows: 1, width: 160, height: 90, aspect: 16 / 9 },
     );
 
-    // 1. Full unsplit clip on index.html -> both Root and catalog-scene show default middle frame 4.
+    // 1. Full unsplit clip on index.html -> both Root and catalog-scene show opening frame 0.
     usePlayerStore.setState({
       elements: [
         {
@@ -593,8 +604,8 @@ describe("composition card thumbnails", () => {
       act(() => {
         root.render(<CompositionsTab {...props} activeComposition="index.html" />);
       });
-      expect(frameOf(0)).toBe("4");
-      expect(frameOf(1)).toBe("4");
+      expect(frameOf(0)).toBe("0");
+      expect(frameOf(1)).toBe("0");
 
       // 2. Split & swap: second half (playbackStart=9.267, dur=33.7) moved to start=0.13!
       act(() => {
@@ -621,19 +632,31 @@ describe("composition card thumbnails", () => {
           ],
         });
       });
-      // Root card immediately updates to frame 2 (swapped opening window), while catalog-scene stays at 4.
-      expect(frameOf(0)).toBe("2");
-      expect(frameOf(1)).toBe("4");
+      // Root card immediately updates to frame 1 (swapped opening window), while catalog-scene stays at 0.
+      expect(frameOf(0)).toBe("1");
+      expect(frameOf(1)).toBe("0");
 
-      // 3. Switching into catalog-scene.html preserves Root card's trimmed frame 2.
+      // Hovering the Root card dwells into the live master /preview URL (not a single child scene).
+      const rootCard = host.querySelectorAll<HTMLElement>('[draggable="true"]')[0]!;
+      act(() => {
+        rootCard.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+      });
+      act(() => vi.advanceTimersByTime(320));
+      expect(rootCard.querySelector("iframe")?.getAttribute("src")).toBe("/api/projects/demo/preview");
+      act(() => {
+        rootCard.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+      });
+      expect(rootCard.querySelector("iframe")).toBeNull();
+
+      // 3. Switching into catalog-scene.html preserves Root card's trimmed frame 1.
       act(() => {
         usePlayerStore.setState({
           elements: [{ id: "inner", tag: "section", start: 0, duration: 42.967, track: 0 }],
         });
         root.render(<CompositionsTab {...props} activeComposition="compositions/catalog-scene.html" />);
       });
-      expect(frameOf(0)).toBe("2");
-      expect(frameOf(1)).toBe("4");
+      expect(frameOf(0)).toBe("1");
+      expect(frameOf(1)).toBe("0");
 
       // 4. Shared render context detector flags data-composition-variables edits without busting body-only edits.
       const baseHtml =
@@ -645,6 +668,7 @@ describe("composition card thumbnails", () => {
     } finally {
       act(() => root.unmount());
       host.remove();
+      vi.useRealTimers();
     }
   });
 
@@ -671,7 +695,7 @@ describe("composition card thumbnails", () => {
         compositions: ["compositions/headline.html"],
         activeComposition: "compositions/headline.html",
       });
-      expect(host.querySelector("[data-sprite-frame]")?.getAttribute("data-sprite-frame")).toBe("4");
+      expect(host.querySelector("[data-sprite-frame]")?.getAttribute("data-sprite-frame")).toBe("0");
       expect(acquireSpy).not.toHaveBeenCalled();
 
       // Simulate rapid edits to compositions/headline.html.
@@ -684,7 +708,7 @@ describe("composition card thumbnails", () => {
       });
       // Still debouncing: old sprite stays visible with 0 placeholder flash and 0 scheduler capture calls.
       expect(host.querySelector('[data-testid="composition-cover-placeholder"]')).toBeNull();
-      expect(host.querySelector("[data-sprite-frame]")?.getAttribute("data-sprite-frame")).toBe("4");
+      expect(host.querySelector("[data-sprite-frame]")?.getAttribute("data-sprite-frame")).toBe("0");
       expect(acquireSpy).not.toHaveBeenCalled();
 
       // Advance past the 250ms debounce and flush the 204 miss promise.
