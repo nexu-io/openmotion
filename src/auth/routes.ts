@@ -4,7 +4,7 @@ import { isCloudError } from '../contracts/errors.ts';
 import { sanitizeEntryId, sanitizeHookId, type CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { AppConfig } from '../infra/config.ts';
 import { isUuid } from '../../shared/project-validation.ts';
-import { isAmrOneTapError, type AmrOneTapAttribution } from './amr-identity.ts';
+import { isAmrOneTapError, type AmrOneTapAttribution, type AmrOneTapError } from './amr-identity.ts';
 import {
   DESKTOP_OIDC_CTX_TTL_SEC,
   DesktopOidcProvenanceStore,
@@ -309,6 +309,18 @@ function renderUpgradeHandoffUnavailableHtml(retryPath: string): string {
   });
 }
 
+/**
+ * AMR handoff-ticket rejections that retrying with the same Motion session cannot fix: the stored
+ * session proof is invalid, expired or no longer matches the account (401 SESSION_PROOF_INVALID), or
+ * the proof's account no longer exists (404 USER_NOT_FOUND).
+ */
+function isTerminalSessionProofRejection(error: AmrOneTapError): boolean {
+  return (
+    (error.status === 401 && error.code === 'SESSION_PROOF_INVALID') ||
+    (error.status === 404 && error.code === 'USER_NOT_FOUND')
+  );
+}
+
 function isSafeUpgradeHandoffUrl(rawUrl: string, config: AppConfig): boolean {
   if (!rawUrl || ONETAP_CONTROL_CHAR_RE.test(rawUrl)) return false;
   try {
@@ -403,6 +415,14 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   // AMR /api/internal/auth/one-tap/handoff-ticket so Motion proves AMR actually authenticated
   // this user (via One Tap exchange or OIDC id_token claim) before minting a billing handoff ticket.
   const SESSION_PROOF_TTL_SEC = DEFAULT_SESSION_TTL_SEC;
+  // AMR advertises when a proof stops verifying; never keep it past that or past the Motion session.
+  // An unparseable expiry falls back to the session lifetime (AMR still rejects an expired proof,
+  // which the upgrade handoff turns into a fresh sign-in); a past expiry yields 0 so nothing is stored.
+  const resolveSessionProofTtlSec = (expiresAt: string | undefined): number => {
+    const expiresAtMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+    if (!Number.isFinite(expiresAtMs)) return SESSION_PROOF_TTL_SEC;
+    return Math.max(0, Math.min(SESSION_PROOF_TTL_SEC, Math.floor((expiresAtMs - Date.now()) / 1000)));
+  };
   const localSessionProofs = new Map<string, { proof: string; expiresAt: number }>();
   const sessionProofCacheKey = (tokenHash: string) => `om:amr:session-proof:${tokenHash}`;
   const saveSessionProof = async (tokenHash: string, proof: string, ttlSec = SESSION_PROOF_TTL_SEC): Promise<void> => {
@@ -1077,8 +1097,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           );
         }
 
-        if (exchanged.sessionProof) {
-          await saveSessionProof(session.tokenHash, exchanged.sessionProof, SESSION_PROOF_TTL_SEC);
+        const sessionProofTtlSec = resolveSessionProofTtlSec(exchanged.sessionProofExpiresAt);
+        if (exchanged.sessionProof && sessionProofTtlSec > 0) {
+          await saveSessionProof(session.tokenHash, exchanged.sessionProof, sessionProofTtlSec);
           const bindingRevokedAfterProof = await isOneTapBindingRevoked(browserBindingHash);
           const userLoggedOutAfterProof = await hasUserLoggedOutSince(
             membership.user.id,
@@ -1452,8 +1473,23 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
           return c.redirect(ticket.handoffUrl, 302);
         }
-      } catch {
-        // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
+      } catch (error) {
+        if (isAmrOneTapError(error)) {
+          if (isTerminalSessionProofRejection(error)) {
+            // Retrying with this session's proof can never succeed; drop it and ask for a fresh sign-in.
+            await deleteSessionProof(sha256Hex(rawSession)).catch(() => {});
+            return authRequiredResponse(
+              'REAUTH_REQUIRED',
+              'Your OpenDesign sign-in verification has expired. Please sign in again before opening billing.',
+              { promptLogin: true, markReauth: true },
+            );
+          }
+          if (error.code === 'ACCOUNT_BANNED' || error.code === 'ACCOUNT_FROZEN') {
+            return forbiddenResponse('Your OpenDesign account is no longer active, so billing cannot be opened.');
+          }
+        }
+        // Transient failures (network, timeouts, 5xx, unknown errors) keep the session-bound retry page and
+        // never redirect to an unbound Pricing page where another AMR browser session could be billed.
       }
 
       return unavailableResponse(appUserId);

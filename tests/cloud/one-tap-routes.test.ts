@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { after, before, describe, it } from 'node:test';
+import { after, before, describe, it, mock } from 'node:test';
 import { Hono } from 'hono';
 import { SignJWT } from 'jose';
 import {
@@ -625,6 +625,265 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     });
     assert.equal(untrustedRes.status, 503);
     assert.equal(untrustedRes.headers.get('location'), null);
+  });
+
+  it('caps the stored One Tap session proof at AMR expiry and recovers from terminal handoff-ticket rejections', async () => {
+    const t0 = Date.parse('2026-11-24T12:00:00.000Z');
+    mock.timers.enable({ apis: ['Date'], now: t0 });
+    try {
+      const config = makeConfig();
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const proofKey = (sessionToken: string) => `om:amr:session-proof:${sha256Hex(sessionToken)}`;
+
+      let challengeSeq = 0;
+      let nextProof = '';
+      let nextProofExpiresAt: string | undefined;
+      type TicketMode =
+        | 'ok'
+        | 'proof_invalid'
+        | 'user_not_found'
+        | 'banned'
+        | 'bare_401'
+        | 'unavailable_503'
+        | 'server_500'
+        | 'network';
+      let ticketMode: TicketMode = 'ok';
+      const ticketProofs: string[] = [];
+
+      const amrIdentity = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+        oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+            challengeSeq += 1;
+            return Response.json({
+              challengeId: `otc_proof_${challengeSeq}`,
+              nonce: `nonce_proof_${challengeSeq}`,
+              clientId: 'google-client-id.apps.googleusercontent.com',
+              expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+            return Response.json({
+              ok: true,
+              authUserId: 'ba_usr_proof',
+              appUserId: 'usr_app_proof',
+              email: 'proof@example.com',
+              name: 'Proof User',
+              image: null,
+              isNewUser: false,
+              planTier: 'free',
+              sessionProof: nextProof,
+              ...(nextProofExpiresAt !== undefined ? { sessionProofExpiresAt: nextProofExpiresAt } : {}),
+            });
+          }
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_proof`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'ba_usr_proof',
+              appUserId: 'usr_app_proof',
+              email: 'proof@example.com',
+              name: 'Proof User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_amr_proof',
+                workspaceName: 'Proof Workspace',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_proof',
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
+            ticketProofs.push(String((JSON.parse(String(init?.body ?? '{}')) as { sessionProof?: unknown }).sessionProof));
+            switch (ticketMode) {
+              case 'proof_invalid':
+                return Response.json(
+                  {
+                    code: 'SESSION_PROOF_INVALID',
+                    message: 'Motion session proof is invalid, expired, or does not match the requested account.',
+                  },
+                  { status: 401 },
+                );
+              case 'user_not_found':
+                return Response.json({ code: 'USER_NOT_FOUND', message: 'Account not found.' }, { status: 404 });
+              case 'banned':
+                return Response.json({ code: 'ACCOUNT_BANNED', message: 'This account has been banned.' }, { status: 403 });
+              case 'bare_401':
+                return Response.json({ error: 'unauthorized' }, { status: 401 });
+              case 'unavailable_503':
+                return Response.json({ code: 'ONE_TAP_UNAVAILABLE', message: 'Temporarily unavailable.' }, { status: 503 });
+              case 'server_500':
+                return new Response('Internal Server Error', { status: 500 });
+              case 'network':
+                throw new TypeError('fetch failed');
+              default:
+                return Response.json({
+                  ticket: 'oth_proof',
+                  handoffUrl: `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=oth_proof`,
+                  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                });
+            }
+          }
+          return new Response('Not Found', { status: 404 });
+        }) as typeof fetch,
+      });
+
+      const fakeOidc = {
+        startLogin: async () => ({ authorizationUrl: 'https://idp.open-design.test/authorize', txCookieValue: 'tx' }),
+      } as unknown as OidcService;
+      const app = new Hono<AuthEnv>();
+      app.route('/', createAuthRoutes({ config, store, cache, amrIdentity, oidc: fakeOidc }));
+
+      const signInWithOneTap = async (proof: string, proofExpiresAt: string | undefined): Promise<string> => {
+        nextProof = proof;
+        nextProofExpiresAt = proofExpiresAt;
+        const challengeRes = await app.request('/auth/one-tap/challenge', {
+          method: 'POST',
+          headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+          body: JSON.stringify({ attemptId: `att-proof-${challengeSeq + 1}` }),
+        });
+        assert.equal(challengeRes.status, 200);
+        const { challengeId } = (await challengeRes.json()) as { challengeId: string };
+        const ctxCookieName = oneTapChallengeCookieName(challengeId);
+        const ctxToken = extractCookieValue(challengeRes.headers.getSetCookie(), ctxCookieName)!;
+        const exchangeRes = await app.request('/auth/one-tap', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'content-type': 'application/json',
+            Cookie: `${ctxCookieName}=${ctxToken}`,
+          },
+          body: JSON.stringify({ challengeId, idToken: 'google.id.token.jwt' }),
+        });
+        assert.equal(exchangeRes.status, 200);
+        const sessionToken = extractCookieValue(exchangeRes.headers.getSetCookie(), SESSION_COOKIE_NAME);
+        assert.ok(sessionToken);
+        return sessionToken;
+      };
+      const requestUpgrade = (sessionToken: string, options: { html?: boolean; query?: string } = {}) =>
+        app.request(`/auth/upgrade-handoff${options.query ?? '?targetPath=%2Fpricing'}`, {
+          headers: {
+            Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}`,
+            ...(options.html ? { Accept: 'text/html,application/xhtml+xml' } : {}),
+          },
+        });
+      const assertReauthJson = async (res: Response) => {
+        assert.equal(res.status, 401);
+        assert.equal(res.headers.get('location'), null);
+        const body = (await res.json()) as { code?: string; loginUrl?: string };
+        assert.equal(body.code, 'REAUTH_REQUIRED');
+        assert.match(body.loginUrl ?? '', /^\/auth\/login\?prompt=login&returnTo=/);
+      };
+      const assertRetryableUnavailable = async (sessionToken: string) => {
+        const initial = await requestUpgrade(sessionToken, { html: true });
+        assert.equal(initial.status, 303);
+        const boundLocation = initial.headers.get('location')!;
+        assert.match(boundLocation, /^\/auth\/upgrade-handoff\?.*requireAuth=1.*expectedSession=.*unavailable=1/);
+        const page = await app.request(boundLocation, {
+          headers: { Accept: 'text/html', Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` },
+        });
+        assert.equal(page.status, 503);
+        assert.equal(page.headers.get('location'), null);
+        return page;
+      };
+
+      // 1. AMR's advertised proof expiry caps the stored proof: usable before it, gone right after,
+      //    long before the 7-day Motion session ends. The expired proof is never sent to AMR.
+      const shortLived = await signInWithOneTap('otsp_short_lived', new Date(t0 + 10 * 60_000).toISOString());
+      assert.equal(await cache.get(proofKey(shortLived)), 'otsp_short_lived');
+      const beforeExpiry = await requestUpgrade(shortLived);
+      assert.equal(beforeExpiry.status, 302);
+      assert.equal(beforeExpiry.headers.get('location'), `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=oth_proof`);
+      assert.deepEqual(ticketProofs, ['otsp_short_lived']);
+      mock.timers.tick(10 * 60_000 + 1_000);
+      assert.equal(await cache.get(proofKey(shortLived)), null);
+      await assertReauthJson(await requestUpgrade(shortLived));
+      assert.equal(ticketProofs.length, 1);
+
+      // 2. A proof AMR reports as already expired is not stored; the session still signs in and
+      //    billing asks for a fresh sign-in without calling AMR.
+      const alreadyExpired = await signInWithOneTap('otsp_already_expired', new Date(Date.now() - 1_000).toISOString());
+      assert.equal(await cache.get(proofKey(alreadyExpired)), null);
+      await assertReauthJson(await requestUpgrade(alreadyExpired));
+      assert.equal(ticketProofs.length, 1);
+
+      // 3. Missing or unparseable expiry falls back to the Motion session lifetime.
+      const unparseable = await signInWithOneTap('otsp_unparseable_expiry', 'not-a-date');
+      assert.equal(await cache.get(proofKey(unparseable)), 'otsp_unparseable_expiry');
+      const noExpiry = await signInWithOneTap('otsp_no_expiry', undefined);
+      assert.equal(await cache.get(proofKey(noExpiry)), 'otsp_no_expiry');
+
+      // 4. AMR rejecting the proof (401 SESSION_PROOF_INVALID) is terminal: drop the proof and route to
+      //    REAUTH_REQUIRED instead of the retry page; later attempts no longer reach AMR.
+      ticketMode = 'proof_invalid';
+      const rejected = await signInWithOneTap('otsp_rejected', new Date(Date.now() + 60 * 60_000).toISOString());
+      await assertReauthJson(await requestUpgrade(rejected));
+      assert.equal(ticketProofs.at(-1), 'otsp_rejected');
+      assert.equal(await cache.get(proofKey(rejected)), null);
+      const ticketCallsAfterRejection = ticketProofs.length;
+      await assertReauthJson(await requestUpgrade(rejected));
+      assert.equal(ticketProofs.length, ticketCallsAfterRejection);
+
+      //    Browser navigations go to a fresh sign-in that returns to the bound upgrade URL.
+      const rejectedBrowser = await signInWithOneTap('otsp_rejected_browser', new Date(Date.now() + 60 * 60_000).toISOString());
+      const reauthRedirect = await requestUpgrade(rejectedBrowser, { html: true });
+      assert.equal(reauthRedirect.status, 302);
+      const reauthLocation = reauthRedirect.headers.get('location')!;
+      assert.match(reauthLocation, /^\/auth\/login\?prompt=login&returnTo=/);
+      const reauthReturnTo = new URL(reauthLocation, PUBLIC_ORIGIN).searchParams.get('returnTo')!;
+      assert.match(reauthReturnTo, /reauth=1/);
+      assert.doesNotMatch(reauthReturnTo, /unavailable=1/);
+      assert.equal(await cache.get(proofKey(rejectedBrowser)), null);
+
+      //    404 USER_NOT_FOUND is terminal for the proof's account as well.
+      ticketMode = 'user_not_found';
+      const missingAccount = await signInWithOneTap('otsp_missing_account', undefined);
+      await assertReauthJson(await requestUpgrade(missingAccount));
+      assert.equal(await cache.get(proofKey(missingAccount)), null);
+
+      // 5. A banned or frozen AMR account gets the 403 account notice, not the retry page.
+      ticketMode = 'banned';
+      const banned = await signInWithOneTap('otsp_banned', undefined);
+      const bannedJson = await requestUpgrade(banned);
+      assert.equal(bannedJson.status, 403);
+      assert.equal(((await bannedJson.json()) as { code?: string }).code, 'FORBIDDEN');
+      const bannedPage = await requestUpgrade(banned, { html: true });
+      assert.equal(bannedPage.status, 403);
+      const bannedHtml = await bannedPage.text();
+      assert.match(bannedHtml, /Account session is no longer active/);
+      assertDesignSystemNotice(bannedPage, bannedHtml);
+      assert.match(bannedHtml, /<a class="ui-button" href="\/">Back to Studio<\/a>/);
+
+      // 6. Transient failures (internal token rejected without a proof code, AMR 503/5xx, network) keep the
+      //    session-bound retry page and the stored proof.
+      for (const mode of ['bare_401', 'unavailable_503', 'server_500', 'network'] as const) {
+        ticketMode = mode;
+        const transient = await signInWithOneTap(`otsp_transient_${mode}`, undefined);
+        const page = await assertRetryableUnavailable(transient);
+        const pageHtml = await page.text();
+        assert.match(pageHtml, /Unable to verify billing handoff/);
+        assertDesignSystemNotice(page, pageHtml);
+        assert.equal(await cache.get(proofKey(transient)), `otsp_transient_${mode}`, mode);
+      }
+
+      // 7. Recovery: a fresh One Tap sign-in stores a new proof and billing opens again.
+      ticketMode = 'ok';
+      const recovered = await signInWithOneTap('otsp_recovered', new Date(Date.now() + 60 * 60_000).toISOString());
+      const recoveredRes = await requestUpgrade(recovered);
+      assert.equal(recoveredRes.status, 302);
+      assert.equal(ticketProofs.at(-1), 'otsp_recovered');
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('preserves parallel challenges across tabs and invalidates om_onetap_ctx on /auth/logout', async () => {

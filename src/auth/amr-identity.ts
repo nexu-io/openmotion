@@ -85,11 +85,13 @@ export interface AmrOneTapHandoffTicketResponse {
   readonly expiresAt: string;
 }
 
+export type AmrOneTapErrorStatus = 400 | 401 | 403 | 404 | 409 | 503;
+
 export class AmrOneTapError extends Error {
-  readonly status: 400 | 403 | 409 | 503;
+  readonly status: AmrOneTapErrorStatus;
   readonly code: string;
 
-  constructor(status: 400 | 403 | 409 | 503, code: string, message: string, cause?: unknown) {
+  constructor(status: AmrOneTapErrorStatus, code: string, message: string, cause?: unknown) {
     super(message, cause !== undefined ? { cause } : undefined);
     this.name = 'AmrOneTapError';
     this.status = status;
@@ -569,6 +571,15 @@ export class AmrIdentityClient {
             ? 'FORBIDDEN'
             : 'LINK_CONFIRM_REQUIRED';
       throw new AmrOneTapError(response.status, rawCode ?? fallbackCode, rawMessage);
+    }
+
+    // Terminal handoff-ticket rejections keep their status and code so callers can ask for a fresh
+    // sign-in. A bare 401 (internal token rejected) or 404 stays a transient service failure below.
+    if (
+      (response.status === 401 && rawCode === 'SESSION_PROOF_INVALID') ||
+      (response.status === 404 && rawCode === 'USER_NOT_FOUND')
+    ) {
+      throw new AmrOneTapError(response.status, rawCode, rawMessage);
     }
 
     if (response.status === 503) {
