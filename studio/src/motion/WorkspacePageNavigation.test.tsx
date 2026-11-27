@@ -1653,14 +1653,16 @@ it('keeps Agent Skills available while the 3D studio is pending and preserves th
   await act(async () => feed.querySelector<HTMLButtonElement>('.om-scene-tile')!.click());
   expect(page()).toMatchObject({ specialty: { id: '3d' }, skill: 'three-js', community: '3d-motion' });
   expect(container.querySelector('.om-studio-coming-soon')).toBeNull();
-  expect(container.querySelector('.om-specialty-intro .om-specialty-status')?.textContent).toBe('Coming soon');
-  expect(container.querySelector<HTMLAnchorElement>('.om-specialty-intro .om-coming-soon-actions a')?.href).toBe('https://github.com/nexu-io/openmotion');
-  expect(container.querySelector('.om-specialty-intro .om-specialty-actions')).toBeNull();
+  const banner = container.querySelector('.om-studio-landing-hero')!;
+  expect(banner.querySelector('h1')?.textContent).toBe('3D Studio');
+  expect(banner.querySelector('.om-specialty-status')?.textContent).toBe('Coming soon');
+  expect(banner.querySelector<HTMLAnchorElement>('.om-coming-soon-actions a')?.href).toBe('https://github.com/nexu-io/openmotion');
+  expect(banner.querySelector('[data-primary="media"]')).toBeNull();
   expect(container.querySelector('.om-studio-template-shelf')).not.toBeNull();
   expect([...container.querySelectorAll('.om-skills-grid [data-skill-id]')].map(node => node.getAttribute('data-skill-id'))).toEqual([
     'babylon-js', 'lume', 'blender', 'openmotion-isometric-card-flight', 'openmotion-surreal-3d-poster',
   ]);
-  expect(container.querySelector('.om-specialty-feature')?.textContent).toContain('3D');
+  expect(banner.querySelector('.om-hero-actions button')?.textContent).toContain('3D');
   expect(button('Create a shot from this brief')).toBeUndefined();
   await clickWorkspaceBack();
   expect(page()).toMatchObject({ explore: true, community: '3d-motion', specialty: null, skill: null });
@@ -2010,6 +2012,9 @@ it.each([
 ])('opens %s through %s in the unified editor without selecting a Skill', async (title, action, id, scene, tab) => {
   await mount();
   await click(title);
+  const banner = container.querySelector('.om-studio-landing-hero')!;
+  expect(banner.querySelector('h1')?.textContent).toBe(title);
+  expect([...banner.querySelectorAll('.om-hero-actions button')].map(item => item.textContent)).toContain(action);
   await click(action);
   expect(page()).toMatchObject({ studio: { landing: true, scene: { id: scene } }, specialty: null, skill: null });
   expect(location.pathname).toBe(`/create/${scene}`);

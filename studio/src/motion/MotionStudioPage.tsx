@@ -6,6 +6,7 @@ import { MotionTemplateShelf } from './MotionTemplateShelf';
 import { reportCreativeClick } from './exploreTracking';
 import { BackToExploreButton } from './BackToExploreButton';
 import { motionStudioCover } from './skillCatalog';
+import { StudioLandingHero } from './StudioLandingHero';
 
 export function MotionStudioPage({ active, editorDisabled, onOpenEditor, onBackToExplore, onStartScenario }: {
   active: boolean; editorDisabled: boolean; onOpenEditor: () => void; onBackToExplore?: () => void; onStartScenario?: () => void;
@@ -18,27 +19,24 @@ export function MotionStudioPage({ active, editorDisabled, onOpenEditor, onBackT
       reportCreativeClick('creative_studio', 'studio_bar', 'back_to_explore', { studio: 'motion' });
       onBackToExplore();
     }} /></div>}
-    <header className="om-discovery-hero om-studio-landing-hero">
-      {motionStudioCover?.poster && <img src={motionStudioCover.poster} alt="" />}
-      <div className="om-discovery-hero-copy">
-        <h1>{t('Motion Studio')}</h1>
-        <p>{t('Animate type and shapes, then edit their timing on the timeline.')}</p>
-        <div className="om-hero-actions">
-          <Button variant="ghost" type="button" className="om-button h-auto" data-primary="media" disabled={editorDisabled} onClick={() => {
-            reportCreativeClick('creative_studio', 'studio_bar', 'open_editor', { studio: 'motion' });
-            onOpenEditor();
-          }}>
-            {t('Open Motion Editor')}<RemixIcon name="arrow-right-line" size={16} />
-          </Button>
-          {onStartScenario && <Button variant="ghost" type="button" className="om-button h-auto" onClick={() => {
-            reportCreativeClick('creative_studio', 'studio_bar', 'select_scene', { studio: 'motion', navTarget: 'workflows' });
-            onStartScenario();
-          }}>
-            {t('Start workflow')}<RemixIcon name="arrow-right-line" size={16} />
-          </Button>}
-        </div>
-      </div>
-    </header>
+    <StudioLandingHero
+      title={t('Motion Studio')}
+      description={t('Animate type and shapes, then edit their timing on the timeline.')}
+      poster={motionStudioCover?.poster}
+    >
+      <Button variant="ghost" type="button" className="om-button h-auto" data-primary="media" disabled={editorDisabled} onClick={() => {
+        reportCreativeClick('creative_studio', 'studio_bar', 'open_editor', { studio: 'motion' });
+        onOpenEditor();
+      }}>
+        {t('Open Motion Editor')}<RemixIcon name="arrow-right-line" size={16} />
+      </Button>
+      {onStartScenario && <Button variant="ghost" type="button" className="om-button h-auto" onClick={() => {
+        reportCreativeClick('creative_studio', 'studio_bar', 'select_scene', { studio: 'motion', navTarget: 'workflows' });
+        onStartScenario();
+      }}>
+        {t('Start workflow')}<RemixIcon name="arrow-right-line" size={16} />
+      </Button>}
+    </StudioLandingHero>
     <MotionTemplateShelf key={locale} root={root} active={active} />
   </div></main>;
 }

@@ -11,9 +11,10 @@ import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { studioSkillDefaults, localizedSkillPrompt, skillShotPrompt, aspectRatios, durations, motionSkills, skillCategories, skillShortcut, type MotionSkill, type SkillCategory, type SkillParameters } from './skillCatalog';
 import type { AssetDraft } from './AssetComposer';
-import { mediaEditorDestination, studioIconTone, studioComingSoon, type StudioDestination } from './creativeStudios';
+import { mediaEditorDestination, studioComingSoon, type StudioDestination } from './creativeStudios';
 import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { StudioTemplateShelf } from './StudioTemplateShelf';
+import { StudioLandingHero } from './StudioLandingHero';
 import { SkillMedia } from './SkillMedia';
 import { ComingSoonGuide } from './ComingSoonGuide';
 import { GitHubMark } from '../../../packages/design-system/react/GitHubMark';
@@ -197,16 +198,19 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     {!detailOnly && <div ref={main} className="om-skills-main">
       {studio && onExplore && <WorkspaceBack fallback={onExplore} />}
       <main className="om-gallery-results">
-        {studio ? <section className="om-specialty-intro" data-coming-soon={comingSoon || undefined}>
-          <div><h1 className="om-title"><span className="om-studio-heading-icon" data-tone={studioIconTone(studio)}><RemixIcon name={studio.icon} size={24} /></span>{t(studio.title)}</h1><p className="om-muted">{t(studio.briefHint)}</p>
-            {comingSoon ? <ComingSoonGuide compact /> : onCreate && <div className="om-specialty-actions">
-              <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => onCreate(mediaEditorDestination(studio.scenes[0]))}><RemixIcon name="add-line" size={16} />{t(studio.createLabel)}</Button>
-              {studio.id === 'marketing' && <Button variant="ghost" className="om-button h-auto" onClick={() => onCreate(mediaEditorDestination('text-to-video'))}>{t('Create an ad clip')}</Button>}
-            </div>}
-          </div>{featured?.cover?.poster && <Button variant="plain" className="om-specialty-feature" onClick={() => open(featured, 1)}>
-            <img src={featured.cover.poster} alt="" /><span className="om-button om-media-caption">{t(featured.title)}<RemixIcon name="arrow-right-line" size={16} /></span>
+        {studio ? <StudioLandingHero title={t(studio.title)} description={t(studio.briefHint)} poster={featured?.cover?.poster}>
+          {comingSoon ? <ComingSoonGuide compact /> : onCreate && <>
+            <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={() => onCreate(mediaEditorDestination(studio.scenes[0]))}>
+              <RemixIcon name="add-line" size={16} />{t(studio.createLabel)}
+            </Button>
+            {studio.id === 'marketing' && <Button variant="ghost" className="om-button h-auto" onClick={() => onCreate(mediaEditorDestination('text-to-video'))}>
+              {t('Create an ad clip')}
+            </Button>}
+          </>}
+          {featured?.cover?.poster && <Button variant="ghost" className="om-button h-auto" onClick={() => open(featured, 1)}>
+            {t(featured.title)}<RemixIcon name="arrow-right-line" size={16} />
           </Button>}
-        </section> : <section className="om-gallery-intro om-gallery-page-intro om-skills-intro">
+        </StudioLandingHero> : <section className="om-gallery-intro om-gallery-page-intro om-skills-intro">
           <h1>{t('Teach your Agent new moves.')}</h1>
           <div className="om-skills-heading-actions">
             <SkillSubmissionLink />

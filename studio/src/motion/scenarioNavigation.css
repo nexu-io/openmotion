@@ -296,53 +296,6 @@
   min-width: 0;
 }
 
-/* Paired primary + secondary actions inside discovery hero banners */
-.om-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--motion-space-8);
-  margin-top: var(--motion-space-6);
-}
-
-.om-hero-actions .om-button {
-  margin-top: 0;
-}
-
-[data-motion-studio] .om-discovery-hero .om-hero-actions .om-button[data-primary="media"]:enabled {
-  background: var(--motion-overlay-ink);
-  color: var(--motion-video-ink);
-  border: 1px solid var(--motion-overlay-ink);
-  font-weight: var(--motion-weight-semibold);
-}
-
-[data-motion-studio] .om-discovery-hero .om-hero-actions .om-button[data-primary="media"]:enabled:is(:hover, :focus-visible) {
-  background: var(--motion-neutral-n0);
-  color: var(--motion-video-ink);
-  border-color: var(--motion-neutral-n0);
-}
-
-[data-motion-studio] .om-discovery-hero .om-hero-actions .om-button[data-primary="media"]:enabled:active {
-  background: var(--motion-overlay-ink);
-}
-
-[data-motion-studio] .om-discovery-hero .om-hero-actions .om-button:not([data-primary]):enabled {
-  background: var(--motion-video-ink);
-  color: var(--motion-overlay-ink);
-  border: 1px solid var(--motion-neutral-n8);
-}
-
-[data-motion-studio] .om-discovery-hero .om-hero-actions .om-button:not([data-primary]):enabled:is(:hover, :focus-visible) {
-  background: var(--motion-dark-card-bg);
-  color: var(--motion-neutral-n0);
-  border-color: var(--motion-overlay-ink);
-  outline-color: var(--motion-overlay-ink);
-}
-
-[data-motion-studio] .om-discovery-hero .om-hero-actions .om-button:not([data-primary]):enabled:active {
-  background: var(--motion-neutral-n10);
-}
-
 /* Scenario workspace host container */
 .om-scenario-host {
   display: flex;

@@ -3,13 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
-import { scenesForStudio, studioIconTone, type StudioDestination } from './creativeStudios';
+import { scenesForStudio, type StudioDestination } from './creativeStudios';
 import type { SoundLiveTabId } from './soundTabs';
 import { studioExamples } from './sceneShowcase';
-import './skills.css';
-import './sceneDiscovery.css';
+import { StudioLandingHero } from './StudioLandingHero';
 
-/** Sound Studio home with the technique-studio layout: the intro banner, then the template grid. */
+/** Sound Studio home with its banner and audio template grid. */
 export function AudioStudioLanding({ destination, active, onPrompt, onCreate }: {
   destination: StudioDestination; active: boolean; onPrompt: (prompt: string, tab: SoundLiveTabId) => void; onCreate: () => void;
 }) {
@@ -37,17 +36,18 @@ export function AudioStudioLanding({ destination, active, onPrompt, onCreate }: 
   };
   return <div className="om-gallery-results om-audio-landing">
     <audio ref={audio} preload="none" hidden onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
-    <section className="om-specialty-intro">
-      <div><h1 className="om-title"><span className="om-studio-heading-icon" data-tone={studioIconTone(studio)}><RemixIcon name={studio.icon} size={24} /></span>{t(studio.title)}</h1>
-        <p className="om-muted">{t('Create a voice, a soundtrack, an atmosphere.')}</p>
-        <div className="om-specialty-actions">
-          <Button variant="ghost" className="om-button h-auto" data-primary onClick={onCreate}><RemixIcon name="add-line" size={16} />{t('Generate audio')}</Button>
-        </div>
-      </div>
-      <Button variant="plain" className="om-specialty-feature" aria-pressed={playing} onClick={() => play(selected)}>
-        <img src={featured.poster} alt="" /><span className="om-button om-media-caption"><RemixIcon name={playing ? 'pause-fill' : 'play-fill'} size={16} />{t(featured.title)}</span>
+    <StudioLandingHero
+      title={t(studio.title)}
+      description={t('Create a voice, a soundtrack, an atmosphere.')}
+      poster={featured?.poster}
+    >
+      <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={onCreate}>
+        <RemixIcon name="add-line" size={16} />{t('Generate audio')}
       </Button>
-    </section>
+      {featured && <Button variant="ghost" className="om-button h-auto" aria-pressed={playing} onClick={() => play(selected)}>
+        <RemixIcon name={playing ? 'pause-fill' : 'play-fill'} size={16} />{t(featured.title)}
+      </Button>}
+    </StudioLandingHero>
     <section className="om-studio-template-shelf" aria-label={t('Audio templates')}>
       <header><h2 className="om-title">{t('Audio templates')}</h2></header>
       <div className="om-studio-template-grid">
