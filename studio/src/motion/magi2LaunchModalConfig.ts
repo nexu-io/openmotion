@@ -12,6 +12,7 @@ export const MAGI2_MODAL_CAMPAIGN_ID = BLACK_FRIDAY_CAMPAIGN;
 export const MAGI2_MODAL_SEEN_COOKIE = 'od_bf_magi2_modal_seen';
 export const MAGI2_MODAL_SEEN_PARAM = 'od_bf_seen';
 export const MAGI2_MODAL_DISMISSED_KEY = 'od_bf_magi2_modal_seen';
+export const MAGI2_MODAL_OPEN_EVENT = 'om:magi2-modal-change';
 export const MAGI2_MODAL_AUDIENCE_TIMEOUT_MS = 5000;
 export const DEFAULT_CONSOLE_PLAN_URL = 'https://open-design.ai/cloud/dashboard?billing=plan';
 
@@ -328,6 +329,39 @@ export function isMagi2SuppressedByFatigue(): boolean {
 export function markMagi2ModalSeen(): void {
   writeMagi2SeenCookie();
   try { window.sessionStorage.setItem(MAGI2_MODAL_DISMISSED_KEY, '1'); } catch { /* ignore */ }
+}
+
+export function isMagi2ModalOpen(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.dataset.magi2ModalOpen === 'true';
+}
+
+export function setMagi2ModalOpenSignal(open: boolean): void {
+  if (typeof document !== 'undefined') {
+    if (open) document.documentElement.dataset.magi2ModalOpen = 'true';
+    else delete document.documentElement.dataset.magi2ModalOpen;
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(MAGI2_MODAL_OPEN_EVENT, { detail: { open } }));
+  }
+}
+
+/**
+ * Pure read-only check used by ExploreBlackFridayHero to skip the full-screen-to-compact intro
+ * choreography whenever the MAGI-2 launch modal is open or expected on this page load, avoiding
+ * simultaneous foreground + background motion.
+ */
+export function shouldSkipExploreHeroIntro(): boolean {
+  if (isMagi2ModalOpen() || isMagi2PreviewForced()) return true;
+  if (!blackFridayActive()) return false;
+  if (typeof window === 'undefined') return false;
+  try {
+    if (new URLSearchParams(window.location.search).get(MAGI2_MODAL_SEEN_PARAM) === '1') return false;
+  } catch { /* ignore */ }
+  if (readMagi2SeenCookie()) return false;
+  try {
+    if (window.sessionStorage.getItem(MAGI2_MODAL_DISMISSED_KEY) === '1') return false;
+  } catch { /* ignore */ }
+  return true;
 }
 
 function resolveConsolePlanBase(consoleUrl?: string | null): URL {

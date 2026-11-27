@@ -19,6 +19,7 @@ import {
   isMagi2SuppressedByFatigue,
   markMagi2ModalSeen,
   readMagi2CountdownParts,
+  setMagi2ModalOpenSignal,
 } from './magi2LaunchModalConfig';
 import styles from './Magi2LaunchModal.module.css';
 import { trackMotion } from './tracking';
@@ -148,6 +149,11 @@ export function Magi2LaunchModal({
       });
     }
   }, [account, audienceTimedOut, canCheckAudience, closeModal, error, forcePreview, mounted, trackingPage]);
+
+  useEffect(() => {
+    setMagi2ModalOpenSignal(mounted);
+    return () => setMagi2ModalOpenSignal(false);
+  }, [mounted]);
 
   useEffect(() => {
     if (!mounted) return;

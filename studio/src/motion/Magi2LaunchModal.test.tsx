@@ -12,7 +12,9 @@ import {
   MAGI2_MODAL_SEEN_COOKIE,
   buildMagi2ConsolePlanUrl,
   classifyMagi2Audience,
+  isMagi2ModalOpen,
   readMagi2CountdownParts,
+  shouldSkipExploreHeroIntro,
 } from './magi2LaunchModalConfig';
 
 const mockAccountState = vi.hoisted(() => ({
@@ -172,5 +174,18 @@ describe('Magi2LaunchModal runtime behavior', () => {
     // od_bf_magi2_modal_seen cookie is now set, so a fresh mount is suppressed.
     act(() => root.render(<Magi2LaunchModal trackingPage="explore" />));
     expect(document.querySelector('[data-testid="magi2-launch-modal"]')).toBeNull();
+  });
+
+  it('signals ExploreBlackFridayHero to skip full-screen intro and pause background motion while modal is open', () => {
+    expect(shouldSkipExploreHeroIntro()).toBe(true);
+    mockAccountState.account = { state: 'signed-out' };
+    act(() => root.render(<Magi2LaunchModal trackingPage="explore" />));
+    expect(isMagi2ModalOpen()).toBe(true);
+
+    const closeBtn = document.querySelector<HTMLButtonElement>('[data-testid="magi2-launch-modal-close"]')!;
+    act(() => closeBtn.click());
+    act(() => vi.advanceTimersByTime(320));
+    expect(isMagi2ModalOpen()).toBe(false);
+    expect(shouldSkipExploreHeroIntro()).toBe(false);
   });
 });
