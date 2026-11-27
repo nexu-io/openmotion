@@ -4962,3 +4962,56 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
     assert.ok(afterRedoListing.files.includes(expectedPath));
   });
 });
+
+describe('Cloud API Entrypoint — Request body limits on the phase1 bridge and project edits', () => {
+  it('rejects an oversized /motion-api/phase1/call body with 413 before dispatch', async () => {
+    const { app, config } = createApiFixture({
+      config: { AUTH_MODE: 'dev', MCP_MAX_BODY_BYTES: '1048576' },
+    });
+
+    const oversized = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.DEV_PAT}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'openmotion_get_project', arguments: {}, pad: 'x'.repeat(1_050_000) }),
+    });
+
+    assert.equal(oversized.status, 413);
+  });
+
+  it('rejects an oversized POST /api/projects/:id/edits body with 413', async () => {
+    const { app, config } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const projectId = randomUUID();
+
+    // content-length drives the same guard the Studio client would trip with a real payload.
+    const oversized = await app.request(`/api/projects/${projectId}/edits`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.DEV_PAT}`,
+        'Content-Type': 'application/json',
+        'Content-Length': String(33 * 1024 * 1024),
+      },
+      body: '{}',
+    });
+
+    assert.equal(oversized.status, 413);
+  });
+
+  it('still accepts a normal-sized POST /api/projects/:id/edits body', async () => {
+    const { app, config } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const projectId = randomUUID();
+
+    const response = await app.request(`/api/projects/${projectId}/edits`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.DEV_PAT}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ versions: {}, edit: { kind: 'noop' } }),
+    });
+
+    assert.notEqual(response.status, 413);
+  });
+});

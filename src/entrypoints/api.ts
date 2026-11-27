@@ -2866,7 +2866,16 @@ export function createApiApp(deps: CreateApiAppDeps): {
   });
 
   // POST /motion-api/phase1/call — Studio bridge delegating directly to the canonical MCP tool dispatcher.
-  app.post('/motion-api/phase1/call', authWithWelcome, async (c) => {
+  // `bodyLimit` defaults to throwing an HTTPException, which this app's onError maps to a 500.
+  // Return the repository error envelope instead so an oversized body is a real 413.
+  const rejectOversizedBody = (c: Context) => {
+    const error = new CloudError('INVALID_ARGUMENT', 'Payload Too Large', { status: 413, applied: false });
+    return c.json(error.toJSON(), 413);
+  };
+
+  // HTTP twin of the MCP tool bridge. Bound the body with the same limit the Streamable HTTP
+  // transport enforces, so a huge body cannot be buffered ahead of the scope check.
+  app.post('/motion-api/phase1/call', bodyLimit({ maxSize: config.MCP_MAX_BODY_BYTES, onError: rejectOversizedBody }), authWithWelcome, async (c) => {
     const auth = getAuthContext(c);
     let body: { name?: unknown; arguments?: unknown };
     try {

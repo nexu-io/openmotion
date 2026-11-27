@@ -327,8 +327,16 @@ export function createStudioFilesRoutes(deps: DisklessStudioDeps): Hono<{ Variab
       throw error;
     }
   };
-  app.post('/api/projects/:id/edits', c => handleEdit(c));
-  app.post('/api/projects/:id/edits/*', c => handleEdit(c,
+  // Body limit matches the sibling text-edit routes: the edit payload is buffered in full before
+  // the size is validated, so an unbounded body would exhaust the shared API process. The custom
+  // onError keeps the repository error envelope instead of the middleware's bare HTTPException.
+  const editBodyLimit = bodyLimit({
+    maxSize: 32 * 1024 * 1024,
+    onError: (c: Context<{ Variables: StudioVariables }>) =>
+      c.json(new CloudError('INVALID_ARGUMENT', 'Payload Too Large', { status: 413, applied: false }).toJSON(), 413),
+  });
+  app.post('/api/projects/:id/edits', editBodyLimit, c => handleEdit(c));
+  app.post('/api/projects/:id/edits/*', editBodyLimit, c => handleEdit(c,
     normalizeSafeProjectPath(extractWildcardPath(c.req.url, '/edits/'), true)));
 
   // POST /api/projects/:id/files/* — Create a new text file (409 if already exists).
