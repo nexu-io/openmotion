@@ -488,6 +488,7 @@ test('splash.html uses single-play WebGL startup logo animation and thin-shell o
   assert.match(splashHtml, /renderSettledWordmark\(\)/);
   assert.match(splashHtml, /id="splash-logo-img"/, 'Settled splash logo must be the vector artwork');
   assert.match(splashHtml, /html\[data-logo-static="true"\] #splash-logo img/);
+  assert.match(splashHtml, /#splash-logo canvas \{\s*transition-delay: 160ms;/, 'Canvas must fade out only after the vector wordmark is fully in');
   assert.match(splashHtml, /device-pixel-content-box/, 'Reveal canvas must map 1:1 onto device pixels');
   assert.match(splashHtml, /UNPACK_PREMULTIPLY_ALPHA_WEBGL, true/);
   assert.equal(splashHtml.includes('drawStatic'), false, 'WebGL fallback settles onto the vector artwork');
