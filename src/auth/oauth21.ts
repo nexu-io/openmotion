@@ -29,7 +29,10 @@ const OAUTH_TOUCH_THROTTLE_SEC = 60;
 // Concurrent refreshes from one client lose the rotation race within this window; that is not theft.
 const REFRESH_REUSE_GRACE_SEC = 30;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-export const DEFAULT_DCR_ALLOWED_HTTPS_HOSTS: readonly string[] = [
+const IPV4_LITERAL_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+// Known MCP client platforms. DCR accepts any public HTTPS redirect host; this list only marks
+// a redirect as verified on the consent page and admits browser `Origin` headers on `/mcp`.
+export const DEFAULT_VERIFIED_HTTPS_HOSTS: readonly string[] = [
   'chatgpt.com',
   '*.chatgpt.com',
   'chat.openai.com',
@@ -78,7 +81,7 @@ export function isAllowedNativeAppScheme(protocol: string): boolean {
 
 export function isAllowedHttpsHost(
   host: string,
-  allowedHttpsHosts: readonly string[] = DEFAULT_DCR_ALLOWED_HTTPS_HOSTS,
+  allowedHttpsHosts: readonly string[] = DEFAULT_VERIFIED_HTTPS_HOSTS,
 ): boolean {
   const normalized = host.trim().toLowerCase();
   if (!normalized) return false;
@@ -102,18 +105,23 @@ export interface OAuth21Config {
   resourceUrl: string;
   resourceMetadataUrl: string;
   supportedScopes: readonly PatScope[];
-  allowedHttpsHosts: readonly string[];
+  verifiedHttpsHosts: readonly string[];
+  blockedHttpsHosts: readonly string[];
   dcrRateLimitPerMin: number;
 }
 
-export function parseAllowedHttpsHosts(raw: string | undefined): string[] {
-  if (!raw || !raw.trim()) return [...DEFAULT_DCR_ALLOWED_HTTPS_HOSTS];
+function parseHttpsHostList(raw: string | undefined): string[] {
   const hosts: string[] = [];
-  for (const part of raw.split(',')) {
+  for (const part of (raw ?? '').split(',')) {
     const cleaned = part.trim().toLowerCase();
     if (cleaned && !hosts.includes(cleaned)) hosts.push(cleaned);
   }
   return hosts;
+}
+
+export function parseAllowedHttpsHosts(raw: string | undefined): string[] {
+  if (!raw || !raw.trim()) return [...DEFAULT_VERIFIED_HTTPS_HOSTS];
+  return parseHttpsHostList(raw);
 }
 
 export function buildOAuth21Config(
@@ -121,7 +129,14 @@ export function buildOAuth21Config(
     AppConfig,
     'APP_PUBLIC_ORIGIN' | 'MCP_OAUTH_MODE' | 'MCP_OAUTH_ISSUER' | 'OIDC_ISSUER'
   > &
-    Partial<Pick<AppConfig, 'OAUTH_DCR_ALLOWED_HTTPS_HOSTS' | 'OAUTH_DCR_RATE_LIMIT_PER_MIN'>>,
+    Partial<
+      Pick<
+        AppConfig,
+        | 'OAUTH_DCR_ALLOWED_HTTPS_HOSTS'
+        | 'OAUTH_DCR_BLOCKED_HTTPS_HOSTS'
+        | 'OAUTH_DCR_RATE_LIMIT_PER_MIN'
+      >
+    >,
 ): OAuth21Config {
   const publicOrigin = config.APP_PUBLIC_ORIGIN.replace(/\/$/, '');
   const resourceUrl = `${publicOrigin}/mcp`;
@@ -140,7 +155,8 @@ export function buildOAuth21Config(
     resourceUrl,
     resourceMetadataUrl,
     supportedScopes: [...DEFAULT_PAT_SCOPES],
-    allowedHttpsHosts: parseAllowedHttpsHosts(config.OAUTH_DCR_ALLOWED_HTTPS_HOSTS),
+    verifiedHttpsHosts: parseAllowedHttpsHosts(config.OAUTH_DCR_ALLOWED_HTTPS_HOSTS),
+    blockedHttpsHosts: parseHttpsHostList(config.OAUTH_DCR_BLOCKED_HTTPS_HOSTS),
     dcrRateLimitPerMin: config.OAUTH_DCR_RATE_LIMIT_PER_MIN ?? 30,
   };
 }
@@ -214,10 +230,44 @@ export function formatRedirectHostLabel(raw: string): string {
   }
 }
 
-export function isAllowedOAuthRedirectUri(
+// Consent shows the redirect host, so it must be a public DNS name a user can recognize.
+function isPublicDnsHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (!host.includes('.') || host.startsWith('[') || IPV4_LITERAL_RE.test(host)) return false;
+  return !host.endsWith('.localhost');
+}
+
+function httpsRedirectHostname(raw: string): string | null {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'https:' ? parsed.hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isVerifiedOAuthRedirectUri(
   raw: string,
-  allowedHttpsHosts: readonly string[] = DEFAULT_DCR_ALLOWED_HTTPS_HOSTS,
+  verifiedHttpsHosts: readonly string[] = DEFAULT_VERIFIED_HTTPS_HOSTS,
 ): boolean {
+  const host = httpsRedirectHostname(raw);
+  return host !== null && isAllowedHttpsHost(host, verifiedHttpsHosts);
+}
+
+export function isBlockedOAuthRedirectUri(raw: string, blockedHttpsHosts: readonly string[]): boolean {
+  const host = httpsRedirectHostname(raw);
+  return host !== null && blockedHttpsHosts.length > 0 && isAllowedHttpsHost(host, blockedHttpsHosts);
+}
+
+/** A client registered with any blocked redirect host loses authorize, code exchange and refresh. */
+export function isOAuthClientBlocked(
+  client: Pick<OAuthClientRecord, 'redirectUris'>,
+  blockedHttpsHosts: readonly string[],
+): boolean {
+  return client.redirectUris.some((uri) => isBlockedOAuthRedirectUri(uri, blockedHttpsHosts));
+}
+
+export function isAllowedOAuthRedirectUri(raw: string): boolean {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 2048) return false;
   let parsed: URL;
   try {
@@ -227,7 +277,7 @@ export function isAllowedOAuthRedirectUri(
   }
   if (parsed.hash || parsed.username || parsed.password) return false;
   if (parsed.protocol === 'https:') {
-    return isAllowedHttpsHost(parsed.hostname, allowedHttpsHosts);
+    return isPublicDnsHostname(parsed.hostname);
   }
   if (parsed.protocol === 'http:') {
     return LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase());
@@ -279,7 +329,7 @@ export interface RegisterClientResult {
 export async function registerOAuthClient(
   store: AuthStore,
   input: RegisterClientInput,
-  options: { allowedHttpsHosts?: readonly string[] } = {},
+  options: { blockedHttpsHosts?: readonly string[] } = {},
 ): Promise<RegisterClientResult> {
   const clientName =
     typeof input.client_name === 'string' && input.client_name.trim().length > 0
@@ -291,15 +341,18 @@ export async function registerOAuthClient(
       status: 400,
     });
   }
-  const allowedHttpsHosts = options.allowedHttpsHosts ?? DEFAULT_DCR_ALLOWED_HTTPS_HOSTS;
+  const blockedHttpsHosts = options.blockedHttpsHosts ?? [];
   const redirectUris: string[] = [];
   for (const uri of input.redirect_uris) {
-    if (typeof uri !== 'string' || !isAllowedOAuthRedirectUri(uri, allowedHttpsHosts)) {
+    if (typeof uri !== 'string' || !isAllowedOAuthRedirectUri(uri)) {
       throw new CloudError(
         'INVALID_ARGUMENT',
-        'redirect_uris must contain only loopback HTTP URIs, native app custom URI schemes, or allowlisted HTTPS hosts without fragments',
+        'redirect_uris must contain only loopback HTTP URIs, native app custom URI schemes, or public HTTPS hosts without fragments',
         { status: 400 },
       );
+    }
+    if (isBlockedOAuthRedirectUri(uri, blockedHttpsHosts)) {
+      throw new CloudError('INVALID_ARGUMENT', 'redirect_uris contain a blocked HTTPS host', { status: 400 });
     }
     if (!redirectUris.includes(uri)) redirectUris.push(uri);
   }
@@ -385,6 +438,9 @@ export async function validateAuthorizeRequest(
     throw new CloudError('INVALID_ARGUMENT', 'redirect_uri does not match registered client', {
       status: 400,
     });
+  }
+  if (isOAuthClientBlocked(client, cfg.blockedHttpsHosts)) {
+    throw new CloudError('INVALID_ARGUMENT', 'OAuth client is blocked', { status: 400 });
   }
   if (params.responseType !== 'code') {
     throw new CloudError('INVALID_ARGUMENT', 'response_type must be code', { status: 400 });
@@ -512,7 +568,7 @@ export async function exchangeOAuthToken(
     throw new CloudError('INVALID_ARGUMENT', 'client_id is required', { status: 400 });
   }
   const client = await store.findOAuthClient(req.clientId);
-  if (!client) {
+  if (!client || isOAuthClientBlocked(client, cfg.blockedHttpsHosts)) {
     throw new CloudError('UNAUTHORIZED', 'invalid_client', { status: 401 });
   }
   authenticateOAuthClient(client, req.clientSecret);
@@ -785,6 +841,8 @@ const CHECK_ICON_SVG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColo
 export function renderOAuthConsentHtml(input: {
   clientName: string;
   redirectUri?: string;
+  /** True when the HTTPS redirect host is on the verified platform list. */
+  redirectHostVerified?: boolean;
   workspaceName: string;
   workspaceId?: string;
   workspaces?: ReadonlyArray<{ id: string; name: string; role: string }>;
@@ -822,6 +880,14 @@ export function renderOAuthConsentHtml(input: {
   const redirectHostLabel = input.redirectUri
     ? formatRedirectHostLabel(input.redirectUri)
     : 'Local application';
+  const unverifiedHttpsHost =
+    input.redirectUri && !input.redirectHostVerified ? httpsRedirectHostname(input.redirectUri) : null;
+  const redirectWarningHtml = unverifiedHttpsHost
+    ? `<div class="redirect-warning" role="note">
+          <strong class="redirect-warning-title">回调域名未经 OpenMotion 验证</strong>
+          <span>同意后，授权凭证会发送到 <b class="redirect-warning-host">${escapeHtml(unverifiedHttpsHost)}</b>。请确认这是你正在使用的应用的域名，不认识就点「拒绝」。</span>
+        </div>`
+    : '';
   const primaryAccountName = input.userDisplayName || input.userEmail || '当前登录账号';
   const secondaryAccountEmail =
     input.userEmail && input.userEmail !== primaryAccountName ? input.userEmail : null;
@@ -975,6 +1041,27 @@ export function renderOAuthConsentHtml(input: {
     }
     .unverified-pill {
       background: var(--motion-panel);
+    }
+    .redirect-warning {
+      display: flex;
+      flex-direction: column;
+      gap: var(--motion-space-4);
+      margin: 0 0 var(--motion-space-18);
+      padding: var(--motion-space-12) var(--motion-space-14);
+      border-radius: var(--motion-radius-md);
+      background: var(--motion-warning-soft);
+      color: var(--motion-strong);
+      font-size: var(--motion-text-sm);
+      line-height: var(--motion-leading-body);
+      text-align: left;
+    }
+    .redirect-warning-title {
+      color: var(--motion-warning);
+      font-weight: var(--motion-weight-bold);
+    }
+    .redirect-warning-host {
+      font-weight: var(--motion-weight-bold);
+      overflow-wrap: anywhere;
     }
     .card {
       background: var(--motion-panel);
@@ -1189,6 +1276,7 @@ export function renderOAuthConsentHtml(input: {
         <span>·</span>
         <span>回调至 ${escapeHtml(redirectHostLabel)}</span>
       </p>
+      ${redirectWarningHtml}
       <form method="POST" action="${escapeHtml(input.formAction)}">
         ${hiddenInputs}
         <div class="card">

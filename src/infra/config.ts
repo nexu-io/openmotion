@@ -101,6 +101,7 @@ const rawConfigSchema = z.object({
   MCP_OAUTH_ISSUER: optionalUrl,
   MCP_MAX_BODY_BYTES: z.coerce.number().int().min(1024 * 1024).max(64 * 1024 * 1024).default(10_485_760),
   OAUTH_DCR_ALLOWED_HTTPS_HOSTS: optionalNonEmptyString,
+  OAUTH_DCR_BLOCKED_HTTPS_HOSTS: optionalNonEmptyString,
   OAUTH_DCR_RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(1000).default(30),
 
   // Unified OpenDesign Model Gateway & AMR Identity

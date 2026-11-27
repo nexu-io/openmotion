@@ -13,11 +13,16 @@ import {
   createMcpBearerAuthMiddleware,
   generatePkcePair,
   getAuthContext,
+  sha256Hex,
   type AuthEnv,
 } from '../../src/auth/index.ts';
 import {
+  exchangeOAuthToken,
   formatRedirectHostLabel,
   isAllowedOAuthRedirectUri,
+  isVerifiedOAuthRedirectUri,
+  registerOAuthClient,
+  validateAuthorizeRequest,
 } from '../../src/auth/oauth21.ts';
 import { parseConfig } from '../../src/infra/config.ts';
 import { CloudError } from '../../src/contracts/errors.ts';
@@ -264,13 +269,13 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
       return c.json({ ok: true, clientId: auth.clientId, entry: auth.entry });
     });
 
-    // 1. Unallowlisted HTTPS redirect URI is rejected
+    // 1. HTTPS redirect URI without a public DNS host is rejected
     const badHttps = await app.request('/oauth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.10' },
       body: JSON.stringify({
         client_name: 'Phish App',
-        redirect_uris: ['https://evil.example.com/callback'],
+        redirect_uris: ['https://203.0.113.9/callback'],
       }),
     });
     assert.equal(badHttps.status, 400);
@@ -587,7 +592,7 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
     assert.equal(deniedSummary.errorStatus, 403);
   });
 
-  it('allows RFC 8252 native-app custom URI schemes and major cloud MCP hosts in OAuth DCR while blocking unsafe schemes and untrusted domains', async () => {
+  it('allows RFC 8252 native-app custom URI schemes and any public HTTPS host in OAuth DCR while blocking unsafe schemes and non-public hosts', async () => {
     for (const allowed of [
       'cursor://anysphere.cursor-mcp/oauth/callback',
       'vscode://openmotion.client/auth',
@@ -600,15 +605,23 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
       'https://chat.openai.com/oauth/callback',
       'https://app.cursor.com/oauth/callback',
       'https://app.open-design.ai/oauth/callback',
+      'https://api.doubao-dev.com/api/oauth/v1/callback/personal/cb_ah_123',
+      'https://www.doubao.com/oauth/callback',
+      'https://agent.example.com/oauth/callback',
       'http://127.0.0.1:51234/callback',
     ]) {
       assert.equal(isAllowedOAuthRedirectUri(allowed), true, `expected allowed: ${allowed}`);
     }
 
+    assert.equal(isVerifiedOAuthRedirectUri('https://chatgpt.com/connector_platform_oauth_redirect'), true);
+    assert.equal(isVerifiedOAuthRedirectUri('https://app.open-design.ai/oauth/callback'), true);
+    assert.equal(isVerifiedOAuthRedirectUri('https://www.doubao.com/oauth/callback'), false);
+    assert.equal(isVerifiedOAuthRedirectUri('https://claude.ai.evil.example/cb'), false);
+    assert.equal(isVerifiedOAuthRedirectUri('http://127.0.0.1:51234/callback'), false);
     assert.equal(
-      isAllowedOAuthRedirectUri('https://staging.example.test/oauth/callback', ['*.example.test']),
+      isVerifiedOAuthRedirectUri('https://staging.example.test/oauth/callback', ['*.example.test']),
       true,
-      'explicit OAUTH_DCR_ALLOWED_HTTPS_HOSTS wildcard must admit matching staging hosts',
+      'explicit OAUTH_DCR_ALLOWED_HTTPS_HOSTS wildcard must verify matching staging hosts',
     );
 
     for (const blocked of [
@@ -627,7 +640,13 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
       'cursor://',
       'cursor://anysphere.cursor-mcp/oauth/callback#frag',
       'cursor://user:pass@anysphere.cursor-mcp/oauth/callback',
-      'https://evil.example.com/callback',
+      'https://agent.example.com/callback#frag',
+      'https://user:pass@agent.example.com/callback',
+      'https://203.0.113.7/callback',
+      'https://[2001:db8::1]/callback',
+      'https://intranet/callback',
+      'https://localhost/callback',
+      'https://app.localhost/callback',
       'http://evil.example.com/callback',
     ]) {
       assert.equal(isAllowedOAuthRedirectUri(blocked), false, `expected blocked: ${blocked}`);
@@ -668,5 +687,80 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
       }),
     });
     assert.equal(jsDcr.status, 400);
+
+    const webAgentDcr = await app.request('/oauth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.55' },
+      body: JSON.stringify({
+        client_name: 'Doubao',
+        redirect_uris: ['https://api.doubao-dev.com/api/oauth/v1/callback/personal/cb_ah_123'],
+      }),
+    });
+    assert.equal(webAgentDcr.status, 201);
+  });
+
+  it('cuts off clients whose redirect host is on OAUTH_DCR_BLOCKED_HTTPS_HOSTS at register, authorize and token', async () => {
+    const store = new InMemoryAuthStore();
+    const seeded = store.seedWorkspace({ email: 'blocked@example.test', displayName: 'Blocked' });
+    const redirectUri = 'https://cb.phish.example/oauth/callback';
+    // Registered while the host was still open, then the operator blocks it.
+    const client = await registerOAuthClient(store, { client_name: 'Doubao', redirect_uris: [redirectUri] });
+    const refreshToken = `om_ort_${'r'.repeat(48)}`;
+    await store.createOAuthToken({
+      clientId: client.client_id,
+      userId: seeded.user.id,
+      workspaceId: seeded.workspace.id,
+      accessTokenHash: sha256Hex(`om_oat_${'a'.repeat(48)}`),
+      refreshTokenHash: sha256Hex(refreshToken),
+      scope: 'projects:read mcp:tools',
+      resource: null,
+      accessExpiresAt: new Date(Date.now() + 3600_000),
+      refreshExpiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    const config = oidcConfig({
+      OAUTH_DCR_RATE_LIMIT_PER_MIN: '30',
+      OAUTH_DCR_BLOCKED_HTTPS_HOSTS: ' *.Phish.example ,',
+    });
+    const oauth21 = buildOAuth21Config(config);
+    assert.deepEqual(oauth21.blockedHttpsHosts, ['*.phish.example']);
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache: new InMemoryAuthCache(), oauth21 }));
+    const blockedDcr = await app.request('/oauth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_name: 'Doubao', redirect_uris: [redirectUri] }),
+    });
+    assert.equal(blockedDcr.status, 400);
+    assert.match(((await blockedDcr.json()) as { error_description: string }).error_description, /blocked/);
+
+    const { codeChallenge } = generatePkcePair();
+    await assert.rejects(
+      validateAuthorizeRequest(store, oauth21, {
+        clientId: client.client_id,
+        redirectUri,
+        responseType: 'code',
+        codeChallenge,
+        codeChallengeMethod: 'S256',
+      }),
+      /OAuth client is blocked/,
+    );
+    await assert.rejects(
+      exchangeOAuthToken(store, oauth21, {
+        grantType: 'refresh_token',
+        refreshToken,
+        clientId: client.client_id,
+      }),
+      (error: unknown) => error instanceof CloudError && error.status === 401,
+    );
+
+    // The same client keeps working when the host is not blocked.
+    const refreshed = await exchangeOAuthToken(store, buildOAuth21Config(oidcConfig()), {
+      grantType: 'refresh_token',
+      refreshToken,
+      clientId: client.client_id,
+    });
+    assert.ok(refreshed.access_token.startsWith('om_oat_'));
   });
 });

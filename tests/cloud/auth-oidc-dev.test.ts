@@ -809,11 +809,10 @@ describe('OAuth 2.1 Proxy & Delegated Modes (RFC 9728, RFC 8414, DCR, PKCE S256,
       email: 'reuse@example.test',
       displayName: 'Reuse',
     });
-    const client = await registerOAuthClient(
-      store,
-      { client_name: 'Reuse probe', redirect_uris: ['http://127.0.0.1:53682/callback'] },
-      { allowedHttpsHosts: [] },
-    );
+    const client = await registerOAuthClient(store, {
+      client_name: 'Reuse probe',
+      redirect_uris: ['http://127.0.0.1:53682/callback'],
+    });
     const seedRefresh = async (fill: string) => {
       const refreshToken = `om_ort_${fill.repeat(48)}`;
       await store.createOAuthToken({

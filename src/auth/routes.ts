@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { isCloudError } from '../contracts/errors.ts';
 import { sanitizeBrowserDeviceId, sanitizeEntryId, sanitizeHookId, type CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { AppConfig } from '../infra/config.ts';
+import { createLogger } from '../infra/logger.ts';
 import { isUuid } from '../../shared/project-validation.ts';
 import { isAmrOneTapError, type AmrOneTapAttribution, type AmrOneTapError } from './amr-identity.ts';
 import {
@@ -19,6 +20,7 @@ import {
   buildProtectedResourceMetadata,
   exchangeOAuthToken,
   formatRedirectHostLabel,
+  isVerifiedOAuthRedirectUri,
   issueAuthorizationCode,
   registerOAuthClient,
   renderOAuthConsentHtml,
@@ -334,6 +336,14 @@ export interface AuthRoutesDeps extends AuthMiddlewareDeps {
 
 const AUTH_ATTR_COOKIE_NAME = 'om_auth_attr';
 
+/** Redirect hosts (never full URIs) for DCR audit logs; input may be unvalidated request JSON. */
+function describeRedirectHosts(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, 10)
+    .map((uri) => (typeof uri === 'string' ? formatRedirectHostLabel(uri).slice(0, 200) : typeof uri));
+}
+
 function parseAuthAttributionCookie(raw: string | undefined): {
   hookId?: string;
   entryId?: string;
@@ -371,6 +381,7 @@ function parseAuthAttributionCookie(raw: string | undefined): {
 export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   const app = new Hono<AuthEnv>();
   const oauthCfg = deps.oauth21 ?? buildOAuth21Config(deps.config);
+  const oauthLog = createLogger({ bindings: { component: 'oauth' } });
   const secureCookie = isHttpsOrigin(deps.config.APP_PUBLIC_ORIGIN);
   const authMiddleware = createAuthMiddleware({ ...deps, oauth21: oauthCfg });
   const desktopOidcProvenanceStore = new DesktopOidcProvenanceStore(deps.cache);
@@ -1485,11 +1496,23 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     }
     try {
       const registered = await registerOAuthClient(deps.store, body, {
-        allowedHttpsHosts: oauthCfg.allowedHttpsHosts,
+        blockedHttpsHosts: oauthCfg.blockedHttpsHosts,
+      });
+      oauthLog.info('oauth dcr client registered', {
+        clientId: registered.client_id,
+        clientName: registered.client_name,
+        redirectHosts: describeRedirectHosts(registered.redirect_uris),
+        unverifiedHttpsHosts: registered.redirect_uris
+          .filter((uri) => uri.startsWith('https:') && !isVerifiedOAuthRedirectUri(uri, oauthCfg.verifiedHttpsHosts))
+          .map(formatRedirectHostLabel),
       });
       return c.json(registered, 201);
     } catch (error) {
       if (isCloudError(error)) {
+        oauthLog.warn('oauth dcr registration rejected', {
+          reason: error.message,
+          redirectHosts: describeRedirectHosts(body.redirect_uris),
+        });
         return c.json({ error: 'invalid_client_metadata', error_description: error.message }, 400);
       }
       throw error;
@@ -1590,6 +1613,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const html = renderOAuthConsentHtml({
       clientName: validated.client.clientName,
       redirectUri: validated.redirectUri,
+      redirectHostVerified: isVerifiedOAuthRedirectUri(validated.redirectUri, oauthCfg.verifiedHttpsHosts),
       workspaceName,
       workspaceId,
       workspaces: userWorkspaces.map((w) => ({ id: w.id, name: w.name, role: w.role })),
