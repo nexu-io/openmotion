@@ -86,6 +86,7 @@ function handleError(c: Context, error: unknown): Response {
 
 const READ_REQ = { scope: 'projects:read' } as const;
 const WRITE_REQ = { scope: 'projects:write', minRole: 'editor' } as const;
+const ADMIN_REQ = { scope: 'workspace:admin', minRole: 'admin' } as const;
 
 export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables: ProductRouteVariables }> {
   const app = new Hono<{ Variables: ProductRouteVariables }>();
@@ -322,8 +323,10 @@ export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables
   });
 
   // DELETE /motion-api/projects/:id — Permanently delete trashed project and decrement all CAS refs.
+  // Permanent deletion cascades files, versions, work rounds and the S3 prefix, so it requires the
+  // same policy as the MCP twin (openmotion_manage_project action=delete): workspace:admin + admin.
   app.delete('/motion-api/projects/:id', async (c) => {
-    const auth = await requireAuth(c, deps, WRITE_REQ);
+    const auth = await requireAuth(c, deps, ADMIN_REQ);
     const requestId = c.req.query('requestId') ?? c.req.header('x-request-id') ?? undefined;
     return c.json(await deps.workspace.deleteProjectPermanently(auth, c.req.param('id'), { requestId }));
   });
