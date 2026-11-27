@@ -9,7 +9,6 @@ import { editImageScene, imageMenuModels, imageModelBadge, imageScene, type Mode
 import { ModelAvatar } from './settingsPrimitives';
 import type { useMediaCatalog } from './useMediaCatalog';
 import lunarStill from './scene-art/lunar-shot-still.webp';
-import pepper from './scene-art/pepper.webp';
 import speakerRoom from './scene-art/speaker-room.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
 
@@ -54,7 +53,6 @@ export function ModelMenuColumn({ families, onOpen }: { families: ModelFamily[];
 }
 
 const findScene = (id: StudioScene['id']) => studioScenes.find(scene => scene.id === id)!;
-const characterScene = findScene('character');
 const sceneCards = [imageScene, editImageScene] as const;
 const featureScenes = [findScene('remove-background'), findScene('relight')];
 const upcomingFeatures = [
@@ -100,17 +98,6 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
         aria-current={destination?.scene.id === scene.id ? 'page' : undefined} onClick={() => openScene(scene)}>
         <ImageMenuArt scene={scene.id} /><strong>{t(scene.label)}</strong>
       </Button>)}
-      <Button variant="plain" className="om-scene-tile" aria-current={destination?.scene.id === characterScene.id ? 'page' : undefined} onClick={() => openFeature(characterScene)}>
-        <span className="om-scene-tile-art om-character-demo">
-          <span className="om-character-portraits" aria-hidden="true">
-            <img src={pepper} alt="" />
-            <span className="om-character-portrait-main"><img src={lunarStill} alt="" /><i>+</i></span>
-            <img src={speakerStudio} alt="" />
-          </span>
-          <span className="om-character-caption" aria-hidden="true">{t('Your character')}</span>
-        </span>
-        <strong>{t(characterScene.label)}</strong>
-      </Button>
       <Button variant="plain" className="om-scene-tile om-scene-tile-disabled" disabled aria-disabled="true">
         <span className="om-scene-tile-art om-upscale-demo">
           <MenuBadge label="Soon" />

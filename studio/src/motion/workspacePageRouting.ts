@@ -14,10 +14,13 @@ import { findScenario, findScenarioStep, scenarioCategories, type ScenarioCatego
 
 const scenarioRunUuidPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 
-/** Query or semantic Design Studio image URLs parsed for compatibility and rewritten to `/create/:scene`. */
+/** Legacy image URLs parsed for compatibility and rewritten to `/create/:scene`. */
 export function isLegacyWorkspaceHref(search: string, page: WorkspacePage, pathname = '') {
   const effectiveSearch = pathname && pathname !== '/' ? spaPathnameToSearch(pathname, search) : search;
-  return new URLSearchParams(effectiveSearch).get('page') === 'design' && Boolean(page.studio?.landing);
+  const query = new URLSearchParams(effectiveSearch);
+  const pageName = query.get('page');
+  return Boolean(page.studio?.landing)
+    && (pageName === 'design' || (pageName === 'create' && query.get('scene') === 'character'));
 }
 
 /** Canonical application pages live in semantic pathnames; `#project/<id>` remains owned by the editor. */
@@ -102,10 +105,11 @@ export function readWorkspacePage(search: string, hash = '', pathname = ''): Wor
   const studioKind = collection?.scenes.some(id => id === sceneId) ? collection
     : isDesignHtmlScene || cinemaLanding ? undefined : findMediaStudio(isAudioTab ? 'sound' : page);
   // Bookmarked Design Studio image links open the unified Image editor; HTML design scenarios keep their own page.
+  const requestedLanding = findLandingScene(sceneId);
   const legacyDesignImage = page === 'design' && !isDesignHtmlScene
-    ? findMediaStudio('design')!.scenes.map(id => findLandingScene(id)!).find(scene => scene.id === sceneId) ?? findLandingScene('text-to-image')
+    ? requestedLanding?.modality === 'image' ? requestedLanding : findLandingScene('text-to-image')
     : undefined;
-  const landing = page === 'create' ? findLandingScene(sceneId) : legacyDesignImage;
+  const landing = page === 'create' ? requestedLanding : legacyDesignImage;
   const home = Boolean(!landing && !isAudioTab && studioKind && hasStudioHome(studioKind) && query.get('home') === '1');
   const studio = landing ? sceneDestination(landing, null, model)
     : studioKind ? { ...studioDestination(studioKind, extendedSoundTab?.backingScene ?? sceneId, model), ...(home ? { home: true as const } : {}), ...(isAudioTab ? { mediaTab: true as const } : {}) } : null;

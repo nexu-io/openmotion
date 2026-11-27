@@ -367,7 +367,7 @@ it('keeps a Cinema template on the unified video editor and on legacy Cinema lin
   expect(workspacePageHref('http://localhost/', { studio: mediaEditorDestination('image-to-video'), cinemaTemplate: 'drink-splash-slow-motion' })).toBe('/create/image-to-video');
 });
 
-it.each(['text-to-image', 'image-edit', 'remove-background', 'relight', 'character'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
+it.each(['text-to-image', 'image-edit', 'remove-background', 'relight'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
   const page = readWorkspacePage(`?page=design&scene=${scene}&model=p%3Am`);
   expect(page).toMatchObject({ studio: { landing: true, scene: { id: scene }, model: 'p:m' } });
   expect(page.designScene).toBeUndefined();
@@ -375,6 +375,18 @@ it.each(['text-to-image', 'image-edit', 'remove-background', 'relight', 'charact
   expect(isLegacyWorkspaceHref('', page, `/design/${scene}`)).toBe(true);
   expect(workspacePageHref(`http://localhost/?page=design&scene=${scene}&model=p%3Am`, { studio: page.studio })).toBe(`/create/${scene}?model=p%3Am`);
 });
+
+it.each(['/create/character', '/design/character', '/?page=create&scene=character', '/?page=design&scene=character'])(
+  'rewrites the retired image scene bookmark %s to Edit image',
+  path => {
+    const url = new URL(path, 'http://localhost');
+    url.searchParams.set('model', 'p:m');
+    const page = readWorkspacePage(url.search, url.hash, url.pathname);
+    expect(page).toMatchObject({ studio: { landing: true, scene: { id: 'image-edit' }, model: 'p:m' } });
+    expect(isLegacyWorkspaceHref(url.search, page, url.pathname)).toBe(true);
+    expect(workspacePageHref(url.href, { studio: page.studio })).toBe('/create/image-edit?model=p%3Am');
+  },
+);
 
 it.each(['prototype', 'deck', 'document', 'web-clone', 'projects'])('keeps the Design Studio %s page for HTML design work', scene => {
   const page = readWorkspacePage(`?page=design&scene=${scene}`);

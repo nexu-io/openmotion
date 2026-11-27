@@ -856,7 +856,7 @@ const featureModels = () => {
     accountGpt: { ...base, id: 'account:gpt-image-2.6-sunburst', provider: 'account', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst' } as Model,
   };
 };
-async function renderFeature(scene: 'remove-background' | 'relight' | 'character', draft: Partial<AssetDraft>) {
+async function renderFeature(scene: 'remove-background' | 'relight' | 'image-edit', draft: Partial<AssetDraft>) {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const models = Object.values(featureModels());
   const catalog = { models, status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'account', label: 'OpenDesign', available: true }] } };
@@ -870,7 +870,7 @@ const reference = (id: string) => ({ reference: { assetId: id, versionId: 'v1' }
 
 it('removes an image reference only when its remove button is activated', async () => {
   const references = [reference('first'), reference('second')];
-  await renderFeature('character', { references });
+  await renderFeature('image-edit', { references });
   const row = container.querySelector('.om-scene-source-file')!;
   await act(async () => row.querySelector('span')!.click());
   expect(props.setDraft).not.toHaveBeenCalled();
@@ -983,23 +983,6 @@ it('relights one image with Seedream 5.5 by default and writes the chosen light 
   expect(prompt).toContain('cool color temperature');
   expect(prompt).toContain('neon night lighting');
   expect(prompt.endsWith('Keep the logo sharp.')).toBe(true);
-});
-
-it('keeps a character consistent across up to five references and drops Seedream 5.5 from two references', async () => {
-  await renderFeature('character', { references: [reference('one')] });
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
-  expect(optionNames()).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.5', 'Seedream 5.0 Flash']);
-  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
-  await act(async () => root.unmount()); root = createRoot(container);
-  await renderFeature('character', { prompt: 'Walk through a night market.', model: 'opendesign:seedream-5.5', references: [reference('one'), reference('two')] });
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
-  expect(optionNames()).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.0 Flash']);
-  generate.mockResolvedValue({ job: { id: 'job' } });
-  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
-  const request = generate.mock.calls[0][0];
-  expect(request.model).toBe('opendesign:gpt-image-2.6-sunburst');
-  expect(request.prompt).toMatch(/^Keep the character from the reference images consistent.*Walk through a night market\.$/);
-  expect(request.references).toHaveLength(2);
 });
 
 it('seeds 10s duration and composes camera/multi-shot prompts on video feature scenes', async () => {
@@ -1130,7 +1113,7 @@ it('accepts outer whitespace on a 20,000-character plain video prompt and submit
   expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ prompt: 'x'.repeat(20_000) }));
 });
 
-it.each(['remove-background', 'relight', 'character'] as const)('honors the assembled prompt budget for %s', async feature => {
+it.each(['remove-background', 'relight'] as const)('honors the assembled prompt budget for %s', async feature => {
   const note = '保留细节。';
   const references = [reference('subject')];
   const relight = { direction: 'back', temperature: 'cool', mood: 'neon' };
@@ -1242,7 +1225,7 @@ it('automatically includes newly published capable OpenDesign models in feature 
   expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst', 'Future Studio Image v3']);
 });
 
-it('drops an unknown single-reference OpenDesign image model when two or more references are attached on Character consistency', async () => {
+it('drops an unknown single-reference OpenDesign image model when two or more references are attached on Edit image', async () => {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const existing = featureModels();
   // Unknown OpenDesign model with supportsImageReference: true and no maxInputImages falls back to limit 1.
@@ -1262,7 +1245,7 @@ it('drops an unknown single-reference OpenDesign image model when two or more re
   };
   await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Walk through the park', references: [reference('one')] }} studio={{
     catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: sceneDestination(studioScenes.find(item => item.id === 'character')!),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'image-edit')!),
   }} />));
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
   expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst', 'Future Single Ref Image']);
@@ -1270,7 +1253,7 @@ it('drops an unknown single-reference OpenDesign image model when two or more re
   await act(async () => root.unmount()); root = createRoot(container);
   await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Walk through the park', references: [reference('one'), reference('two')] }} studio={{
     catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: sceneDestination(studioScenes.find(item => item.id === 'character')!),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'image-edit')!),
   }} />));
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
   expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst']);
@@ -1308,7 +1291,6 @@ it('uses action-verb CTAs for remove-background and relight, exposes full picker
   for (const [sceneId, expectedAction] of [
     ['remove-background', 'Remove background'],
     ['relight', 'Relight'],
-    ['character', 'Generate image'],
   ] as const) {
     await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Warm rim light', references: [reference('product')] }} studio={{
       catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
@@ -1335,101 +1317,27 @@ it('uses action-verb CTAs for remove-background and relight, exposes full picker
   expect(container.querySelector('.om-studio-form-heading')).toBeNull();
 });
 
-it('keeps Character reference upload actions available up to 5 images even with a 1-ref model selected or before setup', async () => {
+it('shows reference quota counter, compact thumbnail grid, drag/paste upload, and a stable uploading button', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
   const existing = featureModels();
   const multiCatalog = {
-    models: [existing.sunburst, existing.seedream],
-    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
-  };
-  const oneRef = [reference('hero-1')];
-  const fiveRefs = ['hero-1', 'hero-2', 'hero-3', 'hero-4', 'hero-5'].map(id => reference(id));
-
-  // Even when Seedream 5.5 (1-ref) is selected, Character reference keeps Upload/Choose open because Sunburst (multi-ref) is available.
-  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: oneRef }} studio={{
-    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
-  }} />));
-  expect(container.querySelector('.om-source-actions')).not.toBeNull();
-  await act(async () => root.unmount()); root = createRoot(container);
-
-  // Hides Upload/Choose once all 5 Character reference slots are filled.
-  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: fiveRefs }} studio={{
-    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
-  }} />));
-  expect(container.querySelector('.om-source-actions')).toBeNull();
-  await act(async () => root.unmount()); root = createRoot(container);
-
-  // Before provider setup (!selected), Character reference still allows attaching up to 5 images.
-  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
-    catalog: { catalog: { models: [], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: false }] } }, failed: false, retry: vi.fn() },
-    chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
-  }} />));
-  expect(container.querySelector('.om-source-actions')).not.toBeNull();
-  await act(async () => root.unmount()); root = createRoot(container);
-
-  // While catalog is still loading (undefined), Character reference falls back to its 5-image limit.
-  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
-    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
-    chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
-  }} />));
-  expect(container.querySelector('.om-source-actions')).not.toBeNull();
-  await act(async () => root.unmount()); root = createRoot(container);
-
-  // Going from 1 -> 2 references with Seedream 5.5 selected switches the active model to Sunburst.
-  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1'), reference('hero-2')] }} studio={{
-    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
-  }} />));
-  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')?.textContent).toContain('GPT Image 2.6 Sunburst');
-  expect(container.querySelector('.om-source-actions')).not.toBeNull();
-  await act(async () => root.unmount()); root = createRoot(container);
-
-  // When only a 1-ref model is available on Character reference, Upload/Choose closes after 1 image.
-  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
-    catalog: { catalog: { models: [existing.seedream], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } }, failed: false, retry: vi.fn() },
-    chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
-  }} />));
-  expect(container.querySelector('.om-source-actions')).toBeNull();
-  await act(async () => root.unmount()); root = createRoot(container);
-
-  // Single-reference features (remove-background) still close after 1 image.
-  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: '', references: oneRef }} studio={{
-    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('remove-background'),
-  }} />));
-  expect(container.querySelector('.om-source-actions')).toBeNull();
-  expect(container.querySelector('.om-scene-source-count')).toBeNull();
-  expect(container.querySelector('.om-scene-source-files')?.getAttribute('data-layout')).toBeNull();
-});
-
-it('shows reference quota counter, compact thumbnail grid, drag/paste upload, stable uploading button, and auto-switch toast', async () => {
-  const { mediaEditorDestination } = await import('./creativeStudios');
-  const existing = featureModels();
-  const multiCatalog = {
-    models: [existing.sunburst, existing.seedream],
+    models: [{ ...existing.sunburst, maxInputImages: 5 }, existing.seedream],
     status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
   };
   const onUploadFiles = vi.fn();
-  const onInfo = vi.fn();
   const studio = {
     catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() },
     chooseModel: vi.fn(),
     remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-edit', existing.sunburst.id),
   };
 
-  // 1 reference with Seedream 5.5 selected -> shows 1 / 5 counter and grid layout.
+  // 1 reference with the 5-reference model selected shows 1 / 5 counter and grid layout.
   await act(async () => root.render(<AssetComposer
     {...props}
     onUploadReference={vi.fn()}
     onUploadFiles={onUploadFiles}
-    onInfo={onInfo}
-    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1')] }}
+    draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: [reference('hero-1')] }}
     studio={studio}
   />));
   expect(container.querySelector('.om-scene-source-count')?.textContent).toBe('1 / 5');
@@ -1487,39 +1395,13 @@ it('shows reference quota counter, compact thumbnail grid, drag/paste upload, st
     onUploadReference={vi.fn()}
     onUploadFiles={onUploadFiles}
     uploadingReferences
-    onInfo={onInfo}
-    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1')] }}
+    draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: [reference('hero-1')] }}
     studio={studio}
   />));
   const uploadingBtn = container.querySelector<HTMLButtonElement>('.om-source-actions button')!;
   expect(uploadingBtn.disabled).toBe(true);
   expect(uploadingBtn.textContent).toBe('Uploading…');
   expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(true);
-
-  // Growing from 1 -> 2 references triggers model switch from Seedream 5.5 to Sunburst and emits one info notice.
-  await act(async () => root.render(<AssetComposer
-    {...props}
-    onUploadReference={vi.fn()}
-    onUploadFiles={onUploadFiles}
-    onInfo={onInfo}
-    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1'), reference('hero-2')] }}
-    studio={studio}
-  />));
-  expect(container.querySelector('.om-scene-source-count')?.textContent).toBe('2 / 5');
-  expect(onInfo).toHaveBeenCalledTimes(1);
-  expect(onInfo).toHaveBeenCalledWith('{from} supports 1 reference image. Switched to {to}.');
-
-  // Adding a 3rd reference does not repeat the switch notice.
-  onInfo.mockClear();
-  await act(async () => root.render(<AssetComposer
-    {...props}
-    onUploadReference={vi.fn()}
-    onUploadFiles={onUploadFiles}
-    onInfo={onInfo}
-    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1'), reference('hero-2'), reference('hero-3')] }}
-    studio={studio}
-  />));
-  expect(onInfo).not.toHaveBeenCalled();
 });
 
 it('focuses and pulses the prompt field when promptAppliedToken increments in video and image workspaces', async () => {

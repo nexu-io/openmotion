@@ -1122,13 +1122,13 @@ it('keeps the empty studio canvas model aligned with composer selection on Codex
   await act(async () => container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1].click());
   expect(container.textContent).toContain('Codex Image');
 
-  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 5 };
   const seedream = { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'seedream-5.5', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 1 };
   const multiRefResult = creationModels(
     { models: [seedream, sunburst], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } } as never,
     'image',
-    seedream.id,
-    studioScenes.find(scene => scene.id === 'character')!,
+    null,
+    studioScenes.find(scene => scene.id === 'image-edit')!,
     false,
     2,
   );
@@ -1137,21 +1137,21 @@ it('keeps the empty studio canvas model aligned with composer selection on Codex
   expect(multiRefResult.compatible.some(model => model.modelId === 'seedream-5.5')).toBe(false);
 });
 
-it('supports multi-file reference upload up to 5 images on Character reference while keeping single-file upload on Remove background', async () => {
+it('supports multi-file reference upload up to 5 images on Edit image while keeping single-file upload on Remove background', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
-  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 5 };
   const seedream = { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'seedream-5.5', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 1 };
   const catalog = {
     models: [seedream, sunburst],
     status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
   };
   const remember = vi.fn();
-  const characterStudio = {
-    destination: mediaEditorDestination('character'),
+  const imageEditStudio = {
+    destination: mediaEditorDestination('image-edit'),
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
-  await act(async () => root.render(<AssetsPage active studio={characterStudio} />)); await flush();
+  await act(async () => root.render(<AssetsPage active studio={imageEditStudio} />)); await flush();
 
   const refInput = container.querySelector<HTMLInputElement>('input[data-reference-upload="true"]')!;
   expect(refInput.multiple).toBe(true);
@@ -1163,7 +1163,7 @@ it('supports multi-file reference upload up to 5 images on Character reference w
   Object.defineProperty(refInput, 'files', { configurable: true, value: files });
   await act(async () => refInput.dispatchEvent(new Event('change', { bubbles: true }))); await flush();
 
-  // Caps imported references at the Character reference limit (5) without uploading the excess 6th file.
+  // Caps imported references at the selected model's limit (5) without uploading the excess 6th file.
   expect(uploadLibraryAsset).toHaveBeenCalledTimes(5);
   expect(remember.mock.lastCall?.[0].references).toHaveLength(5);
   expect(remember.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
@@ -1175,9 +1175,9 @@ it('supports multi-file reference upload up to 5 images on Character reference w
   const rememberPartial = vi.fn();
   const fourRefs = ['c1', 'c2', 'c3', 'c4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const partialStudio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-edit'),
     initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
-    draftKey: 'character:partial',
+    draftKey: 'image-edit:partial',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberPartial, chooseModel: vi.fn(),
   };
@@ -1211,7 +1211,7 @@ it('supports multi-file reference upload up to 5 images on Character reference w
 
 it('shows Reference limit reached when another reference fills the last slot while an upload is in flight', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
-  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 5 };
   const catalog = {
     models: [sunburst],
     status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
@@ -1219,9 +1219,9 @@ it('shows Reference limit reached when another reference fills the last slot whi
   const fourRefs = ['c1', 'c2', 'c3', 'c4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const remember = vi.fn();
   const studio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-edit'),
     initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
-    draftKey: 'character:race',
+    draftKey: 'image-edit:race',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
@@ -1249,7 +1249,7 @@ it('shows Reference limit reached when another reference fills the last slot whi
 
 it('supports multi-select in AssetPicker capped to remaining reference slots and rejects uncompressible >2 MiB drops early', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
-  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 5 };
   const catalog = {
     models: [sunburst],
     status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
@@ -1258,9 +1258,9 @@ it('supports multi-select in AssetPicker capped to remaining reference slots and
   const remember = vi.fn();
   const threeRefs = ['r1', 'r2', 'r3'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const studio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-edit'),
     initialDraft: { modality: 'image' as const, prompt: '', references: threeRefs },
-    draftKey: 'character:multipick',
+    draftKey: 'image-edit:multipick',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
@@ -1284,14 +1284,14 @@ it('supports multi-select in AssetPicker capped to remaining reference slots and
   await click('Use selected (2)');
   expect(remember.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['r1', 'r2', 'r3', 'A', 'B']);
 
-  // Dropping an uncompressible > 2 MiB image on a fresh Character reference draft surfaces the 2 MiB error early without calling uploadLibraryAsset.
+  // Dropping an uncompressible > 2 MiB image on a fresh Edit image draft surfaces the 2 MiB error early without calling uploadLibraryAsset.
   await act(async () => root.unmount()); root = createRoot(container);
   vi.mocked(uploadLibraryAsset).mockClear();
   vi.stubGlobal('createImageBitmap', vi.fn(async () => { throw new Error('cannot decode'); }));
   vi.stubGlobal('Image', undefined);
   const freshStudio = {
-    destination: mediaEditorDestination('character'),
-    draftKey: 'character:oversized',
+    destination: mediaEditorDestination('image-edit'),
+    draftKey: 'image-edit:oversized',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: vi.fn(), chooseModel: vi.fn(),
   };
@@ -1313,7 +1313,7 @@ it('supports multi-select in AssetPicker capped to remaining reference slots and
 
 it('keeps AssetPicker multi-select stable across in-flight uploads, ignores already-attached assets for quota, validates picked size, and stops batch on unmount', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
-  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 5 };
   const catalog = {
     models: [sunburst],
     status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
@@ -1330,9 +1330,9 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
     { reference: { assetId: 'r3', versionId: 'r3-v1' }, name: 'Picture r3' },
   ];
   const studio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-edit'),
     initialDraft: { modality: 'image' as const, prompt: '', references: initialRefs },
-    draftKey: 'character:picker-stability',
+    draftKey: 'image-edit:picker-stability',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
@@ -1364,8 +1364,8 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
   await act(async () => root.unmount()); root = createRoot(container);
   const rememberBig = vi.fn();
   await act(async () => root.render(<AssetsPage active studio={{
-    destination: mediaEditorDestination('character'),
-    draftKey: 'character:big-pick',
+    destination: mediaEditorDestination('image-edit'),
+    draftKey: 'image-edit:big-pick',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberBig, chooseModel: vi.fn(),
   }} />)); await flush();
@@ -1395,9 +1395,9 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
   const fourRefs = ['r1', 'r2', 'r3', 'r4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const rememberFallback = vi.fn();
   await act(async () => root.render(<AssetsPage active studio={{
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-edit'),
     initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
-    draftKey: 'character:rejected-first',
+    draftKey: 'image-edit:rejected-first',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberFallback, chooseModel: vi.fn(),
   }} />)); await flush();
@@ -1446,7 +1446,7 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
 
 it('rejects oversized generated assets when attaching from the Generations lightbox', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
-  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 5 };
   const catalog = {
     models: [sunburst],
     status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
@@ -1458,8 +1458,8 @@ it('rejects oversized generated assets when attaching from the Generations light
   records.set('GENBIG', generatedBig);
   const rememberGen = vi.fn();
   await act(async () => root.render(<AssetsPage active studio={{
-    destination: mediaEditorDestination('character'),
-    draftKey: 'character:gen-history-big',
+    destination: mediaEditorDestination('image-edit'),
+    draftKey: 'image-edit:gen-history-big',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberGen, chooseModel: vi.fn(),
   }} />)); await flush();

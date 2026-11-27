@@ -17,7 +17,7 @@ it('restores an empty supplement for both optional image features', () => {
 
 it('unwraps a legacy prompt composed in multiple feature scenes of the same modality', () => {
   const note = '让角色走进夜市。';
-  const character = imageFeaturePrompt('character', note);
+  const character = 'Keep the character from the reference images consistent: the same face, hairstyle, body shape, skin tone, outfit and distinguishing features. ' + note;
   const relight = imageFeaturePrompt('relight', character, { direction: 'right', temperature: 'neutral', mood: 'moonlight' });
   expect(assetPromptForReuse(character, 'image')).toBe(note);
   expect(assetPromptForReuse(relight, 'image')).toBe(note);

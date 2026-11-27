@@ -10,7 +10,8 @@ function controlCombinations(controls: readonly { key: string; choices: readonly
 const prefixesByModality = {
   image: [
     imageFeaturePromptPrefix('remove-background'),
-    imageFeaturePromptPrefix('character'),
+    // Saved generations from the retired scene still carry its fixed prompt prefix.
+    'Keep the character from the reference images consistent: the same face, hairstyle, body shape, skin tone, outfit and distinguishing features. ',
     ...controlCombinations(relightControls).map(choices => imageFeaturePromptPrefix('relight', choices)),
   ],
   video: Object.values(videoFeatures).flatMap(feature =>

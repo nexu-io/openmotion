@@ -28,7 +28,7 @@ import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, 
 import { FieldTextarea } from '../components/ui/FormField';
 import { Select } from '../components/ui/Select';
 import { attachableReferenceLimit, creationModels } from './creationModels';
-import { isOpenDesignProvider, modelFamilyLabel, providerDisplayName } from './imageMenuModels';
+import { isOpenDesignProvider, providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
 import { CloudEmptyModelsNotice, isCloudEmptyCatalog, isUnifiedCloudGateway, ProviderSetupNotice } from './ProviderSetupNotice';
 import { exceedsResolutionCap, imageResolutionCap, upgradePlan, useAccountSummary } from './AccountSettings';
@@ -38,20 +38,20 @@ import { FreePlanGenerationGate } from './EntitlementTouchpointCards';
 export interface AssetGuideExample { title: string; prompt: string; poster: string; clip?: string; posterAspect?: number }
 export interface AssetDraftSource { hubId?: string; templateId?: string; promptEdited?: boolean; initialPrompt?: string }
 export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; guideExample?: AssetGuideExample; references: { reference: AssetReference; name: string }[]; source?: AssetDraftSource }
-export function AssetComposer({ active, studio, draft, setDraft, promptAppliedToken = 0, jobs, showCurrentJob = true, taskId, history, selectingTask, onNew, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onInfo, onClose }: {
+export function AssetComposer({ active, studio, draft, setDraft, promptAppliedToken = 0, jobs, showCurrentJob = true, taskId, history, selectingTask, onNew, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onClose }: {
   active: boolean; studio?: StudioCreation; draft: AssetDraft; setDraft: Dispatch<SetStateAction<AssetDraft>>; promptAppliedToken?: number; jobs: GenerationJob[]; showCurrentJob?: boolean;
   taskId?: string;
   history: Omit<ComponentProps<typeof AssetTaskHistory>, 'trigger'>; selectingTask: boolean; onNew: () => void;
   onCancel: (job: GenerationJob) => void; onView: (job: GenerationJob) => void; onRetrySave?: (job: GenerationJob) => Promise<void>; onReference: () => void; onUploadReference?: () => void;
   onUploadFiles?: (files: File[], source?: 'drop' | 'paste') => void; uploadingReferences?: boolean;
-  onCreated: (job: GenerationJob) => void; onResume?: (job: GenerationJob) => Promise<void>; onError: (message: string) => void; onInfo?: (message: string) => void; onClose: () => void;
+  onCreated: (job: GenerationJob) => void; onResume?: (job: GenerationJob) => Promise<void>; onError: (message: string) => void; onClose: () => void;
 }) {
   const { t, formatNumber } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
   const scene = studio?.destination.scene;
   const imageWorkspace = studio?.destination.studio.id === 'design' && scene?.modality === 'image';
   const videoLanding = Boolean(studio?.destination.landing && scene?.modality === 'video');
   const imagePopupClass = imageWorkspace ? 'om-image-form-popup' : undefined;
-  const showSceneIntro = (!imageWorkspace && !videoLanding) || scene?.id === 'character';
+  const showSceneIntro = !imageWorkspace && !videoLanding;
   const feature = scene && sceneFeature(scene);
   const featureRule = feature ? imageFeatures[feature] : undefined;
   const videoFeature = scene && sceneVideoFeature(scene);
@@ -84,7 +84,6 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
   const [syncing, setSyncing] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const dragDepth = useRef(0);
-  const prevModelSwitchRef = useRef<{ sceneId?: string; refCount: number; modelId?: string; modelLabel?: string; modelLimit: number } | undefined>(undefined);
   const selectedTask = history.tasks.find(task => task.key === history.selectedKey);
   const switching = busy || selectingTask;
   const resolvedModels = creationModels(
@@ -104,37 +103,6 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     dragDepth.current = 0;
     setDraggingFiles(false);
   }, [scene?.id]);
-  useEffect(() => {
-    const currentSceneId = scene?.id;
-    const currentRefCount = draft.references.length;
-    const currentModelId = selected?.id;
-    const currentModelLabel = selected ? modelFamilyLabel(selected) : undefined;
-    const currentModelLimit = selected ? modelReferenceLimit(selected) : 0;
-    const prev = prevModelSwitchRef.current;
-    if (
-      featureMode
-      && prev
-      && prev.sceneId === currentSceneId
-      && prev.refCount <= 1
-      && currentRefCount >= 2
-      && prev.modelId
-      && prev.modelLimit === 1
-      && currentModelId
-      && currentModelId !== prev.modelId
-    ) {
-      onInfo?.(t('{from} supports 1 reference image. Switched to {to}.', {
-        from: prev.modelLabel ?? prev.modelId,
-        to: currentModelLabel ?? currentModelId,
-      }));
-    }
-    prevModelSwitchRef.current = {
-      sceneId: currentSceneId,
-      refCount: currentRefCount,
-      modelId: currentModelId,
-      modelLabel: currentModelLabel,
-      modelLimit: currentModelLimit,
-    };
-  }, [draft.references.length, featureMode, onInfo, scene?.id, selected, t]);
   const hasFileTransfer = (transfer?: DataTransfer | null) => Boolean(transfer && Array.from(transfer.types).includes('Files'));
   const dropBlocked = uploadingReferences || draft.references.length >= attachableReferences;
   const handleReferenceDragEnter = (event: DragEvent<HTMLElement>) => {

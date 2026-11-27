@@ -643,7 +643,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       if (browser.page > 0) browser.setPage(0);
       if (gallery.current) gallery.current.scrollTo({ top: 0, behavior: 'smooth' });
       refresh(); toast.showToast(t(studio ? 'Added to Generations' : 'Generation started. Track it in Tasks.'), 'info');
-    }} onError={onError} onInfo={onInfo} onClose={() => { if (!studio) clearPersistedStudioDraft(STANDALONE_ASSET_DRAFT_KEY); selectionRequest.current++; setSelectingTask(false); setPromptAppliedToken(0); setCreating(false); }} />;
+    }} onError={onError} onClose={() => { if (!studio) clearPersistedStudioDraft(STANDALONE_ASSET_DRAFT_KEY); selectionRequest.current++; setSelectingTask(false); setPromptAppliedToken(0); setCreating(false); }} />;
   const soundWorkbench = studio?.destination.scene.modality === 'audio' && !audioStudio;
   const libraryToolbar = <AssetGalleryToolbar browser={browser} games={gameStudioEnabled && gamesView} onGames={gameStudioEnabled ? () => { setGamesView(true); if (kind === 'trash') setKind('all'); } : undefined} onKindChange={next => {
     if (next !== kind || gamesView) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next });

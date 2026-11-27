@@ -5,7 +5,7 @@ import { isOpenDesignProvider, modelCapabilities, type MediaCapabilities } from 
  * Image features composed from one edit request. Each feature declares the model capabilities it requires
  * (rather than a static model ID allowlist) so newly published models automatically participate once capable.
  */
-export type ImageFeatureId = 'remove-background' | 'relight' | 'character';
+export type ImageFeatureId = 'remove-background' | 'relight';
 export type ImageFeature = {
   requires: (capabilities: MediaCapabilities) => boolean;
   recommended: string;
@@ -30,13 +30,6 @@ export const imageFeatures: Record<ImageFeatureId, ImageFeature> = {
     maxReferences: 1,
     promptOptional: true,
     actionLabel: 'Relight',
-  },
-  // Seedream 5.5 stays eligible for 1 reference; creationModels drops models whose reference limit is below the attached count.
-  character: {
-    requires: capabilities => capabilities.image.edit && capabilities.image.maxReferences >= 1,
-    recommended: 'gpt-image-2.6-sunburst',
-    maxReferences: 5,
-    promptOptional: false,
   },
 };
 
@@ -78,16 +71,13 @@ export type RelightChoices = Partial<Record<typeof relightControls[number]['key'
 export function imageFeaturePrompt(feature: ImageFeatureId, prompt: string, relight: RelightChoices = {}): string {
   const note = prompt.trim();
   const prefix = imageFeaturePromptPrefix(feature, relight);
-  return note || feature === 'character' ? prefix + note : prefix.trimEnd();
+  return note ? prefix + note : prefix.trimEnd();
 }
 
 export function imageFeaturePromptPrefix(feature: ImageFeatureId, relight: RelightChoices = {}): string {
   if (feature === 'remove-background') return 'Remove the entire background and isolate only the main subject cleanly on a transparent background. '
     + 'Keep the subject identical in shape, texture, and lighting. ';
-  if (feature === 'relight') {
-    const light = relightControls.map(control => (control.choices.find(choice => choice.value === relight[control.key]) ?? control.choices[0]).prompt).join(', ');
-    return 'Relight this image. Keep the subject, composition, pose and every detail unchanged; change only the lighting, shadows and reflections. '
-      + `Lighting: ${light}. `;
-  }
-  return 'Keep the character from the reference images consistent: the same face, hairstyle, body shape, skin tone, outfit and distinguishing features. ';
+  const light = relightControls.map(control => (control.choices.find(choice => choice.value === relight[control.key]) ?? control.choices[0]).prompt).join(', ');
+  return 'Relight this image. Keep the subject, composition, pose and every detail unchanged; change only the lighting, shadows and reflections. '
+    + `Lighting: ${light}. `;
 }

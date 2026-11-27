@@ -64,7 +64,6 @@ export const sceneExamples: Record<StudioScene['id'], readonly [SceneExample, ..
   'image-edit': [{ title: 'From studio to living room', prompt: 'Keep the speaker in place. Put it on a wooden side table in a sunlit living room.', poster: speakerRoom, posterAspect: 800 / 500 }],
   'remove-background': [{ title: 'A clean product cutout', prompt: 'Keep only the speaker.', poster: speakerStudio, posterAspect: 800 / 500 }],
   relight: [{ title: 'Late afternoon light', prompt: 'Let the light fall across the table and leave soft shadows behind the speaker.', poster: speakerRoom, posterAspect: 800 / 500 }],
-  character: [{ title: 'The same astronaut, a new place', prompt: 'Show the same astronaut walking through a neon-lit city street at night.', poster: lunar, posterAspect: 1024 / 999, posterPosition: 'center top', credit: 'NASA · AS11-40-5903' }],
   'text-to-video': [drinkSplash],
   'image-to-video': [productPushIn],
   'video-camera-control': [{ title: 'Orbital hero shot', prompt: 'Slow cinematic 360-degree camera orbit around a vintage camera on dark stone with dramatic rim lighting.', poster: camera, posterAspect: 16 / 9 }],

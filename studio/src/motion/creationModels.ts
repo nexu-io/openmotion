@@ -102,9 +102,8 @@ export function creationModels(
 
 /**
  * Maximum number of reference images the user can attach in a Studio scene.
- * Feature scenes (e.g. Character reference, up to 5) auto-switch away from 1-ref models once >= 2
- * references are attached, so attaching stays open up to the best available (or compatible) model's
- * cap clamped by the feature rule — even while a 1-ref model is selected or before provider setup.
+ * Feature scenes allow attachments up to the best available or compatible model's limit,
+ * capped by the scene, even before provider setup.
  */
 export function attachableReferenceLimit(
   resolved: ReturnType<typeof creationModels>,

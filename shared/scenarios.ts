@@ -809,7 +809,7 @@ export const scenarioDefinitions = [
         id: 'persona',
         type: 'image',
         title: 'Persona visuals',
-        hint: 'Generate consistent character frames with up to 5 reference photos, or upload your own.',
+        hint: 'Generate consistent character frames from reference photos, or upload your own.',
         icon: 'user-3-line',
         accepts: ['image'],
         produces: ['image'],
@@ -822,7 +822,7 @@ export const scenarioDefinitions = [
             role: 'Consistent persona portraits from references',
           },
         ],
-        scenes: ['character', 'text-to-image'],
+        scenes: ['image-edit', 'text-to-image'],
         promptTemplate: 'Consistent portrait of {personaName}, {niche} creator talking about {topic}, natural studio lighting',
       },
       {

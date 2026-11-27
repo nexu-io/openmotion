@@ -28,7 +28,7 @@ Every workspace destination has a canonical semantic pathname. Do not add new `/
 | Motion Studio | `/motion` | Motion Studio landing & template catalog. |
 | Focused media generator | `/create/:scene` (optional `?model=...&skill=...&cinemaTemplate=...`) | Unified image/video landing generator (`text-to-image`, `image-edit`, `text-to-video`, `image-to-video`, etc.). |
 | Cinema Studio | `/cinema` · `/cinema/:scene` | Cinema Studio landing and scene generator. |
-| Design Studio | `/design/:scene` · `/design/projects/:id` | HTML Design Studio scenes (`prototype`, `deck`, `document`, `web-clone`, `projects`) and project editor. Legacy Design image links rewrite to `/create/:scene`. |
+| Design Studio | `/design/:scene` · `/design/projects/:id` | HTML Design Studio scenes (`prototype`, `deck`, `document`, `web-clone`, `projects`) and project editor. Legacy Design image links rewrite to `/create/:scene`. Retired `/create/character` and `/design/character` links open `/create/image-edit`. |
 | Sound Studio & Audio tab | `/sound` · `/sound/:tab` · `/audio/:tab` | `/sound` opens Sound Studio home; `/sound/:tab` opens Sound Studio workbench; `/audio/:tab` opens the top-level Audio tab. |
 | Specialty studios | `/studios/:studioId` · `/studios/:studioId/:scene` | Covers `shorts`, `marketing`, `explainer`, `3d`, and `game` (with optional `?skill=...` or `?game=...`). |
 | Workflows / Scenarios | `/scenarios` · `/scenarios/:id` | Scenario hub (`?category=...`) and workspace (`?run=...&step=...&mode=agent`). |
