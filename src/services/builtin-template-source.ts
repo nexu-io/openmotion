@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CloudError } from '../contracts/errors.ts';
 import {
   extractCatalogFileMetadata, mimeTypeForPath, normalizeCatalogAssetPath, sha256Hex,
   type MediaMetadataHints, type PreparedCatalogFile, type PreparedCatalogTemplate,
@@ -169,9 +170,39 @@ export async function assembleBuiltinTemplate(
     });
   };
 
+  const realTemplateDir = await realpath(templateDir);
+  // `item.target` is the published catalog path and is already normalized; `item.path` is the
+  // source path on disk and needs the same containment rule before it is joined to the template
+  // directory, otherwise a manifest can read files outside the template root into the catalog.
+  // The comparison has to happen on real paths: a string check alone accepts a symlinked entry
+  // whose bytes come from outside the template directory.
+  const resolveTemplateSourcePath = async (rawPath: unknown): Promise<string> => {
+    if (typeof rawPath !== 'string' || !rawPath) {
+      throw new CloudError('INVALID_PATH', 'Template manifest source path is missing', {
+        status: 400,
+        applied: false,
+      });
+    }
+    const normalized = normalizeCatalogAssetPath(rawPath);
+    const resolved = path.resolve(realTemplateDir, normalized);
+    if (resolved !== realTemplateDir && !resolved.startsWith(realTemplateDir + path.sep)) {
+      throw new CloudError('INVALID_PATH', 'Template manifest source path escapes the template directory', {
+        status: 400,
+        applied: false,
+      });
+    }
+    if ((await realpath(resolved)) !== resolved) {
+      throw new CloudError('INVALID_PATH', 'Template manifest source path must not follow symlinks', {
+        status: 400,
+        applied: false,
+      });
+    }
+    return resolved;
+  };
+
   for (const item of manifest.files) {
     const target = normalizeCatalogAssetPath(item.target);
-    const sourcePath = path.join(templateDir, item.path);
+    const sourcePath = await resolveTemplateSourcePath(item.path);
     if (target.endsWith('.html')) {
       const relativeGsap = path.posix.relative(path.posix.dirname(target), 'assets/gsap.min.js');
       const rawHtml = await readFile(sourcePath, 'utf8');
