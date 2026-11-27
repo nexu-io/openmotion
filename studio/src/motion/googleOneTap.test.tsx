@@ -182,7 +182,7 @@ it('prefetches the challenge and fixed GIS URL at once, prompts 2000ms after pag
 
   const { container } = mountOneTap({ bfBannerVisible: true, refreshAccount, navigateToPricing, locale: 'zh-CN' });
 
-  // Immediately -> challenge fetched and GIS script appended with exact constant URL, in parallel
+  // Immediately -> challenge fetched, then the GIS script appended with the exact constant URL once it succeeds
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
@@ -354,6 +354,31 @@ it('prompts as soon as the challenge and GIS are ready when the page is already 
   // No timer advance needed: the page-entry delay has already elapsed
   expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'gid-late', nonce: 'nonce_late' }));
   expect(prompt).toHaveBeenCalledTimes(1);
+});
+
+it('never requests the Google GIS script when the challenge is unavailable or rejected (404 not configured, 403 origin check)', async () => {
+  for (const status of [404, 403]) {
+    resetOneTapStateForTests();
+    const fetchSpy = vi.fn(async () =>
+      Response.json({ code: 'ONE_TAP_UNAVAILABLE', message: 'unavailable' }, { status }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    mountOneTap();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS + GOOGLE_GIS_LOAD_TIMEOUT_MS);
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledWith('/auth/one-tap/challenge', expect.objectContaining({ method: 'POST' }));
+    expect(document.querySelector(`script[src="${GOOGLE_GIS_SCRIPT_URL}"]`)).toBeNull();
+    expect(document.getElementById(ONETAP_ANCHOR_ID)).toBeNull();
+    expect(tracked.some(entry => entry.event === 'onetap_prompt_observed')).toBe(false);
+
+    act(() => root?.unmount());
+    root = undefined;
+    tracked.length = 0;
+  }
 });
 
 it('omits prompt_parent_id on mobile viewports (< 768px) and reports script_load_failed on 5000ms timeout', async () => {

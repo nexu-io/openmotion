@@ -775,17 +775,11 @@ export function useMotionGoogleOneTap({
 
     const isStale = () => disposed || generationAtStart !== oneTapGeneration;
     // Business pages prompt no earlier than `delayMs` after the page was entered (an explicit retry prompts at
-    // once). The challenge and the GIS script are fetched in parallel right away, so their round trips overlap
-    // that wait instead of following it.
+    // once). The challenge and then the GIS script are fetched right away, so their round trips overlap that wait
+    // instead of following it.
     const promptNotBefore = Date.now() + (isExplicitRetry ? 0 : Math.max(0, delayMs - pageAgeRef.current()));
 
     void (async () => {
-      // Load the official Google GIS script (5000ms timeout) while the challenge is requested.
-      const gisLoad = loadGoogleGisScript(loadTimeoutMs).then(
-        api => api,
-        () => null,
-      );
-
       // Acquire a one-time anti-replay challenge bound to a same-origin HttpOnly cookie.
       let challenge: { challengeId: string; nonce: string; clientId: string; expiresAt: string };
       try {
@@ -845,7 +839,11 @@ export function useMotionGoogleOneTap({
 
       if (isStale()) return;
 
-      const gis = await gisLoad;
+      // Contact Google only once a valid challenge shows One Tap is available here (5000ms load timeout).
+      const gis = await loadGoogleGisScript(loadTimeoutMs).then(
+        api => api,
+        () => null,
+      );
       if (!gis) {
         if (!isStale()) {
           void trackMotion('onetap_prompt_observed', {
