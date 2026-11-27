@@ -122,6 +122,8 @@
   background: var(--motion-mcp-dock-hover);
 }
 
+.om-mcp-hero-note { font-size: 12.5px; line-height: 1.55; color: var(--motion-muted); }
+
 .om-mcp-manual-pop {
   border-radius: var(--motion-radius-xl);
   background: var(--motion-mcp-gallery-panel);

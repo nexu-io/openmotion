@@ -142,9 +142,11 @@ it('points cloud streamable-http template handoff instructions to /install.md in
   const zh = templateHandoffPrompt(template, 'zh-CN', cloudInfo);
   const en = templateHandoffPrompt(template, 'en', cloudInfo);
   expect(zh).toContain('https://openmotion.example/install.md');
+  expect(zh).toContain('移除旧本地配置');
   expect(zh).not.toContain('github.com/nexu-io/openmotion');
   expect(zh).not.toContain('/mcp-setup');
   expect(en).toContain('https://openmotion.example/install.md');
+  expect(en).toContain('remove the legacy local registration');
   expect(en).not.toContain('github.com/nexu-io/openmotion');
   expect(en).not.toContain('/mcp-setup');
 });

@@ -228,7 +228,15 @@ export const phase1Tools = [
 
 // Increment for incompatible request/response semantics; optional fields and new Tools are additive.
 export function cloudPhase1Tools(publicOrigin: string) {
-  return phase1Tools.map(tool => tool.name === projectArchiveTool.name ? cloudProjectArchiveTool(publicOrigin) : tool);
+  const origin = publicOrigin.replace(/\/+$/, '');
+  const cloudGetProjectNote = ` Cloud Streamable HTTP workspace tool (${origin}/mcp). If a legacy local stdio OpenMotion MCP server or local plugin is also configured and conflicts with this cloud server, do not route cloud tasks to the local stdio server—advise removing the legacy local MCP/plugin registration (keeping local project files intact) per ${origin}/install.md.`;
+  return phase1Tools.map((tool) => {
+    if (tool.name === projectArchiveTool.name) return cloudProjectArchiveTool(publicOrigin);
+    if (tool.name === 'openmotion_get_project') {
+      return { ...tool, description: tool.description + cloudGetProjectNote };
+    }
+    return tool;
+  });
 }
 
 export const phase1McpCapabilities = { protocol: 1, tools: phase1Tools.map(tool => tool.name) };

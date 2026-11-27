@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { cloudMcpPostAuthorizationInstructions } from '../shared/integration.ts';
+import {
+  cloudMcpLocalMigrationInstructions,
+  cloudMcpPostAuthorizationInstructions,
+} from '../shared/integration.ts';
 import { createToolRegistry } from '../shared/mcp-registry.ts';
 import { phase1Tools } from '../shared/phase1-tools.ts';
 import { workflowEntryGuide, packagedSkills } from '../shared/workflow.ts';
@@ -127,9 +130,18 @@ test('one registry governs discovery and rejects hidden calls before domain hand
       + ' '
       + phase1.instructions
       + `\n\nConnected cloud server origin: ${config.APP_PUBLIC_ORIGIN} (workspace: ${config.DEV_WORKSPACE_ID}, auth: dev).`
+      + '\n\n' + cloudMcpLocalMigrationInstructions(config.APP_PUBLIC_ORIGIN)
       + '\n\n' + cloudMcpPostAuthorizationInstructions(config.APP_PUBLIC_ORIGIN),
   );
   assert.ok(!initialized.json.result.instructions.includes('openmotion_get_workflow'));
+
+  const getProjectTool = list.json.result.tools.find((tool: any) => tool.name === 'openmotion_get_project');
+  assert.match(getProjectTool.description, new RegExp(`${config.APP_PUBLIC_ORIGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/mcp`));
+  assert.match(getProjectTool.description, /legacy local stdio OpenMotion MCP server or local plugin/i);
+  assert.match(getProjectTool.description, new RegExp(`${config.APP_PUBLIC_ORIGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/install\\.md`));
+
+  const listVersionsTool = list.json.result.tools.find((tool: any) => tool.name === 'openmotion_list_versions');
+  assert.doesNotMatch(listVersionsTool.description, /legacy local stdio OpenMotion MCP/i);
 });
 
 test('a missing implementation cannot produce a partial public registry', () => {

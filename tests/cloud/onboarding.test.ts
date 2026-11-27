@@ -55,9 +55,20 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(!body.includes(DEFAULT_CLOUD_ORIGIN), 'No default prod origin should remain after override');
     assert.ok(!body.includes('{{'), 'Cloud install.md must not contain unresolved template placeholders');
     assert.ok(body.includes('codex mcp add openmotion --url'));
-    assert.ok(body.includes('codex mcp login openmotion'));
+    assert.ok(body.includes('codex mcp remove openmotion'));
+    assert.ok(body.includes('codex plugin remove <plugin@marketplace>'));
     assert.ok(body.includes('claude mcp add --transport http'));
+    assert.ok(body.includes('claude mcp remove openmotion'));
+    assert.ok(body.includes('codex mcp login openmotion'));
     assert.ok(body.includes('claude mcp login openmotion'));
+    assert.ok(
+      body.includes('Never launch `codex mcp login` in an Agent shell and end your turn'),
+      'Cloud install.md must forbid ending a turn while CLI login holds the loopback callback port',
+    );
+    assert.ok(
+      body.includes('127.0.0.1:<port>/callback` is the MCP client\'s temporary OAuth PKCE loopback listener (not a local OpenMotion server)'),
+      'Cloud install.md troubleshooting must explain ERR_CONNECTION_REFUSED on the loopback OAuth callback port',
+    );
     assert.ok(body.includes('HARD GATE — Never run Onboarding while login is still pending'));
     assert.ok(body.includes('Never narrate internal onboarding mechanics'));
     assert.ok(body.includes('create_thread'));
@@ -376,6 +387,10 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     );
     assert.ok(setupPrompt(cloudInfo, 'codex', 'zh-CN').includes('https://motion.open-design.ai/install.md'));
     assert.ok(setupPrompt(cloudInfo, 'codex', 'en').includes('https://motion.open-design.ai/install.md'));
+    assert.match(setupPrompt(cloudInfo, 'codex', 'zh-CN'), /本地 stdio 版 OpenMotion MCP/);
+    assert.match(setupPrompt(cloudInfo, 'codex', 'en'), /legacy local stdio OpenMotion MCP server/);
+    assert.match(projectAgentPrompt(cloudInfo, { id: 'proj-1', title: 'Launch Video' }, 'zh-CN'), /local stdio OpenMotion MCP/);
+    assert.match(projectAgentPrompt(cloudInfo, { id: 'proj-1', title: 'Launch Video' }, 'en'), /legacy local stdio OpenMotion MCP server/);
     assert.match(setupPrompt(cloudInfo, 'codex', 'en'), /open a new Codex chat/);
     assert.match(setupPrompt(cloudInfo, 'claude', 'en'), /open a new Claude Code chat/);
     assert.doesNotMatch(setupPrompt(cloudInfo, 'claude', 'en'), /open a new Codex chat/);

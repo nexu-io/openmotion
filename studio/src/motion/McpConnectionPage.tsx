@@ -43,6 +43,7 @@ import './McpConnectionPage.css';
 
 const cloudFaqQuestions = new Set<string>([
   'Which Agents are supported?',
+  'How do I switch from local OpenMotion to Cloud?',
   'Does connecting start generation or spend credits?',
   'Do I need an OpenMotion API key or third-party BYOK keys?',
   'Can ChatGPT Cloud connect to this workspace?',
@@ -487,6 +488,13 @@ export function McpConnectionPage({
                   )}
                 </div>
 
+                {httpTransport && client.host !== 'chatgpt' && !desktop && (
+                  <p className="om-mcp-hero-note" data-mcp-local-migration-hint>
+                    <RemixIcon name="information-line" size={14} aria-hidden="true" />
+                    <span>{t('Upgrading from local OpenMotion? Paste the instruction above—your Agent will remove the legacy local MCP/plugin and switch to Cloud (local project files stay intact).')}</span>
+                  </p>
+                )}
+
                 {feedback?.fallbackPrompt && (
                   <div className="om-mcp-manual-pop">
                     <textarea
@@ -549,6 +557,12 @@ export function McpConnectionPage({
                             </Button>
                           )}
                         </McpManualConfiguration>
+                      )}
+
+                      {httpTransport && client.host !== 'chatgpt' && (
+                        <div className="om-mcp-manual-note" data-mcp-manual-migration-note>
+                          <span>{t('Switching from local OpenMotion? Remove any legacy local stdio MCP entry or local Codex plugin first (for example, codex mcp remove openmotion) before applying the setup above. Local project files stay intact.')}</span>
+                        </div>
                       )}
 
                       {!httpTransport && client.host === 'deepseek' && (

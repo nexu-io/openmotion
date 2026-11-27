@@ -364,6 +364,11 @@ export function setupGuideUrl(info: IntegrationInfo | null) {
   return `https://releases.open-design.ai/open-motion/${environment === 'dev' ? 'dev/' : ''}install.md`;
 }
 
+export function cloudMcpLocalMigrationInstructions(publicOrigin: string): string {
+  const origin = publicOrigin.replace(/\/+$/, '');
+  return `Cloud MCP mode (Streamable HTTP at ${origin}/mcp). Prefer this cloud server for all OpenMotion requests targeting ${origin}; never route cloud projects or templates to a legacy local stdio OpenMotion MCP server or local Codex plugin. If a legacy local stdio openmotion MCP server or local openmotion plugin is still installed alongside this cloud server and causes conflicts or duplicate tools, inform the user and offer to remove the legacy local MCP/plugin registration (preserving local project files) per ${origin}/install.md so only this cloud endpoint remains.`;
+}
+
 export function cloudMcpPostAuthorizationInstructions(
   publicOrigin: string,
   host?: IntegrationHost,
@@ -401,6 +406,7 @@ export function setupPrompt(
     if (locale === 'zh-CN') {
       const lines = [
         `请阅读 ${guide}，帮我将 ${hostNames[host]} 接入 OpenMotion 云端 MCP（${mcpUrl}）。`,
+        '如果此前安装过本地 stdio 版 OpenMotion MCP 或本地 Codex 插件，请先按接入指引移除旧本地配置（保留本地工程文件），再接入此云端端点。',
         '不要安装 npm 包、克隆仓库、启动本地运行时或使用 docker exec。',
         '导入素材时使用 openmotion_import_assets 的 upload_ticket / url / library_asset 模式。',
         cloudMcpPostAuthorizationInstructions(mcpUrl, host, 'zh-CN'),
@@ -410,6 +416,7 @@ export function setupPrompt(
     }
     const lines = [
       `Follow ${guide} to connect ${hostNames[host]} to OpenMotion Cloud MCP (${mcpUrl}).`,
+      'If a legacy local stdio OpenMotion MCP server or local Codex plugin is installed, remove that legacy registration first per the guide (keeping local project files intact) before connecting this cloud endpoint.',
       'Do not install an npm package, clone the repository, start a local runtime, or wrap commands with docker exec.',
       'Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).',
       cloudMcpPostAuthorizationInstructions(mcpUrl, host, 'en'),

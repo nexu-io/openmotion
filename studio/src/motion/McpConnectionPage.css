@@ -76,6 +76,8 @@
 .om-mcp-hero-cta-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 16px; }
 .om-mcp-btn-primary { height: 48px; padding-inline: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
 .om-mcp-btn-secondary { height: 48px; padding-inline: 22px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.om-mcp-hero-note { margin: 14px auto 0; max-width: 780px; display: inline-flex; align-items: flex-start; justify-content: center; gap: 6px; text-align: center; }
+.om-mcp-hero-note > svg { flex: none; margin-top: 3px; }
 
 
 /* Post-copy bubble & manual config popover */
