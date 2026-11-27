@@ -197,7 +197,7 @@ export const omEvents = {
       'kind_filter', 'trash_view', 'upload', 'open_asset', 'create_asset', 'mode_switch', 'add_reference', 'edit_version', 'use_as_reference',
       'download_asset', 'switch_version', 'select_task', 'cancel_task', 'retry_save', 'resume_task',
       'section_select', 'select_provider', 'add_provider', 'provider_filter', 'select_agent', 'rescan_agents', 'open_terminal',
-      'sign_in', 'sign_out', 'cancel_sign_in', 'refresh_billing', 'manage_subscription', 'export_diagnostics', 'open_resource',
+      'sign_in', 'sign_out', 'cancel_sign_in', 'refresh_billing', 'manage_subscription', 'open_console', 'recharge', 'export_diagnostics', 'open_resource',
       'import_projects', 'export_projects', 'manager_tab', 'rename_project', 'duplicate_project', 'trash_project', 'restore_project',
       'delete_project', 'copy_path', 'reveal_project', 'open_history', 'history_filter', 'select_version', 'keep_current', 'pin_version', 'restore_version',
       'nav_explore', 'nav_media', 'nav_mcp', 'nav_api', 'nav_studio', 'nav_more', 'nav_menu', 'select_scene', 'select_model', 'select_skill', 'select_client', 'filter_scene_models',

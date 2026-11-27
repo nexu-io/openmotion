@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { I18nProvider, type Locale } from '../i18n/I18n';
 import { AccountSettings, buildLoginUrl, type CloudAccountSummary, type PersonalAccessTokenRecord } from './AccountSettings';
+import { BLACK_FRIDAY_ENDS_AT, BLACK_FRIDAY_STARTS_AT } from './campaignAttribution';
 import { getBrowserTrackingDeviceId, resetBrowserTrackingDeviceIdForTests } from './trackingDeviceId';
 import { getPrivateSwrIdentity } from './swrCache';
 import { notifyProvidersChanged } from './useProviderDirectory';
@@ -21,6 +22,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   document.body.innerHTML = '';
+  vi.useRealTimers();
   vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -247,7 +249,7 @@ it('signs out cleanly in OIDC mode', async () => {
   const page = await open(cookieAccount);
   await act(async () => findButton(page, 'Sign out')!.click());
   expect(fetchSpy).toHaveBeenCalledWith('/auth/logout', expect.objectContaining({ method: 'POST' }));
-  expect(page.querySelector('.om-plan-guide')).not.toBeNull();
+  expect(page.querySelector('[data-guide="sign-in"]')).not.toBeNull();
 });
 
 it('creates, copies once, and revokes Personal Access Tokens (PAT)', async () => {
@@ -325,17 +327,21 @@ it('replaces missing billing metrics with a dashboard link on 403 and restores t
   const page = await open({ state: 'signed-in', billingUnavailable: true, billingError: { status: 403 } }, 'zh-CN', 'subscription');
   expect(page.textContent).toContain('账单服务拒绝了本次查询');
   expect(page.querySelector('.om-account-metrics')).toBeNull();
+  expect(page.querySelector('.om-plan-usage')).toBeNull();
   const url = new URL(page.querySelector('a')!.href);
   expect(url.origin + url.pathname).toBe('https://open-design.ai/cloud/dashboard');
   expect(url.searchParams.get('billing')).toBe('plan');
   expect(url.searchParams.get('od_origin')).toBe('openmotion');
   hooks.summary = { state: 'signed-in', plan: 'pro', balance: '0.00', consoleUrl: 'https://open-design.ai/cloud' };
   await act(async () => page.querySelector<HTMLButtonElement>('button[aria-busy]')!.click());
-  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('$0.00');
+  expect(page.querySelector('.om-plan-usage')?.textContent).toContain('$0.00');
+  expect(page.querySelector('.om-plan-usage')?.textContent).toContain('Pro');
   expect(page.textContent).not.toContain('账单服务拒绝了本次查询');
 });
 
-it.each(['account', 'subscription'] as const)('shows the same sign-in benefits on the %s page', async section => {
+it.each(['account', 'subscription'] as const)('shows the evergreen sign-in benefits outside the Black Friday window on the %s page', async section => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(BLACK_FRIDAY_ENDS_AT + 60_000);
   const page = await open({ state: 'signed-out' }, 'zh-CN', section);
   expect(page.querySelector('.om-plan-guide h2')?.textContent).toBe('登录 OpenDesign，开始多模态生成');
   expect(page.querySelector('.om-plan-guide .om-badge')?.textContent).toBe('Plus 及以上');
@@ -344,7 +350,45 @@ it.each(['account', 'subscription'] as const)('shows the same sign-in benefits o
   expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
 });
 
-it('offers Free and Go accounts an upgrade through the registered entry source, and nothing to paid plans', async () => {
+it.each(['account', 'subscription'] as const)('shows the Black Friday sign-in and upgrade conversion cards during the campaign window on the %s page', async section => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(BLACK_FRIDAY_STARTS_AT + 60_000);
+  const signedOutPage = await open({ state: 'signed-out' }, 'zh-CN', section);
+  const signInCard = signedOutPage.querySelector('[data-generation-offer="sign_in"][data-guide="sign-in"]');
+  expect(signInCard).not.toBeNull();
+  expect(signInCard?.textContent).toContain('7天无限用');
+  expect(signInCard?.textContent).toContain('年度 Pro / Max 专享');
+  expect(signInCard?.textContent).toContain('GPT Image 2.0');
+  expect(signInCard?.textContent).toContain('Seedream 5.5');
+  expect(signInCard?.textContent).toContain('立即登录');
+
+  act(() => root!.unmount());
+  document.body.innerHTML = '';
+
+  const freePage = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'free', balance: '0.20' }, 'zh-CN', section);
+  const upgradeCard = freePage.querySelector('[data-generation-offer="upgrade"][data-guide="upgrade"]');
+  expect(upgradeCard).not.toBeNull();
+  expect(upgradeCard?.textContent).toContain('7天无限用');
+  expect(upgradeCard?.textContent).toContain('年度 Pro / Max 专享');
+  expect(upgradeCard?.textContent).toContain('$100/月');
+  expect(upgradeCard?.textContent).toContain('8 折');
+  const upgradeLink = upgradeCard?.querySelector<HTMLAnchorElement>('a')!;
+  expect(upgradeLink.textContent).toContain('立即升级');
+  expect(new URL(upgradeLink.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+
+  // Signed-in accounts also render the console-aligned PlanUsagePanel with Go to console and Top up links.
+  const usageCard = freePage.querySelector('.om-plan-usage');
+  expect(usageCard).not.toBeNull();
+  expect(usageCard?.textContent).toContain('免费版');
+  expect(usageCard?.textContent).toContain('$0.20');
+  expect(usageCard?.textContent).toContain('前往控制台');
+  expect(usageCard?.textContent).toContain('充值');
+  expect(usageCard?.querySelector('.om-plan-usage-upgrade')).toBeNull();
+});
+
+it('offers Free and Go accounts an upgrade through the registered entry source, and shows console Upgrade for Plus/Pro only', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(BLACK_FRIDAY_ENDS_AT + 60_000);
   for (const plan of ['free', 'go']) {
     const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan, balance: '0.00' }, 'en', 'subscription');
     const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
@@ -353,10 +397,22 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
     expect(upgrade.textContent).toContain('Upgrade to Plus');
     expect(new URL(manage.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
     expect(page.querySelector('.om-account-summary h2')?.textContent).toBe('Connected to OpenDesign');
+    act(() => root!.unmount());
+    document.body.innerHTML = '';
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
   expect(paid.querySelector('[data-guide="upgrade"]')).toBeNull();
   expect(paid.querySelector('[data-desktop-billing-hint="true"]')).toBeNull();
+  expect(paid.querySelector('.om-plan-usage .om-plan-usage-upgrade')?.textContent).toContain('Upgrade');
+  expect(paid.querySelector('.om-plan-usage')?.textContent).toContain('$12.00');
+
+  act(() => root!.unmount());
+  document.body.innerHTML = '';
+
+  const max = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'max', balance: '99.50' }, 'en', 'subscription');
+  expect(max.querySelector('.om-plan-usage .om-plan-usage-upgrade')).toBeNull();
+  expect(max.querySelector('.om-plan-usage')?.textContent).toContain('Max');
+  expect(max.querySelector('.om-plan-usage')?.textContent).toContain('$99.50');
 });
 
 it('shows a calm account-verification hint before external billing links in desktop app mode', async () => {

@@ -1,5 +1,5 @@
 /* Borderless tonal fills per shared design-system contract (no outer borders or nested strokes). */
-.om-entitlement-gate {
+.om-entitlement-gate:not([data-generation-offer]) {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -8,6 +8,27 @@
   border: 0;
   border-radius: var(--motion-radius-xl, 12px);
   background: var(--motion-inset, color-mix(in srgb, var(--motion-text) 6%, transparent));
+}
+
+.om-entitlement-gate[data-generation-offer] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.om-entitlement-gate-secondary {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--motion-neutral-n4);
+  font-size: var(--motion-text-xs);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.om-entitlement-gate-secondary:hover {
+  color: var(--motion-neutral-n0);
 }
 
 .om-entitlement-gate[data-tone="warning"] {

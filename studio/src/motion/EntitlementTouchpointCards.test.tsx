@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { exceedsResolutionCap, imageResolutionCap, isInsufficientBalanceError, type CloudAccountSummary } from './AccountSettings';
 import { AssetGenerationCard } from './AssetCreationVisuals';
+import { BLACK_FRIDAY_ENDS_AT, BLACK_FRIDAY_STARTS_AT } from './campaignAttribution';
+import { subscribeEntitlementModal, type EntitlementModalRequest } from './entitlementModalBus';
+import { FreePlanGenerationGate } from './EntitlementTouchpointCards';
 import type { GenerationJob } from '../../../shared/gateway';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -14,6 +17,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   document.body.innerHTML = '';
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -80,5 +84,77 @@ describe('U6 insufficient balance failure CTA', () => {
       root!.render(<I18nProvider locale="en"><AssetGenerationCard job={{ ...baseJob, model: { ...baseJob.model, id: 'openai:gpt-image-1', provider: 'openai' }, error: 'insufficient_quota' }} onCancel={vi.fn()} onView={vi.fn()} /></I18nProvider>);
     });
     expect(host.textContent).not.toContain('Not enough credits to generate');
+  });
+});
+
+describe('FreePlanGenerationGate Black Friday offer card', () => {
+  it('shows the Black Friday flame offer card with modality-specific copy during the campaign and opens the cloud upgrade modal', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(BLACK_FRIDAY_STARTS_AT + 60_000);
+    const modalRequests: EntitlementModalRequest[] = [];
+    const unsubscribe = subscribeEntitlementModal(request => modalRequests.push(request));
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    try {
+      act(() => {
+        root!.render(
+          <I18nProvider initialLocale="zh-CN">
+            <FreePlanGenerationGate
+              hookId="studio_free_gate"
+              attribution={{ modality: 'image', modelId: 'gpt-image-2.6', userPlan: 'free' }}
+            />
+          </I18nProvider>,
+        );
+      });
+      const imageCard = host.querySelector('[data-generation-offer="upgrade"]');
+      expect(imageCard).not.toBeNull();
+      expect(imageCard?.classList.contains('om-entitlement-gate')).toBe(true);
+      expect(imageCard?.textContent).toContain('旗舰生图7天无限用');
+      expect(imageCard?.textContent).toContain('年度 Pro / Max 专享 · 黑五低至 5 折');
+      const upgradeButton = imageCard?.querySelector<HTMLButtonElement>('button')!;
+      expect(upgradeButton.textContent).toContain('立即升级');
+
+      act(() => upgradeButton.click());
+      expect(modalRequests).toHaveLength(1);
+      expect(modalRequests[0]).toMatchObject({
+        mode: 'upgrade',
+        hookId: 'studio_free_gate',
+        attribution: expect.objectContaining({ modality: 'image', modelId: 'gpt-image-2.6', userPlan: 'free' }),
+      });
+
+      act(() => {
+        root!.render(
+          <I18nProvider initialLocale="zh-CN">
+            <FreePlanGenerationGate
+              hookId="studio_free_gate"
+              attribution={{ modality: 'video', modelId: 'seedance-2.5', userPlan: 'free' }}
+            />
+          </I18nProvider>,
+        );
+      });
+      expect(host.textContent).toContain('黑五首年最低5折');
+      expect(host.textContent).toContain('Plus 及以上即可享受');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('reverts to the standard tonal upgrade gate outside the Black Friday campaign window', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(BLACK_FRIDAY_ENDS_AT + 60_000);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <I18nProvider initialLocale="en">
+          <FreePlanGenerationGate hookId="studio_free_gate" attribution={{ modality: 'image', userPlan: 'free' }} />
+        </I18nProvider>,
+      );
+    });
+    expect(host.querySelector('[data-generation-offer]')).toBeNull();
+    expect(host.querySelector('.om-entitlement-gate')).not.toBeNull();
+    expect(host.textContent).toContain('Upgrade to Plus for hosted media models');
   });
 });

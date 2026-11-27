@@ -122,7 +122,19 @@ export function SoundComposer({
   const hostedPlanUpgrade = (cloudWeb || isHostedSelected) ? upgradePlan(account) : undefined;
   const cloudFreeUpgradeSubmit = Boolean(hostedPlanUpgrade && cloudWeb && hasEntitlementModalListeners());
   const entitlementGate = hostedPlanUpgrade
-    ? <FreePlanGenerationGate onOpenProviders={cloudWeb ? undefined : openModelSettings} hookId="studio_free_gate" />
+    ? (
+      <FreePlanGenerationGate
+        onOpenProviders={cloudWeb ? undefined : openModelSettings}
+        hookId="studio_free_gate"
+        attribution={{
+          modelId: selected?.modelId,
+          modelProvider: selected?.provider,
+          modality: 'audio',
+          gateReason: 'plan_locked',
+          userPlan: account?.plan ?? undefined,
+        }}
+      />
+    )
     : null;
   const cloudEmptyCatalog = isCloudEmptyCatalog(gateway, compatible.length);
   const unifiedCloudOnly = isUnifiedCloudGateway(gateway?.status.providers);

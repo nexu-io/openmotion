@@ -350,7 +350,14 @@
     "Media generation failed": "媒体生成失败，请重试。",
     "OpenDesign model gateway request failed": "OpenDesign 模型网关请求失败，请稍后重试。",
     "Remove 1 character to stay within the {limit}-character limit.": "请删减 1 个字符，以不超过当前上限（{limit} 字符）。",
-    "Remove {count} characters to stay within the {limit}-character limit.": "请删减 {count} 个字符，以不超过当前上限（{limit} 字符）。"
+    "Remove {count} characters to stay within the {limit}-character limit.": "请删减 {count} 个字符，以不超过当前上限（{limit} 字符）。",
+    "7 days of unlimited flagship image generation": "旗舰生图7天无限用",
+    "Annual Pro & Max · Up to 50% off": "年度 Pro / Max 专享 · 黑五低至 5 折",
+    "Black Friday: up to 50% off your first year": "黑五首年最低5折",
+    "Enjoy this offer with Plus or higher": "Plus 及以上即可享受",
+    "Upgrade (generation offer)": "立即升级",
+    "Unlock multimodal creation": "解锁多模态创作",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "黑五全年最低价！7天无限用"
   },
   "ja": {
     "Retry saving without generating again.": "再生成せずに保存をやり直せます。",
@@ -388,7 +395,14 @@
     "Media generation failed": "メディアの生成に失敗しました。もう一度お試しください。",
     "OpenDesign model gateway request failed": "OpenDesign モデルゲートウェイへのリクエストに失敗しました。しばらくしてからもう一度お試しください。",
     "Remove 1 character to stay within the {limit}-character limit.": "上限（{limit} 文字）以内に収めるには 1 文字削除してください。",
-    "Remove {count} characters to stay within the {limit}-character limit.": "上限（{limit} 文字）以内に収めるには {count} 文字削除してください。"
+    "Remove {count} characters to stay within the {limit}-character limit.": "上限（{limit} 文字）以内に収めるには {count} 文字削除してください。",
+    "7 days of unlimited flagship image generation": "主力モデルで7日間、画像を生成し放題",
+    "Annual Pro & Max · Up to 50% off": "年間 Pro / Max 限定 · 最大50%オフ",
+    "Black Friday: up to 50% off your first year": "ブラックフライデー：初年度最大50%オフ",
+    "Enjoy this offer with Plus or higher": "Plus 以上でこの特典を利用できます",
+    "Upgrade (generation offer)": "アップグレード",
+    "Unlock multimodal creation": "マルチモーダル制作を解放",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "ブラックフライデーは年間最安値！7日間使い放題"
   },
   "ko": {
     "Retry saving without generating again.": "다시 생성하지 않고 저장을 재시도할 수 있습니다.",
@@ -426,7 +440,14 @@
     "Media generation failed": "미디어 생성에 실패했습니다. 다시 시도해 주세요.",
     "OpenDesign model gateway request failed": "OpenDesign 모델 게이트웨이 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.",
     "Remove 1 character to stay within the {limit}-character limit.": "{limit}자 제한에 맞추려면 1자를 줄여 주세요.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "{limit}자 제한에 맞추려면 {count}자를 줄여 주세요."
+    "Remove {count} characters to stay within the {limit}-character limit.": "{limit}자 제한에 맞추려면 {count}자를 줄여 주세요.",
+    "7 days of unlimited flagship image generation": "플래그십 모델로 7일간 무제한 이미지 생성",
+    "Annual Pro & Max · Up to 50% off": "연간 Pro / Max 전용 · 최대 50% 할인",
+    "Black Friday: up to 50% off your first year": "블랙 프라이데이 첫해 최대 50% 할인",
+    "Enjoy this offer with Plus or higher": "Plus 이상 요금제에서 이 혜택을 누리세요",
+    "Upgrade (generation offer)": "업그레이드",
+    "Unlock multimodal creation": "멀티모달 창작 시작하기",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "블랙프라이데이 연중 최저가! 7일간 무제한 이용"
   },
   "de": {
     "Retry saving without generating again.": "Erneut speichern, ohne neu zu generieren.",
@@ -464,7 +485,14 @@
     "Media generation failed": "Medienerstellung fehlgeschlagen. Bitte versuche es erneut.",
     "OpenDesign model gateway request failed": "Anfrage an das OpenDesign-Modell-Gateway fehlgeschlagen. Bitte versuche es später erneut.",
     "Remove 1 character to stay within the {limit}-character limit.": "Entferne 1 Zeichen, um das Limit von {limit} Zeichen einzuhalten.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "Entferne {count} Zeichen, um das Limit von {limit} Zeichen einzuhalten."
+    "Remove {count} characters to stay within the {limit}-character limit.": "Entferne {count} Zeichen, um das Limit von {limit} Zeichen einzuhalten.",
+    "7 days of unlimited flagship image generation": "7 Tage unbegrenzte Bildgenerierung mit Spitzenmodellen",
+    "Annual Pro & Max · Up to 50% off": "Jahres-Pro & Max · Bis zu 50 % Rabatt",
+    "Black Friday: up to 50% off your first year": "Black Friday: bis zu 50 % Rabatt im ersten Jahr",
+    "Enjoy this offer with Plus or higher": "Dieses Angebot gilt ab Plus",
+    "Upgrade (generation offer)": "Upgrade",
+    "Unlock multimodal creation": "Multimodale Inhalte erstellen",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "Black Friday zum Jahrestiefpreis! 7 Tage unbegrenzt nutzen"
   },
   "fr": {
     "Retry saving without generating again.": "Réessayez d’enregistrer sans relancer la génération.",
@@ -502,7 +530,14 @@
     "Media generation failed": "La génération média a échoué. Veuillez réessayer.",
     "OpenDesign model gateway request failed": "La requête vers la passerelle de modèles OpenDesign a échoué. Veuillez réessayer plus tard.",
     "Remove 1 character to stay within the {limit}-character limit.": "Supprimez 1 caractère pour respecter la limite de {limit} caractères.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "Supprimez {count} caractères pour respecter la limite de {limit} caractères."
+    "Remove {count} characters to stay within the {limit}-character limit.": "Supprimez {count} caractères pour respecter la limite de {limit} caractères.",
+    "7 days of unlimited flagship image generation": "7 jours de génération d’images illimitée avec les modèles phares",
+    "Annual Pro & Max · Up to 50% off": "Pro & Max annuel · Jusqu’à -50 %",
+    "Black Friday: up to 50% off your first year": "Black Friday : jusqu’à 50 % de réduction la première année",
+    "Enjoy this offer with Plus or higher": "Offre accessible dès la formule Plus",
+    "Upgrade (generation offer)": "Améliorer",
+    "Unlock multimodal creation": "Débloquez la création multimodale",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "Black Friday au prix le plus bas de l’année ! 7 jours en illimité"
   },
   "ru": {
     "Retry saving without generating again.": "Повторите попытку сохранения без повторной генерации.",
@@ -540,7 +575,14 @@
     "Media generation failed": "Не удалось сгенерировать медиа. Попробуйте снова.",
     "OpenDesign model gateway request failed": "Ошибка запроса к шлюзу моделей OpenDesign. Попробуйте позже.",
     "Remove 1 character to stay within the {limit}-character limit.": "Удалите 1 символ, чтобы уложиться в лимит {limit} символов.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "Удалите {count} симв., чтобы уложиться в лимит {limit} символов."
+    "Remove {count} characters to stay within the {limit}-character limit.": "Удалите {count} симв., чтобы уложиться в лимит {limit} символов.",
+    "7 days of unlimited flagship image generation": "7 дней безлимитной генерации изображений с флагманскими моделями",
+    "Annual Pro & Max · Up to 50% off": "Годовой Pro и Max · Скидка до 50%",
+    "Black Friday: up to 50% off your first year": "Чёрная пятница: скидка до 50% на первый год",
+    "Enjoy this offer with Plus or higher": "Предложение доступно с тарифа Plus",
+    "Upgrade (generation offer)": "Улучшить тариф",
+    "Unlock multimodal creation": "Откройте мультимодальное творчество",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "Чёрная пятница по самым низким ценам года! 7 дней без ограничений"
   },
   "es": {
     "Retry saving without generating again.": "Vuelve a intentar guardar sin generar de nuevo.",
@@ -578,7 +620,14 @@
     "Media generation failed": "Error al generar el recurso multimedia. Inténtalo de nuevo.",
     "OpenDesign model gateway request failed": "Error en la solicitud a la pasarela de modelos de OpenDesign. Inténtalo más tarde.",
     "Remove 1 character to stay within the {limit}-character limit.": "Elimina 1 carácter para no superar el límite de {limit} caracteres.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "Elimina {count} caracteres para no superar el límite de {limit} caracteres."
+    "Remove {count} characters to stay within the {limit}-character limit.": "Elimina {count} caracteres para no superar el límite de {limit} caracteres.",
+    "7 days of unlimited flagship image generation": "7 días de imágenes ilimitadas con modelos de primera línea",
+    "Annual Pro & Max · Up to 50% off": "Pro y Max anual · Hasta 50% dto.",
+    "Black Friday: up to 50% off your first year": "Black Friday: hasta un 50 % de descuento el primer año",
+    "Enjoy this offer with Plus or higher": "Disfruta de esta oferta con Plus o un plan superior",
+    "Upgrade (generation offer)": "Mejorar plan",
+    "Unlock multimodal creation": "Desbloquea la creación multimodal",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "¡Black Friday al precio más bajo del año! 7 días de uso ilimitado"
   },
   "pt-BR": {
     "Retry saving without generating again.": "Tente salvar novamente sem gerar de novo.",
@@ -616,7 +665,14 @@
     "Media generation failed": "Falha na geração de mídia. Tente novamente.",
     "OpenDesign model gateway request failed": "Falha na solicitação ao gateway de modelos OpenDesign. Tente novamente mais tarde.",
     "Remove 1 character to stay within the {limit}-character limit.": "Remova 1 caractere para ficar dentro do limite de {limit} caracteres.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "Remova {count} caracteres para ficar dentro do limite de {limit} caracteres."
+    "Remove {count} characters to stay within the {limit}-character limit.": "Remova {count} caracteres para ficar dentro do limite de {limit} caracteres.",
+    "7 days of unlimited flagship image generation": "7 dias de geração ilimitada de imagens com modelos de ponta",
+    "Annual Pro & Max · Up to 50% off": "Pro e Max anual · Até 50% off",
+    "Black Friday: up to 50% off your first year": "Black Friday: até 50% de desconto no primeiro ano",
+    "Enjoy this offer with Plus or higher": "Aproveite a oferta com o plano Plus ou superior",
+    "Upgrade (generation offer)": "Fazer upgrade",
+    "Unlock multimodal creation": "Desbloqueie a criação multimodal",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "Black Friday com os menores preços do ano! 7 dias de uso ilimitado"
   },
   "it": {
     "Retry saving without generating again.": "Riprova a salvare senza generare di nuovo.",
@@ -654,7 +710,14 @@
     "Media generation failed": "Generazione multimediale non riuscita. Riprova.",
     "OpenDesign model gateway request failed": "Richiesta al gateway modelli OpenDesign non riuscita. Riprova più tardi.",
     "Remove 1 character to stay within the {limit}-character limit.": "Rimuovi 1 carattere per restare entro il limite di {limit} caratteri.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "Rimuovi {count} caratteri per restare entro il limite di {limit} caratteri."
+    "Remove {count} characters to stay within the {limit}-character limit.": "Rimuovi {count} caratteri per restare entro il limite di {limit} caratteri.",
+    "7 days of unlimited flagship image generation": "7 giorni di immagini illimitate con i modelli di punta",
+    "Annual Pro & Max · Up to 50% off": "Pro e Max annuale · Fino al 50% off",
+    "Black Friday: up to 50% off your first year": "Black Friday: fino al 50% di sconto sul primo anno",
+    "Enjoy this offer with Plus or higher": "Approfitta dell’offerta con Plus o un piano superiore",
+    "Upgrade (generation offer)": "Fai l’upgrade",
+    "Unlock multimodal creation": "Sblocca la creazione multimodale",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "Black Friday ai prezzi più bassi dell’anno! 7 giorni di utilizzo illimitato"
   },
   "tr": {
     "Retry saving without generating again.": "Yeniden oluşturmadan kaydetmeyi tekrar deneyin.",
@@ -692,6 +755,13 @@
     "Media generation failed": "Medya oluşturma başarısız oldu. Lütfen tekrar deneyin.",
     "OpenDesign model gateway request failed": "OpenDesign model ağ geçidi isteği başarısız oldu. Lütfen daha sonra tekrar deneyin.",
     "Remove 1 character to stay within the {limit}-character limit.": "{limit} karakter sınırında kalmak için 1 karakter silin.",
-    "Remove {count} characters to stay within the {limit}-character limit.": "{limit} karakter sınırında kalmak için {count} karakter silin."
+    "Remove {count} characters to stay within the {limit}-character limit.": "{limit} karakter sınırında kalmak için {count} karakter silin.",
+    "7 days of unlimited flagship image generation": "En gelişmiş modellerle 7 gün sınırsız görsel üretimi",
+    "Annual Pro & Max · Up to 50% off": "Yıllık Pro ve Max · %50’ye varan indirim",
+    "Black Friday: up to 50% off your first year": "Black Friday: ilk yıl %50’ye varan indirim",
+    "Enjoy this offer with Plus or higher": "Plus ve üstü planlarla bu fırsattan yararlanın",
+    "Upgrade (generation offer)": "Yükselt",
+    "Unlock multimodal creation": "Çok modlu üretimin kilidini aç",
+    "Black Friday’s lowest prices of the year! 7 days of unlimited use": "Black Friday’de yılın en düşük fiyatları! 7 gün sınırsız kullanım"
   }
 }

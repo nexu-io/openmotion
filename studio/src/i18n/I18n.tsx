@@ -9,7 +9,7 @@ export type { Locale, MessageValues, Translate } from './messages';
 function languageTools(locale: Locale) {
   return {
     locale,
-    t: (message: string, values?: MessageValues) => translate(locale, message, values),
+    t: (message: string, values?: MessageValues, context?: string) => translate(locale, message, values, context),
     formatDate: (date: number | Date, options?: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(locale, options).format(date),
     formatNumber: (number: number, options?: Intl.NumberFormatOptions) => new Intl.NumberFormat(locale, options).format(number),
   };

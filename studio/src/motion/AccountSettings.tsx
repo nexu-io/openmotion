@@ -5,7 +5,7 @@ import { isBrowserTrackingSuppressed } from './tracking';
 import { getBrowserTrackingDeviceId } from './trackingDeviceId';
 import { resetMotionTrackingIdentity } from './trackingIdentity';
 import { Tooltip } from '../components/ui/Tooltip';
-import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import type { AccountSummary } from '../../../shared/provider-directory';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
@@ -18,8 +18,12 @@ import { notifyProvidersChanged } from './useProviderDirectory';
 import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
 import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
-import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
-import { SettingsError, SettingsLoading } from './settingsPrimitives';
+import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive, useBlackFridayActive } from './campaignAttribution';
+import { ModelAvatar, SettingsError, SettingsLoading } from './settingsPrimitives';
+import offerStyles from './GenerationOffer.module.css';
+import { useShownStudioTheme } from '../utils/studioTheme';
+// Same watercolor as the OpenDesign console plan card (AMR seats-plan-background), so both surfaces match.
+import planCardBackground from './scene-art/plan-card-background.webp';
 import {
   isDesktopApp,
   openBillingAndRefreshOnFocus,
@@ -338,6 +342,166 @@ function formatDate(iso: string | null | undefined): string {
   return new Date(parsed).toLocaleDateString();
 }
 
+function formatUsd(value: string | null | undefined): string {
+  const amount = value == null ? NaN : Number(value);
+  return Number.isFinite(amount) ? '$' + amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+}
+
+const subscriptionImageModels = [
+  { id: 'gpt-image-2', name: 'GPT Image 2.0' },
+  { id: 'nano-banana-2', name: 'Nano Banana 2' },
+  { id: 'seedream-5.0', name: 'Seedream 5.0' },
+  { id: 'seedream-5.5', name: 'Seedream 5.5' },
+] as const;
+
+type SubscriptionLinkElement = 'manage_subscription' | 'view_plans' | 'open_console' | 'recharge';
+type SubscriptionLinkBuilder = (source: string, element: SubscriptionLinkElement) => {
+  href: string;
+  target: string;
+  rel: string;
+  onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onClick: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => void;
+};
+
+function SubscriptionGuide({ kind, children }: { kind: 'sign-in' | 'upgrade'; children: ReactNode }) {
+  const { t } = useI18n();
+  const headingId = useId();
+  const signedOut = kind === 'sign-in';
+  const offerKind = signedOut ? 'sign_in' : 'upgrade';
+  const title = signedOut ? t('Sign in for {offer} on select models') : t('{offer} on select models');
+  const [before, after] = title.split('{offer}');
+  return (
+    <section
+      data-generation-offer={offerKind}
+      className={offerStyles.subscriptionCard}
+      data-guide={kind}
+      aria-labelledby={headingId}
+    >
+      <div className={offerStyles.subscriptionHeading}>
+        <h2 id={headingId}>
+          {before}
+          <span className={offerStyles.unlimitedText}>{t('7 days of unlimited use')}</span>
+          {after}
+        </h2>
+        <span className={offerStyles.dealTag}>
+          {t('Annual Pro & Max')}
+        </span>
+      </div>
+      <div className={offerStyles.benefits}>
+        <p className={offerStyles.modelSummary}>
+          {subscriptionImageModels.map(({ id, name }, index) => (
+            <span className={offerStyles.modelItem} key={id}>
+              <ModelAvatar modelId={id} name={name} />
+              {name}
+              {index < subscriptionImageModels.length - 1 && (
+                <span className={offerStyles.modelSeparator} aria-hidden="true">｜</span>
+              )}
+            </span>
+          ))}
+        </p>
+        {kind === 'upgrade' && (
+          <ul className={offerStyles.dealTags} aria-label={t('Subscription offers')}>
+            <li className={offerStyles.dealTag}>
+              {t('Go Max annual from')} <strong>{t('$100/mo')}</strong>
+            </li>
+            <li className={offerStyles.dealTag}>
+              Claude / GPT <strong>{t('up to 20% off')}</strong>
+            </li>
+          </ul>
+        )}
+      </div>
+      <div className={`om-settings-actions ${offerStyles.upgradeAction}`}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** Plan card and pay-as-you-go credits, laid out like the OpenDesign console dashboard. */
+function PlanUsagePanel({
+  account,
+  upgradable,
+  subscriptionLink,
+}: {
+  account: CloudAccountSummary;
+  upgradable: boolean;
+  subscriptionLink: SubscriptionLinkBuilder;
+}) {
+  const { t } = useI18n();
+  // Light mode matches the OpenDesign console plan card; dark mode keeps the Studio card.
+  const consoleLook = useShownStudioTheme() === 'light';
+  // Before the first billing read the summary has no plan yet: show a dash, not Free, and offer no Upgrade.
+  const planName = !account.plan
+    ? '—'
+    : account.plan.toLowerCase() === 'free'
+      ? t('Free plan')
+      : account.plan.charAt(0).toUpperCase() + account.plan.slice(1);
+  const upgrade = upgradable && (
+    consoleLook ? (
+      <a className="om-plan-usage-upgrade" {...subscriptionLink('openmotion_manage_subscription', 'view_plans')}>
+        <RemixIcon name="sparkling-fill" size={14} />
+        {t('Upgrade')}
+      </a>
+    ) : (
+      <a className="om-button om-plan-usage-upgrade" data-primary {...subscriptionLink('openmotion_manage_subscription', 'view_plans')}>
+        <RemixIcon name="sparkling-line" size={16} />
+        {t('Upgrade')}
+      </a>
+    )
+  );
+  return (
+    <section className="om-card om-plan-usage" data-look={consoleLook ? 'console' : 'studio'}>
+      {consoleLook ? (
+        <div className="om-plan-usage-head" style={{ '--om-plan-art': `url(${planCardBackground})` } as CSSProperties}>
+          <div className="om-plan-usage-identity">
+            <h2>{planName}</h2>
+          </div>
+          <div className="om-plan-usage-actions">
+            <a className="om-plan-usage-console" {...subscriptionLink('openmotion_manage_subscription', 'open_console')}>
+              {t('Go to console')}
+              <RemixIcon name="external-link-line" size={15} />
+            </a>
+            {upgrade}
+          </div>
+        </div>
+      ) : (
+        <div className="om-plan-usage-head">
+          <div className="om-plan-usage-identity">
+            <h2>{planName}</h2>
+          </div>
+          <div className="om-settings-actions">
+            <a className="om-button om-plan-usage-console" {...subscriptionLink('openmotion_manage_subscription', 'open_console')}>
+              {t('Go to console')}
+              <RemixIcon name="external-link-line" size={15} />
+            </a>
+            {upgrade}
+          </div>
+        </div>
+      )}
+      <div className="om-plan-usage-quotas">
+        <div className="om-plan-usage-quota" data-quota="balance">
+          <h3 className="om-subtitle">{t('Available balance')}</h3>
+          <div className="om-plan-usage-figure">
+            <strong>{formatUsd(account.balance)}</strong>
+            {consoleLook ? (
+              <a className="om-plan-usage-recharge" {...subscriptionLink('openmotion_manage_subscription', 'recharge')}>
+                {t('Top up')}
+                <RemixIcon name="external-link-line" size={15} />
+              </a>
+            ) : (
+              <a className="om-button om-plan-usage-recharge" data-primary {...subscriptionLink('openmotion_manage_subscription', 'recharge')}>
+                {t('Top up')}
+                <RemixIcon name="external-link-line" size={15} />
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function AccountSettings({ subscription = false, openProviders }: { subscription?: boolean; openProviders?: () => void }) {
   const { t } = useI18n();
   const state = useAccountSummary();
@@ -373,7 +537,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     void loadConnections();
   }, [loadConnections]);
 
-  function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
+  function subscriptionLink(source: string, element: SubscriptionLinkElement) {
     const consoleUrl = state.account!.consoleUrl;
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
       const targetUrl = buildSubscriptionUrl(consoleUrl, source);
@@ -484,9 +648,24 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   );
 
   const signedOutGuide = !signedIn;
+  const campaign = useBlackFridayActive();
   const plan = signedIn && !account?.billingUnavailable ? account?.plan?.trim().toLowerCase() : undefined;
+  const freeOrGoPlan = plan === 'free' || plan === 'go';
   const noAvailableModels = signedIn && !isDevMode && account?.modelGateway?.availableModelCount === 0;
-  const upgradeGuide = plan === 'free' || plan === 'go' || noAvailableModels;
+  const upgradeGuide = freeOrGoPlan || noAvailableModels;
+  const showBlackFridayUpgradeCard = campaign && freeOrGoPlan;
+  const desktopBillingHint = isDesktopApp() && (
+    <p className="om-muted" data-desktop-billing-hint="true">
+      {account?.user?.email
+        ? t(
+            'Opens in your browser. Verify you are signed in as {account}, then click Refresh when you return.',
+            { account: account.user.email },
+          )
+        : t(
+            'Opens in your browser. Verify you are signed into the same account there, then click Refresh when you return.',
+          )}
+    </p>
+  );
   const offer = activeAccountOffer();
   const capabilities = (
     <ul className="om-account-capabilities" aria-label={t('Multimodal')}>
@@ -527,16 +706,25 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
           )}
 
           {signedOutGuide ? (
-            <section className="om-card om-plan-guide">
-              <div className="om-plan-guide-head">
-                <h2 className="om-title">{t('Sign in to start multimodal generation')}</h2>
-                <span className="om-badge" data-active="true">{t('Plus and above')}</span>
-              </div>
-              <p className="om-muted">{t('Sign in with OpenDesign to access your cloud workspace, personal access tokens, and unified image, video, speech and music generation.')}</p>
-              {capabilities}
-              {offerNote}
-              <div className="om-settings-actions">{signIn}</div>
-            </section>
+            campaign ? (
+              <SubscriptionGuide kind="sign-in">
+                <Button variant="plain" title={t('Sign in with OpenDesign')} disabled={busy} onClick={signInWithOidc}>
+                  {t('Sign in now')}
+                  <RemixIcon name="arrow-right-up-line" size={14} />
+                </Button>
+              </SubscriptionGuide>
+            ) : (
+              <section className="om-card om-plan-guide" data-guide="sign-in">
+                <div className="om-plan-guide-head">
+                  <h2 className="om-title">{t('Sign in to start multimodal generation')}</h2>
+                  <span className="om-badge" data-active="true">{t('Plus and above')}</span>
+                </div>
+                <p className="om-muted">{t('Sign in with OpenDesign to access your cloud workspace, personal access tokens, and unified image, video, speech and music generation.')}</p>
+                {capabilities}
+                {offerNote}
+                <div className="om-settings-actions">{signIn}</div>
+              </section>
+            )
           ) : (
             <section className="om-card om-account-summary">
               <div>
@@ -638,39 +826,37 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
           )}
 
           {upgradeGuide && (
-            <section className="om-card om-plan-guide" data-guide="upgrade">
-              <div className="om-plan-guide-head">
-                <h2 className={plan === 'free' || plan === 'go' ? 'om-title om-plan-name' : 'om-title'}>
-                  {plan === 'free' ? t('Free plan') : plan === 'go' ? 'Go' : t('No media models available yet')}
-                </h2>
-                <span className="om-badge" data-active={plan !== 'free' && plan !== 'go' ? 'true' : undefined}>
-                  {plan === 'free' || plan === 'go' ? t('Current plan') : t('Plus and above')}
-                </span>
-              </div>
-              <p className="om-muted">{t('Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.')}</p>
-              {capabilities}
-              {offerNote}
-              <div className="om-settings-actions">
-                <a className="om-button" data-primary {...subscriptionLink('openmotion_manage_subscription', 'view_plans')}>
-                  <RemixIcon name="sparkling-line" size={16} />{t('Upgrade to Plus')}<RemixIcon name="external-link-line" size={15} />
+            showBlackFridayUpgradeCard ? (
+              <SubscriptionGuide kind="upgrade">
+                <a {...subscriptionLink('openmotion_manage_subscription', 'view_plans')}>
+                  {t('Upgrade to Plus', undefined, 'subscription offer')}
+                  <RemixIcon name="arrow-right-up-line" size={14} />
                 </a>
-                <a className="om-button" {...subscriptionLink('openmotion_manage_subscription', 'manage_subscription')}>
-                  {t('Manage subscription')}<RemixIcon name="external-link-line" size={15} />
-                </a>
-              </div>
-              {isDesktopApp() && (
-                <p className="om-muted" data-desktop-billing-hint="true">
-                  {account.user?.email
-                    ? t(
-                        'Opens in your browser. Verify you are signed in as {account}, then click Refresh when you return.',
-                        { account: account.user.email },
-                      )
-                    : t(
-                        'Opens in your browser. Verify you are signed into the same account there, then click Refresh when you return.',
-                      )}
-                </p>
-              )}
-            </section>
+              </SubscriptionGuide>
+            ) : (
+              <section className="om-card om-plan-guide" data-guide="upgrade">
+                <div className="om-plan-guide-head">
+                  <h2 className={freeOrGoPlan ? 'om-title om-plan-name' : 'om-title'}>
+                    {plan === 'free' ? t('Free plan') : plan === 'go' ? 'Go' : t('No media models available yet')}
+                  </h2>
+                  <span className="om-badge" data-active={!freeOrGoPlan ? 'true' : undefined}>
+                    {freeOrGoPlan ? t('Current plan') : t('Plus and above')}
+                  </span>
+                </div>
+                <p className="om-muted">{t('Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.')}</p>
+                {capabilities}
+                {offerNote}
+                <div className="om-settings-actions">
+                  <a className="om-button" data-primary {...subscriptionLink('openmotion_manage_subscription', 'view_plans')}>
+                    <RemixIcon name="sparkling-line" size={16} />{t('Upgrade to Plus')}<RemixIcon name="external-link-line" size={15} />
+                  </a>
+                  <a className="om-button" {...subscriptionLink('openmotion_manage_subscription', 'manage_subscription')}>
+                    {t('Manage subscription')}<RemixIcon name="external-link-line" size={15} />
+                  </a>
+                </div>
+                {desktopBillingHint}
+              </section>
+            )
           )}
 
           <section className="om-settings-section">
@@ -690,17 +876,24 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                 </Tooltip>
               )}
             </div>
-            {!(signedIn && account.billingUnavailable) && (
+            {signedIn && !account.billingUnavailable && (
+              <PlanUsagePanel
+                account={account}
+                upgradable={!freeOrGoPlan && Boolean(plan) && plan !== 'max'}
+                subscriptionLink={subscriptionLink}
+              />
+            )}
+            {!signedIn && (
               <div className="om-account-metrics">
                 <div className="om-card">
                   <span className="om-muted">{t('Current plan')}</span>
-                  <h3 className="om-title">{signedIn && account.plan ? account.plan === 'free' ? t('Free plan') : account.plan : '—'}</h3>
-                  <p className="om-muted">{t(signedIn ? 'Managed by OpenDesign' : 'Sign in to view your plan')}</p>
+                  <h3 className="om-title">—</h3>
+                  <p className="om-muted">{t('Sign in to view your plan')}</p>
                 </div>
                 <div className="om-card">
                   <span className="om-muted">{t('Available balance')}</span>
-                  <h3 className="om-title">{signedIn && account.balance != null ? `$${account.balance}` : '—'}</h3>
-                  <p className="om-muted">{t(signedIn ? 'Account credits in USD' : 'Sign in to view usage')}</p>
+                  <h3 className="om-title">—</h3>
+                  <p className="om-muted">{t('Sign in to view usage')}</p>
                 </div>
               </div>
             )}
@@ -719,23 +912,12 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                 </Button>
               </div>
             )}
-            {signedIn && !upgradeGuide && (
+            {signedIn && (!upgradeGuide || showBlackFridayUpgradeCard) && (
               <>
                 <a className="om-button" {...subscriptionLink('openmotion_manage_subscription', 'manage_subscription')}>
                   {t('Manage subscription')}<RemixIcon name="external-link-line" size={15} />
                 </a>
-                {isDesktopApp() && (
-                  <p className="om-muted" data-desktop-billing-hint="true">
-                    {account.user?.email
-                      ? t(
-                          'Opens in your browser. Verify you are signed in as {account}, then click Refresh when you return.',
-                          { account: account.user.email },
-                        )
-                      : t(
-                          'Opens in your browser. Verify you are signed into the same account there, then click Refresh when you return.',
-                        )}
-                  </p>
-                )}
+                {desktopBillingHint}
               </>
             )}
           </section>

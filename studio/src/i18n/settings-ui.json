@@ -522,7 +522,19 @@
     "the latest version": "最新版本",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "当前无法自动更新，请手动下载最新安装包以继续使用。",
     "Download manually": "手动下载",
-    "Restart to update ({version})": "重启以更新（{version}）"
+    "Restart to update ({version})": "重启以更新（{version}）",
+    "Sign in for {offer} on select models": "登录后精选模型{offer}",
+    "{offer} on select models": "精选模型{offer}",
+    "7 days of unlimited use": "7天无限用",
+    "Subscription offers": "订阅优惠",
+    "Go Max annual from": "Go Max 年付低至",
+    "$100/mo": "$100/月",
+    "up to 20% off": "低至 8 折",
+    "Upgrade to Plus (subscription offer)": "立即升级",
+    "Console": "控制台",
+    "Upgrade": "升级",
+    "Top up": "充值",
+    "Go to console": "前往控制台"
   },
   "ja": {
     "owner": "所有者",
@@ -811,7 +823,19 @@
     "the latest version": "最新バージョン",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "現在自動アップデートを利用できません。続行するには最新のインストーラーを手動でダウンロードしてください。",
     "Download manually": "手動でダウンロード",
-    "Restart to update ({version})": "再起動して更新（{version}）"
+    "Restart to update ({version})": "再起動して更新（{version}）",
+    "Sign in for {offer} on select models": "ログインして厳選モデルを{offer}",
+    "{offer} on select models": "厳選モデルを{offer}",
+    "7 days of unlimited use": "7日間使い放題",
+    "Subscription offers": "サブスクリプション特典",
+    "Go Max annual from": "Go Max 年払いで",
+    "$100/mo": "月額100ドルから",
+    "up to 20% off": "最大20%オフ",
+    "Upgrade to Plus (subscription offer)": "Plus にアップグレード",
+    "Upgrade": "アップグレード",
+    "Console": "コンソール",
+    "Top up": "チャージ",
+    "Go to console": "コンソールへ"
   },
   "ko": {
     "owner": "소유자",
@@ -995,7 +1019,19 @@
     "the latest version": "최신 버전",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "현재 자동 업데이트를 사용할 수 없습니다. 계속하려면 최신 설치 프로그램을 수동으로 다운로드하세요.",
     "Download manually": "수동 다운로드",
-    "Restart to update ({version})": "재시작하여 업데이트 ({version})"
+    "Restart to update ({version})": "재시작하여 업데이트 ({version})",
+    "Sign in for {offer} on select models": "로그인하고 엄선한 모델을 {offer} 이용하세요",
+    "{offer} on select models": "엄선한 모델을 {offer}",
+    "7 days of unlimited use": "7일간 무제한으로",
+    "Subscription offers": "구독 혜택",
+    "Go Max annual from": "Go Max 연간 결제 시",
+    "$100/mo": "월 $100부터",
+    "up to 20% off": "최대 20% 할인",
+    "Upgrade to Plus (subscription offer)": "Plus로 업그레이드",
+    "Upgrade": "업그레이드",
+    "Console": "콘솔",
+    "Top up": "충전",
+    "Go to console": "콘솔로 이동"
   },
   "de": {
     "owner": "Inhaber",
@@ -1179,7 +1215,19 @@
     "the latest version": "die neueste Version",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "Automatische Updates sind derzeit nicht verfügbar. Laden Sie das neueste Installationsprogramm manuell herunter, um fortzufahren.",
     "Download manually": "Manuell herunterladen",
-    "Restart to update ({version})": "Zum Aktualisieren neu starten ({version})"
+    "Restart to update ({version})": "Zum Aktualisieren neu starten ({version})",
+    "Sign in for {offer} on select models": "Anmelden und ausgewählte Modelle {offer}",
+    "{offer} on select models": "Ausgewählte Modelle {offer}",
+    "7 days of unlimited use": "7 Tage unbegrenzt nutzen",
+    "Subscription offers": "Abo-Angebote",
+    "Go Max annual from": "Go Max im Jahresabo ab",
+    "$100/mo": "100 $/Monat",
+    "up to 20% off": "bis zu 20 % Rabatt",
+    "Upgrade to Plus (subscription offer)": "Auf Plus upgraden",
+    "Upgrade": "Upgrade",
+    "Console": "Konsole",
+    "Top up": "Aufladen",
+    "Go to console": "Zur Konsole"
   },
   "fr": {
     "owner": "Propriétaire",
@@ -1363,7 +1411,19 @@
     "the latest version": "la dernière version",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "La mise à jour automatique est actuellement indisponible. Téléchargez manuellement le dernier installateur pour continuer.",
     "Download manually": "Télécharger manuellement",
-    "Restart to update ({version})": "Redémarrer pour mettre à jour ({version})"
+    "Restart to update ({version})": "Redémarrer pour mettre à jour ({version})",
+    "Sign in for {offer} on select models": "Connectez-vous pour profiter de {offer} sur une sélection de modèles",
+    "{offer} on select models": "{offer} sur une sélection de modèles",
+    "7 days of unlimited use": "7 jours en illimité",
+    "Subscription offers": "Offres d’abonnement",
+    "Go Max annual from": "Go Max annuel dès",
+    "$100/mo": "100 $/mois",
+    "up to 20% off": "jusqu’à −20 %",
+    "Upgrade to Plus (subscription offer)": "Passer à Plus",
+    "Upgrade": "Améliorer",
+    "Console": "Console",
+    "Top up": "Recharger",
+    "Go to console": "Accéder à la console"
   },
   "ru": {
     "owner": "Владелец",
@@ -1547,7 +1607,19 @@
     "the latest version": "последней версии",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "Автоматическое обновление сейчас недоступно. Скачайте последний установщик вручную, чтобы продолжить.",
     "Download manually": "Скачать вручную",
-    "Restart to update ({version})": "Перезапустить для обновления ({version})"
+    "Restart to update ({version})": "Перезапустить для обновления ({version})",
+    "Sign in for {offer} on select models": "Войдите, чтобы получить {offer} на избранные модели",
+    "{offer} on select models": "{offer} на избранные модели",
+    "7 days of unlimited use": "7 дней безлимита",
+    "Subscription offers": "Предложения по подписке",
+    "Go Max annual from": "Go Max на год от",
+    "$100/mo": "100 $/мес.",
+    "up to 20% off": "скидка до 20%",
+    "Upgrade to Plus (subscription offer)": "Перейти на Plus",
+    "Upgrade": "Улучшить тариф",
+    "Console": "Консоль",
+    "Top up": "Пополнить",
+    "Go to console": "Перейти в консоль"
   },
   "es": {
     "owner": "Propietario",
@@ -1731,7 +1803,19 @@
     "the latest version": "la última versión",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "La actualización automática no está disponible en este momento. Descarga el último instalador manualmente para continuar.",
     "Download manually": "Descargar manualmente",
-    "Restart to update ({version})": "Reiniciar para actualizar ({version})"
+    "Restart to update ({version})": "Reiniciar para actualizar ({version})",
+    "Sign in for {offer} on select models": "Inicia sesión para disfrutar de {offer} de modelos seleccionados",
+    "{offer} on select models": "{offer} de modelos seleccionados",
+    "7 days of unlimited use": "7 días de uso ilimitado",
+    "Subscription offers": "Ofertas de suscripción",
+    "Go Max annual from": "Go Max anual desde",
+    "$100/mo": "100 $/mes",
+    "up to 20% off": "hasta un 20 % de descuento",
+    "Upgrade to Plus (subscription offer)": "Mejorar a Plus",
+    "Upgrade": "Mejorar plan",
+    "Console": "Consola",
+    "Top up": "Recargar",
+    "Go to console": "Ir a la consola"
   },
   "pt-BR": {
     "owner": "Proprietário",
@@ -1915,7 +1999,19 @@
     "the latest version": "a versão mais recente",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "A atualização automática está indisponível no momento. Baixe o instalador mais recente manualmente para continuar.",
     "Download manually": "Baixar manualmente",
-    "Restart to update ({version})": "Reiniciar para atualizar ({version})"
+    "Restart to update ({version})": "Reiniciar para atualizar ({version})",
+    "Sign in for {offer} on select models": "Entre para ter {offer} de modelos selecionados",
+    "{offer} on select models": "{offer} de modelos selecionados",
+    "7 days of unlimited use": "7 dias de uso ilimitado",
+    "Subscription offers": "Ofertas de assinatura",
+    "Go Max annual from": "Go Max anual a partir de",
+    "$100/mo": "US$ 100/mês",
+    "up to 20% off": "até 20% de desconto",
+    "Upgrade to Plus (subscription offer)": "Fazer upgrade para o Plus",
+    "Upgrade": "Fazer upgrade",
+    "Console": "Console",
+    "Top up": "Recarregar",
+    "Go to console": "Ir para o console"
   },
   "it": {
     "owner": "Proprietario",
@@ -2099,7 +2195,19 @@
     "the latest version": "la versione più recente",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "L’aggiornamento automatico non è al momento disponibile. Scarica manualmente l’ultimo programma di installazione per continuare.",
     "Download manually": "Scarica manualmente",
-    "Restart to update ({version})": "Riavvia per aggiornare ({version})"
+    "Restart to update ({version})": "Riavvia per aggiornare ({version})",
+    "Sign in for {offer} on select models": "Accedi per ottenere {offer} dei modelli selezionati",
+    "{offer} on select models": "{offer} dei modelli selezionati",
+    "7 days of unlimited use": "7 giorni di uso illimitato",
+    "Subscription offers": "Offerte di abbonamento",
+    "Go Max annual from": "Go Max annuale da",
+    "$100/mo": "100 $/mese",
+    "up to 20% off": "fino al 20% di sconto",
+    "Upgrade to Plus (subscription offer)": "Passa a Plus",
+    "Upgrade": "Fai l’upgrade",
+    "Console": "Console",
+    "Top up": "Ricarica",
+    "Go to console": "Vai alla console"
   },
   "tr": {
     "owner": "Sahip",
@@ -2283,6 +2391,18 @@
     "the latest version": "en son sürüm",
     "Automatic update is currently unavailable. Download the latest installer manually to continue.": "Otomatik güncelleme şu anda kullanılamıyor. Devam etmek için en son yükleyiciyi manuel olarak indirin.",
     "Download manually": "Manuel indir",
-    "Restart to update ({version})": "Güncellemek için yeniden başlat ({version})"
+    "Restart to update ({version})": "Güncellemek için yeniden başlat ({version})",
+    "Sign in for {offer} on select models": "Seçili modellerde {offer} için oturum açın",
+    "{offer} on select models": "Seçili modellerde {offer}",
+    "7 days of unlimited use": "7 gün sınırsız kullanım",
+    "Subscription offers": "Abonelik teklifleri",
+    "Go Max annual from": "Yıllık Go Max",
+    "$100/mo": "ayda 100 $’dan başlayan fiyatlarla",
+    "up to 20% off": "%20’ye varan indirim",
+    "Upgrade to Plus (subscription offer)": "Plus'a yükselt",
+    "Upgrade": "Yükselt",
+    "Console": "Konsol",
+    "Top up": "Bakiye yükle",
+    "Go to console": "Konsola git"
   }
 }
