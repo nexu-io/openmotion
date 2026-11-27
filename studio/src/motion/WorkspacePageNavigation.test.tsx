@@ -1680,24 +1680,15 @@ it('lists each primary destination once in order, with the Image mega menu and t
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
   const entryCards = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-entries > button')];
-  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Create image', 'Edit image', '4K upscale']);
-  expect(entryCards[2].disabled).toBe(true);
-  expect(entryCards[2].textContent).toContain('Soon');
-  // Background removal and relighting are live features; 2K resolution stays a Create image option, not a standalone feature.
+  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Create image', 'Edit image', 'Remove background', 'Relight']);
+  expect(entryCards.every(card => !card.disabled)).toBe(true);
   expect(menu.textContent).not.toContain('2K HD output');
-  for (const label of ['Remove background', 'Relight']) {
-    const row = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent === label)!;
-    expect(row.disabled, label).toBe(false);
+  const imageFeatureRows = [...menu.querySelectorAll<HTMLButtonElement>('section[aria-label="Features"] .om-media-mega-row')];
+  expect(imageFeatureRows.map(row => row.querySelector('.om-media-mega-label')?.textContent)).toEqual(['4K upscale', 'Inpaint', 'Expand image', 'Batch', 'Image layers']);
+  for (const row of imageFeatureRows) {
+    expect(row.disabled).toBe(true);
+    expect(row.textContent).toContain('Soon');
   }
-  // Upcoming feature rows are visible with Soon (6 total features show directly without a 1-item More fold) and non-clickable.
-  const imageFeatureLabels = [...menu.querySelectorAll('section[aria-label="Features"] .om-media-mega-label')].map(node => node.textContent);
-  expect(imageFeatureLabels).not.toContain('4K upscale');
-  const inpainting = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Inpaint'))!;
-  expect(inpainting.disabled).toBe(true);
-  expect(inpainting.textContent).toContain('Soon');
-  expect(menu.textContent).toContain('Expand image');
-  expect(menu.textContent).toContain('Batch');
-  expect(menu.textContent).toContain('Image layers');
   expect(menu.querySelector('button[aria-label="More Features"]')).toBeNull();
   // The Models column lists every live gateway image model in flagship order (with More expanding beyond 5), without setup tags.
   const visibleModels = [...menu.querySelectorAll('section[aria-label="Models"] .om-media-mega-row .om-media-mega-label')].map(node => node.textContent);
@@ -1734,11 +1725,11 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(videoHeader.querySelector('.om-studio-heading-icon')).toBeNull();
   expect(videoHeader.querySelector('nav button[aria-current="page"]')?.textContent).toBe('Multi-shot');
   expect(videoHeader.querySelectorAll('.om-video-scene-tab > svg')).toHaveLength(4);
-  // The live feature rows open their own landing pages without a pinned model.
+  // The live feature cards open their landing pages without a pinned model.
   for (const [label, scene] of [['Remove background', 'remove-background'], ['Relight', 'relight']]) {
     await openWorkspaceMenu('Image · Scenes');
-    const row = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-row')].find(node => node.textContent === label)!;
-    await act(async () => row.click());
+    const card = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-entries > button')].find(node => node.textContent === label)!;
+    await act(async () => card.click());
     expect(page().studio, label).toMatchObject({ scene: { id: scene }, landing: true, model: null });
     const header = container.querySelector('.om-studio-bar')!;
     expect(header.getAttribute('data-image-bar')).toBe('true');

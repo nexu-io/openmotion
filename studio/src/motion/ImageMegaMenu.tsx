@@ -3,12 +3,13 @@ import { Button } from 'open-design-ui/button';
 import type { Model } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
+import { sceneDestination, sceneFeature, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { sceneExamples } from './sceneShowcase';
 import { editImageScene, imageMenuModels, imageModelBadge, imageScene, type ModelFamily } from './imageMenuModels';
 import { ModelAvatar } from './settingsPrimitives';
 import type { useMediaCatalog } from './useMediaCatalog';
-import lunarStill from './scene-art/lunar-shot-still.webp';
+import sofaCutout from './scene-art/sofa-cutout.webp';
+import sofaRelight from './scene-art/sofa-relight.webp';
 import speakerRoom from './scene-art/speaker-room.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
 
@@ -52,10 +53,14 @@ export function ModelMenuColumn({ families, onOpen }: { families: ModelFamily[];
   return <MegaMenuColumn title={t('Models')} items={items} />;
 }
 
-const findScene = (id: StudioScene['id']) => studioScenes.find(scene => scene.id === id)!;
-const sceneCards = [imageScene, editImageScene] as const;
-const featureScenes = [findScene('remove-background'), findScene('relight')];
+const sceneCards = [
+  imageScene,
+  editImageScene,
+  studioScenes.find(scene => scene.id === 'remove-background')!,
+  studioScenes.find(scene => scene.id === 'relight')!,
+] as const;
 const upcomingFeatures = [
+  ['4K upscale', 'fullscreen-line'],
   ['Inpaint', 'edit-line'],
   ['Expand image', 'expand-horizontal-line'],
   ['Batch', 'layout-grid-line'],
@@ -63,6 +68,11 @@ const upcomingFeatures = [
 ] as const;
 
 function ImageMenuArt({ scene }: { scene: typeof sceneCards[number]['id'] }) {
+  if (scene === 'remove-background' || scene === 'relight') {
+    return <span className="om-scene-tile-art om-media-demo om-image-feature-demo" aria-hidden="true">
+      <img src={scene === 'remove-background' ? sofaCutout : sofaRelight} alt="" />
+    </span>;
+  }
   const demo = scene === 'text-to-image' ? 'image' : 'edit';
   return <span className={`om-scene-tile-art om-media-demo om-${demo}-demo`} aria-hidden="true">
     <span className="om-media-demo-frame">
@@ -89,8 +99,10 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
   const rows = imageMenuModels(catalog?.models ?? [], catalog?.status.providers ?? []);
   const pinned = catalog?.models.find(model => model.id === destination?.model);
   // Non-feature image scenes keep a compatible pinned model; feature scenes open without a pin so OpenDesign defaults apply.
-  const openScene = (scene: StudioScene) => onNavigate(sceneDestination(scene, destination, pinned && supportsScene(pinned, scene) ? pinned.id : null));
-  const openFeature = (scene: StudioScene) => onNavigate(sceneDestination(scene, destination, null));
+  const openScene = (scene: StudioScene) => {
+    const model = !sceneFeature(scene) && pinned && supportsScene(pinned, scene) ? pinned.id : null;
+    onNavigate(sceneDestination(scene, destination, model));
+  };
 
   return <div className="om-media-mega">
     <div className="om-media-menu-grid om-media-mega-entries">
@@ -98,29 +110,13 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
         aria-current={destination?.scene.id === scene.id ? 'page' : undefined} onClick={() => openScene(scene)}>
         <ImageMenuArt scene={scene.id} /><strong>{t(scene.label)}</strong>
       </Button>)}
-      <Button variant="plain" className="om-scene-tile om-scene-tile-disabled" disabled aria-disabled="true">
-        <span className="om-scene-tile-art om-upscale-demo">
-          <MenuBadge label="Soon" />
-          <span className="om-upscale-split" aria-hidden="true">
-            <img className="om-upscale-low" src={lunarStill} alt="" />
-            <img className="om-upscale-high" src={lunarStill} alt="" />
-            <span className="om-upscale-divider" />
-            <span className="om-upscale-tag" data-side="low">HD</span>
-            <span className="om-upscale-tag" data-side="high">4K</span>
-          </span>
-        </span>
-        <strong>{t('4K upscale')}</strong>
-      </Button>
     </div>
     <div className="om-media-mega-columns">
-      <MegaMenuColumn title={t('Features')} items={[
-        ...featureScenes.map(scene => <Button key={scene.id} variant="plain" className="om-nav-item om-media-mega-row" aria-current={destination?.scene.id === scene.id ? 'page' : undefined} onClick={() => openFeature(scene)}>
-          <span className="om-image-menu-icon"><RemixIcon name={scene.icon} size={16} /></span><span className="om-media-mega-label">{t(scene.label)}</span>
-        </Button>),
-        ...upcomingFeatures.map(([title, icon]) => <Button key={title} variant="plain" className="om-nav-item om-media-mega-row" disabled aria-disabled="true">
+      <MegaMenuColumn title={t('Features')} items={upcomingFeatures.map(([title, icon]) => (
+        <Button key={title} variant="plain" className="om-nav-item om-media-mega-row" disabled aria-disabled="true">
           <span className="om-image-menu-icon"><RemixIcon name={icon} size={16} /></span><span className="om-media-mega-label">{t(title)}</span><MenuBadge label="Soon" />
-        </Button>),
-      ]} />
+        </Button>
+      ))} />
       <ModelMenuColumn families={rows} onOpen={model => onNavigate(sceneDestination(imageScene, destination, model.id))} />
     </div>
   </div>;
