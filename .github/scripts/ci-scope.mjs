@@ -9,7 +9,7 @@ import { validateMediaManifest } from '../../shared/repository-media.ts';
 // Only presentation pages qualify; Skills, installation guides and examples are product inputs.
 const presentationDocs = new Set([
   'README.md', 'README.zh-CN.md', 'README.REVERSE-ENGINEERING.md',
-  'docs/README.md', 'docs/README.zh-CN.md', 'docs/README.ja.md',
+  'docs/README.md', 'docs/README.zh-CN.md', 'docs/README.ja.md', 'docs/README.vi.md',
 ]);
 
 export function classifyChanges(files) {
@@ -30,7 +30,7 @@ export function documentationContract(text) {
   for (const line of text.split('\n')) {
     const heading = !fence && line.match(/^(#{1,6})\s+(.*)/);
     if (heading && heading[1].length <= section) section = 0;
-    if (heading && /install|setup|quick.?start|安装|快速开始|インストール|セットアップ/i.test(heading[2])) section = heading[1].length;
+    if (heading && /install|setup|quick.?start|安装|快速开始|インストール|セットアップ|cài đặt|thiết lập|bắt đầu nhanh/i.test(heading[2])) section = heading[1].length;
     const marker = line.match(/^\s*(`{3,}|~{3,})/);
     if (fence || marker || section || /install|setup|\b(?:npm|npx|curl|powershell)\b/i.test(line)) protectedLines.push(line);
     if (marker) {

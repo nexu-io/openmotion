@@ -17,6 +17,14 @@ test('README installation instructions and executable examples retain their full
   assert.notEqual(documentationContract('~~~sh\nnode a.mjs\n~~~'), documentationContract('~~~sh\nnode b.mjs\n~~~'));
 });
 
+test('Vietnamese README installation sections retain their full gate', () => {
+  const before = '# Tổng quan\nOriginal copy\n## Cài đặt trong agent của bạn\nChoose your host.\n### Thiết lập từ mã nguồn\nKeep the configuration.\n## Trưng bày\nA film.\n';
+  assert.equal(documentationContract(before), documentationContract(before.replace('Original copy', 'New copy')));
+  for (const [from, to] of [['Choose your host.', 'Infer the host.'], ['Keep the configuration.', 'Remove the configuration.']]) {
+    assert.notEqual(documentationContract(before), documentationContract(before.replace(from, to)));
+  }
+});
+
 test('only presentation documents skip Studio and cloud checks', () => {
   assert.equal(classifyChanges(['README.md', 'docs/README.ja.md']).full, false);
   assert.equal(classifyChanges(['README.md']).maintainability, false);

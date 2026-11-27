@@ -31,7 +31,7 @@
 
 <div align="center">
 
-[English](README.md) · **简体中文** · [日本語](docs/README.ja.md)
+[English](README.md) · **简体中文** · [日本語](docs/README.ja.md) · [Tiếng Việt](docs/README.vi.md)
 
 </div>
 

@@ -30,7 +30,7 @@
 
 <div align="center">
 
-**English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md)
+**English** · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md) · [Tiếng Việt](docs/README.vi.md)
 
 </div>
 
