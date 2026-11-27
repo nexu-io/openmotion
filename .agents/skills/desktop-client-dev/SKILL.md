@@ -69,11 +69,12 @@ On `test` / `dev` builds you can also switch Studio origins at runtime from the 
 ## Release and hot-config workflows
 
 - **Desktop installers (`.github/workflows/desktop-release.yml`):**
-  - Pushing desktop-coupled paths to `desktop-test` automatically verifies, builds (`macOS arm64`, `macOS x64`, `Windows x64`), signs/notarizes macOS, uploads to `releases.open-design.ai/open-motion/desktop/test/`, merges `test-mac.yml`, and notifies Feishu.
+  - Pushing desktop-coupled paths to `desktop-test` verifies, builds (`macOS arm64`, `macOS x64`, `Windows x64`), signs/notarizes macOS, uploads to `releases.open-design.ai/open-motion/desktop/test/`, merges `test-mac.yml`, and notifies Feishu. A single `approve-release` job declares the `desktop-release` environment and the build matrix and manifest publish both depend on it, so expect one approval pause there once required reviewers are configured.
   - `stable` releases require `workflow_dispatch` on `main` with `channel=stable` and `publish=true`.
 - **Hot signed config (`.github/workflows/desktop-signed-config.yml`):**
-  - Updating `desktop/config/test.payload.json` on `desktop-test` automatically validates bounds, increments the live monotonic `sequence`, signs with the operational key/cert, runs `verify-config`, and uploads `open-motion/desktop/config/test.json` (`no-cache`).
+  - Updating `desktop/config/test.payload.json` on `desktop-test` validates bounds, increments the live monotonic `sequence`, signs with the operational key/cert, runs `verify-config`, and uploads `open-motion/desktop/config/test.json` (`no-cache`). This job declares the `desktop-signed-config` environment, so a push waits for its required reviewers.
   - `stable` config updates run via `workflow_dispatch` on `main` with `channel=stable` and `publish=true`.
+- **Release approval prerequisite:** `desktop-release` and `desktop-signed-config` are inert until repository settings assign required reviewers to them. Configure both environments before treating a queued release as an approval gate.
 
 ## Verification before handing off
 

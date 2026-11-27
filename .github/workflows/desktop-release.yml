@@ -189,6 +189,24 @@ jobs:
             --run-attempt "${GITHUB_RUN_ATTEMPT}" \
             --github-output "${GITHUB_OUTPUT}"
 
+  approve-release:
+    name: Release approval gate
+    needs: prepare
+    # One approval for the whole release. The matrix build and the manifest publish both depend on
+    # this job, so reviewers approve once instead of once per matrix leg and again at publish time.
+    # An environment without protection rules is inert, so this only bites once required reviewers
+    # are configured in repository settings.
+    if: needs.prepare.outputs.publish == 'true'
+    environment: desktop-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Record approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Approved desktop release for channel ${{ needs.prepare.outputs.channel }}."
+
   verify-desktop:
     name: Verify Desktop Shell
     needs: prepare
@@ -232,7 +250,10 @@ jobs:
 
   build-desktop:
     name: Build Desktop (${{ matrix.label }})
-    needs: prepare
+    needs: [prepare, approve-release]
+    # Signing, notarization and installer upload run here, behind the single release approval above.
+    # The explicit result check keeps dry runs working, where the gate is skipped because publish=false.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.approve-release.result == 'success' || needs.approve-release.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -613,7 +634,9 @@ jobs:
 
   publish-manifests:
     name: Publish Verified Update Manifests
-    needs: [prepare, verify-desktop, build-desktop]
+    needs: [prepare, verify-desktop, build-desktop, approve-release]
+    # Overwrites the channel update manifests that every installed client polls. The artifact this
+    # writes was produced by the approved build, so the single gate above covers it.
     if: needs.prepare.outputs.publish == 'true' && (github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/desktop-test' && needs.prepare.outputs.channel == 'test'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5

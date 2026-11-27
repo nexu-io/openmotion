@@ -494,11 +494,18 @@ test('.github/workflows/desktop-release.yml enforces main-only per-arch builds w
   assert.match(workflowYml, /APPLE_API_KEY:/);
   assert.match(workflowYml, /-c\.afterSign=scripts\/notarize\.cjs/);
 
-  // Parallel DAG (prepare -> verify-desktop || build-desktop -> publish-manifests), sparse checkout, and binary caching.
+  // DAG: prepare -> approve-release -> build-desktop -> publish-manifests, with verify-desktop in
+  // parallel. One approval gate covers the whole release instead of one per matrix leg.
   assert.match(workflowYml, /^  prepare:/m);
+  assert.match(workflowYml, /^  approve-release:/m);
   assert.match(workflowYml, /^  verify-desktop:/m);
   assert.match(workflowYml, /^  publish-manifests:/m);
-  assert.match(workflowYml, /needs:\s*\[prepare,\s*verify-desktop,\s*build-desktop\]/);
+  assert.match(workflowYml, /needs:\s*\[prepare,\s*verify-desktop,\s*build-desktop,\s*approve-release\]/);
+  assert.match(workflowYml, /needs:\s*\[prepare,\s*approve-release\]/);
+  // Exactly one job may carry the approval gate, and the build must stay cancel-aware.
+  assert.equal((workflowYml.match(/environment:\s*desktop-release/g) ?? []).length, 1);
+  assert.match(workflowYml, /if:\s*\$\{\{\s*!cancelled\(\) && needs\.prepare\.result == 'success'/);
+  assert.equal(/always\(\)/.test(workflowYml), false);
   assert.match(workflowYml, /sparse-checkout:/);
   assert.match(workflowYml, /ELECTRON_SKIP_BINARY_DOWNLOAD:\s*'1'/);
   assert.match(workflowYml, /uses:\s*actions\/cache@v4/);

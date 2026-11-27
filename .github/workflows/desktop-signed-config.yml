@@ -41,6 +41,10 @@ jobs:
   sign-and-publish:
     name: Sign & Publish Desktop Config
     runs-on: ubuntu-24.04
+    # Publication approval gate: assign required reviewers to this environment in repository
+    # settings. An environment without protection rules is inert, so this does not change the
+    # current release flow until maintainers configure it.
+    environment: desktop-signed-config
     timeout-minutes: 10
     steps:
       - name: Enforce branch and channel guard
