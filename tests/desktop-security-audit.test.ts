@@ -101,8 +101,8 @@ import {
 
 const BASE_TIME_MS = Date.parse('2026-11-23T12:00:00.000Z');
 const HOUR_MS = 3600 * 1000;
-const STUDIO_ORIGIN = 'https://motion.open-design.ai';
-const EXPECTED_MCP_URL = 'https://motion.open-design.ai/mcp';
+const STUDIO_ORIGIN = 'https://app.open-design.ai';
+const EXPECTED_MCP_URL = 'https://app.open-design.ai/mcp';
 
 const tempDirs: string[] = [];
 
@@ -531,9 +531,9 @@ describe('Scenario 1: Compromised Renderer / Injected Script (XSS)', () => {
       'https://evil.example.com/mcp',
       'https://open-design.ai.evil.com/mcp',
       'https://notopen-design.ai/mcp',
-      'http://motion.open-design.ai/mcp',
-      'https://motion.open-design.ai@evil.example.com/mcp',
-      'https://user:pass@motion.open-design.ai/mcp',
+      'http://app.open-design.ai/mcp',
+      'https://app.open-design.ai@evil.example.com/mcp',
+      'https://user:pass@app.open-design.ai/mcp',
       'javascript:alert(1)',
       'file:///etc/passwd',
     ];
@@ -874,7 +874,7 @@ describe('Scenario 1: Compromised Renderer / Injected Script (XSS)', () => {
       'https://sso.external-idp.example.com/oauth/authorize',
       'https://accounts.google.com/o/oauth2/v2/auth',
       'https://evil.open-design.ai.attacker.com/login',
-      'http://motion.open-design.ai/projects',
+      'http://app.open-design.ai/projects',
     ]) {
       const idpFrame: IpcSenderFrameLike = { url: idpUrl, parent: null };
       idpFrame.top = idpFrame;
@@ -1122,7 +1122,7 @@ describe('Scenario 1: Compromised Renderer / Injected Script (XSS)', () => {
       for (const badOrigin of [
         'https://evil.example.com',
         'https://open-design.ai.evil.com',
-        'http://motion.open-design.ai',
+        'http://app.open-design.ai',
       ]) {
         const res = await fetch(invokeUrl, {
           method: 'POST',

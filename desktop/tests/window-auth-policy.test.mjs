@@ -100,7 +100,7 @@ function readJsonBody(req) {
 
 test('K2 navigation policy allows same-origin Studio, gates auth fallback, routes billing/external out, and denies dangerous schemes', () => {
   const baseConfig = {
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     channel: 'stable',
     allowedOrigins: ['https://studio.open-design.ai', 'https://evil.example.com'],
     windowPolicy: {
@@ -113,7 +113,7 @@ test('K2 navigation policy allows same-origin Studio, gates auth fallback, route
   };
 
   // Same-origin Studio URL allowed
-  const sameOrigin = evaluateNavigationPolicy('https://motion.open-design.ai/projects/abc', baseConfig);
+  const sameOrigin = evaluateNavigationPolicy('https://app.open-design.ai/projects/abc', baseConfig);
   assert.equal(sameOrigin.action, 'allow');
   assert.equal(sameOrigin.reason, 'same-origin-studio');
   assert.equal(sameOrigin.openExternal, false);
@@ -161,13 +161,13 @@ test('K2 navigation policy allows same-origin Studio, gates auth fallback, route
   // Billing / subscription / account portal detection & external redirection
   assert.equal(isBillingOrAccountPortalUrl('https://billing.stripe.com/p/session/test_123'), true);
   assert.equal(isBillingOrAccountPortalUrl('https://checkout.stripe.com/c/pay/cs_123'), true);
-  assert.equal(isBillingOrAccountPortalUrl('https://motion.open-design.ai/billing'), true);
-  assert.equal(isBillingOrAccountPortalUrl('https://motion.open-design.ai/settings/billing'), true);
+  assert.equal(isBillingOrAccountPortalUrl('https://app.open-design.ai/billing'), true);
+  assert.equal(isBillingOrAccountPortalUrl('https://app.open-design.ai/settings/billing'), true);
   assert.equal(isBillingOrAccountPortalUrl('https://account.open-design.ai/subscription'), true);
-  assert.equal(isBillingOrAccountPortalUrl('https://motion.open-design.ai/projects/123'), false);
-  assert.equal(isBillingOrAccountPortalUrl('https://motion.open-design.ai/settings'), false);
+  assert.equal(isBillingOrAccountPortalUrl('https://app.open-design.ai/projects/123'), false);
+  assert.equal(isBillingOrAccountPortalUrl('https://app.open-design.ai/settings'), false);
 
-  const sameOriginBilling = evaluateNavigationPolicy('https://motion.open-design.ai/billing', baseConfig);
+  const sameOriginBilling = evaluateNavigationPolicy('https://app.open-design.ai/billing', baseConfig);
   assert.equal(sameOriginBilling.action, 'deny');
   assert.equal(sameOriginBilling.reason, 'billing-external');
   assert.equal(sameOriginBilling.openExternal, true);
@@ -191,9 +191,9 @@ test('K2 navigation policy allows same-origin Studio, gates auth fallback, route
     'javascript:alert(1)',
     'file:///etc/passwd',
     'data:text/html,<script>alert(1)</script>',
-    'blob:https://motion.open-design.ai/1234',
+    'blob:https://app.open-design.ai/1234',
     'vbscript:msgbox(1)',
-    'https://user:pass@motion.open-design.ai/',
+    'https://user:pass@app.open-design.ai/',
     'not-a-valid-url',
   ]) {
     const res = evaluateNavigationPolicy(dangerous, baseConfig);
@@ -204,7 +204,7 @@ test('K2 navigation policy allows same-origin Studio, gates auth fallback, route
 
 test('K2 popup policy allows about:blank and same-origin popups WITHOUT preload, routes external to browser, and denies dangerous schemes', () => {
   const config = {
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     channel: 'stable',
     windowPolicy: {
       allowedPopupOrigins: ['https://preview.open-design.ai', 'https://attacker.example.com'],
@@ -233,7 +233,7 @@ test('K2 popup policy allows about:blank and same-origin popups WITHOUT preload,
 
   // Same-origin Studio popup allowed without preload
   const sameOriginPopup = evaluateWindowOpenPolicy(
-    'https://motion.open-design.ai/presenter/proj_1',
+    'https://app.open-design.ai/presenter/proj_1',
     config,
   );
   assert.equal(sameOriginPopup.action, 'allow');
@@ -252,7 +252,7 @@ test('K2 popup policy allows about:blank and same-origin popups WITHOUT preload,
   assert.equal(attackerPopup.openExternal, true);
 
   // Billing popup routed to system browser even on same origin
-  const billingPopup = evaluateWindowOpenPolicy('https://motion.open-design.ai/checkout', config);
+  const billingPopup = evaluateWindowOpenPolicy('https://app.open-design.ai/checkout', config);
   assert.equal(billingPopup.action, 'deny');
   assert.equal(billingPopup.reason, 'billing-external');
   assert.equal(billingPopup.openExternal, true);
@@ -288,7 +288,7 @@ test('K2 attachWindowNavigationPolicies hooks will-navigate, will-redirect, and 
 
   attachWindowNavigationPolicies(fakeWebContents, {
     getConfig: () => ({
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       channel: 'stable',
     }),
     openExternal: (url, ctx) => {
@@ -298,7 +298,7 @@ test('K2 attachWindowNavigationPolicies hooks will-navigate, will-redirect, and 
 
   // Same-origin navigation does NOT prevent default
   let prevented = false;
-  listeners.get('will-navigate')({ preventDefault: () => { prevented = true; } }, 'https://motion.open-design.ai/home');
+  listeners.get('will-navigate')({ preventDefault: () => { prevented = true; } }, 'https://app.open-design.ai/home');
   assert.equal(prevented, false);
 
   // Billing redirect prevents default and opens externally with billing flag
@@ -486,7 +486,7 @@ test('K3 PKCE S256 handoff completes end-to-end against stub cloud server and re
 test('K3 DesktopAuthHandoffManager handles cancellation, timeout, and exchange failure cleanly', async () => {
   // 1. Cancellation closes loopback server and resolves completion as canceled
   const cancelManager = new DesktopAuthHandoffManager({
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     openExternal: () => {},
     exchangeFetch: async () => {
       throw new Error('should not be called');
@@ -508,7 +508,7 @@ test('K3 DesktopAuthHandoffManager handles cancellation, timeout, and exchange f
 
   // 2. Timeout closes loopback server and transitions to error(TIMEOUT)
   const timeoutManager = new DesktopAuthHandoffManager({
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     openExternal: () => {},
     exchangeFetch: async () => {
       throw new Error('should not be called');
@@ -642,7 +642,7 @@ test('R5 openmotion:// protocol parsing validates safe deep links, rejects untru
   const invalidCases = [
     ['', 'empty'],
     ['not a url', 'malformed-url'],
-    ['https://motion.open-design.ai/open', 'invalid-scheme'],
+    ['https://app.open-design.ai/open', 'invalid-scheme'],
     ['javascript:alert(1)', 'invalid-scheme'],
     ['openmotion://user:pass@open', 'disallowed-credentials-or-port'],
     ['openmotion://open:8080', 'disallowed-credentials-or-port'],
@@ -732,11 +732,11 @@ test('K1/K2 retry.html is self-contained, supports light/dark themes without bac
 
 test('K2 in-window auth fallback permits allowlisted accounts.open-design.ai OIDC redirects while keeping /billing external', () => {
   const config = {
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     channel: 'stable',
     windowPolicy: {
-      allowedPopupOrigins: ['https://motion.open-design.ai'],
-      allowedAuthOrigins: ['https://motion.open-design.ai', 'https://accounts.open-design.ai'],
+      allowedPopupOrigins: ['https://app.open-design.ai'],
+      allowedAuthOrigins: ['https://app.open-design.ai', 'https://accounts.open-design.ai'],
       allowBlankPopups: true,
     },
     inWindowAuthFallbackActive: true,
@@ -761,7 +761,7 @@ test('K2 in-window auth fallback permits allowlisted accounts.open-design.ai OID
 });
 
 test('K3 DesktopAuthHandoffManager resolves studioOrigin dynamically after signed config domain migration', async () => {
-  let currentOrigin = 'https://motion.open-design.ai';
+  let currentOrigin = 'https://app.open-design.ai';
   let openedUrl = '';
   const manager = new DesktopAuthHandoffManager({
     getStudioOrigin: () => currentOrigin,
@@ -771,7 +771,7 @@ test('K3 DesktopAuthHandoffManager resolves studioOrigin dynamically after signe
     exchangeFetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
   });
 
-  assert.equal(manager.openInWindowFallback(), 'https://motion.open-design.ai/auth/login');
+  assert.equal(manager.openInWindowFallback(), 'https://app.open-design.ai/auth/login');
   currentOrigin = 'https://studio.open-design.ai';
   assert.equal(manager.openInWindowFallback(), 'https://studio.open-design.ai/auth/login');
 
@@ -783,20 +783,20 @@ test('K3 DesktopAuthHandoffManager resolves studioOrigin dynamically after signe
 
 test('K2 billing query params stay external during auth fallback and privileged IPC is denied on /auth/* or during fallback', () => {
   const policyConfig = {
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     channel: 'stable',
     windowPolicy: {
-      allowedPopupOrigins: ['https://motion.open-design.ai'],
-      allowedAuthOrigins: ['https://motion.open-design.ai', 'https://accounts.open-design.ai'],
+      allowedPopupOrigins: ['https://app.open-design.ai'],
+      allowedAuthOrigins: ['https://app.open-design.ai', 'https://accounts.open-design.ai'],
       allowBlankPopups: true,
     },
     inWindowAuthFallbackActive: true,
   };
 
   for (const billingQueryUrl of [
-    'https://motion.open-design.ai/settings?billing=plan',
+    'https://app.open-design.ai/settings?billing=plan',
     'https://accounts.open-design.ai/account?checkout=pro',
-    'https://motion.open-design.ai/home?upgrade=1',
+    'https://app.open-design.ai/home?upgrade=1',
   ]) {
     const decision = evaluateNavigationPolicy(billingQueryUrl, policyConfig);
     assert.equal(decision.action, 'deny', billingQueryUrl);
@@ -804,24 +804,24 @@ test('K2 billing query params stay external during auth fallback and privileged 
     assert.equal(decision.isBillingOrAccountPortal, true, billingQueryUrl);
   }
 
-  const authFrame = { url: 'https://motion.open-design.ai/auth/login', parent: null };
+  const authFrame = { url: 'https://app.open-design.ai/auth/login', parent: null };
   const authWin = { webContents: { id: 42, mainFrame: authFrame } };
   assert.equal(
     authorizePrivilegedIpcSender(
       { sender: authWin.webContents, senderFrame: authFrame },
-      { mainWindow: authWin, studioOrigin: 'https://motion.open-design.ai', channel: 'stable' },
+      { mainWindow: authWin, studioOrigin: 'https://app.open-design.ai', channel: 'stable' },
     ).ok,
     false,
   );
 
-  const studioFrame = { url: 'https://motion.open-design.ai/mcp-setup', parent: null };
+  const studioFrame = { url: 'https://app.open-design.ai/mcp-setup', parent: null };
   const studioWin = { webContents: { id: 43, mainFrame: studioFrame } };
   assert.equal(
     authorizePrivilegedIpcSender(
       { sender: studioWin.webContents, senderFrame: studioFrame },
       {
         mainWindow: studioWin,
-        studioOrigin: 'https://motion.open-design.ai',
+        studioOrigin: 'https://app.open-design.ai',
         channel: 'stable',
         inWindowAuthFallbackActive: true,
       },
@@ -833,7 +833,7 @@ test('K2 billing query params stay external during auth fallback and privileged 
       { sender: studioWin.webContents, senderFrame: studioFrame },
       {
         mainWindow: studioWin,
-        studioOrigin: 'https://motion.open-design.ai',
+        studioOrigin: 'https://app.open-design.ai',
         channel: 'stable',
         inWindowAuthFallbackActive: false,
       },

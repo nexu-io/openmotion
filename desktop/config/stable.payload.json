@@ -1,14 +1,14 @@
 {
-  "studioUrl": "https://motion.open-design.ai",
+  "studioUrl": "https://app.open-design.ai",
   "allowedOrigins": [
-    "https://motion.open-design.ai"
+    "https://app.open-design.ai"
   ],
   "windowPolicy": {
     "allowedPopupOrigins": [
-      "https://motion.open-design.ai"
+      "https://app.open-design.ai"
     ],
     "allowedAuthOrigins": [
-      "https://motion.open-design.ai"
+      "https://app.open-design.ai"
     ],
     "allowBlankPopups": true
   },

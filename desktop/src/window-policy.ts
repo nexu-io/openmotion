@@ -40,7 +40,7 @@ export type PopupOverrideBrowserWindowOptions = Pick<BrowserWindowConstructorOpt
 };
 
 export type WindowPolicyConfig = {
-  /** Primary Studio origin (e.g. "https://motion.open-design.ai"). */
+  /** Primary Studio origin (e.g. "https://app.open-design.ai"). */
   studioOrigin: string;
   /** Release channel controlling built-in domain bounds (default: "stable"). */
   channel?: HostReleaseChannel;

@@ -33,7 +33,7 @@ import { MockModelGateway } from '../../src/services/mock-model-adapter.ts';
 import type { StoragePort } from '../../src/contracts/storage.ts';
 import type { Database } from '../../src/db/client.ts';
 
-const PUBLIC_ORIGIN = 'https://motion.open-design.ai';
+const PUBLIC_ORIGIN = 'https://app.open-design.ai';
 const AMR_API_URL = 'https://amr-api.open-design.ai';
 const AMR_INTERNAL_ONE_TAP_URL = 'http://amr-api.internal.svc.cluster.local:8080';
 const INTERNAL_TOKEN = 'test-internal-s2s-token';

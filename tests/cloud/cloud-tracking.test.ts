@@ -845,7 +845,7 @@ test('createCloudTracking handles relative OPENMOTION_TRACERT_ENDPOINT safely fo
   const withOrigin = createCloudTracking(
     '1.4.0',
     {
-      APP_PUBLIC_ORIGIN: 'https://motion.open-design.ai',
+      APP_PUBLIC_ORIGIN: 'https://app.open-design.ai',
       OPENMOTION_TRACERT_SPM_A: '3',
       OPENMOTION_TRACERT_ENDPOINT: '/t/events',
       OPENMOTION_TRACKING_ENV: 'test',
@@ -856,7 +856,7 @@ test('createCloudTracking handles relative OPENMOTION_TRACERT_ENDPOINT safely fo
   withOrigin.trackWebSignInResult({ outcome: 'success', userId: 'amr_2', durationMs: 10 });
   const flushed = await withOrigin.flush({ timeoutMs: 2000 });
   assert.equal(flushed?.status, 'confirmed');
-  assert.deepEqual(seenUrls, ['https://motion.open-design.ai/t/events']);
+  assert.deepEqual(seenUrls, ['https://app.open-design.ai/t/events']);
   await withOrigin.shutdown({ timeoutMs: 200 });
 });
 

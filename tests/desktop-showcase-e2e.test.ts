@@ -3,7 +3,7 @@
  *
  * Exercises the full production showcase chain across all layers:
  * 1. Two-tier Ed25519 signed config (Root -> Daily Cert -> Envelope) + dynamic
- *    studioUrl domain migration (`motion.open-design.ai` -> `studio.open-design.ai`)
+ *    studioUrl domain migration (`app.open-design.ai` -> `studio.open-design.ai`)
  *    without shell restart, plus default `allowBlankPopups: true` and window policy.
  * 2. Real Cloud Desktop Auth Handoff (`createDesktopHandoffRoutes` Hono app +
  *    `DesktopAuthHandoffManager` PKCE S256 + ephemeral 127.0.0.1 loopback +
@@ -309,7 +309,7 @@ process.exit(0);
       'Bundled default must allow about:blank popups for Studio preview/presenter views',
     );
     const blankPopupDecision = evaluateWindowOpenPolicy('about:blank', {
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       channel: 'stable',
       windowPolicy: bundledDefault.windowPolicy,
     });

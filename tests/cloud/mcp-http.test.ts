@@ -1065,7 +1065,7 @@ describe('3-Way Cloud openmotion_import_assets & Streamable HTTP Config Contract
     assert.equal(mcpJson.mcpServers.openmotion.url, 'http://127.0.0.1:4173/mcp');
 
     const cloudInfo = buildCloudIntegrationInfo({
-      publicOrigin: 'https://motion.open-design.ai',
+      publicOrigin: 'https://app.open-design.ai',
       version: '1.0.0',
       workspaceId: randomUUID(),
       authMode: 'oidc',

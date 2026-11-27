@@ -14,7 +14,7 @@ import {
 } from '../../shared/inline-onboarding-renderer.ts';
 import { CloudError } from '../contracts/errors.ts';
 
-export const DEFAULT_CLOUD_ORIGIN = 'https://motion.open-design.ai';
+export const DEFAULT_CLOUD_ORIGIN = 'https://app.open-design.ai';
 export const MAX_DOCUMENT_CACHE_BYTES = 16 * 1024 * 1024;
 const MAX_RESOURCE_CACHE_VERSIONS = 2;
 

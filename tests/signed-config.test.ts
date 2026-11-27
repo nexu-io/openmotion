@@ -81,8 +81,8 @@ test('bundled default config passes bounds validation for all channels and marks
 
   const stable = createBundledDefaultConfigPayload('stable');
   assert.deepEqual(validateSignedConfigPayloadBounds(stable, { channel: 'stable' }), []);
-  assert.equal(stable.studioUrl, 'https://motion.open-design.ai');
-  assert.deepEqual(stable.allowedOrigins, ['https://motion.open-design.ai']);
+  assert.equal(stable.studioUrl, 'https://app.open-design.ai');
+  assert.deepEqual(stable.allowedOrigins, ['https://app.open-design.ai']);
 
   assert.equal(stable.agents?.codex?.versionTemplateId, 'codex.version');
   assert.equal(stable.agents?.codex?.mcpAddTemplateId, 'codex.mcp.add_remote');
@@ -159,7 +159,7 @@ test('two-tier Ed25519 cert + config signing passes verification with PEM, SPKI 
     if (verified.ok) {
       assert.equal(verified.sequence, 1);
       assert.equal(verified.certificateKeyId, 'daily-2026-11-23');
-      assert.equal(verified.payload.studioUrl, 'https://motion.open-design.ai');
+      assert.equal(verified.payload.studioUrl, 'https://app.open-design.ai');
     }
   }
 });
@@ -535,7 +535,7 @@ test('SignedConfigManager handles fallback, persistence, expired cert survival, 
       },
     });
     assert.equal(manager1.getStatus().source, 'bundled-default');
-    assert.equal(manager1.getActiveConfig().studioUrl, 'https://motion.open-design.ai');
+    assert.equal(manager1.getActiveConfig().studioUrl, 'https://app.open-design.ai');
 
     // 2. Network failure preserves bundled default and records error.
     const offlineRes = await manager1.fetchAndApply('https://releases.open-design.ai/config/stable.json');
@@ -747,7 +747,7 @@ test('SignedConfigManager handles fetch timeout and disk tampering gracefully', 
       now: () => BASE_TIME,
     });
     assert.equal(restarted.getStatus().source, 'bundled-default');
-    assert.equal(restarted.getActiveConfig().studioUrl, 'https://motion.open-design.ai');
+    assert.equal(restarted.getActiveConfig().studioUrl, 'https://app.open-design.ai');
     assert.equal(restarted.getStatus().lastError?.code, 'INVALID_ENVELOPE_SIGNATURE');
   } finally {
     rmSync(dataDir, { recursive: true, force: true });

@@ -20,7 +20,7 @@ function resolvePricingHref(
   const baseOrigin =
     typeof window !== 'undefined' && window.location?.origin
       ? window.location.origin
-      : 'https://motion.open-design.ai';
+      : 'https://app.open-design.ai';
   const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
   handoff.searchParams.set('targetPath', locale.startsWith('zh') ? '/zh/pricing' : '/pricing');
   if (signedInBinding?.requireAuth) {

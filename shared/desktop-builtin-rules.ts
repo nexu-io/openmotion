@@ -18,7 +18,7 @@ export const DEFAULT_MCP_SERVER_NAME = 'openmotion' as const;
 const STAGING_STUDIO_HOST = 'openmotion.powerformer.net';
 
 export const DEFAULT_STUDIO_URLS: Record<HostReleaseChannel, string> = {
-  stable: 'https://motion.open-design.ai',
+  stable: 'https://app.open-design.ai',
   test: `https://${STAGING_STUDIO_HOST}`,
   dev: 'http://127.0.0.1:4173',
 };

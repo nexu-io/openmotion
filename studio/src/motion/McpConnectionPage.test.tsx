@@ -570,7 +570,7 @@ it('never renders DesktopConnectPanel on /mcp-setup in web or desktop hosts', as
   const { buildCloudIntegrationInfo } = await import('../../../shared/integration');
   const { HOST_CAPABILITIES, hostErr } = await import('../../../shared/desktop-contract');
   const cloud = buildCloudIntegrationInfo({
-    publicOrigin: 'https://motion.open-design.ai',
+    publicOrigin: 'https://app.open-design.ai',
     version: '1.2.3',
     workspaceId: 'ws-prod',
     authMode: 'oidc',
@@ -630,7 +630,7 @@ it('never renders DesktopConnectPanel on /mcp-setup in web or desktop hosts', as
 
 it('matches cloud manual configuration instructions to each client transport and auth mode', async () => {
   const cloud = buildCloudIntegrationInfo({
-    publicOrigin: 'https://motion.open-design.ai',
+    publicOrigin: 'https://app.open-design.ai',
     version: '1.2.3',
     workspaceId: 'ws-prod',
     authMode: 'oidc',
@@ -650,7 +650,7 @@ it('matches cloud manual configuration instructions to each client transport and
   await act(async () => tab('Claude Code').click());
   await act(async () => button('Manual setup').click());
   expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain(
-    "claude mcp add --transport http --scope user openmotion 'https://motion.open-design.ai/mcp'",
+    "claude mcp add --transport http --scope user openmotion 'https://app.open-design.ai/mcp'",
   );
 
   // Claude Desktop in cloud mode uses Settings -> Connectors -> Add custom connector (no openmotion.mcp.json).
@@ -668,20 +668,20 @@ it('matches cloud manual configuration instructions to each client transport and
   await act(async () => button('Manual setup').click());
   expect(document.querySelector('.om-mcp-manual-title')?.textContent).toContain('OAuth 2.1');
   expect(document.querySelector('.om-mcp-manual-title')?.textContent).not.toContain('OPENMOTION_TOKEN');
-  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain('"url": "https://motion.open-design.ai/mcp"');
+  expect(document.querySelector('.om-mcp-manual-code')?.textContent).toContain('"url": "https://app.open-design.ai/mcp"');
   expect(document.querySelector('.om-mcp-manual-code')?.textContent).not.toContain('OPENMOTION_TOKEN');
 
   // Developer drawer task examples omit "Wait for my creative brief" so they don't contradict the appended task.
   await act(async () => (document.querySelector('#dev-drawer > button') as HTMLButtonElement).click());
   const card = document.querySelector('[data-mcp-scenario="create"]')!;
   await act(async () => card.querySelector('button')!.click());
-  expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://motion.open-design.ai/install.md'));
+  expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('https://app.open-design.ai/install.md'));
   expect(copy).not.toHaveBeenLastCalledWith(expect.stringContaining('Wait for my creative brief'));
 });
 
 it('shows exact contract descriptions for MCP tools in zh-CN without misattributing scenario copy (OPEND-5678)', async () => {
   const cloud = buildCloudIntegrationInfo({
-    publicOrigin: 'https://motion.open-design.ai',
+    publicOrigin: 'https://app.open-design.ai',
     version: '1.2.3',
     workspaceId: 'ws-prod',
     authMode: 'oidc',

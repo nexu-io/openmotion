@@ -56,7 +56,7 @@ test('Web Connect Script end-to-end: loopback server + local-atoms + signed-conf
     });
 
     try {
-      const origin = 'https://motion.open-design.ai';
+      const origin = 'https://app.open-design.ai';
       const headers = {
         Origin: origin,
         [CONNECT_SCRIPT_TOKEN_HEADER]: server.token,
@@ -106,7 +106,7 @@ test('Web Connect Script end-to-end: loopback server + local-atoms + signed-conf
             templateId: 'codex.mcp.add_remote',
             args: {
               serverName: 'openmotion',
-              mcpUrl: 'https://motion.open-design.ai/mcp',
+              mcpUrl: 'https://app.open-design.ai/mcp',
             },
           },
         }),
@@ -120,7 +120,7 @@ test('Web Connect Script end-to-end: loopback server + local-atoms + signed-conf
         executedCommands.some(
           c =>
             c.file === fakeCodex &&
-            c.args.join(' ') === 'mcp add openmotion --url https://motion.open-design.ai/mcp',
+            c.args.join(' ') === 'mcp add openmotion --url https://app.open-design.ai/mcp',
         ),
       );
 

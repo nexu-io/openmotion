@@ -29,7 +29,7 @@ test('P0-5 suspends loopback HTTP response until PKCE exchange and session deliv
   let responseSettled = false;
 
   const manager = new DesktopAuthHandoffManager({
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     openExternal: () => {},
     exchangeFetch: async () => {
       exchangeStarted = true;
@@ -44,7 +44,7 @@ test('P0-5 suspends loopback HTTP response until PKCE exchange and session deliv
     },
     verifySessionDelivered: async ({ studioOrigin, workspaceId }) => {
       verifyCalled = true;
-      assert.equal(studioOrigin, 'https://motion.open-design.ai');
+      assert.equal(studioOrigin, 'https://app.open-design.ai');
       assert.equal(workspaceId, 'ws-free');
       await verifyGate;
       return true;
@@ -104,7 +104,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
   const cases = [
     {
       label: 'interactive Go on studio origin -> 302 pricing',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: undefined,
       payload: { planTier: 'go', interactiveLogin: true },
       expectedStatus: 302,
@@ -120,7 +120,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
     },
     {
       label: 'non-interactive Free fast-path -> 200 success HTML (never 302)',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: undefined,
       payload: { planTier: 'free', interactiveLogin: false },
       expectedStatus: 200,
@@ -128,7 +128,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
     },
     {
       label: 'interactive Plus -> 200 success HTML',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: undefined,
       payload: { planTier: 'plus', interactiveLogin: true },
       expectedStatus: 200,
@@ -136,7 +136,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
     },
     {
       label: 'interactive Pro -> 200 success HTML',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: undefined,
       payload: { planTier: 'pro', interactiveLogin: true },
       expectedStatus: 200,
@@ -144,7 +144,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
     },
     {
       label: 'interactive unknown plan -> 200 success HTML',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: undefined,
       payload: { planTier: 'unknown', interactiveLogin: true },
       expectedStatus: 200,
@@ -152,7 +152,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
     },
     {
       label: 'interactive Free with account-bound pricingHandoffUrl -> 302 to handoffUrl',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: undefined,
       payload: {
         planTier: 'free',
@@ -164,7 +164,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
     },
     {
       label: 'interactive Free with failed ticket mint (pricingHandoffUrl: null) -> 200 success HTML (never unbound Pricing)',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: undefined,
       payload: {
         planTier: 'free',
@@ -176,7 +176,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
     },
     {
       label: 'untrusted pricingUrl override -> rejected and falls back to 200 success HTML',
-      studioOrigin: 'https://motion.open-design.ai',
+      studioOrigin: 'https://app.open-design.ai',
       pricingUrl: 'https://evil.example.com/pricing',
       payload: { planTier: 'free', interactiveLogin: true },
       expectedStatus: 200,
@@ -224,7 +224,7 @@ test('P0-5 returns 302 for interactive Go (prod and TEST channel defaults) and 2
 test('P0-5 returns retryable error HTML on session delivery failure, exchange timeout, and window-close cancel', async () => {
   // 1. Session delivery verification fails (window closed / om_session missing)
   const undeliveredManager = new DesktopAuthHandoffManager({
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     openExternal: () => {},
     exchangeFetch: async () =>
       makeExchangeResponse({
@@ -257,7 +257,7 @@ test('P0-5 returns retryable error HTML on session delivery failure, exchange ti
 
   // 2. Exchange exceeds exchangeTimeoutMs -> 504 retryable error HTML
   const timeoutManager = new DesktopAuthHandoffManager({
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     openExternal: () => {},
     exchangeFetch: async (_url, init) =>
       await new Promise((_resolve, reject) => {
@@ -288,7 +288,7 @@ test('P0-5 returns retryable error HTML on session delivery failure, exchange ti
 
   // 3. Main window closes (cancelLogin) while exchange is in-flight -> 503 retryable error HTML
   const cancelManager = new DesktopAuthHandoffManager({
-    studioOrigin: 'https://motion.open-design.ai',
+    studioOrigin: 'https://app.open-design.ai',
     openExternal: () => {},
     exchangeFetch: async () => new Promise(() => {}),
     timeoutMs: 10_000,
@@ -316,7 +316,7 @@ test('P0-5 returns retryable error HTML on session delivery failure, exchange ti
 
 test('resolveSafeDesktopPricingUrl enforces HTTPS open-design/TEST allowlist and pricing path prefixes', () => {
   assert.equal(
-    resolveSafeDesktopPricingUrl(undefined, 'https://motion.open-design.ai'),
+    resolveSafeDesktopPricingUrl(undefined, 'https://app.open-design.ai'),
     'https://open-design.ai/pricing',
   );
   assert.equal(
@@ -324,29 +324,29 @@ test('resolveSafeDesktopPricingUrl enforces HTTPS open-design/TEST allowlist and
     'https://open-design.powerformer.net/pricing',
   );
   assert.equal(
-    resolveSafeDesktopPricingUrl('https://open-design.ai/zh/pricing?utm_source=desktop', 'https://motion.open-design.ai'),
+    resolveSafeDesktopPricingUrl('https://open-design.ai/zh/pricing?utm_source=desktop', 'https://app.open-design.ai'),
     'https://open-design.ai/zh/pricing?utm_source=desktop',
   );
   assert.equal(
-    resolveSafeDesktopPricingUrl('http://open-design.ai/pricing', 'https://motion.open-design.ai'),
+    resolveSafeDesktopPricingUrl('http://open-design.ai/pricing', 'https://app.open-design.ai'),
     null,
   );
   assert.equal(
-    resolveSafeDesktopPricingUrl('https://evil.example.com/pricing', 'https://motion.open-design.ai'),
+    resolveSafeDesktopPricingUrl('https://evil.example.com/pricing', 'https://app.open-design.ai'),
     null,
   );
   assert.equal(
-    resolveSafeDesktopPricingUrl('https://open-design.ai/arbitrary', 'https://motion.open-design.ai'),
+    resolveSafeDesktopPricingUrl('https://open-design.ai/arbitrary', 'https://app.open-design.ai'),
     null,
   );
   assert.equal(
-    resolveSafeDesktopPricingUrl('https://open-design.ai/cloud/pricing', 'https://motion.open-design.ai'),
+    resolveSafeDesktopPricingUrl('https://open-design.ai/cloud/pricing', 'https://app.open-design.ai'),
     null,
   );
 });
 
 test('P0-5 real /auth/me delivery check rejects stale Account A Electron cookie when Account B exchange returns 200', async () => {
-  const studioOrigin = 'https://motion.open-design.ai';
+  const studioOrigin = 'https://app.open-design.ai';
   const meCalls = [];
 
   // Simulate Electron BrowserWindow cookie jar retaining Account A's old om_session cookie

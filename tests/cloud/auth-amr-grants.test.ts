@@ -599,7 +599,7 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
       'https://chatgpt.com/connector_platform_oauth_redirect',
       'https://chat.openai.com/oauth/callback',
       'https://app.cursor.com/oauth/callback',
-      'https://motion.open-design.ai/oauth/callback',
+      'https://app.open-design.ai/oauth/callback',
       'http://127.0.0.1:51234/callback',
     ]) {
       assert.equal(isAllowedOAuthRedirectUri(allowed), true, `expected allowed: ${allowed}`);

@@ -39,7 +39,7 @@ import {
   type ConfirmFn,
 } from '../packages/connect-script/index.ts';
 
-const ALLOWED_ORIGIN = 'https://motion.open-design.ai';
+const ALLOWED_ORIGIN = 'https://app.open-design.ai';
 const EVIL_ORIGIN = 'https://evil.example.com';
 
 type MockBridgeController = {
@@ -568,9 +568,9 @@ describe('Terminal Confirmation Prompt', () => {
     featureVersion: '1.0.0',
     featureTitle: 'Connect Local Agent CLI',
     facts: [
-      { kind: 'exec_program', label: 'codex CLI', value: 'codex mcp add openmotion --url https://motion.open-design.ai/mcp' },
+      { kind: 'exec_program', label: 'codex CLI', value: 'codex mcp add openmotion --url https://app.open-design.ai/mcp' },
       { kind: 'modify_file', label: 'codex config', value: '~/.codex/config.toml' },
-      { kind: 'connect_url', label: 'OpenMotion Cloud MCP', value: 'https://motion.open-design.ai/mcp' },
+      { kind: 'connect_url', label: 'OpenMotion Cloud MCP', value: 'https://app.open-design.ai/mcp' },
       { kind: 'install_component', label: 'Murmur engine', value: 'murmur-engine@1.2.0' },
       { kind: 'store_credential', label: 'API token', value: 'keychain:openmotion' },
     ],
@@ -581,7 +581,7 @@ describe('Terminal Confirmation Prompt', () => {
     assert.match(text, /Connect Local Agent CLI \(connect-local-agent@1\.0\.0\)/);
     assert.match(text, /Program \(codex CLI\): codex mcp add openmotion/);
     assert.match(text, /File \(codex config\): ~\/\.codex\/config\.toml/);
-    assert.match(text, /URL \(OpenMotion Cloud MCP\): https:\/\/motion\.open-design\.ai\/mcp/);
+    assert.match(text, /URL \(OpenMotion Cloud MCP\): https:\/\/app\.open-design\.ai\/mcp/);
     assert.match(text, /Component \(Murmur engine\): murmur-engine@1\.2\.0/);
     assert.match(text, /Credential \(API token\): keychain:openmotion/);
   });
@@ -650,8 +650,8 @@ describe('CLI Argument Parsing & Orchestration', () => {
       assert.equal(defaultParsed.args.mode, 'connect');
       assert.equal(defaultParsed.args.target, 'all');
       assert.equal(defaultParsed.args.channel, 'stable');
-      assert.equal(defaultParsed.args.studioUrl, 'https://motion.open-design.ai');
-      assert.equal(defaultParsed.args.mcpUrl, 'https://motion.open-design.ai/mcp');
+      assert.equal(defaultParsed.args.studioUrl, 'https://app.open-design.ai');
+      assert.equal(defaultParsed.args.mcpUrl, 'https://app.open-design.ai/mcp');
       assert.equal(defaultParsed.args.yes, false);
     }
 
@@ -726,7 +726,7 @@ describe('CLI Argument Parsing & Orchestration', () => {
       true,
     );
     assert.equal(
-      seenRequests[0]?.facts.some(f => f.kind === 'connect_url' && f.value === 'https://motion.open-design.ai/mcp'),
+      seenRequests[0]?.facts.some(f => f.kind === 'connect_url' && f.value === 'https://app.open-design.ai/mcp'),
       true,
     );
 
@@ -845,7 +845,7 @@ describe('CLI Argument Parsing & Orchestration', () => {
     assert.equal(exitCode, 0);
     const stdout = out.readAll();
     const expectedPairingUrl = buildStudioPairingUrl({
-      studioUrl: 'https://motion.open-design.ai',
+      studioUrl: 'https://app.open-design.ai',
       port: observedPort,
       token: observedToken,
     });
@@ -895,13 +895,13 @@ describe('CLI Argument Parsing & Orchestration', () => {
           featureId: 'mcp_connect',
           featureTitle: 'Connect MCP',
           featureVersion: '1.0.0',
-          facts: [{ kind: 'connect_url', label: 'Endpoint', value: 'https://motion.open-design.ai/mcp' }],
+          facts: [{ kind: 'connect_url', label: 'Endpoint', value: 'https://app.open-design.ai/mcp' }],
         });
         await capturedConfirm!({
           featureId: 'mcp_connect',
           featureTitle: 'Connect MCP',
           featureVersion: '2.0.0',
-          facts: [{ kind: 'connect_url', label: 'Endpoint', value: 'https://motion.open-design.ai/mcp' }],
+          facts: [{ kind: 'connect_url', label: 'Endpoint', value: 'https://app.open-design.ai/mcp' }],
         });
       },
       waitForShutdown: async () => {},

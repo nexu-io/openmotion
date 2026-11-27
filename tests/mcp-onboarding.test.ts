@@ -54,7 +54,7 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
   assert.doesNotMatch(setupPrompt(localHttp, 'codex', 'en', undefined, { waitForBrief: false }), /Wait for my creative brief/);
 
   const cloudHttps = buildCloudIntegrationInfo({
-    publicOrigin: 'https://motion.open-design.ai',
+    publicOrigin: 'https://app.open-design.ai',
     version: '1.0.0',
     workspaceId: 'ws-prod',
     authMode: 'oidc',
@@ -67,10 +67,10 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
   const chatgptCfg = integrationConfig(cloudHttps, 'chatgpt');
   assert.equal(chatgptCfg.filename, 'openmotion-chatgpt.json');
   assert.match(chatgptCfg.text, /"authentication": "oauth2"/);
-  assert.match(chatgptCfg.text, /https:\/\/motion\.open-design\.ai\/mcp/);
+  assert.match(chatgptCfg.text, /https:\/\/app\.open-design\.ai\/mcp/);
   assert.match(manualConnection(cloudHttps, 'chatgpt', 'en'), /OAuth 2\.1/);
   assert.match(claudeDesktopManualConnection(cloudHttps, 'en'), /Settings -> Connectors -> Add custom connector/);
-  assert.match(claudeDesktopManualConnection(cloudHttps, 'en'), /https:\/\/motion\.open-design\.ai\/mcp/);
+  assert.match(claudeDesktopManualConnection(cloudHttps, 'en'), /https:\/\/app\.open-design\.ai\/mcp/);
 });
 
 test('cloud clip move example uses the public edit contract in the handbook and guide', () => {
@@ -198,7 +198,7 @@ test('reference-image and audio guidance is translated in every interface langua
 
 test('cloud Streamable HTTP and legacy connection guidance expose the maintained media workflow and 3-way cloud import', () => {
   const cloudInfo = buildCloudIntegrationInfo({
-    publicOrigin: 'https://motion.open-design.ai',
+    publicOrigin: 'https://app.open-design.ai',
     version: '1.0.0',
     workspaceId: 'ws-1',
     authMode: 'oidc',
@@ -207,7 +207,7 @@ test('cloud Streamable HTTP and legacy connection guidance expose the maintained
   const cloudGuide = agentGuide(cloudInfo, 'codex');
   assert.ok(cloudGuide.includes(reviewCommentsPrompt({ dataDirectory: cloudInfo.dataDirectory, previewUrl: cloudInfo.previewUrl })));
   for (const token of [
-    'https://motion.open-design.ai/mcp',
+    'https://app.open-design.ai/mcp',
     'prepare_upload',
     'upload_ticket',
     'library_asset',

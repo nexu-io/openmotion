@@ -35,12 +35,12 @@ test('Q1 built-in third-party allowlist contains codex and claude with 3 templat
 });
 
 test('Q1 domain scope strictly confines stable builds to open-design.ai subdomains', () => {
-  assert.equal(isUrlInAllowedDomainScope('https://motion.open-design.ai/mcp', { channel: 'stable' }), true);
+  assert.equal(isUrlInAllowedDomainScope('https://app.open-design.ai/mcp', { channel: 'stable' }), true);
   assert.equal(isUrlInAllowedDomainScope('https://open-design.ai', { channel: 'stable' }), true);
   assert.equal(isUrlInAllowedDomainScope(DEFAULT_STUDIO_URLS.test, { channel: 'stable' }), false);
   assert.equal(isUrlInAllowedDomainScope(DEFAULT_STUDIO_URLS.test, { channel: 'test' }), true);
   assert.equal(isUrlInAllowedDomainScope('https://evil-open-design.ai', { channel: 'stable' }), false);
-  assert.equal(isUrlInAllowedDomainScope('http://motion.open-design.ai', { channel: 'stable' }), false);
+  assert.equal(isUrlInAllowedDomainScope('http://app.open-design.ai', { channel: 'stable' }), false);
   assert.equal(
     isUrlInAllowedDomainScope('http://127.0.0.1:4173', { channel: 'dev', allowLocalDevLoopback: true }),
     true,
@@ -54,7 +54,7 @@ test('Q1 domain scope strictly confines stable builds to open-design.ai subdomai
 test('Q1 signed config payload validation rejects out-of-bounds templates, domains, publishers, and paths', () => {
   const validIssues = validateSignedConfigPayloadBounds(
     {
-      studioUrl: 'https://motion.open-design.ai',
+      studioUrl: 'https://app.open-design.ai',
       agents: {
         codex: {
           agentId: 'codex',
@@ -147,7 +147,7 @@ test('Q1 loopback redirect URI, placeholders, and engine contract checks', () =>
   assert.equal(validateTypedPlaceholderValue('identifier', 'openmotion').ok, true);
   assert.equal(validateTypedPlaceholderValue('identifier', 'openmotion; rm -rf /').ok, false);
   assert.equal(
-    validateTypedPlaceholderValue('url_in_domain_scope', 'https://motion.open-design.ai/mcp').ok,
+    validateTypedPlaceholderValue('url_in_domain_scope', 'https://app.open-design.ai/mcp').ok,
     true,
   );
   assert.equal(validateTypedPlaceholderValue('url_in_domain_scope', 'https://evil.com/mcp').ok, false);
@@ -180,7 +180,7 @@ test('Q1/M9 built-in bounds allow safe murmur management commands and block laun
     ['magpie', 'provider', 'add', 'opendesign', '--url=https://attacker.example/v1', '--api-key-stdin'],
     ['magpie', 'provider', 'add', 'opendesign', 'base_url=https://attacker.example/v1', '--api-key-stdin'],
     ['magpie', 'provider', 'add', 'opendesign', '--url', 'https://attacker.example/v1', '--api-key-stdin'],
-    ['magpie', 'provider', 'add', 'opendesign', 'url=http://motion.open-design.ai/v1', '--api-key-stdin'],
+    ['magpie', 'provider', 'add', 'opendesign', 'url=http://app.open-design.ai/v1', '--api-key-stdin'],
   ]) {
     assert.equal(
       validateFirstPartyCommandArgvBounds('murmur-engine', dangerous).ok,
@@ -196,7 +196,7 @@ test('Q1/M9 built-in bounds allow safe murmur management commands and block laun
       'provider',
       'add',
       'opendesign',
-      'url=https://motion.open-design.ai/v1',
+      'url=https://app.open-design.ai/v1',
       'list=off',
       '--api-key-stdin',
     ]).ok,

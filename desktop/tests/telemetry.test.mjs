@@ -114,7 +114,7 @@ test('DesktopTelemetryCollector respects DO_NOT_TRACK, restricts flush URLs to d
       arch: 'arm64',
       shellVersion: '0.2.1',
       env: {},
-      flushEndpointUrl: 'https://motion.open-design.ai/api/telemetry',
+      flushEndpointUrl: 'https://app.open-design.ai/api/telemetry',
       fetchImpl: async () => {
         fetchCalls += 1;
         return new Response('ok', { status: 200 });

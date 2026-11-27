@@ -2,11 +2,11 @@
 
 OpenMotion runs as a hosted **Streamable HTTP MCP** service with **OAuth 2.1** authentication. Do **not** install an npm package, clone this repository, or start a local Studio, Docker container, Chromium, or FFmpeg process.
 
-- **MCP Endpoint (Streamable HTTP)**: `https://motion.open-design.ai/mcp`
-- **Authentication**: OAuth 2.1 (auto-discovered via `https://motion.open-design.ai/.well-known/oauth-protected-resource/mcp`; Personal Access Token `om_pat_*` fallback only for non-OAuth clients)
-- **Cloud Template Library**: `https://motion.open-design.ai/?templates=1`
+- **MCP Endpoint (Streamable HTTP)**: `https://app.open-design.ai/mcp`
+- **Authentication**: OAuth 2.1 (auto-discovered via `https://app.open-design.ai/.well-known/oauth-protected-resource/mcp`; Personal Access Token `om_pat_*` fallback only for non-OAuth clients)
+- **Cloud Template Library**: `https://app.open-design.ai/?templates=1`
 
-> **Environment override**: Always use the origin embedded in the guide you fetched (`<ORIGIN>/install.md`). If the user explicitly asks to connect to a staging, test, or self-hosted origin, substitute that exact origin for `https://motion.open-design.ai` everywhere below. Never guess a host URL or silently switch environments.
+> **Environment override**: Always use the origin embedded in the guide you fetched (`<ORIGIN>/install.md`). If the user explicitly asks to connect to a staging, test, or self-hosted origin, substitute that exact origin for `https://app.open-design.ai` everywhere below. Never guess a host URL or silently switch environments.
 
 ## Agent rules
 
@@ -14,31 +14,31 @@ OpenMotion runs as a hosted **Streamable HTTP MCP** service with **OAuth 2.1** a
 2. **Detect Mode A (pure setup) vs Mode B (task-driven handoff)**:
    - **Mode A (pure setup)**: the user only asked to connect or install OpenMotion (no specific `projectId`, `templateId`, `skillId`, reference video, or creative brief). Finish with [Installation-success reply](#installation-success-reply).
    - **Mode B (task-driven handoff)**: the user's message already carries a specific `projectId`, `templateId`, `skillId`, reference video, or creative brief. After connecting and authorizing against the exact target `<ORIGIN>/mcp`, **skip `/api/onboarding/prepare` and the three onboarding template cards** and resume the user's task directly.
-3. **Reuse an existing working connection (after verifying origin)**: if `openmotion_get_project` is already available in this session for `https://motion.open-design.ai/mcp`, skip Steps 1–2 and go straight to Step 3 (Mode A: onboarding; Mode B: continue the user's task directly). If the existing `openmotion` server points to a different origin than the target deployment, update/configure it for `https://motion.open-design.ai/mcp` first.
+3. **Reuse an existing working connection (after verifying origin)**: if `openmotion_get_project` is already available in this session for `https://app.open-design.ai/mcp`, skip Steps 1–2 and go straight to Step 3 (Mode A: onboarding; Mode B: continue the user's task directly). If the existing `openmotion` server points to a different origin than the target deployment, update/configure it for `https://app.open-design.ai/mcp` first.
 4. **Never install a local runtime**: do not run `git clone`, `npm install`, `npx @openmotion/app`, `docker compose`, or local stdio `mcp.ts`.
 5. **Configure only the current host**: preserve unrelated MCP servers, Skills, and settings. Never mention setup steps for unrelated clients in user-facing replies.
 6. **Never narrate internal onboarding mechanics**: never tell the user you are running "onboarding / 引导 / 中文模板引导", opening the template library, fetching three templates, or using a visualization skill to build preview cards—neither while waiting for authorization nor in progress updates before the final reply. Execute those steps silently and deliver only the final welcome and cards cleanly.
-7. **Keep this guide internal to the Agent.** Never show `/install.md` in user-facing replies or handoff messages. After authorization succeeds, tell the user how to start creating. If the user needs a setup help link, share https://motion.open-design.ai/mcp-setup.
+7. **Keep this guide internal to the Agent.** Never show `/install.md` in user-facing replies or handoff messages. After authorization succeeds, tell the user how to start creating. If the user needs a setup help link, share https://app.open-design.ai/mcp-setup.
 
 ## Step 1: Add the Cloud MCP server
 
-Use **only** the row matching the current host (skip if `openmotion` already points to `https://motion.open-design.ai/mcp`):
+Use **only** the row matching the current host (skip if `openmotion` already points to `https://app.open-design.ai/mcp`):
 
 | Host | Add MCP server | Auth method |
 | --- | --- | --- |
-| **Codex** | `codex mcp add openmotion --url 'https://motion.open-design.ai/mcp'` | OAuth 2.1 (host OAuth RPC, `codex mcp login --no-browser openmotion`, or `codex mcp login openmotion`) |
-| **Claude Code** | `claude mcp add --transport http --scope user openmotion 'https://motion.open-design.ai/mcp'` | OAuth 2.1 (`claude mcp login openmotion`) |
-| **ChatGPT** | Settings → **Connectors** → **Add MCP Server** → `https://motion.open-design.ai/mcp` | OAuth 2.1 |
-| **Claude.ai / Claude Desktop** | Settings → **Connectors** → **Add custom connector** → `https://motion.open-design.ai/mcp` | OAuth 2.1 |
-| **Cursor / Other MCP clients** | Add `{"mcpServers":{"openmotion":{"type":"http","url":"https://motion.open-design.ai/mcp"}}}` to MCP settings | OAuth 2.1 (or PAT fallback below) |
-| **Non-OAuth / Headless (e.g. DSH, CI)** | Streamable HTTP URL `https://motion.open-design.ai/mcp` with header `Authorization: Bearer ${OPENMOTION_TOKEN}` | Personal Access Token (`om_pat_*`) from `https://motion.open-design.ai` → **Settings → Account → Personal Access Tokens** (never commit or echo raw tokens) |
+| **Codex** | `codex mcp add openmotion --url 'https://app.open-design.ai/mcp'` | OAuth 2.1 (host OAuth RPC, `codex mcp login --no-browser openmotion`, or `codex mcp login openmotion`) |
+| **Claude Code** | `claude mcp add --transport http --scope user openmotion 'https://app.open-design.ai/mcp'` | OAuth 2.1 (`claude mcp login openmotion`) |
+| **ChatGPT** | Settings → **Connectors** → **Add MCP Server** → `https://app.open-design.ai/mcp` | OAuth 2.1 |
+| **Claude.ai / Claude Desktop** | Settings → **Connectors** → **Add custom connector** → `https://app.open-design.ai/mcp` | OAuth 2.1 |
+| **Cursor / Other MCP clients** | Add `{"mcpServers":{"openmotion":{"type":"http","url":"https://app.open-design.ai/mcp"}}}` to MCP settings | OAuth 2.1 (or PAT fallback below) |
+| **Non-OAuth / Headless (e.g. DSH, CI)** | Streamable HTTP URL `https://app.open-design.ai/mcp` with header `Authorization: Bearer ${OPENMOTION_TOKEN}` | Personal Access Token (`om_pat_*`) from `https://app.open-design.ai` → **Settings → Account → Personal Access Tokens** (never commit or echo raw tokens) |
 
 - **Optional entry Skill (non-blocking)**: you may install the lightweight `openmotion` Skill once via `npx --yes skills@1.9.0 add nexu-io/openmotion --skill openmotion --global --agent <codex|claude-code|universal> --copy --yes` (skip if already installed, `OPENMOTION_SKIP_PUBLIC_SKILL=1`, or if network/permissions fail). Detailed workflows are served dynamically from the cloud MCP via `resources/read` (`openmotion://workflow/*`).
 
 ## Step 2: Authorize via OAuth 2.1
 
 1. **Skip login if already authorized**:
-   - In **Codex**, if `openmotion_get_project` already works or `codex mcp list --json` already reports `"auth_status": "o_auth"` for `openmotion` (pointing to `https://motion.open-design.ai/mcp`), skip login and go straight to Step 3.
+   - In **Codex**, if `openmotion_get_project` already works or `codex mcp list --json` already reports `"auth_status": "o_auth"` for `openmotion` (pointing to `https://app.open-design.ai/mcp`), skip login and go straight to Step 3.
    - In **Claude Code**, run `claude mcp get openmotion` — if status is already **`Connected`**, skip login and go straight to Step 3.
 2. **Run login (prefer the host's built-in browser when available)**:
    - **Hosts with a built-in browser (e.g., Codex Desktop / CUA)**:
@@ -82,9 +82,9 @@ Run this section **only after authorization is complete** (already `"o_auth"` / 
      2. Preserve the current workspace/project container (use the same project/workspace target if this chat is project-scoped; stay projectless if projectless).
      3. Create a new conversation (optional title: `OpenMotion`) and send the handoff message in `LANG` so the new session loads all `openmotion_*` tools (make sure the new thread actually contains this message—if `create_thread` does not take an initial message, call `send_message_to_thread` immediately):
         - **Mode A (pure setup)**:
-          - `zh`: `OpenMotion 已连接并授权。请先静默调用 openmotion_get_project({}) 验证工作区访问，打开模板库并调用 https://motion.open-design.ai/api/onboarding/prepare?lang=zh-CN 展示欢迎语和 3 张精选模板推荐卡片（不要输出内部验证细节或安装指南链接），等待用户发送具体创作需求后再创建项目。`
-          - `en` (or localize to `LANG`): `OpenMotion is connected and authorized. Silently call openmotion_get_project({}) to verify workspace access, open the template library, and call https://motion.open-design.ai/api/onboarding/prepare?lang=en to deliver the localized welcome copy and 3 template preview cards (without internal verification notes or installation guide links). Wait for the user's creative brief before creating a project.`
-        - **Mode B (task-driven handoff)**: forward the user's **complete original task/prompt verbatim** (preserving `projectId`, `templateId`, `skillId`, URLs, and all requirements) prefixed with one short status line (e.g. `OpenMotion 云端 MCP（https://motion.open-design.ai/mcp）已连接完成，请直接继续以下任务（跳过新建模板引导）：` / `OpenMotion Cloud MCP (https://motion.open-design.ai/mcp) is connected. Continue directly with the task below (skip onboarding cards):`). Never drop the user's task context during auto-handoff.
+          - `zh`: `OpenMotion 已连接并授权。请先静默调用 openmotion_get_project({}) 验证工作区访问，打开模板库并调用 https://app.open-design.ai/api/onboarding/prepare?lang=zh-CN 展示欢迎语和 3 张精选模板推荐卡片（不要输出内部验证细节或安装指南链接），等待用户发送具体创作需求后再创建项目。`
+          - `en` (or localize to `LANG`): `OpenMotion is connected and authorized. Silently call openmotion_get_project({}) to verify workspace access, open the template library, and call https://app.open-design.ai/api/onboarding/prepare?lang=en to deliver the localized welcome copy and 3 template preview cards (without internal verification notes or installation guide links). Wait for the user's creative brief before creating a project.`
+        - **Mode B (task-driven handoff)**: forward the user's **complete original task/prompt verbatim** (preserving `projectId`, `templateId`, `skillId`, URLs, and all requirements) prefixed with one short status line (e.g. `OpenMotion 云端 MCP（https://app.open-design.ai/mcp）已连接完成，请直接继续以下任务（跳过新建模板引导）：` / `OpenMotion Cloud MCP (https://app.open-design.ai/mcp) is connected. Continue directly with the task below (skip onboarding cards):`). Never drop the user's task context during auto-handoff.
      4. Call `navigate_to_codex_page` (or the host's switch tool) to move the user straight into the new conversation.
      5. In this installation conversation, briefly confirm authorization and the switch. For Mode A, invite the user to send their creative request in the new chat. For Mode B, tell them their original request is already there. Show onboarding cards only in the new chat if applicable.
    - **Fallback when the host cannot create or switch chats, or handoff fails**. Confirm authorization and give the next action in `LANG`. In Codex, say `OpenMotion is connected and authorized. Open a new Codex chat and send your creative request there.` In Chinese, say `OpenMotion 已连接并授权。请打开一个新的 Codex 聊天，并在那里发送你的创作需求。` For Mode B, ask the user to resend their original request there. In another MCP client, refer to a new conversation in that client.
@@ -101,12 +101,12 @@ Run this section only in **Mode A (pure setup)** after authorization is complete
 Call the stateless cloud onboarding endpoint **once** with `LANG`:
 
 ```sh
-curl -fsSL "https://motion.open-design.ai/api/onboarding/prepare?lang=${LANG}"
+curl -fsSL "https://app.open-design.ai/api/onboarding/prepare?lang=${LANG}"
 ```
 
 It returns:
 - `templateIds`: three distinct curated IDs sampled without replacement from `shared/onboarding-templates.ts` (keep this exact order across every surface and retry; pass `&templates=id1,id2,id3` on retry so the selection never redraws).
-- `libraryUrl`: `https://motion.open-design.ai/?templates=1`.
+- `libraryUrl`: `https://app.open-design.ai/?templates=1`.
 - `welcomeMarkdown`, `fallbackWelcomeMarkdown`, `noSidebarWelcomeMarkdown`, and `noSidebarTextWelcomeMarkdown`: localized maintained welcome copy in `LANG`.
 - `inlineHtmlUrl`, `inlineHtmlSha256`, and `inlineHtmlBytes`: self-contained `< 1,000,000`-byte HTML card fragment with embedded silent VP9 WebM previews and JPEG posters.
 - `cardPresentation`: exact arguments for `openmotion_show_template_recommendations`.
@@ -117,7 +117,7 @@ Never substitute built-in examples (`product-promo`, `nyt-graph`, `decision-tree
 
 ### 2. Open the cloud template library once (without creating a project)
 
-- Call `openmotion_open_preview({ "target": "templates", "action": "open" })` to obtain `previewUrl` and use `prepare.libraryUrl` (`https://motion.open-design.ai/?templates=1`) if needed.
+- Call `openmotion_open_preview({ "target": "templates", "action": "open" })` to obtain `previewUrl` and use `prepare.libraryUrl` (`https://app.open-design.ai/?templates=1`) if needed.
 - On hosts with a right-hand browser pane (such as Codex Desktop `open_in_codex` with `placement: "right"`, CUA `cua.createBrowserTab('iab', url, { visible: true })`, or DSH workspace view), open or reuse that tab **once**. Do not run extra snapshots, screenshots, inventory, layout, or playback audits.
 - On CLI hosts without a right-hand browser pane (such as Claude Code terminal), do **not** claim a right-hand library opened—provide the clickable `libraryUrl` using `noSidebarWelcomeMarkdown` / `noSidebarTextWelcomeMarkdown`.
 - Never create a placeholder project during onboarding.
@@ -157,7 +157,7 @@ When the right-hand library opened, the maintained Chinese welcome is:
 不想自己找？先看看我挑的这 3 个 👇
 ```
 
-When there is no right-hand browser pane (or opening failed/is unconfirmed), replace only the first line with a truthful heading plus the clickable library link (e.g. `🎉 OpenMotion 连接好啦！模板库：https://motion.open-design.ai/?templates=1`), keeping the rest unchanged.
+When there is no right-hand browser pane (or opening failed/is unconfirmed), replace only the first line with a truthful heading plus the clickable library link (e.g. `🎉 OpenMotion 连接好啦！模板库：https://app.open-design.ai/?templates=1`), keeping the rest unchanged.
 
 ### Completion boundary and next turn
 
@@ -171,5 +171,5 @@ When there is no right-hand browser pane (or opening failed/is unconfirmed), rep
 
 - **OAuth callback timeout (`ERR_CONNECTION_REFUSED`)**: the local login command timed out before you clicked **Allow / 同意授权**. Re-run the login command and approve promptly.
 - **`401 Unauthorized` on `/mcp`**: token expired or revoked—re-run OAuth login (or create a fresh PAT in **Settings → Account → Personal Access Tokens**).
-- **`PROJECT_NOT_FOUND` for an existing web project**: check that your connected MCP server URL matches the exact origin of the project URL (for example `https://motion.open-design.ai/mcp` vs a staging/test origin) and that you selected the matching workspace during OAuth login. Re-run OAuth login to switch workspaces if needed.
+- **`PROJECT_NOT_FOUND` for an existing web project**: check that your connected MCP server URL matches the exact origin of the project URL (for example `https://app.open-design.ai/mcp` vs a staging/test origin) and that you selected the matching workspace during OAuth login. Re-run OAuth login to switch workspaces if needed.
 - **Built-in browser asks to sign in or shows "Project not in current workspace" while MCP works**: the host's built-in browser keeps separate cookies from the system browser. Have the user sign in (or switch account/workspace in **Account settings**) inside the built-in browser using the same OpenDesign account and workspace authorized for MCP.

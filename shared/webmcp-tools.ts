@@ -18,7 +18,7 @@ export function buildOpenMotionWebMcpTools(
   options?: OpenMotionWebMcpToolOptions,
 ) {
   const sourceTools = options?.cloud
-    ? cloudPhase1Tools(options.publicOrigin ?? (typeof location !== 'undefined' && location.origin ? location.origin : 'https://motion.open-design.ai'))
+    ? cloudPhase1Tools(options.publicOrigin ?? (typeof location !== 'undefined' && location.origin ? location.origin : 'https://app.open-design.ai'))
     : phase1Tools;
   // Game tools serve the user's external Agent over MCP; the in-page WebMCP surface does not expose them.
   return sourceTools.filter(tool => !tool.name.startsWith('openmotion_game_')).map(tool => ({

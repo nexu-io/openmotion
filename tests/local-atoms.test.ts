@@ -54,7 +54,7 @@ function sha256Hex(content: string | Buffer): string {
 function createSampleSignedConfig(artifactBytes: Buffer): SignedConfigPayload {
   const digest = sha256Hex(artifactBytes);
   return {
-    studioUrl: 'https://motion.open-design.ai',
+    studioUrl: 'https://app.open-design.ai',
     agents: {
       codex: {
         agentId: 'codex',
@@ -418,7 +418,7 @@ describe('atom.config (JSON & TOML surgical merge, conflict detection, backup & 
       fieldType: 'remote_mcp_entry',
       value: {
         serverName: 'openmotion',
-        url: 'https://motion.open-design.ai/mcp',
+        url: 'https://app.open-design.ai/mcp',
       },
     });
     assert.equal(addRes.ok, true);
@@ -430,7 +430,7 @@ describe('atom.config (JSON & TOML surgical merge, conflict detection, backup & 
     assert.ok(updatedToml.includes('# User Codex configuration'));
     assert.ok(updatedToml.includes('model = "gpt-5"'));
     assert.ok(updatedToml.includes('[mcp_servers.murmur]\nurl = "http://127.0.0.1:3425/mcp"'));
-    assert.ok(updatedToml.includes('[mcp_servers.openmotion]\nurl = "https://motion.open-design.ai/mcp"'));
+    assert.ok(updatedToml.includes('[mcp_servers.openmotion]\nurl = "https://app.open-design.ai/mcp"'));
 
     // 1b. Writing a different *.open-design.ai URL that disagrees with shell studioUrl is ORIGIN_DENIED
     const mismatchedOriginRes = await configAtom.write({
@@ -464,7 +464,7 @@ describe('atom.config (JSON & TOML surgical merge, conflict detection, backup & 
     assert.equal(conflictRes.ok, false);
     if (!conflictRes.ok) {
       assert.equal(conflictRes.error.code, 'CONFLICT');
-      assert.equal(conflictRes.error.details?.existingUrl, 'https://motion.open-design.ai/mcp');
+      assert.equal(conflictRes.error.details?.existingUrl, 'https://app.open-design.ai/mcp');
     }
 
     // 3. Explicit conflictPolicy='replace' updates URL in place and creates a new backup
@@ -570,7 +570,7 @@ describe('atom.config (JSON & TOML surgical merge, conflict detection, backup & 
       fieldType: 'remote_mcp_entry',
       value: {
         serverName: 'openmotion',
-        url: 'https://motion.open-design.ai/mcp',
+        url: 'https://app.open-design.ai/mcp',
         transport: 'http',
       },
     });
@@ -582,7 +582,7 @@ describe('atom.config (JSON & TOML surgical merge, conflict detection, backup & 
     };
     assert.equal(parsed.theme, 'dark');
     assert.deepEqual(parsed.mcpServers.murmur, { type: 'http', url: 'http://127.0.0.1:3425/mcp' });
-    assert.deepEqual(parsed.mcpServers.openmotion, { type: 'http', url: 'https://motion.open-design.ai/mcp' });
+    assert.deepEqual(parsed.mcpServers.openmotion, { type: 'http', url: 'https://app.open-design.ai/mcp' });
   });
 });
 
@@ -640,7 +640,7 @@ describe('atom.exec security boundaries & MCP conflict protection', () => {
       templateId: 'codex.mcp.add_remote',
       args: {
         serverName: 'openmotion; rm -rf /',
-        mcpUrl: 'https://motion.open-design.ai/mcp',
+        mcpUrl: 'https://app.open-design.ai/mcp',
       },
     });
     assert.equal(injection.ok, false);
@@ -664,7 +664,7 @@ describe('atom.exec security boundaries & MCP conflict protection', () => {
       templateId: 'codex.mcp.add_remote',
       args: {
         serverName: 'openmotion',
-        mcpUrl: 'https://motion.open-design.ai/mcp',
+        mcpUrl: 'https://app.open-design.ai/mcp',
       },
     });
     assert.equal(conflict.ok, false);
@@ -679,13 +679,13 @@ describe('atom.exec security boundaries & MCP conflict protection', () => {
       templateId: 'codex.mcp.add_remote',
       args: {
         serverName: 'openmotion',
-        mcpUrl: 'https://motion.open-design.ai/mcp',
+        mcpUrl: 'https://app.open-design.ai/mcp',
       },
     });
     assert.equal(preview.ok, true);
     if (preview.ok) {
       assert.equal(preview.data.program, 'codex');
-      assert.deepEqual(preview.data.argv, ['mcp', 'add', 'openmotion', '--url', 'https://motion.open-design.ai/mcp']);
+      assert.deepEqual(preview.data.argv, ['mcp', 'add', 'openmotion', '--url', 'https://app.open-design.ai/mcp']);
       assert.ok(preview.data.facts.some(f => f.kind === 'exec_program'));
       assert.ok(preview.data.facts.some(f => f.kind === 'connect_url'));
       assert.ok(preview.data.facts.some(f => f.kind === 'modify_file'));
@@ -698,14 +698,14 @@ describe('atom.exec security boundaries & MCP conflict protection', () => {
       templateId: 'codex.mcp.add_remote',
       args: {
         serverName: 'openmotion',
-        mcpUrl: 'https://motion.open-design.ai/mcp',
+        mcpUrl: 'https://app.open-design.ai/mcp',
       },
       conflictPolicy: 'replace',
     });
     assert.equal(replaced.ok, true);
     assert.equal(executed.length, 1);
     assert.equal(executed[0]!.binaryPath, '/usr/local/bin/codex');
-    assert.deepEqual(executed[0]!.argv, ['mcp', 'add', 'openmotion', '--url', 'https://motion.open-design.ai/mcp']);
+    assert.deepEqual(executed[0]!.argv, ['mcp', 'add', 'openmotion', '--url', 'https://app.open-design.ai/mcp']);
 
     // 7. Uninstalled first-party component command is rejected
     const uninstalled = await execAtom.run({
@@ -726,7 +726,7 @@ describe('atom.exec security boundaries & MCP conflict protection', () => {
     const claudeCleanAdd = await execAtom.run({
       featureId: 'connect-agents',
       templateId: 'claude.mcp.add_remote',
-      args: { serverName: 'openmotion', mcpUrl: 'https://motion.open-design.ai/mcp' },
+      args: { serverName: 'openmotion', mcpUrl: 'https://app.open-design.ai/mcp' },
       conflictPolicy: 'replace',
     });
     assert.equal(claudeCleanAdd.ok, true);
@@ -740,7 +740,7 @@ describe('atom.exec security boundaries & MCP conflict protection', () => {
       '--transport',
       'http',
       'openmotion',
-      'https://motion.open-design.ai/mcp',
+      'https://app.open-design.ai/mcp',
     ]);
   });
 });
@@ -1146,7 +1146,7 @@ describe('atom.detect & createLocalAtomsRuntime unified dispatch', () => {
       path.join(homeDir, '.claude.json'),
       JSON.stringify({
         mcpServers: {
-          openmotion: { type: 'http', url: 'https://motion.open-design.ai/mcp' },
+          openmotion: { type: 'http', url: 'https://app.open-design.ai/mcp' },
         },
       }),
       'utf8',
@@ -1441,7 +1441,7 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
       featureId: 'mcp_connect',
       ruleId: 'claude_mcp',
       fieldType: 'remote_mcp_entry',
-      value: { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+      value: { serverName: 'openmotion', url: 'https://app.open-design.ai/mcp' },
     });
     assert.equal(written.ok, true);
     if (process.platform !== 'win32') {
@@ -1477,7 +1477,7 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
     const replaced = upsertTomlMcpEntry(
       legacyToml,
       'mcp_servers',
-      { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+      { serverName: 'openmotion', url: 'https://app.open-design.ai/mcp' },
       'replace',
     );
     assert.equal(replaced.ok, true);
@@ -1485,7 +1485,7 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
       assert.equal(replaced.content.includes('server.js'), false);
       assert.equal(replaced.content.includes('--stdio'), false);
       assert.equal(replaced.content.includes(']'), true); // section header brackets still present
-      assert.match(replaced.content, /url = "https:\/\/motion\.open-design\.ai\/mcp"/);
+      assert.match(replaced.content, /url = "https:\/\/app\.open-design\.ai\/mcp"/);
       assert.match(replaced.content, /startup_timeout_sec = 30/);
       assert.match(replaced.content, /\[mcp_servers\.other\]/);
     }
@@ -1507,14 +1507,14 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
     const added = upsertTomlMcpEntry(
       withArrayTables,
       'mcp_servers',
-      { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+      { serverName: 'openmotion', url: 'https://app.open-design.ai/mcp' },
       'abort',
     );
     assert.equal(added.ok, true);
     if (added.ok) {
       assert.match(added.content, /\[\[profiles\]\]/);
       assert.match(added.content, /\[\[history\.entries\]\]/);
-      assert.match(added.content, /\[mcp_servers\.openmotion\]\nurl = "https:\/\/motion\.open-design\.ai\/mcp"/);
+      assert.match(added.content, /\[mcp_servers\.openmotion\]\nurl = "https:\/\/app\.open-design\.ai\/mcp"/);
     }
 
     // Replacing a legacy stdio section immediately followed by [[profiles]] must stop at [[profiles]]
@@ -1538,12 +1538,12 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
     const replaced = upsertTomlMcpEntry(
       stdioFollowedByArrayTable,
       'mcp_servers',
-      { serverName: 'openmotion', url: 'https://motion.open-design.ai/mcp' },
+      { serverName: 'openmotion', url: 'https://app.open-design.ai/mcp' },
       'replace',
     );
     assert.equal(replaced.ok, true);
     if (replaced.ok) {
-      assert.match(replaced.content, /\[mcp_servers\.openmotion\]\nurl = "https:\/\/motion\.open-design\.ai\/mcp"/);
+      assert.match(replaced.content, /\[mcp_servers\.openmotion\]\nurl = "https:\/\/app\.open-design\.ai\/mcp"/);
       assert.match(replaced.content, /\[\[profiles\]\]\nurl = "https:\/\/example\.invalid\/profile"/);
       assert.equal(replaced.content.includes('command ='), false);
     }
@@ -1639,7 +1639,7 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
       path.join(homeDir, '.claude.json'),
       JSON.stringify({
         mcpServers: {
-          openmotion: { type: 'http', url: 'https://motion.open-design.ai/mcp' },
+          openmotion: { type: 'http', url: 'https://app.open-design.ai/mcp' },
         },
       }),
       'utf8',
@@ -1661,7 +1661,7 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
     const execAtom = createExecAtom({
       homeDir,
       channel: 'stable',
-      getExpectedMcpUrl: () => 'https://motion.open-design.ai/mcp',
+      getExpectedMcpUrl: () => 'https://app.open-design.ai/mcp',
       getSignedConfig: () => signedConfig,
       pathResolver: createPathResolver({
         platform: 'darwin',
@@ -1679,7 +1679,7 @@ describe('Security & robustness regressions (PR #1001 review)', () => {
     const result = await execAtom.run({
       featureId: 'mcp_connect',
       templateId: 'claude.mcp.add_remote',
-      args: { serverName: 'openmotion', mcpUrl: 'https://motion.open-design.ai/mcp' },
+      args: { serverName: 'openmotion', mcpUrl: 'https://app.open-design.ai/mcp' },
       conflictPolicy: 'abort',
     });
     assert.equal(result.ok, true);

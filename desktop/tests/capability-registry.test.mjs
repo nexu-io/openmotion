@@ -386,13 +386,13 @@ test('All four shell capability modules (window, updater, diagnostics, account) 
 });
 
 test('authorizePrivilegedIpcSender allows main window + main frame + allowed Studio origin and enforces channel boundaries', () => {
-  const stableWin = makeWindowMock(10, 'https://motion.open-design.ai/projects/abc');
+  const stableWin = makeWindowMock(10, 'https://app.open-design.ai/projects/abc');
   const stableOk = authorizePrivilegedIpcSender(
     { sender: stableWin.webContents, senderFrame: stableWin.mainFrame },
     { mainWindow: stableWin, channel: 'stable' },
   );
   assert.equal(stableOk.ok, true);
-  assert.equal(stableOk.origin, 'https://motion.open-design.ai');
+  assert.equal(stableOk.origin, 'https://app.open-design.ai');
   assert.equal(stableOk.webContentsId, 10);
 
   const testWin = makeWindowMock(11, `${DEFAULT_STUDIO_URLS.test}/workspace`);
@@ -432,16 +432,16 @@ test('authorizePrivilegedIpcSender allows main window + main frame + allowed Stu
 });
 
 test('authorizePrivilegedIpcSender denies subframes, popups, login/IdP pages, evil origins, blank pages, and file:// URLs', () => {
-  const mainWin = makeWindowMock(100, 'https://motion.open-design.ai/studio');
+  const mainWin = makeWindowMock(100, 'https://app.open-design.ai/studio');
   const guardOpts = {
     mainWindow: mainWin,
     channel: 'stable',
-    allowedOrigins: ['https://motion.open-design.ai'],
+    allowedOrigins: ['https://app.open-design.ai'],
   };
 
   // 1. Subframe / iframe inside main window (even with same origin!)
   const subframeWithParent = {
-    url: 'https://motion.open-design.ai/embed',
+    url: 'https://app.open-design.ai/embed',
     parent: mainWin.mainFrame,
     top: mainWin.mainFrame,
   };
@@ -453,7 +453,7 @@ test('authorizePrivilegedIpcSender denies subframes, popups, login/IdP pages, ev
   assert.equal(subframeRes.error.code, 'UNAUTHORIZED');
 
   // Detached / non-main frame object with parent=null
-  const nonMainFrame = { url: 'https://motion.open-design.ai/studio', parent: null };
+  const nonMainFrame = { url: 'https://app.open-design.ai/studio', parent: null };
   const nonMainRes = authorizePrivilegedIpcSender(
     { sender: mainWin.webContents, senderFrame: nonMainFrame },
     guardOpts,
@@ -462,7 +462,7 @@ test('authorizePrivilegedIpcSender denies subframes, popups, login/IdP pages, ev
   assert.equal(nonMainRes.error.code, 'UNAUTHORIZED');
 
   // 2. Popup window / project preview popup (different webContents.id, even on Studio origin!)
-  const popupWin = makeWindowMock(200, 'https://motion.open-design.ai/preview');
+  const popupWin = makeWindowMock(200, 'https://app.open-design.ai/preview');
   const popupRes = authorizePrivilegedIpcSender(
     { sender: popupWin.webContents, senderFrame: popupWin.mainFrame },
     guardOpts,
@@ -484,16 +484,16 @@ test('authorizePrivilegedIpcSender denies subframes, popups, login/IdP pages, ev
     `https://${'sso.powerformer.com'}/application/o/authorize/`,
     'https://github.com/login/oauth/authorize',
     'https://evil.com/studio',
-    'https://motion.open-design.ai.evil.com/studio',
+    'https://app.open-design.ai.evil.com/studio',
     'https://auth.open-design.ai/login',
     'https://docs.open-design.ai/',
     `${DEFAULT_STUDIO_URLS.test}/studio`,
-    'https://user:pass@motion.open-design.ai/studio',
-    'http://motion.open-design.ai/studio',
+    'https://user:pass@app.open-design.ai/studio',
+    'http://app.open-design.ai/studio',
     'http://127.0.0.1:4173/',
     'about:blank',
     'data:text/html,<h1>hi</h1>',
-    'blob:https://motion.open-design.ai/1234',
+    'blob:https://app.open-design.ai/1234',
     'file:///Applications/OpenDesign.app/Contents/Resources/splash.html',
     '',
     'not-a-url',
@@ -575,7 +575,7 @@ test('authorizeSplashSender restricts splash channel strictly to retryStartup fr
 
   // Non-splash file or remote URL or path outside allowedFilePaths
   for (const badUrl of [
-    'https://motion.open-design.ai/splash.html',
+    'https://app.open-design.ai/splash.html',
     'file:///tmp/evil.html',
     'file:///Applications/OpenDesign.app/dist/../splash.html',
     'file:///Applications/OpenDesign.app/dist/%2e%2e/splash.html',

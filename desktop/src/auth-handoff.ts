@@ -269,7 +269,7 @@ export type DesktopAuthExchangeFetch = (
 ) => Promise<DesktopAuthExchangeResponseLike>;
 
 export type DesktopAuthHandoffManagerOptions = {
-  /** Base Studio origin, e.g. "https://motion.open-design.ai". Optional when `getStudioOrigin` is supplied. */
+  /** Base Studio origin, e.g. "https://app.open-design.ai". Optional when `getStudioOrigin` is supplied. */
   studioOrigin?: string;
   /** Dynamic resolver for the active Studio origin (follows signed config updates). */
   getStudioOrigin?: () => string;
