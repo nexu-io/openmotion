@@ -517,7 +517,7 @@ it('displays Eleven Music duration in seconds and submits the provider value in 
   await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
   const durationInput = () => document.querySelector<HTMLInputElement>('[type="number"][aria-label="Duration (seconds)"]');
   const input = durationInput()!;
-  expect([input.min, input.max, input.step, input.value]).toEqual(['3', '600', '1', '4']);
+  expect([input.min, input.max, input.step, input.value]).toEqual(['3', '300', '1', '4']);
   const setSeconds = async (seconds: string) => {
     if (!durationInput()) await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
     await act(async () => {
@@ -527,10 +527,12 @@ it('displays Eleven Music duration in seconds and submits the provider value in 
     });
   };
   const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
-  await setSeconds('2');
-  await act(async () => submit.click());
-  expect(generate).not.toHaveBeenCalled();
-  expect(props.onError).toHaveBeenCalledWith(expect.stringContaining('Duration'));
+  for (const seconds of ['2', '599', '600']) {
+    await setSeconds(seconds);
+    await act(async () => submit.click());
+    expect(generate).not.toHaveBeenCalled();
+    expect(props.onError).toHaveBeenLastCalledWith(expect.stringContaining('Duration'));
+  }
   await setSeconds('5');
   await act(async () => submit.click());
   expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ parameters: { music_length_ms: 5000 } }));

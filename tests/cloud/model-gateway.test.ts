@@ -184,6 +184,42 @@ describe('MockModelGateway Deterministic Valid PNG/MP4/WAV Generation', () => {
 });
 
 describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero BYOK)', () => {
+  it('rejects Eleven Music durations beyond five minutes before submitting', async () => {
+    const sent: unknown[] = [];
+    const gateway = new OpenDesignModelGateway({ apiUrl: 'https://amr.example.test', linkUrl: 'https://link.example.test',
+      fetcher: async (_url, init) => { sent.push(JSON.parse(String(init?.body)).parameters); return Response.json({ task_id: 'music-task' }); } });
+    const submit = (music_length_ms: number) => gateway.submitTask({ workspaceId: 'workspace' }, { jobId: 'music-job', modality: 'audio',
+      mode: 'text-to-audio', modelId: 'elevenlabs-music-v2', prompt: 'Rain piano', parameters: { music_length_ms }, inputs: [] });
+    for (const ms of [599000, 600000]) await assert.rejects(() => submit(ms), /Duration \(seconds\)/);
+    assert.equal(sent.length, 0);
+    await submit(300000);
+    assert.deepEqual(sent, [{ music_length_ms: 300000, prompt: 'Rain piano' }]);
+  });
+  it('marks a failed Cloud audio task as remote-terminal, including an unknown outcome', async () => {
+    const statuses: Record<string, Record<string, unknown>> = {
+      'audio-unknown': { status: 'failed', error: { code: 'audio_outcome_unknown', retryable: false } },
+      'audio-rejected': { status: 'failed', error: { code: 'upstream_request_failed' } },
+      'video-unknown': { status: 'failed', error: { code: 'media_execution_unknown' } },
+    };
+    const gateway = new OpenDesignModelGateway({ apiUrl: 'https://amr.example.test', linkUrl: 'https://link.example.test',
+      fetcher: async (url) => Response.json(statuses[String(url).split('/').at(-1)!]) });
+    const ctx = { workspaceId: 'workspace' };
+
+    const unknown = await gateway.pollTask(ctx, { modality: 'audio', remoteTaskId: 'audio-unknown' });
+    assert.equal(unknown.status, 'failed');
+    assert.equal(unknown.error?.outcomeUnknown, true);
+    assert.equal(unknown.error?.remoteTerminal, true);
+    assert.doesNotMatch(unknown.error?.message ?? '', /Inspect the original task/);
+
+    const rejected = await gateway.pollTask(ctx, { modality: 'audio', remoteTaskId: 'audio-rejected' });
+    assert.equal(rejected.error?.outcomeUnknown, false);
+    assert.equal(rejected.error?.remoteTerminal, true);
+
+    // Video tasks keep the existing contract: an unknown outcome stays resumable.
+    const video = await gateway.pollTask(ctx, { modality: 'video', remoteTaskId: 'video-unknown' });
+    assert.equal(video.error?.outcomeUnknown, true);
+    assert.notEqual(video.error?.remoteTerminal, true);
+  });
   it('sends speech speed in ElevenLabs voice settings and preserves other voice settings', async () => {
     const gateway = new OpenDesignModelGateway({ apiUrl: 'https://amr.example.test', linkUrl: 'https://link.example.test',
       fetcher: async (_url, init) => {

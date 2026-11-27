@@ -153,7 +153,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     galleryScroll.current = undefined;
   }, [selected, browser.data]);
   const tasks = assetTasks(jobs), selectedKey = taskId ? `direct:${taskId}` : undefined;
-  const referenceUpload = useRef<HTMLInputElement>(null), upload = useRef<HTMLInputElement>(null), replace = useRef<HTMLInputElement>(null), knownJobs = useRef<GenerationJob[]>([]);
+  const referenceUpload = useRef<HTMLInputElement>(null), upload = useRef<HTMLInputElement>(null), replace = useRef<HTMLInputElement>(null), knownJobs = useRef<GenerationJob[]>([]), resumedJobs = useRef(new Map<string, number>());
   const mountedRef = useRef(true);
   const uploadingRef = useRef(false);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
@@ -343,7 +343,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       return true;
     } catch (error) { tracking.reportAssetUpdate(changes, 'failure', modality); onError((error as Error).message); return false; }
   };
-  const cancelJob = (job: GenerationJob) => { tracking.reportAssetsClick('asset_tasks', 'cancel_task', { modality: job.modality }); void assetRequest({ action: 'cancel', jobId: job.id }).then(() => setHistoryRetry(value => value + 1)).catch(error => onError(error.message)); };
+  const cancelJob = (job: GenerationJob) => { resumedJobs.current.delete(job.id); tracking.reportAssetsClick('asset_tasks', 'cancel_task', { modality: job.modality }); void assetRequest({ action: 'cancel', jobId: job.id }).then(() => setHistoryRetry(value => value + 1)).catch(error => onError(error.message)); };
   const retrySave = async (job: GenerationJob) => {
     tracking.reportAssetsClick('asset_tasks', 'retry_save', { modality: job.modality });
     try {
@@ -355,9 +355,19 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     tracking.reportAssetsClick('asset_tasks', 'resume_task', { modality: job.modality });
     try {
       const { job: next } = await assetRequest<{ job: GenerationJob }>({ action: 'resume', jobId: job.id, requestId: `resume-${job.id}` });
+      resumedJobs.current.set(next.id, next.updatedAt);
       knownJobs.current = mergeAssetJobs(knownJobs.current, [next]); setJobs(knownJobs.current);
     } catch (error) { onError((error as Error).message); }
   };
+  // A check can end exactly where it started, so report the original task's latest state once it settles.
+  useEffect(() => {
+    for (const [id, checkedAt] of resumedJobs.current) {
+      const job = jobs.find(item => item.id === id);
+      if (!job || job.state === 'queued' || job.state === 'running' || job.updatedAt <= checkedAt) continue;
+      resumedJobs.current.delete(id);
+      toast.showToast(t(resumedJobOutcome(job)), 'info');
+    }
+  }, [jobs, toast.showToast, t]);
   const openReference = async (reference: { assetId: string; versionId: string }) => {
     const request = ++selectionRequest.current;
     try {
@@ -825,4 +835,11 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     })()}
     <StudioToastViewport {...toast} />
   </div>;
+}
+
+function resumedJobOutcome(job: GenerationJob): string {
+  if (job.state === 'completed') return 'Original task checked. The result has been saved to your assets.';
+  if (job.savePending) return 'Original task checked. The result is ready but could not be saved. Retry saving.';
+  if (resumableJob(job)) return 'Original task checked. Its result is still not confirmed. You can check again later.';
+  return 'Original task checked. It ended without a result. Generate again to create a new request.';
 }

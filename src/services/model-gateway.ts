@@ -72,6 +72,8 @@ export interface GatewayTaskError {
   readonly message: string;
   readonly retryable?: boolean;
   readonly outcomeUnknown?: boolean;
+  /** The remote task has settled: querying it again returns this same error, even when the outcome is unknown. */
+  readonly remoteTerminal?: boolean;
 }
 
 export interface GatewayTaskPollResult {
@@ -168,7 +170,7 @@ export const GATEWAY_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   media_execution_unknown:
     'OpenDesign could not confirm whether this request ran, so it was not resubmitted. Inspect the original task before retrying.',
   audio_outcome_unknown:
-    'OpenDesign could not confirm the audio task outcome, so it was not resubmitted. Inspect the original task before retrying.',
+    'OpenDesign could not confirm whether this audio was generated. The original task has ended and cannot be checked again. Generate again to create a new request.',
   provider_error:
     'The model provider could not complete this request. Try again later or choose another model.',
   asr_provider_unconfigured:

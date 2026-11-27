@@ -530,6 +530,28 @@ describe('SoundStudioWorkspace', () => {
     expect(Number(estimateAfter.replace(/\D/g, ''))).toBeLessThanOrEqual(Number(estimateBefore.replace(/\D/g, '')));
   });
 
+  it('offers no speed control for Eleven v3, which ignores voice speed', async () => {
+    const cloudEleven: Model = withOptions({
+      id: 'opendesign:elevenlabs-v3',
+      provider: 'opendesign',
+      modelId: 'elevenlabs-v3',
+      label: 'Eleven v3',
+      modality: 'audio',
+      mode: 'text-to-speech',
+      source: 'live',
+    });
+    expect(cloudEleven.generationOptions?.fields.map(field => field.key)).toEqual(['voice']);
+    const studio = makeStudio('speech', cloudEleven.id, [], [cloudEleven]);
+    studio.catalog.catalog!.status.providers = [
+      { id: 'opendesign', label: 'OpenDesign', available: true, configured: true, enabled: true, source: 'none', mode: 'opendesign' },
+    ];
+    studio.catalog.catalog!.status.routes = { audio: cloudEleven.id };
+    await renderSound(studio, { assets: [], initialPrompt: 'Speed check.' });
+    expect(host.querySelectorAll('.om-sound-voice-select').length).toBeGreaterThanOrEqual(4);
+    expect(host.querySelector('.om-sound-speed-controls')).toBeNull();
+    expect([...host.querySelectorAll('.om-sound-pill')].some(pill => pill.textContent === '1.2x')).toBe(false);
+  });
+
   it('auditions Kokoro and ElevenLabs voices inline without generated assets or changing selection', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x00]), { status: 200, headers: { 'content-type': 'text/plain' } }),

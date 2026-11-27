@@ -4806,6 +4806,50 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
     assert.equal(resumedStatus.job.failureStage, undefined);
   });
 
+  it('treats audio failures saved before remoteTerminal was recorded as settled', async () => {
+    const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const workspaceId = config.DEV_WORKSPACE_ID;
+    const nowIso = new Date().toISOString();
+    const audioJobId = randomUUID();
+    pgClient.seed('jobs', {
+      id: audioJobId,
+      workspace_id: workspaceId,
+      project_id: null,
+      kind: 'media_generate',
+      state: 'failed',
+      stage: 'failed',
+      remote_id: 'audio_task_settled',
+      remote_terminal: false,
+      save_pending: false,
+      failure_stage: 'generating',
+      error_code: 'audio_outcome_unknown',
+      error_message: 'OpenDesign could not confirm the audio task outcome, so it was not resubmitted. Inspect the original task before retrying.',
+      result_json: { error: { code: 'audio_outcome_unknown', outcomeUnknown: true } },
+      request_id: 'req_audio_settled_1',
+      idempotency_key: 'req_audio_settled_1',
+      input_payload: { modality: 'audio', mode: 'text-to-speech', modelId: 'byteplus-tts-2.0', prompt: 'Welcome aboard' },
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+
+    const statusRes = await app.request(`/motion-api/models/jobs/${audioJobId}`);
+    assert.equal(statusRes.status, 200);
+    const body = (await statusRes.json()) as { job: { remoteTerminal?: boolean; error?: string } };
+    assert.equal(body.job.remoteTerminal, true);
+    assert.match(body.job.error ?? '', /cannot be checked again\. Generate again to create a new request\./);
+
+    const resumeRes = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: { action: 'resume', jobId: audioJobId, requestId: `resume-${audioJobId}` },
+      }),
+    });
+    assert.equal(resumeRes.status, 409);
+    assert.match(await resumeRes.text(), /can no longer be checked/);
+  });
+
   it('imports a library PNG via openmotion_assets_use(action=import_to_project) after Undo without version collision', async () => {
     const { app, config, pgClient, storage } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const workspaceId = config.DEV_WORKSPACE_ID;

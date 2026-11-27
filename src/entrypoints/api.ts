@@ -139,7 +139,7 @@ import { AssetLibraryService } from '../services/asset-library-service.ts';
 import { AssetNamesService } from '../services/asset-names-service.ts';
 import { CatalogService } from '../services/catalog-service.ts';
 import { ExportService } from '../services/export-service.ts';
-import { createPlatformModelGateway, type PlatformModelGateway } from '../services/model-gateway.ts';
+import { createPlatformModelGateway, GATEWAY_ERROR_MESSAGES, type PlatformModelGateway } from '../services/model-gateway.ts';
 import { ProjectArchiveService } from '../services/project-archive-service.ts';
 import { createOrCloneProject } from '../services/project-creation.ts';
 import {
@@ -577,6 +577,9 @@ function createCloudMediaJobsPort(deps: {
 }): MediaJobPort & {
   handleMediaAction(auth: AuthContext, args: Record<string, unknown>): Promise<Record<string, unknown>>;
 } {
+  // OpenDesign settles a failed audio task once. Rows saved before audio failures recorded remoteTerminal still
+  // carry the old message asking the user to check the original task.
+  const settledAudioFailure = (row: typeof jobs.$inferSelect) => row.errorCode === 'audio_outcome_unknown';
   const serializeJob = (row: typeof jobs.$inferSelect): Record<string, unknown> => {
     const input = (row.inputPayload ?? {}) as Record<string, unknown>;
     const result = (row.resultJson ?? {}) as Record<string, unknown>;
@@ -643,7 +646,7 @@ function createCloudMediaJobsPort(deps: {
       assets: [],
       libraryAssets,
       remoteId: row.remoteId ?? null,
-      remoteTerminal: Boolean(row.remoteTerminal),
+      remoteTerminal: Boolean(row.remoteTerminal) || settledAudioFailure(row),
       savePending: row.savePending,
       ...(row.failureStage ? { failureStage: row.failureStage } : {}),
       requestId: row.requestId ?? null,
@@ -651,7 +654,9 @@ function createCloudMediaJobsPort(deps: {
       ...(typeof result.assetId === 'string' ? { assetId: result.assetId } : {}),
       ...(typeof result.versionId === 'string' ? { versionId: result.versionId } : {}),
       ...(row.errorCode ? { errorCode: row.errorCode } : {}),
-      ...(row.errorMessage ? { error: row.errorMessage } : {}),
+      ...(settledAudioFailure(row)
+        ? { error: GATEWAY_ERROR_MESSAGES.audio_outcome_unknown }
+        : row.errorMessage ? { error: row.errorMessage } : {}),
       createdAt: row.createdAt.getTime(),
       updatedAt: row.updatedAt.getTime(),
       ...(row.startedAt ? { startedAt: row.startedAt.getTime() } : {}),
@@ -1055,10 +1060,10 @@ function createCloudMediaJobsPort(deps: {
     if (existing.projectId && auth.authMethod === 'oauth_bearer') {
       await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
     }
-    if (!existing.remoteId || existing.remoteTerminal || existing.savePending || existing.state !== 'failed') {
+    if (!existing.remoteId || existing.remoteTerminal || settledAudioFailure(existing) || existing.savePending || existing.state !== 'failed') {
       throw new CloudError(
         'INVALID_ARGUMENT',
-        'Only failed media jobs with an active upstream remoteId can be resumed without re-submitting.',
+        'This task can no longer be checked. Check its latest status, or generate again to create a new request.',
         { status: 409, applied: false },
       );
     }

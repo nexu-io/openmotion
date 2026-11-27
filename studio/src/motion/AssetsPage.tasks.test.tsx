@@ -44,6 +44,7 @@ beforeEach(() => {
     }
     if (args.action === 'list') return { assets: [structuredClone(asset)], total: 1, nextOffset: null };
     if (args.action === 'get') return { asset: structuredClone(asset) };
+    if (args.action === 'resume') { const current = jobs.find(item => item.id === args.jobId)!; return { job: { ...structuredClone(current), state: 'queued', phase: 'resuming', updatedAt: current.updatedAt + 5 } }; }
     if (args.action === 'retry_save') return { job: { ...structuredClone(jobs.find(item => item.id === args.jobId)!), state: 'queued', phase: 'saving', updatedAt: 50 } };
     throw new Error(`Unexpected action ${args.action}`);
   });
@@ -120,5 +121,21 @@ it('opens a recoverable project task and retries saving through the shared asset
   await act(async () => composer.onRetrySave!(jobs[0]));
   expect(vi.mocked(assetRequest).mock.calls.some(([args]) => args.action === 'retry_save' && args.jobId === 'project-save' && args.requestId === 'save-project-save')).toBe(true);
   expect(composer.jobs.find(item => item.id === 'project-save')?.state).toBe('queued');
+  expect(vi.mocked(assetRequest).mock.calls.some(([args]) => args.action === 'generate')).toBe(false);
+});
+
+it('reports the original task state once a check settles, including when nothing changed', async () => {
+  const failed: GenerationJob = { ...job('check', 40, 'failed'), remoteId: 'remote_check', error: 'OpenDesign could not confirm whether this request ran, so it was not resubmitted. Inspect the original task before retrying.' };
+  jobs = [failed]; await render(); await selectTask('Add a warm glow');
+  await act(async () => composer.onResume!(jobs[0]));
+  expect(vi.mocked(assetRequest).mock.calls.some(([args]) => args.action === 'resume' && args.jobId === 'check' && args.requestId === 'resume-check')).toBe(true);
+  expect(composer.jobs.find(item => item.id === 'check')).toMatchObject({ state: 'queued', phase: 'resuming' });
+  expect(document.body.textContent).not.toContain('Original task checked');
+  jobs = [{ ...failed, updatedAt: 60 }]; await tick();
+  expect(document.body.textContent).toContain('Original task checked. Its result is still not confirmed. You can check again later.');
+
+  await act(async () => composer.onResume!(jobs[0]));
+  jobs = [{ ...failed, updatedAt: 70, remoteTerminal: true }]; await tick();
+  expect(document.body.textContent).toContain('Original task checked. It ended without a result. Generate again to create a new request.');
   expect(vi.mocked(assetRequest).mock.calls.some(([args]) => args.action === 'generate')).toBe(false);
 });

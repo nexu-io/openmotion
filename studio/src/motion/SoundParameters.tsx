@@ -292,6 +292,8 @@ export function SoundParameters({
     const unit = durationUnitsPerSecond(field);
     const currentNum = typeof current === 'number' ? current / unit : undefined;
     const presets = tabId === 'sfx' || field.key === 'duration_seconds' ? SFX_DURATION_PRESETS : DURATION_PRESETS;
+    const min = (field.min ?? unit) / unit;
+    const max = field.max === undefined ? undefined : field.max / unit;
     return (
       <div className="om-sound-param-field" key={field.key}>
         <div className="om-sound-param-head">
@@ -331,11 +333,11 @@ export function SoundParameters({
               id={`${idPrefix}-${field.key}`}
               aria-label={t('Custom duration (seconds)')}
               type="number"
-              min={(field.min ?? unit) / unit}
-              max={field.max === undefined ? undefined : field.max / unit}
+              min={min}
+              max={max}
               step={(field.step ?? unit) / unit}
               disabled={disabled}
-              placeholder="--"
+              placeholder={max === undefined ? '--' : `${min}–${max}`}
               value={currentNum ?? ''}
               onChange={event => setField(field, event.target.value === '' ? undefined : Number(event.target.value) * unit)}
               onBlur={() => {

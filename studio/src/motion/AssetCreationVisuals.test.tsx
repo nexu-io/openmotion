@@ -105,6 +105,9 @@ it('checks an eligible original Cloud task once and shows reconnection without n
   }
   await render({ ...job, state: 'running', phase: 'reconnecting' });
   expect(container.textContent).toContain('Reconnecting…');
+  await act(async () => root.render(<AssetGenerationPlaceholder job={{ ...job, state: 'queued', phase: 'resuming' }} onCancel={cancel} onView={view} onResume={resume} />));
+  expect(container.textContent).toContain('Checking original task…');
+  expect(container.textContent).not.toContain('Queued');
   expect(cancel).not.toHaveBeenCalled();
 });
 

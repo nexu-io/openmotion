@@ -716,6 +716,8 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
           message: normalizeGatewayErrorMessage(code),
           retryable: typeof errObj?.retryable === 'boolean' ? errObj.retryable : false,
           outcomeUnknown: OUTCOME_UNKNOWN_CODES.has(code),
+          // The media API settles an audio task once and never resubmits it, so querying it again returns the same result.
+          ...(input.modality === 'audio' ? { remoteTerminal: true } : {}),
         },
       };
     }

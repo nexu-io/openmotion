@@ -60,7 +60,7 @@ Image-to-video with one first frame:
 
 For `wan-2.7` and `doubao-seedance-2-5-260628`, a first-frame video follows the input image's aspect ratio. Omit `parameters.ratio` or set it to `"adaptive"`; a fixed value such as `"16:9"` is incompatible with a first frame. The catalogue also lists text-to-video ratios, so its general default does not establish a valid image-to-video combination. If the brief requires a fixed frame, prepare and inspect a reference image at that ratio before submission, keeping the original asset. Do not silently replace an explicitly requested ratio or change the reference image to make a request pass validation.
 
-Native speech options pass through `parameters` unchanged, such as ElevenLabs `voice_settings.speed` or BytePlus `audio_params.speech_rate`. Seedream 5.5 and both video models currently accept one input image; first-and-last-frame video is rejected by the service.
+Native speech options pass through `parameters` unchanged, such as ElevenLabs `voice_settings.speed` (Eleven v3 does not apply it) or BytePlus `audio_params.speech_rate`. Seedream 5.5 and both video models currently accept one input image; first-and-last-frame video is rejected by the service.
 
 Music:
 
@@ -108,7 +108,7 @@ The supplied contract does **not** define a complete authoritative Cloud HTTP er
 | HTTP 400 / 422 | Check current contract fields: paired image `aspect_ratio`/`resolution` are sent inside `output`, other image/video fields are flat, speech text is nested and voice must match the model. Inspect actual validation detail if available. |
 | Quota/balance rejection | Check workspace model allowance and recharge balance. The contract does not assign one guaranteed HTTP status to this case. |
 | HTTP 429 / 5xx / network timeout | Possible limits/transient failure or uncertain outcome. Check the original task/history before another paid submit; do not assume a timeout means no task was created. |
-| `audio_outcome_unknown` | Explicit unknown audio outcome. Query the original task and workspace usage before considering another generation. Do not treat it as a definite failure or a refund. |
+| `audio_outcome_unknown` | Explicit unknown audio outcome. The Cloud task has settled: querying it again returns the same result, so it cannot resume. Check workspace usage before considering another generation. Do not treat it as a definite failure or a refund. |
 | `status: failed` / `cancelled` | Terminal task state. Preserve task ID and available detail; transport success is not media success. Local cancellation alone does not prove the provider stopped. |
 | Asset download failure after success | Check the original task/output link and expiry first. Regeneration can double-charge and does not fix a stale link. |
 

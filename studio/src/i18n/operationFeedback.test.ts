@@ -106,3 +106,33 @@ it('keeps audio, ripple and remaining audited feedback readable in Chinese and E
     expect(help).toContain('关闭此功能可保留空隙');
   }
 });
+
+it('explains audio tasks that cannot be checked again instead of asking for another attempt', () => {
+  const refused = 'This task can no longer be checked. Check its latest status, or generate again to create a new request.';
+  const settled = 'OpenDesign could not confirm whether this audio was generated. The original task has ended and cannot be checked again. Generate again to create a new request.';
+  expect(toastErrorMessage(refused)).toBe(refused);
+  for (const source of [refused, settled]) {
+    for (const { locale } of languages) {
+      const message = translate(locale, source);
+      if (locale === 'en') expect(message).toBe(source);
+      else expect(message).not.toBe(source);
+    }
+  }
+  expect(translate('zh-CN', settled)).toContain('无法再次查询');
+});
+
+it('localizes the result of checking an original task in every interface language', () => {
+  for (const source of [
+    'Original task checked. The result has been saved to your assets.',
+    'Original task checked. The result is ready but could not be saved. Retry saving.',
+    'Original task checked. Its result is still not confirmed. You can check again later.',
+    'Original task checked. It ended without a result. Generate again to create a new request.',
+  ]) {
+    for (const { locale } of languages) {
+      const message = translate(locale, source);
+      if (locale === 'en') expect(message).toBe(source);
+      else expect(message).not.toBe(source);
+    }
+  }
+  expect(translate('zh-CN', 'Original task checked. Its result is still not confirmed. You can check again later.')).toBe('已查询原任务：结果仍未确认，可稍后再查。');
+});
