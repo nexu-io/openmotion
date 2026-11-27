@@ -111,10 +111,13 @@ Historical clients and work rounds without this protocol remain unavailable. The
 Quality evidence is explicit. Technical export, preview visibility and recorded
 content review each emit `check_required` and `check_completed` with a version,
 checklist, checker type and bounded evidence reference. A technical export check
-does not assert visual or human acceptance. Queue workers emit `queue_snapshot` at
-most once per minute and `worker_heartbeat` with bounded counts. Confirmed
-correctness incidents and recovery evidence use `incident_confirmed` and
-`recovery_recorded`; ordinary task failures are not incidents.
+does not assert visual or human acceptance. Periodic `queue_snapshot` and
+`worker_heartbeat` events are retired. For export operations reporting, correlate
+`task_accepted`, `task_terminal` and `task_status_reconciled` by task ID. Count
+accepted exports with an elapsed deadline and no recorded terminal outcome as
+overdue. Report explicit `unknown` outcomes separately. Confirmed correctness
+incidents and recovery evidence use `incident_confirmed` and `recovery_recorded`.
+Ordinary task failures are not incidents.
 
 ## Identity, properties and privacy
 
