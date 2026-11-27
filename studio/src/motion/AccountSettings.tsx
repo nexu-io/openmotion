@@ -19,6 +19,7 @@ import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
 import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive, useBlackFridayActive } from './campaignAttribution';
+import { suppressOneTapAfterConfirmedLogout } from './googleOneTap';
 import { ModelAvatar, SettingsError, SettingsLoading } from './settingsPrimitives';
 import offerStyles from './GenerationOffer.module.css';
 import { useShownStudioTheme } from '../utils/studioTheme';
@@ -43,6 +44,7 @@ export interface CloudAccountSummary extends AccountSummary {
   appUserId?: string | null;
   authMode?: 'oidc' | 'dev';
   authMethod?: 'session_cookie' | 'pat' | 'oauth_bearer' | 'oidc_jwt' | 'dev_bypass';
+  upgradeHandoffEnabled?: boolean;
   activeWorkspace?: CloudWorkspaceSummary | null;
   workspaces?: CloudWorkspaceSummary[];
   mediaEntitlement?: 'included' | 'not-included' | 'unknown';
@@ -80,6 +82,7 @@ interface CloudSummaryApiResponse {
   authenticated?: boolean;
   authMode?: 'oidc' | 'dev';
   authMethod?: CloudAccountSummary['authMethod'];
+  upgradeHandoffEnabled?: boolean;
   consoleUrl?: string;
   user?: {
     id?: string;
@@ -146,6 +149,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
       errorCode: raw.errorCode,
       authMode: raw.authMode,
       authMethod: raw.authMethod,
+      upgradeHandoffEnabled: raw.upgradeHandoffEnabled,
       activeWorkspace: raw.activeWorkspace,
       workspaces: raw.workspaces,
       modelGateway: raw.modelGateway,
@@ -170,6 +174,7 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
     billingError: raw.billingError,
     authMode: raw.authMode ?? 'oidc',
     authMethod: raw.authMethod,
+    upgradeHandoffEnabled: raw.upgradeHandoffEnabled,
     activeWorkspace: raw.activeWorkspace ?? null,
     workspaces: Array.isArray(raw.workspaces) ? raw.workspaces : [],
     mediaEntitlement: raw.billing?.mediaEntitlement,
@@ -539,8 +544,21 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
 
   function subscriptionLink(source: string, element: SubscriptionLinkElement) {
     const consoleUrl = state.account!.consoleUrl;
+    const useUpgradeHandoff = Boolean(
+      signedIn &&
+      account?.authMode === 'oidc' &&
+      account?.upgradeHandoffEnabled !== false &&
+      !isDesktopApp(),
+    );
+    const buildUrl = () =>
+      buildSubscriptionUrl(consoleUrl, source, {
+        useUpgradeHandoff,
+        targetPath: '/dashboard',
+        requireAuth: signedIn,
+        expectedAppUserId: account?.appUserId ?? null,
+      });
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
-      const targetUrl = buildSubscriptionUrl(consoleUrl, source);
+      const targetUrl = buildUrl();
       if (event.detail === 0 && event.button === 0) event.currentTarget.href = targetUrl;
       tracking.reportSettingsClick('account', element, {
         ...(element === 'view_plans' && blackFridayActive() ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}),
@@ -553,10 +571,10 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       }
     };
     return {
-      href: buildSubscriptionUrl(consoleUrl, source),
+      href: buildUrl(),
       target: '_blank',
       rel: 'noreferrer',
-      onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => { event.currentTarget.href = buildSubscriptionUrl(consoleUrl, source); },
+      onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => { event.currentTarget.href = buildUrl(); },
       onClick: open,
       onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => { if (event.button === 1) open(event); },
     };
@@ -582,6 +600,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     try {
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error(t('Could not sign out'));
+      suppressOneTapAfterConfirmedLogout();
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
       resetMotionTrackingIdentity();

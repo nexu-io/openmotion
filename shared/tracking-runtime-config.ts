@@ -19,6 +19,12 @@ export const CLOUD_ALLOWED_STUDIO_EVENTS: ReadonlySet<string> = new Set([
   'ui_click',
   'surface_view',
   'entitlement_refresh_result',
+  // Google One Tap sign-in funnel (one attempt per guest page load, then a single outcome)
+  'onetap_prompt_attempt',
+  'onetap_prompt_observed',
+  'onetap_credential_received',
+  'onetap_login_success',
+  'onetap_login_failed',
   // Template, Skill & MCP discovery/adoption
   'template_search_result',
   'template_search_handoff_result',

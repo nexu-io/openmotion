@@ -13,6 +13,7 @@ import { HOST_CAPABILITIES } from '../../../shared/desktop-contract';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { buildLoginUrl, useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
+import { suppressOneTapAfterConfirmedLogout } from './googleOneTap';
 import { clearPrivateSwrCache } from './swrCache';
 import { markAuthenticatedSession } from './authRecoveryStore';
 import { CommunityLink } from './CommunityLink';
@@ -161,6 +162,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
     try {
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error('Could not sign out');
+      suppressOneTapAfterConfirmedLogout();
       markAuthenticatedSession(false);
       clearPrivateSwrCache();
       resetMotionTrackingIdentity();

@@ -25,15 +25,42 @@ export const DEFAULT_CONSOLE_URL = 'https://open-design.ai';
 export function buildSubscriptionUrl(
   consoleUrl?: string | null,
   entrySource = 'openmotion_manage_subscription',
+  options?: {
+    useUpgradeHandoff?: boolean;
+    targetPath?: string;
+    requireAuth?: boolean;
+    expectedAppUserId?: string | null;
+  },
 ): string {
-  const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
-  url.search = new URLSearchParams({
+  const params = new URLSearchParams({
     billing: 'plan',
     od_origin: 'openmotion',
     od_entry_source: entrySource,
     od_entry_id: crypto.randomUUID(),
     od_entry_at: new Date().toISOString(),
-  }).toString();
+  });
+  if (options?.useUpgradeHandoff) {
+    const baseOrigin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : DEFAULT_CONSOLE_URL;
+    const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
+    if (options.targetPath) {
+      handoff.searchParams.set('targetPath', options.targetPath);
+    }
+    if (options.requireAuth) {
+      handoff.searchParams.set('requireAuth', '1');
+      if (options.expectedAppUserId) {
+        handoff.searchParams.set('expectedAppUserId', options.expectedAppUserId);
+      }
+    }
+    for (const [key, value] of params.entries()) {
+      handoff.searchParams.set(key, value);
+    }
+    return handoff.href;
+  }
+  const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
+  url.search = params.toString();
   return url.href;
 }
 

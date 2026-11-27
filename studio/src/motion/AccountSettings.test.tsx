@@ -391,7 +391,8 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
   vi.setSystemTime(BLACK_FRIDAY_ENDS_AT + 60_000);
   for (const plan of ['free', 'go']) {
     const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan, balance: '0.00' }, 'en', 'subscription');
-    const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
+    const upgrade = page.querySelector<HTMLAnchorElement>('[data-guide="upgrade"] a')!;
+    const manage = [...page.querySelectorAll<HTMLAnchorElement>('a')].find(item => item.textContent?.includes('Manage subscription'))!;
     expect(page.querySelector('.om-plan-name')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
     expect(new URL(upgrade.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
     expect(upgrade.textContent).toContain('Upgrade to Plus');
@@ -480,6 +481,67 @@ it('shows the upgrade guide and honest billing notice when billing is unavailabl
   expect(page.textContent).not.toContain('账户模型不受影响，可以照常使用');
 });
 
+it('routes upgrade links through /auth/upgrade-handoff with attribution in OIDC web mode and suppresses One Tap on confirmed sign-out', async () => {
+  sessionStorage.clear();
+  const disableAutoSelect = vi.fn();
+  window.google = {
+    accounts: {
+      id: {
+        initialize: vi.fn(),
+        prompt: vi.fn(),
+        disableAutoSelect,
+        cancel: vi.fn(),
+      },
+    },
+  };
+  try {
+    const page = await open(
+      {
+        authenticated: true,
+        authMode: 'oidc',
+        authMethod: 'session_cookie',
+        user: { id: 'u1', appUserId: 'usr_app_1', email: 'ada@example.test', displayName: 'Ada' },
+        billing: { plan: 'free', mediaEntitlement: 'not-included', balanceUsd: 0 },
+      },
+      'en',
+      'subscription',
+    );
+    const upgrade = page.querySelector<HTMLAnchorElement>('[data-guide="upgrade"] a')!;
+    const manage = [...page.querySelectorAll<HTMLAnchorElement>('a')].find(item => item.textContent?.includes('Manage subscription'))!;
+    const upgradeUrl = new URL(upgrade.href);
+    expect(upgradeUrl.pathname).toBe('/auth/upgrade-handoff');
+    expect(upgradeUrl.searchParams.get('targetPath')).toBe('/dashboard');
+    expect(upgradeUrl.searchParams.get('billing')).toBe('plan');
+    expect(upgradeUrl.searchParams.get('od_origin')).toBe('openmotion');
+    expect(upgradeUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+    expect(upgradeUrl.searchParams.get('od_entry_id')).toBeTruthy();
+    expect(upgradeUrl.searchParams.get('od_entry_at')).toBeTruthy();
+
+    const manageUrl = new URL(manage.href);
+    expect(manageUrl.pathname).toBe('/auth/upgrade-handoff');
+    expect(manageUrl.searchParams.get('targetPath')).toBe('/dashboard');
+    expect(manageUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+
+    // Failed logout does NOT write suppression flag
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false }), { status: 500 })));
+    await act(async () => findButton(page, 'Sign out')!.click());
+    expect(sessionStorage.getItem('od_onetap_suppressed_once')).toBeNull();
+    expect(disableAutoSelect).not.toHaveBeenCalled();
+
+    // Confirmed logout writes od_onetap_suppressed_once and calls disableAutoSelect
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      hooks.summary = { authenticated: false, authMode: 'oidc', consoleUrl: 'https://open-design.ai/cloud' };
+      return Response.json({ ok: true });
+    }));
+    await act(async () => findButton(page, 'Sign out')!.click());
+    expect(sessionStorage.getItem('od_onetap_suppressed_once')).toBe('1');
+    expect(disableAutoSelect).toHaveBeenCalledTimes(1);
+  } finally {
+    sessionStorage.clear();
+    delete window.google;
+  }
+});
+
 it('hides the Model gateway button when openProviders is omitted', async () => {
   hooks.summary = {
     consoleUrl: 'https://open-design.ai/cloud',
@@ -499,6 +561,28 @@ it('hides the Model gateway button when openProviders is omitted', async () => {
   await act(async () => root!.render(<I18nProvider initialLocale="en"><AccountSettings /></I18nProvider>));
   expect(container.textContent).toContain('Unified model gateway');
   expect(findButton(container, 'Model gateway')).toBeUndefined();
+});
+
+it('falls back to direct console dashboard links when server reports upgradeHandoffEnabled=false', async () => {
+  const page = await open(
+    {
+      authenticated: true,
+      authMode: 'oidc',
+      authMethod: 'session_cookie',
+      upgradeHandoffEnabled: false,
+      user: { id: 'u1', appUserId: 'usr_app_1', email: 'ada@example.test', displayName: 'Ada' },
+      billing: { plan: 'free', mediaEntitlement: 'not-included', balanceUsd: 0 },
+    },
+    'en',
+    'subscription',
+  );
+  const upgrade = page.querySelector<HTMLAnchorElement>('[data-guide="upgrade"] a')!;
+  const manage = [...page.querySelectorAll<HTMLAnchorElement>('a')].find(item => item.textContent?.includes('Manage subscription'))!;
+  const upgradeUrl = new URL(upgrade.href);
+  expect(upgradeUrl.origin + upgradeUrl.pathname).toBe('https://open-design.ai/cloud/dashboard');
+  expect(upgradeUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  const manageUrl = new URL(manage.href);
+  expect(manageUrl.origin + manageUrl.pathname).toBe('https://open-design.ai/cloud/dashboard');
 });
 
 it('attaches the browser tracking device_id to buildLoginUrl for OIDC sign-in attribution', () => {

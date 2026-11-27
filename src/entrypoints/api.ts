@@ -175,6 +175,67 @@ export function resolveApiCorsAllowedOrigins(
   );
 }
 
+function normalizeCspOrigin(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed || /[\s;,"'\x00-\x1f\x7f]/.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Main-document security headers required by Google Identity Services (GIS) One Tap + FedCM.
+ * Enforces the `identity-credentials-get` Permissions-Policy and
+ * `Cross-Origin-Opener-Policy: same-origin-allow-popups` (never `same-origin`). The document CSP
+ * (GIS script/style/frame/connect allowances) is report-only: Studio still embeds third-party
+ * frames (for example external playable games) that this allowlist does not cover yet, and GIS
+ * itself does not need a CSP. Enforce it only after every embedded frame source is listed.
+ */
+export function buildStudioDocumentSecurityHeaders(
+  options: { previewOrigin?: string | null; storagePublicOrigin?: string | null } = {},
+): Record<string, string> {
+  const preview = normalizeCspOrigin(options.previewOrigin) ?? '';
+  const storageOrigin = normalizeCspOrigin(options.storagePublicOrigin) ?? '';
+  const uniqueSources = (sources: string[]) => [...new Set(sources.filter(Boolean))].join(' ');
+  const frameSrc = uniqueSources(["'self'", 'blob:', 'https://accounts.google.com/gsi/', preview]);
+  const connectSrc = uniqueSources([
+    "'self'",
+    'https://accounts.google.com/gsi/',
+    'http://127.0.0.1:*',
+    'http://localhost:*',
+    'https:',
+    'wss:',
+    preview,
+    storageOrigin,
+  ]);
+  const imgSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const mediaSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:', storageOrigin]);
+  const fontSrc = uniqueSources(["'self'", 'data:', 'https:', storageOrigin]);
+  return {
+    'Content-Security-Policy-Report-Only': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
+      `frame-src ${frameSrc}`,
+      `connect-src ${connectSrc}`,
+      `img-src ${imgSrc}`,
+      `media-src ${mediaSrc}`,
+      `font-src ${fontSrc}`,
+      "worker-src 'self' blob:",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; '),
+    'Permissions-Policy': 'identity-credentials-get=(self "https://accounts.google.com")',
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Content-Type-Options': 'nosniff',
+  };
+}
+
 function resolveIncomingRequestHost(request: Request, trustProxyHops: number): string {
   if (trustProxyHops > 0) {
     const forwardedHost = request.headers.get('x-forwarded-host');
@@ -2961,7 +3022,18 @@ export function createApiApp(deps: CreateApiAppDeps): {
     '/motion-api/models',
     createModelRoutes({ gateway, authStore, mediaJobs, consoleUrl: config.OPENDESIGN_CONSOLE_URL }),
   );
-  app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway, cache: authCache }));
+  app.route(
+    '/motion-api/account',
+    createAccountRoutes({
+      config,
+      authStore,
+      gateway,
+      cache: authCache,
+      upgradeHandoffEnabled: Boolean(
+        config.AUTH_MODE === 'oidc' && authDeps.amrIdentity?.isOneTapConfigured(),
+      ),
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // 8. Explicit P2 Deferred Routes (`501 FEATURE_DEFERRED_P2`)
@@ -3267,10 +3339,15 @@ export function createApiApp(deps: CreateApiAppDeps): {
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled
         ? { 'Origin-Agent-Cluster': '?1' }
         : {};
+      const documentSecurityHeaders = buildStudioDocumentSecurityHeaders({
+        previewOrigin: previewHostIsolationEnabled && previewOriginUrl ? previewOriginUrl.origin : null,
+        storagePublicOrigin: normalizeCspOrigin(config.S3_PUBLIC_ENDPOINT ?? config.S3_ENDPOINT),
+      });
       if (!notFoundRoute && c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {
           status: 304,
           headers: {
+            ...documentSecurityHeaders,
             ETag: etag,
             'Cache-Control': 'no-cache',
             'X-Content-Type-Options': 'nosniff',
@@ -3281,6 +3358,7 @@ export function createApiApp(deps: CreateApiAppDeps): {
       return new Response(headOnly ? null : bytes, {
         status: notFoundRoute ? 404 : 200,
         headers: {
+          ...documentSecurityHeaders,
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Length': String(bytes.byteLength),
           ...(notFoundRoute ? { 'Cache-Control': 'no-store' } : { ETag: etag, 'Cache-Control': 'no-cache' }),

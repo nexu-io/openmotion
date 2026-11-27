@@ -1076,7 +1076,7 @@ describe('cloud tracking allowlist (shared PostHog & Tracert strict filtering)',
       ],
     });
     assert.equal(accepted, 3);
-    assert.ok(CLOUD_ALLOWED_STUDIO_EVENTS.size <= 40);
+    assert.ok(CLOUD_ALLOWED_STUDIO_EVENTS.size <= 45);
     assert.equal(CLOUD_BLOCKED_SURFACE_AREAS.has('template_card'), true);
   });
 

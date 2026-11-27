@@ -314,6 +314,42 @@ export const omEvents = {
   brand_kit_action_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand,
     action: ['edit', 'context', 'rescan', 'retry', 'cancel', 'delete'], outcome: ['success', 'failure'], detail_view_id: 'uuid' },
     required: ['brand_source', 'action', 'outcome'] },
+  // Google One Tap (FedCM-compatible cross-repo telemetry contract).
+  onetap_prompt_attempt: { producers: ['studio'], fields: {
+    surface: ['login_page', 'landing', 'motion_web'],
+    attempt_id: 'code',
+    device_type: ['desktop', 'mobile'],
+    suppressed: 'boolean',
+  }, required: ['surface', 'attempt_id', 'device_type', 'suppressed'] },
+  onetap_prompt_observed: { producers: ['studio'], fields: {
+    surface: ['login_page', 'landing', 'motion_web'],
+    attempt_id: 'code',
+    outcome: ['displayed', 'dismissed', 'skipped', 'script_load_failed', 'suppressed_after_logout'],
+    reason: 'code',
+  }, required: ['surface', 'attempt_id', 'outcome', 'reason'] },
+  onetap_credential_received: { producers: ['studio'], fields: {
+    surface: ['login_page', 'landing', 'motion_web'],
+    attempt_id: 'code',
+    select_by: 'code',
+  }, required: ['surface', 'attempt_id', 'select_by'] },
+  onetap_login_success: { producers: ['studio'], fields: {
+    surface: ['login_page', 'landing', 'motion_web'],
+    attempt_id: 'code',
+    is_new_user: 'boolean',
+    plan_tier: ['free', 'go', 'plus', 'pro', 'max', 'unknown'],
+    post_login_action: ['in_place', 'redirect_pricing', 'return_to', 'desktop_handoff_pricing', 'device_complete_pricing', 'client_return_hint'],
+    ref: 'code',
+    utm_source: 'code',
+    utm_medium: 'code',
+    utm_campaign: 'code',
+    utm_content: 'code',
+    utm_term: 'code',
+  }, required: ['surface', 'attempt_id', 'is_new_user', 'plan_tier', 'post_login_action'] },
+  onetap_login_failed: { producers: ['studio'], fields: {
+    surface: ['login_page', 'landing', 'motion_web'],
+    attempt_id: 'code',
+    error_code: ['INVALID_ID_TOKEN', 'CHALLENGE_INVALID', 'ORIGIN_NOT_ALLOWED', 'ACCOUNT_BANNED', 'ACCOUNT_FROZEN', 'EMAIL_DOMAIN_BLOCKED', 'LINK_CONFIRM_REQUIRED', 'NETWORK_TIMEOUT', 'AUTH_UNAVAILABLE', 'ONE_TAP_UNAVAILABLE', 'UNKNOWN'],
+  }, required: ['surface', 'attempt_id', 'error_code'] },
 } as const satisfies Registry & Record<string, { producers: readonly Entry[] }>;
 
 export type StudioEvent = { [E in keyof typeof omEvents]:

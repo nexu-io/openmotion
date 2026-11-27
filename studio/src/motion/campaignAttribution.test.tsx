@@ -25,6 +25,13 @@ import { PricingEntry } from './PricingEntry';
 import { trackMotion } from './tracking';
 
 vi.mock('./tracking', () => ({ trackMotion: vi.fn(async () => 'queued') }));
+const accountSummaryHook = vi.hoisted(() => ({
+  account: null as Record<string, unknown> | null,
+  error: false,
+}));
+vi.mock('./AccountSettings', () => ({
+  useAccountSummary: () => ({ account: accountSummaryHook.account, error: accountSummaryHook.error }),
+}));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const tracked = () => vi.mocked(trackMotion).mock.calls.map(([event, properties]) => ({ event, properties: properties as Record<string, unknown> }));
@@ -32,6 +39,8 @@ let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   // Inside the campaign window unless a test moves the clock.
+  accountSummaryHook.account = null;
+  accountSummaryHook.error = false;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
   vi.mocked(trackMotion).mockClear();
@@ -96,6 +105,59 @@ it('reports the header Pricing click with the entry id on its link', async () =>
   expect(params(link.href).get('od_entry_source')).toBe('openmotion_manage_subscription');
   await act(async () => { link.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
   expect(tracked()).toEqual([{ event: 'ui_click', properties: expect.objectContaining({ page_name: 'studio', area: 'header', element: 'open_pricing', campaign_id: 'black_friday_2026', entry_id: entry }) }]);
+});
+
+it('always routes browser cloud OIDC Pricing clicks through /auth/upgrade-handoff (even when cached probe was signed-out) and keeps direct Pricing only in dev/desktop mode', async () => {
+  // 1. Account probe still in-flight (account === null) -> MUST route through same-origin /auth/upgrade-handoff
+  accountSummaryHook.account = null;
+  accountSummaryHook.error = false;
+  render(<PricingEntry trackingPage="studio" />);
+  let url = new URL(container.querySelector<HTMLAnchorElement>('a')!.href);
+  expect(url.pathname).toBe('/auth/upgrade-handoff');
+  expect(url.searchParams.get('targetPath')).toBe('/zh/pricing');
+
+  // 2. Account probe failed (error === true) -> MUST NOT bypass upgrade handoff
+  accountSummaryHook.account = { state: 'signed-out', authMode: 'oidc', consoleUrl: 'https://open-design.ai/cloud' };
+  accountSummaryHook.error = true;
+  render(<PricingEntry trackingPage="studio" />);
+  url = new URL(container.querySelector<HTMLAnchorElement>('a')!.href);
+  expect(url.pathname).toBe('/auth/upgrade-handoff');
+  expect(url.searchParams.get('targetPath')).toBe('/zh/pricing');
+
+  // 3. Cached signed-out state in browser OIDC mode -> STILL routes through /auth/upgrade-handoff
+  // so a stale guest tab cannot bypass billing handoff after another tab signed in.
+  accountSummaryHook.account = { state: 'signed-out', authMode: 'oidc', consoleUrl: 'https://open-design.ai/cloud' };
+  accountSummaryHook.error = false;
+  render(<PricingEntry trackingPage="studio" />);
+  url = new URL(container.querySelector<HTMLAnchorElement>('a')!.href);
+  expect(url.pathname).toBe('/auth/upgrade-handoff');
+  expect(url.searchParams.get('targetPath')).toBe('/zh/pricing');
+
+  // 3b. Local dev auth mode keeps direct public Pricing URL
+  accountSummaryHook.account = { state: 'signed-out', authMode: 'dev', consoleUrl: 'https://open-design.ai/cloud' };
+  accountSummaryHook.error = false;
+  render(<PricingEntry trackingPage="studio" />);
+  url = new URL(container.querySelector<HTMLAnchorElement>('a')!.href);
+  expect(url.origin + url.pathname).toBe('https://open-design.ai/zh/pricing/');
+
+  // 4. Signed-in OIDC user -> /auth/upgrade-handoff with aligned /zh/pricing targetPath
+  accountSummaryHook.account = {
+    state: 'signed-in',
+    authMode: 'oidc',
+    userId: 'u-b',
+    appUserId: 'usr_app_b',
+    consoleUrl: 'https://open-design.ai/cloud',
+  };
+  accountSummaryHook.error = false;
+  render(<PricingEntry trackingPage="studio" />);
+  const link = container.querySelector<HTMLAnchorElement>('a')!;
+  url = new URL(link.href);
+  expect(url.pathname).toBe('/auth/upgrade-handoff');
+  expect(url.searchParams.get('targetPath')).toBe('/zh/pricing');
+  expect(url.searchParams.get('requireAuth')).toBe('1');
+  expect(url.searchParams.get('expectedAppUserId')).toBe('usr_app_b');
+  expect(url.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  expect(url.searchParams.get('utm_medium')).toBe('header');
 });
 
 it('registers every reported campaign event in the closed schema', () => {
@@ -330,4 +392,19 @@ it('navigates Pricing links in the same tab in top-level browsers and keeps _bla
   } finally {
     delete window.__OPENMOTION_HOST__;
   }
+});
+
+it('uses direct public Pricing URL when server reports upgradeHandoffEnabled=false in OIDC mode', () => {
+  accountSummaryHook.account = {
+    state: 'signed-in',
+    authMode: 'oidc',
+    upgradeHandoffEnabled: false,
+    appUserId: 'usr_app_1',
+    consoleUrl: 'https://open-design.ai/cloud',
+  };
+  render(<PricingEntry trackingPage="studio" />);
+  const link = container.querySelector<HTMLAnchorElement>('a')!;
+  const url = new URL(link.href);
+  expect(url.origin).toBe('https://open-design.ai');
+  expect(url.pathname).toBe('/zh/pricing/');
 });

@@ -1,0 +1,2591 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { after, before, describe, it, mock } from 'node:test';
+import { Hono } from 'hono';
+import { SignJWT } from 'jose';
+import {
+  AmrIdentityClient,
+  InMemoryAuthCache,
+  InMemoryAuthStore,
+  OIDC_TX_COOKIE_NAME,
+  ONETAP_CTX_COOKIE_NAME,
+  OidcService,
+  SESSION_COOKIE_NAME,
+  createAuthMiddleware,
+  createAuthRoutes,
+  createBrowserSession,
+  createPat,
+  oneTapChallengeCookieName,
+  oneTapSessionProofCacheKey,
+  type AuthEnv,
+} from '../../src/auth/index.ts';
+import {
+  createApiApp,
+  type ApiEventBusPort,
+  type ApiQueuesPort,
+} from '../../src/entrypoints/api.ts';
+import { parseConfig, type AppConfig } from '../../src/infra/config.ts';
+import { createAccountRoutes } from '../../src/routes/account.ts';
+import { MockModelGateway } from '../../src/services/mock-model-adapter.ts';
+import type { StoragePort } from '../../src/contracts/storage.ts';
+import type { Database } from '../../src/db/client.ts';
+
+const PUBLIC_ORIGIN = 'https://motion.open-design.ai';
+const AMR_API_URL = 'https://amr-api.open-design.ai';
+const AMR_INTERNAL_ONE_TAP_URL = 'http://amr-api.internal.svc.cluster.local:8080';
+const INTERNAL_TOKEN = 'test-internal-s2s-token';
+const ONE_TAP_INTERNAL_TOKEN = 'test-dedicated-onetap-s2s-token';
+
+function makeConfig(overrides: Record<string, string | undefined> = {}): AppConfig {
+  return parseConfig({
+    NODE_ENV: 'test',
+    WORKER_ROLE: 'api',
+    APP_PUBLIC_ORIGIN: PUBLIC_ORIGIN,
+    AUTH_MODE: 'oidc',
+    OIDC_ISSUER: 'https://amr-api.open-design.ai/oauth',
+    OIDC_CLIENT_ID: 'openmotion-cloud-client',
+    OIDC_CLIENT_SECRET: 'ephemeral-test-client-secret',
+    SESSION_SECRET: '0'.repeat(32),
+    MODEL_GATEWAY_MODE: 'mock',
+    OPENDESIGN_API_URL: AMR_API_URL,
+    OPENDESIGN_ONE_TAP_INTERNAL_URL: AMR_INTERNAL_ONE_TAP_URL,
+    OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: ONE_TAP_INTERNAL_TOKEN,
+    OPENDESIGN_CONSOLE_URL: 'https://open-design.ai/cloud',
+    OPENDESIGN_PRICING_URL: 'https://open-design.ai/pricing',
+    OPENDESIGN_INTERNAL_API_TOKEN: INTERNAL_TOKEN,
+    DATABASE_URL: 'postgres://postgres:postgres@127.0.0.1:5432/openmotion',
+    REDIS_URL: 'redis://127.0.0.1:6379',
+    ...overrides,
+  });
+}
+
+function extractCookieValue(setCookieHeaders: string[], name: string): string | null {
+  for (const header of setCookieHeaders) {
+    const match = new RegExp(`^${name}=([^;]*)`).exec(header.trim());
+    if (match) return decodeURIComponent(match[1]);
+  }
+  return null;
+}
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+const TRACKING_TEST_ENV: NodeJS.ProcessEnv = {
+  OPENMOTION_TRACKING_ENABLED: '1',
+  OPENMOTION_POSTHOG_TOKEN: 'phc_oneTapTestToken1234567890',
+  OPENMOTION_POSTHOG_HOST: 'https://us.i.posthog.com',
+  OPENMOTION_TRACKING_ENV: 'test',
+  OPENMOTION_TRACKING_TEST_RUN_ID: '44444444-4444-4444-8444-444444444444',
+};
+
+/** Captures what the cloud tracking pipeline sends to PostHog. */
+function createPosthogSink() {
+  const events: Array<{ event: string; uuid: string; properties: Record<string, unknown> }> = [];
+  const posthogFetch: typeof fetch = async (_input, init) => {
+    const parsed = JSON.parse(String(init?.body ?? '{}')) as { batch?: typeof events };
+    events.push(...(parsed.batch ?? []));
+    return Response.json({ status: 1 });
+  };
+  return { events, posthogFetch, propertiesById: () => new Map(events.map((item) => [item.uuid, item.properties])) };
+}
+
+function makeBrowserEvent(event: string, properties: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+  return {
+    event,
+    event_id: crypto.randomUUID(),
+    occurred_at: new Date().toISOString(),
+    entrypoint: 'studio',
+    device_timezone: 'UTC',
+    utc_offset_minutes: 0,
+    properties,
+    ...extra,
+  };
+}
+
+const UPGRADE_NOTICE_CSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'";
+
+/** Upgrade notice pages use the shared design system and may only load its same-origin stylesheet. */
+function assertDesignSystemNotice(res: Response, html: string): void {
+  assert.equal(res.headers.get('content-security-policy'), UPGRADE_NOTICE_CSP);
+  assert.match(res.headers.get('content-type') ?? '', /^text\/html/);
+  assert.match(html, /<html lang="en" data-motion-ui>/);
+  assert.doesNotMatch(html, /data-theme=/, 'notices follow the system light/dark preference');
+  assert.match(html, /<link rel="stylesheet" href="\/design-system\/ui\.css" \/>/);
+  assert.match(html, /<a class="ui-button ui-button--primary" href="/);
+  assert.doesNotMatch(html, /#[0-9a-f]{3,8}\b/i, 'notice appearance comes from design-system roles');
+}
+
+describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
+  // CI exports OPENMOTION_TELEMETRY=0; these cases exercise enabled telemetry,
+  // so isolate them from the runner's opt-out variables.
+  const telemetryOptOutKeys = ['OPENMOTION_TELEMETRY', 'DO_NOT_TRACK'] as const;
+  const savedTelemetryEnv = new Map<string, string | undefined>();
+  before(() => {
+    for (const key of telemetryOptOutKeys) {
+      savedTelemetryEnv.set(key, process.env[key]);
+      delete process.env[key];
+    }
+  });
+  after(() => {
+    for (const [key, value] of savedTelemetryEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it('does not mount One Tap routes in AUTH_MODE=dev or without amrIdentity', async () => {
+    const store = new InMemoryAuthStore();
+
+    const devApp = new Hono<AuthEnv>();
+    devApp.route('/', createAuthRoutes({ config: makeConfig({ AUTH_MODE: 'dev' }), store }));
+    const devRes = await devApp.request('/auth/one-tap/challenge', {
+      method: 'POST',
+      headers: { Origin: PUBLIC_ORIGIN },
+    });
+    assert.equal(devRes.status, 404);
+
+    const noAmrApp = new Hono<AuthEnv>();
+    noAmrApp.route('/', createAuthRoutes({ config: makeConfig(), store }));
+    const noAmrRes = await noAmrApp.request('/auth/one-tap/challenge', {
+      method: 'POST',
+      headers: { Origin: PUBLIC_ORIGIN },
+    });
+    assert.equal(noAmrRes.status, 404);
+  });
+
+  it('runs full challenge -> exchange -> session projection -> /auth/me & account/summary with appUserId', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    const amrRequests: Array<{ url: string; method: string; headers: Headers; body: unknown }> = [];
+    let savedBindingHash = '';
+
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        const headers = new Headers(init?.headers);
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        amrRequests.push({ url, method, headers, body });
+
+        assert.equal(headers.get('authorization'), null);
+
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge` && method === 'POST') {
+          assert.equal(headers.get('x-internal-token'), ONE_TAP_INTERNAL_TOKEN);
+          const req = body as Record<string, unknown>;
+          savedBindingHash = String(req.browserBindingHash);
+          return Response.json({
+            challengeId: 'otc_motion_123',
+            nonce: 'nonce_abc_xyz',
+            clientId: 'google-client-id.apps.googleusercontent.com',
+            expiresAt: '2026-11-24T12:00:00.000Z',
+          });
+        }
+
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange` && method === 'POST') {
+          assert.equal(headers.get('x-internal-token'), ONE_TAP_INTERNAL_TOKEN);
+          const req = body as Record<string, unknown>;
+          assert.equal(req.challengeId, 'otc_motion_123');
+          assert.equal(req.idToken, 'google.id.token.jwt');
+          assert.equal(req.expectedOrigin, PUBLIC_ORIGIN);
+          assert.equal(req.surface, 'motion_web');
+          assert.equal(req.browserBindingHash, savedBindingHash);
+          assert.equal(req.referralCode, 'REF42');
+          assert.deepEqual(req.attribution, {
+            utmSource: 'twitter',
+            utmCampaign: 'opengame_launch',
+            landingPath: '/templates',
+            odEntry: {
+              sourceProduct: 'open_design',
+              entryId: 'entry-1',
+              sourceDetail: 'openmotion_manage_subscription',
+              entryOccurredAt: '2026-11-24T01:00:00.000Z',
+              campaignId: 'black_friday_2026',
+              placementId: 'header_banner',
+              conversionSource: 'pricing_cta',
+            },
+          });
+          return Response.json({
+            ok: true,
+            authUserId: 'ba_usr_777',
+            appUserId: 'usr_app_777',
+            email: 'creator@example.com',
+            name: 'Creator One',
+            image: 'https://example.com/avatar.png',
+            isNewUser: true,
+            planTier: 'free',
+          });
+        }
+
+        if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_777`) && method === 'GET') {
+          assert.equal(headers.get('x-internal-token'), INTERNAL_TOKEN);
+          return Response.json({
+            active: true,
+            status: 'active',
+            authUserId: 'ba_usr_777',
+            appUserId: 'usr_app_777',
+            email: 'creator@example.com',
+            name: 'Creator One',
+            image: 'https://example.com/avatar.png',
+            workspace: {
+              workspaceId: 'ws_amr_777',
+              workspaceName: 'Creator Workspace',
+              workspaceType: 'personal',
+              workspaceMemberId: 'wm_777',
+              role: 'owner',
+              lifecycleState: 'active',
+              effectiveWriteAccess: 'writable',
+            },
+          });
+        }
+
+        return new Response('Not Found', { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const app = new Hono<AuthEnv>();
+    const authDeps = { config, store, cache, amrIdentity };
+    app.route('/', createAuthRoutes(authDeps));
+    const authMiddleware = createAuthMiddleware(authDeps);
+    app.use('/motion-api/account/*', authMiddleware);
+    app.route(
+      '/motion-api/account',
+      createAccountRoutes({
+        config,
+        authStore: store,
+        gateway: new MockModelGateway(),
+        cache,
+      }),
+    );
+
+    // 1. CSRF Origin rejection on challenge
+    const badOriginChallenge = await app.request('/auth/one-tap/challenge', {
+      method: 'POST',
+      headers: { Origin: 'https://evil.example.com', 'content-type': 'application/json' },
+      body: JSON.stringify({ attemptId: 'att-bad' }),
+    });
+    assert.equal(badOriginChallenge.status, 403);
+    assert.equal(((await badOriginChallenge.json()) as { code: string }).code, 'ORIGIN_NOT_ALLOWED');
+
+    // 2. Valid challenge request
+    const challengeRes = await app.request('/auth/one-tap/challenge', {
+      method: 'POST',
+      headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ attemptId: 'att-1' }),
+    });
+    assert.equal(challengeRes.status, 200);
+    const challengeBody = (await challengeRes.json()) as {
+      challengeId: string;
+      nonce: string;
+      clientId: string;
+      expiresAt: string;
+    };
+    assert.deepEqual(challengeBody, {
+      challengeId: 'otc_motion_123',
+      nonce: 'nonce_abc_xyz',
+      clientId: 'google-client-id.apps.googleusercontent.com',
+      expiresAt: '2026-11-24T12:00:00.000Z',
+    });
+
+    const challengeCookies = challengeRes.headers.getSetCookie();
+    const expectedCookieName = oneTapChallengeCookieName('otc_motion_123');
+    const ctxHeader = challengeCookies.find((h) => h.startsWith(`${expectedCookieName}=`))!;
+    assert.ok(ctxHeader, 'Expected per-challenge om_onetap_ctx_* cookie');
+    assert.ok(ctxHeader.includes('HttpOnly'));
+    assert.ok(ctxHeader.includes('SameSite=Lax'));
+    assert.ok(ctxHeader.includes('Path=/auth'));
+    assert.ok(ctxHeader.includes('Secure'));
+    const ctxToken = extractCookieValue(challengeCookies, expectedCookieName)!;
+    assert.equal(sha256Hex(ctxToken), savedBindingHash);
+
+    // 3. Exchange rejects missing binding cookie
+    const missingCookieRes = await app.request('/auth/one-tap', {
+      method: 'POST',
+      headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ challengeId: 'otc_motion_123', idToken: 'google.id.token.jwt' }),
+    });
+    assert.equal(missingCookieRes.status, 400);
+    assert.equal(((await missingCookieRes.json()) as { code: string }).code, 'CHALLENGE_INVALID');
+
+    // 4. Valid exchange issues om_session, clears per-challenge cookie, and forwards full odEntry contract
+    const exchangeRes = await app.request('/auth/one-tap', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        'content-type': 'application/json',
+        Cookie: `${expectedCookieName}=${ctxToken}`,
+      },
+      body: JSON.stringify({
+        challengeId: 'otc_motion_123',
+        idToken: 'google.id.token.jwt',
+        referralCode: 'REF42',
+        attribution: {
+          utmSource: 'twitter',
+          utmCampaign: 'opengame_launch',
+          landingPath: '/templates',
+          odEntry: {
+            sourceProduct: 'open_design',
+            entryId: 'entry-1',
+            sourceDetail: 'openmotion_manage_subscription',
+            entryOccurredAt: '2026-11-24T01:00:00.000Z',
+            campaignId: 'black_friday_2026',
+            placementId: 'header_banner',
+            conversionSource: 'pricing_cta',
+            odDeviceId: 'dev_client_claimed',
+            odDeviceIdConsent: true,
+            evilKey: 'should-be-stripped',
+          },
+        },
+      }),
+    });
+    assert.equal(exchangeRes.status, 200);
+    const exchangeCookies = exchangeRes.headers.getSetCookie();
+    const sessionToken = extractCookieValue(exchangeCookies, SESSION_COOKIE_NAME)!;
+    assert.ok(sessionToken && sessionToken.length >= 32);
+    const clearedCtx = exchangeCookies.find((h) => h.startsWith(`${expectedCookieName}=`))!;
+    assert.ok(clearedCtx.includes('Max-Age=0'), 'Expected per-challenge om_onetap_ctx_* to be cleared');
+
+    const exchangePayload = (await exchangeRes.json()) as {
+      authenticated: boolean;
+      user: { id: string; appUserId: string; email: string; displayName: string };
+      activeWorkspaceId: string;
+      isNewUser: boolean;
+      planTier: string;
+    };
+    assert.equal(exchangePayload.authenticated, true);
+    assert.equal(exchangePayload.user.appUserId, 'usr_app_777');
+    assert.equal(exchangePayload.user.email, 'creator@example.com');
+    assert.equal(exchangePayload.user.displayName, 'Creator One');
+    assert.equal(exchangePayload.isNewUser, true);
+    assert.equal(exchangePayload.planTier, 'free');
+    assert.ok(exchangePayload.activeWorkspaceId);
+
+    // 5. GET /auth/me exposes user.appUserId
+    const meRes = await app.request('/auth/me', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` },
+    });
+    assert.equal(meRes.status, 200);
+    const meBody = (await meRes.json()) as { user: { id: string; appUserId: string | null } };
+    assert.equal(meBody.user.id, exchangePayload.user.id);
+    assert.equal(meBody.user.appUserId, 'usr_app_777');
+
+    // 6. GET /motion-api/account/summary exposes user.appUserId
+    const summaryRes = await app.request('/motion-api/account/summary', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` },
+    });
+    assert.equal(summaryRes.status, 200);
+    const summaryBody = (await summaryRes.json()) as { user: { id: string; appUserId: string | null } };
+    assert.equal(summaryBody.user.id, exchangePayload.user.id);
+    assert.equal(summaryBody.user.appUserId, 'usr_app_777');
+  });
+
+  it('passes through 400/403/409 error codes and maps AMR unreachability to 503', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+
+    const errorCases: Array<{
+      label: string;
+      status: number;
+      code: string;
+      message: string;
+      networkThrow?: boolean;
+    }> = [
+      { label: '400 INVALID_ID_TOKEN', status: 400, code: 'INVALID_ID_TOKEN', message: 'Invalid token' },
+      { label: '403 ACCOUNT_BANNED', status: 403, code: 'ACCOUNT_BANNED', message: 'Account banned' },
+      { label: '403 ACCOUNT_FROZEN', status: 403, code: 'ACCOUNT_FROZEN', message: 'Account frozen' },
+      {
+        label: '403 EMAIL_DOMAIN_BLOCKED',
+        status: 403,
+        code: 'EMAIL_DOMAIN_BLOCKED',
+        message: 'Domain blocked',
+      },
+      {
+        label: '409 LINK_CONFIRM_REQUIRED',
+        status: 409,
+        code: 'LINK_CONFIRM_REQUIRED',
+        message: 'Confirm link',
+      },
+      {
+        label: '503 ONE_TAP_UNAVAILABLE',
+        status: 503,
+        code: 'ONE_TAP_UNAVAILABLE',
+        message: 'One Tap disabled',
+      },
+      {
+        label: 'network error -> 503 AUTH_UNAVAILABLE',
+        status: 503,
+        code: 'AUTH_UNAVAILABLE',
+        message: 'Unavailable',
+        networkThrow: true,
+      },
+    ];
+
+    for (const tc of errorCases) {
+      const amrIdentity = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+        oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+        fetcher: (async () => {
+          if (tc.networkThrow) {
+            throw new Error('ECONNREFUSED');
+          }
+          return Response.json({ code: tc.code, message: tc.message }, { status: tc.status });
+        }) as typeof fetch,
+      });
+
+      const app = new Hono<AuthEnv>();
+      app.route('/', createAuthRoutes({ config, store, amrIdentity }));
+
+      const res = await app.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${ONETAP_CTX_COOKIE_NAME}=ctx-token-1`,
+        },
+        body: JSON.stringify({ challengeId: 'otc_1', idToken: 'jwt_1' }),
+      });
+
+      assert.equal(res.status, tc.status, `Unexpected status for ${tc.label}`);
+      const payload = (await res.json()) as { code: string; message: string };
+      assert.equal(payload.code, tc.code, `Unexpected code for ${tc.label}`);
+    }
+  });
+
+  it('redirects GET /auth/upgrade-handoff via AMR handoff-ticket and degrades safely to Pricing URL', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    const projected = await store.projectAmrUserAndWorkspace({
+      oidcSub: 'ba_usr_upgrade',
+      appUserId: 'usr_app_upgrade',
+      email: 'free@example.com',
+      displayName: 'Free User',
+      avatarUrl: null,
+      externalWorkspaceId: 'ws_amr_upgrade',
+      workspaceName: 'Free Workspace',
+      role: 'owner',
+    });
+    const session = await createBrowserSession(store, {
+      userId: projected.user.id,
+      workspaceId: projected.workspace.id,
+    });
+    await cache.set(oneTapSessionProofCacheKey(session.tokenHash), 'otsp_upgrade_proof_1', 3600);
+
+    let ticketMode: 'ok' | 'untrusted' | 'unavailable' = 'ok';
+    const capturedTicketBodies: Array<Record<string, unknown>> = [];
+
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_upgrade`)) {
+          return Response.json({
+            active: true,
+            status: 'active',
+            authUserId: 'ba_usr_upgrade',
+            appUserId: 'usr_app_upgrade',
+            email: 'free@example.com',
+            name: 'Free User',
+            image: null,
+            workspace: {
+              workspaceId: 'ws_amr_upgrade',
+              workspaceName: 'Free Workspace',
+              workspaceType: 'personal',
+              workspaceMemberId: 'wm_u',
+              role: 'owner',
+              lifecycleState: 'active',
+              effectiveWriteAccess: 'writable',
+            },
+          });
+        }
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
+          const headers = new Headers(init?.headers);
+          assert.equal(headers.get('x-internal-token'), ONE_TAP_INTERNAL_TOKEN);
+          const parsedBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+          assert.equal(parsedBody.sessionProof, 'otsp_upgrade_proof_1');
+          capturedTicketBodies.push(parsedBody);
+          if (ticketMode === 'unavailable') {
+            return new Response('Service Unavailable', { status: 503 });
+          }
+          if (ticketMode === 'untrusted') {
+            return Response.json({
+              ticket: 'ht_evil',
+              handoffUrl: 'https://evil.example.com/steal',
+              expiresAt: '2026-11-24T12:01:00.000Z',
+            });
+          }
+          return Response.json({
+            ticket: 'ht_valid_123',
+            handoffUrl: `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_valid_123`,
+            expiresAt: '2026-11-24T12:01:00.000Z',
+          });
+        }
+        return new Response('Not Found', { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, amrIdentity }));
+
+    // 1. Unauthenticated non-public target -> 401; guest public Pricing -> 302 to site root /pricing or /zh/pricing
+    const unauth = await app.request('/auth/upgrade-handoff');
+    assert.equal(unauth.status, 401);
+
+    const guestEnPricing = await app.request(
+      '/auth/upgrade-handoff?targetPath=%2Fpricing&od_origin=openmotion&od_entry_source=openmotion_manage_subscription&od_entry_id=guest-1',
+    );
+    assert.equal(guestEnPricing.status, 302);
+    const guestEnDest = new URL(guestEnPricing.headers.get('location')!);
+    assert.equal(guestEnDest.origin, 'https://open-design.ai');
+    assert.equal(guestEnDest.pathname, '/pricing');
+    assert.equal(guestEnDest.searchParams.get('od_entry_id'), 'guest-1');
+
+    const guestZhPricing = await app.request(
+      '/auth/upgrade-handoff?targetPath=%2Fzh%2Fpricing&od_origin=openmotion&od_entry_source=openmotion_manage_subscription&od_entry_id=guest-zh-1',
+    );
+    assert.equal(guestZhPricing.status, 302);
+    const guestZhDest = new URL(guestZhPricing.headers.get('location')!);
+    assert.equal(guestZhDest.origin, 'https://open-design.ai');
+    assert.equal(guestZhDest.pathname, '/zh/pricing');
+    assert.equal(guestZhDest.searchParams.get('od_entry_id'), 'guest-zh-1');
+
+    // 2. Non-session PAT Bearer -> 403
+    const pat = await createPat(store, {
+      userId: projected.user.id,
+      workspaceId: projected.workspace.id,
+      role: 'owner',
+      scopes: ['workspace:admin'],
+      authMode: 'oidc',
+      authMethod: 'session_cookie',
+    }, { name: 'CI' });
+    const patRes = await app.request('/auth/upgrade-handoff', {
+      headers: { Authorization: `Bearer ${pat.token}` },
+    });
+    assert.equal(patRes.status, 403);
+
+    // 3. Authenticated browser session -> 302 to AMR handoffUrl with attribution preserved in targetPath
+    const okRes = await app.request(
+      '/auth/upgrade-handoff?billing=plan&od_origin=openmotion&od_entry_source=openmotion_manage_subscription&od_entry_id=1234',
+      { headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` } },
+    );
+    assert.equal(okRes.status, 302);
+    assert.equal(okRes.headers.get('location'), `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_valid_123`);
+    const ticketBody = capturedTicketBodies.at(-1);
+    assert.equal(ticketBody?.authUserId, 'ba_usr_upgrade');
+    assert.equal(ticketBody?.appUserId, 'usr_app_upgrade');
+    assert.match(
+      String(ticketBody?.targetPath),
+      /^\/dashboard\?.*od_entry_source=openmotion_manage_subscription/,
+    );
+
+    // 3b. Authenticated header Pricing (/pricing and /zh/pricing) mints account-bound handoff tickets with aligned targets
+    const okZhPricing = await app.request(
+      '/auth/upgrade-handoff?targetPath=%2Fzh%2Fpricing&od_origin=openmotion&od_entry_source=openmotion_manage_subscription&utm_medium=header',
+      { headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` } },
+    );
+    assert.equal(okZhPricing.status, 302);
+    assert.equal(okZhPricing.headers.get('location'), `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_valid_123`);
+    assert.match(String(capturedTicketBodies.at(-1)?.targetPath), /^\/zh\/pricing\?.*utm_medium=header/);
+
+    // 4. AMR handoff-ticket unavailable -> same-origin 303 to session-bound 503 retryable HTML (never unbound Pricing!)
+    ticketMode = 'unavailable';
+    const fallbackInitRes = await app.request(
+      '/auth/upgrade-handoff?od_origin=openmotion&od_entry_source=openmotion_manage_subscription',
+      { headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` } },
+    );
+    assert.equal(fallbackInitRes.status, 303);
+    const boundUnavailableLoc = fallbackInitRes.headers.get('location')!;
+    assert.match(boundUnavailableLoc, /^\/auth\/upgrade-handoff\?.*requireAuth=1.*expectedSession=.*unavailable=1/);
+    const fallbackRes = await app.request(boundUnavailableLoc, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(fallbackRes.status, 503);
+    assert.equal(fallbackRes.headers.get('location'), null);
+    assert.match(await fallbackRes.text(), /Unable to verify billing handoff/);
+
+    // 5. Untrusted handoffUrl -> same-origin 303 to session-bound 503 retryable HTML
+    ticketMode = 'untrusted';
+    const untrustedInitRes = await app.request('/auth/upgrade-handoff', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(untrustedInitRes.status, 303);
+    const untrustedBoundLoc = untrustedInitRes.headers.get('location')!;
+    assert.match(untrustedBoundLoc, /^\/auth\/upgrade-handoff\?.*expectedSession=/);
+    const untrustedRes = await app.request(untrustedBoundLoc, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(untrustedRes.status, 503);
+    assert.equal(untrustedRes.headers.get('location'), null);
+  });
+
+  it('caps the stored One Tap session proof at AMR expiry and recovers from terminal handoff-ticket rejections', async () => {
+    const t0 = Date.parse('2026-11-24T12:00:00.000Z');
+    mock.timers.enable({ apis: ['Date'], now: t0 });
+    try {
+      const config = makeConfig();
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const proofKey = (sessionToken: string) => oneTapSessionProofCacheKey(sha256Hex(sessionToken));
+
+      let challengeSeq = 0;
+      let nextProof = '';
+      let nextProofExpiresAt: string | undefined;
+      type TicketMode =
+        | 'ok'
+        | 'proof_invalid'
+        | 'user_not_found'
+        | 'banned'
+        | 'bare_401'
+        | 'unavailable_503'
+        | 'server_500'
+        | 'network';
+      let ticketMode: TicketMode = 'ok';
+      const ticketProofs: string[] = [];
+
+      const amrIdentity = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+        oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+            challengeSeq += 1;
+            return Response.json({
+              challengeId: `otc_proof_${challengeSeq}`,
+              nonce: `nonce_proof_${challengeSeq}`,
+              clientId: 'google-client-id.apps.googleusercontent.com',
+              expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+            return Response.json({
+              ok: true,
+              authUserId: 'ba_usr_proof',
+              appUserId: 'usr_app_proof',
+              email: 'proof@example.com',
+              name: 'Proof User',
+              image: null,
+              isNewUser: false,
+              planTier: 'free',
+              sessionProof: nextProof,
+              ...(nextProofExpiresAt !== undefined ? { sessionProofExpiresAt: nextProofExpiresAt } : {}),
+            });
+          }
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_proof`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'ba_usr_proof',
+              appUserId: 'usr_app_proof',
+              email: 'proof@example.com',
+              name: 'Proof User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_amr_proof',
+                workspaceName: 'Proof Workspace',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_proof',
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
+            ticketProofs.push(String((JSON.parse(String(init?.body ?? '{}')) as { sessionProof?: unknown }).sessionProof));
+            switch (ticketMode) {
+              case 'proof_invalid':
+                return Response.json(
+                  {
+                    code: 'SESSION_PROOF_INVALID',
+                    message: 'Motion session proof is invalid, expired, or does not match the requested account.',
+                  },
+                  { status: 401 },
+                );
+              case 'user_not_found':
+                return Response.json({ code: 'USER_NOT_FOUND', message: 'Account not found.' }, { status: 404 });
+              case 'banned':
+                return Response.json({ code: 'ACCOUNT_BANNED', message: 'This account has been banned.' }, { status: 403 });
+              case 'bare_401':
+                return Response.json({ error: 'unauthorized' }, { status: 401 });
+              case 'unavailable_503':
+                return Response.json({ code: 'ONE_TAP_UNAVAILABLE', message: 'Temporarily unavailable.' }, { status: 503 });
+              case 'server_500':
+                return new Response('Internal Server Error', { status: 500 });
+              case 'network':
+                throw new TypeError('fetch failed');
+              default:
+                return Response.json({
+                  ticket: 'oth_proof',
+                  handoffUrl: `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=oth_proof`,
+                  expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                });
+            }
+          }
+          return new Response('Not Found', { status: 404 });
+        }) as typeof fetch,
+      });
+
+      const fakeOidc = {
+        startLogin: async () => ({ authorizationUrl: 'https://idp.open-design.test/authorize', txCookieValue: 'tx' }),
+      } as unknown as OidcService;
+      const app = new Hono<AuthEnv>();
+      app.route('/', createAuthRoutes({ config, store, cache, amrIdentity, oidc: fakeOidc }));
+
+      const signInWithOneTap = async (proof: string, proofExpiresAt: string | undefined): Promise<string> => {
+        nextProof = proof;
+        nextProofExpiresAt = proofExpiresAt;
+        const challengeRes = await app.request('/auth/one-tap/challenge', {
+          method: 'POST',
+          headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+          body: JSON.stringify({ attemptId: `att-proof-${challengeSeq + 1}` }),
+        });
+        assert.equal(challengeRes.status, 200);
+        const { challengeId } = (await challengeRes.json()) as { challengeId: string };
+        const ctxCookieName = oneTapChallengeCookieName(challengeId);
+        const ctxToken = extractCookieValue(challengeRes.headers.getSetCookie(), ctxCookieName)!;
+        const exchangeRes = await app.request('/auth/one-tap', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'content-type': 'application/json',
+            Cookie: `${ctxCookieName}=${ctxToken}`,
+          },
+          body: JSON.stringify({ challengeId, idToken: 'google.id.token.jwt' }),
+        });
+        assert.equal(exchangeRes.status, 200);
+        const sessionToken = extractCookieValue(exchangeRes.headers.getSetCookie(), SESSION_COOKIE_NAME);
+        assert.ok(sessionToken);
+        return sessionToken;
+      };
+      const requestUpgrade = (sessionToken: string, options: { html?: boolean; query?: string } = {}) =>
+        app.request(`/auth/upgrade-handoff${options.query ?? '?targetPath=%2Fpricing'}`, {
+          headers: {
+            Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}`,
+            ...(options.html ? { Accept: 'text/html,application/xhtml+xml' } : {}),
+          },
+        });
+      const assertReauthJson = async (res: Response) => {
+        assert.equal(res.status, 401);
+        assert.equal(res.headers.get('location'), null);
+        const body = (await res.json()) as { code?: string; loginUrl?: string };
+        assert.equal(body.code, 'REAUTH_REQUIRED');
+        assert.match(body.loginUrl ?? '', /^\/auth\/login\?prompt=login&returnTo=/);
+      };
+      const assertRetryableUnavailable = async (sessionToken: string) => {
+        const initial = await requestUpgrade(sessionToken, { html: true });
+        assert.equal(initial.status, 303);
+        const boundLocation = initial.headers.get('location')!;
+        assert.match(boundLocation, /^\/auth\/upgrade-handoff\?.*requireAuth=1.*expectedSession=.*unavailable=1/);
+        const page = await app.request(boundLocation, {
+          headers: { Accept: 'text/html', Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` },
+        });
+        assert.equal(page.status, 503);
+        assert.equal(page.headers.get('location'), null);
+        return page;
+      };
+
+      // 1. AMR's advertised proof expiry caps the stored proof: usable before it, gone right after,
+      //    long before the 7-day Motion session ends. The expired proof is never sent to AMR.
+      const shortLived = await signInWithOneTap('otsp_short_lived', new Date(t0 + 10 * 60_000).toISOString());
+      assert.equal(await cache.get(proofKey(shortLived)), 'otsp_short_lived');
+      const beforeExpiry = await requestUpgrade(shortLived);
+      assert.equal(beforeExpiry.status, 302);
+      assert.equal(beforeExpiry.headers.get('location'), `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=oth_proof`);
+      assert.deepEqual(ticketProofs, ['otsp_short_lived']);
+      mock.timers.tick(10 * 60_000 + 1_000);
+      assert.equal(await cache.get(proofKey(shortLived)), null);
+      await assertReauthJson(await requestUpgrade(shortLived));
+      assert.equal(ticketProofs.length, 1);
+
+      // 2. A proof AMR reports as already expired is not stored; the session still signs in and
+      //    billing asks for a fresh sign-in without calling AMR.
+      const alreadyExpired = await signInWithOneTap('otsp_already_expired', new Date(Date.now() - 1_000).toISOString());
+      assert.equal(await cache.get(proofKey(alreadyExpired)), null);
+      await assertReauthJson(await requestUpgrade(alreadyExpired));
+      assert.equal(ticketProofs.length, 1);
+
+      // 3. Missing or unparseable expiry falls back to the Motion session lifetime.
+      const unparseable = await signInWithOneTap('otsp_unparseable_expiry', 'not-a-date');
+      assert.equal(await cache.get(proofKey(unparseable)), 'otsp_unparseable_expiry');
+      const noExpiry = await signInWithOneTap('otsp_no_expiry', undefined);
+      assert.equal(await cache.get(proofKey(noExpiry)), 'otsp_no_expiry');
+
+      // 4. AMR rejecting the proof (401 SESSION_PROOF_INVALID) is terminal: drop the proof and route to
+      //    REAUTH_REQUIRED instead of the retry page; later attempts no longer reach AMR.
+      ticketMode = 'proof_invalid';
+      const rejected = await signInWithOneTap('otsp_rejected', new Date(Date.now() + 60 * 60_000).toISOString());
+      await assertReauthJson(await requestUpgrade(rejected));
+      assert.equal(ticketProofs.at(-1), 'otsp_rejected');
+      assert.equal(await cache.get(proofKey(rejected)), null);
+      const ticketCallsAfterRejection = ticketProofs.length;
+      await assertReauthJson(await requestUpgrade(rejected));
+      assert.equal(ticketProofs.length, ticketCallsAfterRejection);
+
+      //    Browser navigations go to a fresh sign-in that returns to the bound upgrade URL.
+      const rejectedBrowser = await signInWithOneTap('otsp_rejected_browser', new Date(Date.now() + 60 * 60_000).toISOString());
+      const reauthRedirect = await requestUpgrade(rejectedBrowser, { html: true });
+      assert.equal(reauthRedirect.status, 302);
+      const reauthLocation = reauthRedirect.headers.get('location')!;
+      assert.match(reauthLocation, /^\/auth\/login\?prompt=login&returnTo=/);
+      const reauthReturnTo = new URL(reauthLocation, PUBLIC_ORIGIN).searchParams.get('returnTo')!;
+      assert.match(reauthReturnTo, /reauth=1/);
+      assert.doesNotMatch(reauthReturnTo, /unavailable=1/);
+      assert.equal(await cache.get(proofKey(rejectedBrowser)), null);
+
+      //    404 USER_NOT_FOUND is terminal for the proof's account as well.
+      ticketMode = 'user_not_found';
+      const missingAccount = await signInWithOneTap('otsp_missing_account', undefined);
+      await assertReauthJson(await requestUpgrade(missingAccount));
+      assert.equal(await cache.get(proofKey(missingAccount)), null);
+
+      // 5. A banned or frozen AMR account gets the 403 account notice, not the retry page.
+      ticketMode = 'banned';
+      const banned = await signInWithOneTap('otsp_banned', undefined);
+      const bannedJson = await requestUpgrade(banned);
+      assert.equal(bannedJson.status, 403);
+      assert.equal(((await bannedJson.json()) as { code?: string }).code, 'FORBIDDEN');
+      const bannedPage = await requestUpgrade(banned, { html: true });
+      assert.equal(bannedPage.status, 403);
+      const bannedHtml = await bannedPage.text();
+      assert.match(bannedHtml, /Account session is no longer active/);
+      assertDesignSystemNotice(bannedPage, bannedHtml);
+      assert.match(bannedHtml, /<a class="ui-button" href="\/">Back to Studio<\/a>/);
+
+      // 6. Transient failures (internal token rejected without a proof code, AMR 503/5xx, network) keep the
+      //    session-bound retry page and the stored proof.
+      for (const mode of ['bare_401', 'unavailable_503', 'server_500', 'network'] as const) {
+        ticketMode = mode;
+        const transient = await signInWithOneTap(`otsp_transient_${mode}`, undefined);
+        const page = await assertRetryableUnavailable(transient);
+        const pageHtml = await page.text();
+        assert.match(pageHtml, /Unable to verify billing handoff/);
+        assertDesignSystemNotice(page, pageHtml);
+        assert.equal(await cache.get(proofKey(transient)), `otsp_transient_${mode}`, mode);
+      }
+
+      // 7. Recovery: a fresh One Tap sign-in stores a new proof and billing opens again.
+      ticketMode = 'ok';
+      const recovered = await signInWithOneTap('otsp_recovered', new Date(Date.now() + 60 * 60_000).toISOString());
+      const recoveredRes = await requestUpgrade(recovered);
+      assert.equal(recoveredRes.status, 302);
+      assert.equal(ticketProofs.at(-1), 'otsp_recovered');
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('preserves parallel challenges across tabs and invalidates om_onetap_ctx on /auth/logout', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    const issuedChallenges = new Map<string, string>();
+    let seq = 0;
+
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+          const id = `otc_tab_${++seq}`;
+          issuedChallenges.set(id, String(body.browserBindingHash));
+          return Response.json({
+            challengeId: id,
+            nonce: `nonce_${seq}`,
+            clientId: 'gid-parallel',
+            expiresAt: '2026-11-24T12:00:00.000Z',
+          });
+        }
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+          const expectedHash = issuedChallenges.get(String(body.challengeId));
+          if (!expectedHash || expectedHash !== String(body.browserBindingHash)) {
+            return Response.json({ code: 'CHALLENGE_INVALID', message: 'Binding mismatch' }, { status: 400 });
+          }
+          if (body.idToken === 'bad_token') {
+            return Response.json({ code: 'INVALID_ID_TOKEN', message: 'Bad token' }, { status: 400 });
+          }
+          return Response.json({
+            ok: true,
+            authUserId: 'ba_tab',
+            appUserId: 'usr_tab',
+            email: 'tab@example.com',
+            name: 'Tab User',
+            image: null,
+            isNewUser: false,
+            planTier: 'free',
+          });
+        }
+        if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_tab`)) {
+          return Response.json({
+            active: true,
+            status: 'active',
+            authUserId: 'ba_tab',
+            appUserId: 'usr_tab',
+            email: 'tab@example.com',
+            name: 'Tab User',
+            image: null,
+            workspace: {
+              workspaceId: 'ws_tab',
+              workspaceName: 'Tab WS',
+              workspaceType: 'personal',
+              workspaceMemberId: 'wm_tab',
+              role: 'owner',
+              lifecycleState: 'active',
+              effectiveWriteAccess: 'writable',
+            },
+          });
+        }
+        return new Response('Not Found', { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, amrIdentity }));
+
+    // Two cookieless tabs issue POST /auth/one-tap/challenge concurrently before either receives Set-Cookie
+    const [tab1ChallengeRes, tab2ChallengeRes] = await Promise.all([
+      app.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'tab-1' }),
+      }),
+      app.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'tab-2' }),
+      }),
+    ]);
+    assert.equal(tab1ChallengeRes.status, 200);
+    assert.equal(tab2ChallengeRes.status, 200);
+    const tab1Challenge = (await tab1ChallengeRes.json()) as { challengeId: string };
+    const tab2Challenge = (await tab2ChallengeRes.json()) as { challengeId: string };
+    const tab1CookieName = oneTapChallengeCookieName(tab1Challenge.challengeId);
+    const tab2CookieName = oneTapChallengeCookieName(tab2Challenge.challengeId);
+    assert.notEqual(tab1CookieName, tab2CookieName, 'Each concurrent challenge must use an isolated cookie');
+    const tab1CtxToken = extractCookieValue(tab1ChallengeRes.headers.getSetCookie(), tab1CookieName)!;
+    const tab2CtxToken = extractCookieValue(tab2ChallengeRes.headers.getSetCookie(), tab2CookieName)!;
+    assert.ok(tab1CtxToken && tab2CtxToken);
+
+    // Combined browser cookie jar holds BOTH cookies even when responses arrive interleaved (tab2 then tab1)
+    const sharedJarCookie = `${tab2CookieName}=${tab2CtxToken}; ${tab1CookieName}=${tab1CtxToken}`;
+
+    // Tab 2 fails with invalid token -> does NOT clobber Tab 1's isolated cookie
+    const tab2Fail = await app.request('/auth/one-tap', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        'content-type': 'application/json',
+        Cookie: sharedJarCookie,
+      },
+      body: JSON.stringify({ challengeId: tab2Challenge.challengeId, idToken: 'bad_token' }),
+    });
+    assert.equal(tab2Fail.status, 400);
+
+    // Tab 1 still succeeds with challenge 1 from the shared jar
+    const tab1Ok = await app.request('/auth/one-tap', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        'content-type': 'application/json',
+        Cookie: sharedJarCookie,
+      },
+      body: JSON.stringify({ challengeId: tab1Challenge.challengeId, idToken: 'good_token' }),
+    });
+    assert.equal(tab1Ok.status, 200);
+    const sessionToken = extractCookieValue(tab1Ok.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+
+    // Logout clears om_session and every om_onetap_ctx* cookie
+    const logoutRes = await app.request('/auth/logout', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}; ${tab2CookieName}=${tab2CtxToken}`,
+      },
+    });
+    assert.equal(logoutRes.status, 200);
+    const logoutCookies = logoutRes.headers.getSetCookie();
+    assert.ok(logoutCookies.some((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`) && c.includes('Max-Age=0')));
+    assert.ok(logoutCookies.some((c) => c.startsWith(`${tab2CookieName}=`) && c.includes('Max-Age=0')));
+    assert.ok(logoutCookies.some((c) => c.startsWith(`${ONETAP_CTX_COOKIE_NAME}=`) && c.includes('Max-Age=0')));
+  });
+
+  it('maps authoritative AMR membershipTier: null to free and attributes One Tap events to the server-resolved user in the PostHog sender', async () => {
+    const freeClient = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      fetcher: (async () => Response.json({ membershipTier: null })) as typeof fetch,
+    });
+    assert.equal(await freeClient.lookupBillingPlanTier('usr_free_1'), 'free');
+
+    const unknownClient = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      fetcher: (async () => new Response('Unavailable', { status: 503 })) as typeof fetch,
+    });
+    assert.equal(await unknownClient.lookupBillingPlanTier('usr_free_1'), 'unknown');
+
+    const { createPosthogSender } = await import('../../tracking/node.ts');
+    const capturedBatches: Array<{ batch: Array<{ properties: Record<string, unknown> }> }> = [];
+    const sender = createPosthogSender({
+      host: 'https://us.i.posthog.com',
+      token: 'phc_test_token',
+      identity: { installation_id: '00000000-0000-4000-8000-000000000099', utm_source: null, created_at: new Date().toISOString() },
+      appVersion: '0.1.0',
+      env: 'test',
+      channel: 'cloud_web',
+      resolveEventIdentity: () => ({ distinct_id: 'usr_app_merged', user_id: 'usr_app_merged' }),
+      fetch: (async (_url, init) => {
+        capturedBatches.push(JSON.parse(String(init?.body)));
+        return Response.json({ status: 1 });
+      }) as typeof fetch,
+    });
+
+    const receipt = await sender(
+      [
+        {
+          event: 'onetap_login_success',
+          event_id: '00000000-0000-4000-8000-000000000010',
+          occurred_at: new Date().toISOString(),
+          entrypoint: 'studio',
+          device_timezone: 'UTC',
+          utc_offset_minutes: 0,
+          properties: {
+            surface: 'motion_web',
+            attempt_id: 'att-1',
+            is_new_user: true,
+            plan_tier: 'free',
+            post_login_action: 'in_place',
+          },
+        },
+      ],
+      new AbortController().signal,
+    );
+    assert.equal(receipt, 'accepted');
+    const sent = capturedBatches[0].batch[0].properties;
+    assert.equal(sent.distinct_id, 'usr_app_merged');
+    assert.equal(sent.user_id, 'usr_app_merged');
+    assert.equal(sent.amr_user_id, 'usr_app_merged');
+    assert.equal(sent.channel, 'cloud_web');
+  });
+
+  it('rejects One Tap S2S when dedicated internal URL or token is missing (never falls back to public API) and enforces K8s deployment config', async () => {
+    let fetchCalls = 0;
+    const countingFetch = (async () => {
+      fetchCalls += 1;
+      return Response.json({ ok: true });
+    }) as typeof fetch;
+
+    const cases = [
+      { label: 'missing both', oneTapApiUrl: undefined, oneTapInternalToken: undefined },
+      { label: 'missing token only', oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL, oneTapInternalToken: undefined },
+      { label: 'missing url only', oneTapApiUrl: undefined, oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN },
+    ];
+
+    for (const tc of cases) {
+      const client = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: tc.oneTapApiUrl,
+        oneTapInternalToken: tc.oneTapInternalToken,
+        fetcher: countingFetch,
+      });
+      assert.equal(client.isOneTapConfigured(), false, tc.label);
+      await assert.rejects(
+        () =>
+          client.requestOneTapChallenge({
+            expectedOrigin: PUBLIC_ORIGIN,
+            surface: 'motion_web',
+            attemptId: 'att-fail',
+            browserBindingHash: sha256Hex('tok'),
+          }),
+        (err: unknown) => (err as { status?: number; code?: string }).status === 503 && (err as { code?: string }).code === 'ONE_TAP_UNAVAILABLE',
+        `challenge should fail closed for ${tc.label}`,
+      );
+      await assert.rejects(
+        () =>
+          client.exchangeOneTapCredential({
+            challengeId: 'otc_x',
+            idToken: 'jwt_x',
+            expectedOrigin: PUBLIC_ORIGIN,
+            surface: 'motion_web',
+            browserBindingHash: sha256Hex('tok'),
+          }),
+        (err: unknown) => (err as { status?: number; code?: string }).status === 503 && (err as { code?: string }).code === 'ONE_TAP_UNAVAILABLE',
+        `exchange should fail closed for ${tc.label}`,
+      );
+      await assert.rejects(
+        () =>
+          client.createOneTapHandoffTicket({
+            authUserId: 'ba_1',
+            appUserId: 'usr_1',
+            sessionProof: 'otsp_test_unconfigured',
+            targetPath: '/pricing',
+          }),
+        (err: unknown) => (err as { status?: number; code?: string }).status === 503 && (err as { code?: string }).code === 'ONE_TAP_UNAVAILABLE',
+        `handoff-ticket should fail closed for ${tc.label}`,
+      );
+    }
+    assert.equal(fetchCalls, 0, 'Must never call public OPENDESIGN_API_URL when dedicated One Tap S2S config is incomplete');
+
+    // Verify K8s manifests wire the dedicated internal URL and token. The refs are optional so clusters
+    // without One Tap still start; the API above already fails closed when either value is missing.
+    const configmap = await readFile(path.resolve('deploy/k8s/configmap.yaml'), 'utf8');
+    const deployment = await readFile(path.resolve('deploy/k8s/api-deployment.yaml'), 'utf8');
+    assert.match(configmap, /OPENDESIGN_ONE_TAP_INTERNAL_URL:\s*"https?:\/\/[^"]+"/);
+    assert.match(
+      deployment,
+      /- name: OPENDESIGN_ONE_TAP_INTERNAL_URL\s+valueFrom:\s+configMapKeyRef:\s+name: openmotion-config\s+key: OPENDESIGN_ONE_TAP_INTERNAL_URL\s+optional: true\s+- name: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN\s+valueFrom:\s+secretKeyRef:\s+name: openmotion-secrets\s+key: OPENDESIGN_ONE_TAP_INTERNAL_TOKEN\s+optional: true\s+- name:/,
+    );
+  });
+
+  it('blocks an in-flight One Tap exchange from issuing om_session when another tab completes /auth/logout', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    let releaseExchange!: () => void;
+    let exchangeStartedResolve!: () => void;
+    let blockNextExchange = false;
+    let challengeSeq = 0;
+
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+          challengeSeq += 1;
+          return Response.json({
+            challengeId: `otc_inflight_${challengeSeq}`,
+            nonce: `nonce_${challengeSeq}`,
+            clientId: 'gid-inflight',
+            expiresAt: '2026-11-24T12:00:00.000Z',
+          });
+        }
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+          if (blockNextExchange) {
+            blockNextExchange = false;
+            exchangeStartedResolve();
+            await new Promise<void>((resolve) => {
+              releaseExchange = resolve;
+            });
+          }
+          // The second login forwards the landing odEntry but never a device id, whatever the client claims.
+          if (body.challengeId === 'otc_inflight_2') {
+            assert.deepEqual((body.attribution as { odEntry?: unknown })?.odEntry, {
+              sourceProduct: 'open_design',
+              entryId: 'ent_after_logout',
+              sourceDetail: 'openmotion_manage_subscription',
+              entryOccurredAt: '2026-11-24T02:00:00.000Z',
+              campaignId: 'camp_1',
+              placementId: 'place_1',
+              conversionSource: 'banner',
+            });
+          }
+          return Response.json({
+            ok: true,
+            authUserId: 'ba_race_u1',
+            appUserId: 'usr_race_u1',
+            email: 'race@example.com',
+            name: 'Race User',
+            image: null,
+            isNewUser: false,
+            planTier: 'free',
+          });
+        }
+        if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_race_u1`)) {
+          return Response.json({
+            active: true,
+            status: 'active',
+            authUserId: 'ba_race_u1',
+            appUserId: 'usr_race_u1',
+            email: 'race@example.com',
+            name: 'Race User',
+            image: null,
+            workspace: {
+              workspaceId: 'ws_race_u1',
+              workspaceName: 'Race WS',
+              workspaceType: 'personal',
+              workspaceMemberId: 'wm_race',
+              role: 'owner',
+              lifecycleState: 'active',
+              effectiveWriteAccess: 'writable',
+            },
+          });
+        }
+        return new Response('Not Found', { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, amrIdentity }));
+
+    // Seed an existing session in Tab 2 so Tab 2 can log out while Tab 1's One Tap exchange is in-flight
+    const projected = await store.projectAmrUserAndWorkspace({
+      oidcSub: 'ba_race_u1',
+      appUserId: 'usr_race_u1',
+      email: 'race@example.com',
+      displayName: 'Race User',
+      avatarUrl: null,
+      externalWorkspaceId: 'ws_race_u1',
+      workspaceName: 'Race WS',
+      role: 'owner',
+    });
+    const existingSession = await createBrowserSession(store, {
+      userId: projected.user.id,
+      workspaceId: projected.workspace.id,
+    });
+
+    // Tab 1 acquires challenge 1
+    const c1Res = await app.request('/auth/one-tap/challenge', {
+      method: 'POST',
+      headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ attemptId: 'att-race-1' }),
+    });
+    assert.equal(c1Res.status, 200);
+    const c1Body = (await c1Res.json()) as { challengeId: string };
+    const c1CookieName = oneTapChallengeCookieName(c1Body.challengeId);
+    const c1Token = extractCookieValue(c1Res.headers.getSetCookie(), c1CookieName)!;
+
+    // Start Tab 1's exchange and pause it while waiting on AMR S2S
+    blockNextExchange = true;
+    const exchangeStarted = new Promise<void>((resolve) => {
+      exchangeStartedResolve = resolve;
+    });
+    const inFlightExchangePromise = app.request('/auth/one-tap', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        'content-type': 'application/json',
+        Cookie: `${c1CookieName}=${c1Token}`,
+      },
+      body: JSON.stringify({ challengeId: c1Body.challengeId, idToken: 'jwt_slow_1' }),
+    });
+
+    await exchangeStarted;
+
+    // Tab 2 completes /auth/logout while Tab 1's exchange is still in-flight
+    const logoutRes = await app.request('/auth/logout', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        Cookie: `${SESSION_COOKIE_NAME}=${existingSession.token}; ${c1CookieName}=${c1Token}`,
+      },
+    });
+    assert.equal(logoutRes.status, 200);
+
+    // Release slow AMR S2S response -> Tab 1 MUST be rejected and MUST NOT mint om_session
+    releaseExchange();
+    const inFlightRes = await inFlightExchangePromise;
+    assert.equal(inFlightRes.status, 409);
+    assert.equal(((await inFlightRes.json()) as { code: string }).code, 'CHALLENGE_INVALID');
+    const inFlightCookies = inFlightRes.headers.getSetCookie();
+    assert.equal(
+      extractCookieValue(inFlightCookies, SESSION_COOKIE_NAME),
+      null,
+      'Revoked in-flight exchange must NEVER issue om_session',
+    );
+
+    // A brand-new One Tap challenge started AFTER logout succeeds normally (and still strips the client-claimed device id)
+    const c2Res = await app.request('/auth/one-tap/challenge', {
+      method: 'POST',
+      headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ attemptId: 'att-race-2' }),
+    });
+    const c2Body = (await c2Res.json()) as { challengeId: string };
+    const c2CookieName = oneTapChallengeCookieName(c2Body.challengeId);
+    const c2Token = extractCookieValue(c2Res.headers.getSetCookie(), c2CookieName)!;
+
+    const c2ExchangeRes = await app.request('/auth/one-tap', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        'content-type': 'application/json',
+        Cookie: `${c2CookieName}=${c2Token}`,
+      },
+      body: JSON.stringify({
+        challengeId: c2Body.challengeId,
+        idToken: 'jwt_fresh_2',
+        attribution: {
+          odEntry: {
+            sourceProduct: 'open_design',
+            entryId: 'ent_after_logout',
+            sourceDetail: 'openmotion_manage_subscription',
+            entryOccurredAt: '2026-11-24T02:00:00.000Z',
+            campaignId: 'camp_1',
+            placementId: 'place_1',
+            conversionSource: 'banner',
+            odDeviceId: 'dev_client_claimed_99',
+            odDeviceIdConsent: true,
+          },
+        },
+      }),
+    });
+    assert.equal(c2ExchangeRes.status, 200);
+    assert.ok(extractCookieValue(c2ExchangeRes.headers.getSetCookie(), SESSION_COOKIE_NAME));
+  });
+
+  it('ends the IdP session server-side with id_token_hint on OIDC logout and skips end-session for One Tap sessions without an id_token', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    let issuedIdToken = '';
+    const endSessionCalls: URL[] = [];
+    const oidc = new OidcService(
+      {
+        issuer: 'https://amr-api.open-design.ai/oauth',
+        clientId: 'openmotion-cloud-client',
+        clientSecret: 'ephemeral-test-client-secret',
+        callbackUrl: `${PUBLIC_ORIGIN}/auth/callback`,
+        scopes: 'openid profile email',
+        claimSub: 'sub',
+        claimEmail: 'email',
+        claimName: 'name',
+        discovery: {
+          issuer: 'https://amr-api.open-design.ai/oauth',
+          authorization_endpoint: 'https://amr-api.open-design.ai/oauth/authorize',
+          token_endpoint: 'https://amr-api.open-design.ai/oauth/token',
+          end_session_endpoint: 'https://amr-api.open-design.ai/oauth/end-session',
+          id_token_signing_alg_values_supported: ['HS256'],
+        },
+        fetcher: (async (input: string | URL | Request) => {
+          const url = new URL(input instanceof Request ? input.url : String(input));
+          if (url.pathname === '/oauth/end-session') {
+            endSessionCalls.push(url);
+            return new Response(null, { status: 200 });
+          }
+          return Response.json({ id_token: issuedIdToken, access_token: 'at_1' });
+        }) as typeof fetch,
+      },
+      cache,
+    );
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, oidc }));
+
+    // 1. Complete OIDC login so server persists id_token for RP-Initiated Logout
+    const loginRes = await app.request('/auth/login?returnTo=/');
+    assert.equal(loginRes.status, 302);
+    const authUrl = new URL(loginRes.headers.get('location')!);
+    const state = authUrl.searchParams.get('state')!;
+    const nonce = authUrl.searchParams.get('nonce')!;
+    const txCookie = extractCookieValue(loginRes.headers.getSetCookie(), OIDC_TX_COOKIE_NAME)!;
+
+    issuedIdToken = await new SignJWT({
+      sub: 'ba_logout_oidc',
+      email: 'oidc@example.com',
+      name: 'OIDC User',
+      nonce,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuer('https://amr-api.open-design.ai/oauth')
+      .setAudience('openmotion-cloud-client')
+      .setIssuedAt()
+      .setExpirationTime('10m')
+      .sign(new TextEncoder().encode('ephemeral-test-client-secret'));
+
+    const cbRes = await app.request(
+      `/auth/callback?code=code_logout_1&state=${encodeURIComponent(state)}`,
+      { headers: { Cookie: `${OIDC_TX_COOKIE_NAME}=${txCookie}` } },
+    );
+    assert.equal(cbRes.status, 302);
+    const oidcSessionToken = extractCookieValue(cbRes.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+
+    // 2. Logout ends the IdP session server-side with id_token_hint and never exposes endSessionUrl to the browser
+    const logoutRes = await app.request('/auth/logout', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        Cookie: `${SESSION_COOKIE_NAME}=${oidcSessionToken}`,
+      },
+    });
+    assert.equal(logoutRes.status, 200);
+    const logoutPayload = (await logoutRes.json()) as { ok: boolean; endSessionUrl?: string };
+    assert.equal(logoutPayload.ok, true);
+    assert.equal(logoutPayload.endSessionUrl, undefined);
+    assert.equal(endSessionCalls.length, 1);
+    const endUrl = endSessionCalls[0]!;
+    assert.equal(endUrl.origin + endUrl.pathname, 'https://amr-api.open-design.ai/oauth/end-session');
+    assert.equal(endUrl.searchParams.get('id_token_hint'), issuedIdToken);
+    assert.equal(endUrl.searchParams.get('od_onetap_suppress'), null, 'Must not append od_onetap_suppress to end_session_endpoint');
+
+    // 3. Session created without OIDC id_token (e.g. One Tap) does NOT call end_session_endpoint
+    const noIdTokenConfig = makeConfig();
+    const noLandingApp = new Hono<AuthEnv>();
+    noLandingApp.route('/', createAuthRoutes({ config: noIdTokenConfig, store, cache, oidc }));
+    const seeded = store.seedWorkspace({ role: 'owner', displayName: 'OneTap User' });
+    const oneTapSession = await createBrowserSession(store, {
+      userId: seeded.user.id,
+      workspaceId: seeded.workspace.id,
+    });
+    const oneTapLogout = await noLandingApp.request('/auth/logout', {
+      method: 'POST',
+      headers: {
+        Origin: PUBLIC_ORIGIN,
+        Cookie: `${SESSION_COOKIE_NAME}=${oneTapSession.token}`,
+      },
+    });
+    assert.equal(oneTapLogout.status, 200);
+    const oneTapPayload = (await oneTapLogout.json()) as { ok: boolean; endSessionUrl?: string };
+    assert.equal(oneTapPayload.endSessionUrl, undefined);
+    assert.equal(endSessionCalls.length, 1);
+  });
+
+  it('attributes One Tap tracking only to the live session, never to a browser-claimed user id, across guest->login, A->B switch and logout', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    const sink = createPosthogSink();
+
+    const amrUsers: Record<string, { authUserId: string; appUserId: string; wsId: string; email: string }> = {
+      tok_A: { authUserId: 'ba_uA', appUserId: 'usr_app_A', wsId: 'ws_uA', email: 'a@example.com' },
+      tok_B: { authUserId: 'ba_uB', appUserId: 'usr_app_B', wsId: 'ws_uB', email: 'b@example.com' },
+    };
+    let seq = 0;
+
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+          return Response.json({
+            challengeId: `otc_trk_${++seq}`,
+            nonce: `nonce_${seq}`,
+            clientId: 'gid-trk',
+            expiresAt: '2026-11-24T12:00:00.000Z',
+          });
+        }
+        if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+          const u = amrUsers[String(body.idToken)];
+          return Response.json({
+            ok: true,
+            authUserId: u.authUserId,
+            appUserId: u.appUserId,
+            email: u.email,
+            name: u.email,
+            image: null,
+            isNewUser: false,
+            planTier: 'free',
+          });
+        }
+        for (const u of Object.values(amrUsers)) {
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/${u.authUserId}`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: u.authUserId,
+              appUserId: u.appUserId,
+              email: u.email,
+              name: u.email,
+              image: null,
+              workspace: {
+                workspaceId: u.wsId,
+                workspaceName: 'WS',
+                workspaceType: 'personal',
+                workspaceMemberId: `wm_${u.appUserId}`,
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+        }
+        return new Response('Not Found', { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-cloud-track-'));
+    try {
+      await mkdir(path.join(tmpRoot, 'studio/build'), { recursive: true });
+      await writeFile(
+        path.join(tmpRoot, 'studio/build/index.html'),
+        '<!doctype html><html><head><title>Studio</title></head><body></body></html>',
+      );
+
+      const { app, cloudTracking } = createApiApp({
+        config,
+        db: {} as Database,
+        storage: {} as StoragePort,
+        queues: {} as ApiQueuesPort,
+        eventBus: {} as ApiEventBusPort,
+        authStore: store,
+        authCache: cache,
+        amrIdentity,
+        gateway: new MockModelGateway(),
+        runtimeRoot: tmpRoot,
+        trackingEnv: TRACKING_TEST_ENV,
+        trackingOptions: { posthogFetch: sink.posthogFetch },
+      });
+
+      const loginOneTap = async (idToken: 'tok_A' | 'tok_B') => {
+        const cRes = await app.request('/auth/one-tap/challenge', {
+          method: 'POST',
+          headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+          body: JSON.stringify({ attemptId: `att-${idToken}` }),
+        });
+        const cBody = (await cRes.json()) as { challengeId: string };
+        const cName = oneTapChallengeCookieName(cBody.challengeId);
+        const cTok = extractCookieValue(cRes.headers.getSetCookie(), cName)!;
+        const exRes = await app.request('/auth/one-tap', {
+          method: 'POST',
+          headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json', Cookie: `${cName}=${cTok}` },
+          body: JSON.stringify({ challengeId: cBody.challengeId, idToken }),
+        });
+        assert.equal(exRes.status, 200);
+        return extractCookieValue(exRes.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+      };
+      const postBatch = async (sessionToken: string | null, events: unknown[], deviceId: string) => {
+        const res = await app.request('/motion-api/tracking', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'sec-fetch-site': 'same-origin',
+            'content-type': 'application/json',
+            ...(sessionToken ? { Cookie: `${SESSION_COOKIE_NAME}=${sessionToken}` } : {}),
+          },
+          body: JSON.stringify({ events, device_id: deviceId }),
+        });
+        assert.equal(res.status, 202);
+        return ((await res.json()) as { acceptedCount?: number }).acceptedCount ?? 0;
+      };
+      const promptAttempt = (attemptId: string, suppressed = false) =>
+        makeBrowserEvent('onetap_prompt_attempt', { surface: 'motion_web', attempt_id: attemptId, device_type: 'desktop', suppressed });
+      const loginSuccess = (attemptId: string) =>
+        makeBrowserEvent('onetap_login_success', {
+          surface: 'motion_web',
+          attempt_id: attemptId,
+          is_new_user: false,
+          plan_tier: 'free',
+          post_login_action: 'in_place',
+        });
+      const click = (extra: Record<string, unknown> = {}) =>
+        makeBrowserEvent('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation' }, extra);
+
+      // 1. Guest One Tap prompt events pass the cloud allowlist and stay anonymous (browser device_id).
+      const guestPrompt = promptAttempt('att-g1');
+      assert.equal(await postBatch(null, [guestPrompt], 'guest-device-0001'), 1);
+
+      // 2. After One Tap login as A, the live session (not the browser) names the user.
+      const sessionA = await loginOneTap('tok_A');
+      const loginA = loginSuccess('att-g1');
+      assert.equal(await postBatch(sessionA, [loginA], 'guest-device-0001'), 1);
+
+      // 3. A browser-claimed user id is never trusted: such packets are rejected with or without a session.
+      assert.equal(await postBatch(sessionA, [click({ app_user_id: 'usr_spoofed_victim' })], 'guest-device-0001'), 0);
+      assert.equal(
+        await postBatch(null, [{ ...promptAttempt('att-spoof'), app_user_id: 'usr_spoofed_victim' }], 'guest-device-0002'),
+        0,
+      );
+
+      // 4. Switching to account B attributes B's events to B.
+      const sessionB = await loginOneTap('tok_B');
+      const clickB = click();
+      assert.equal(await postBatch(sessionB, [clickB], 'guest-device-0001'), 1);
+
+      // 5. After B logs out, the revoked cookie attributes nothing to B.
+      const logoutRes = await app.request('/auth/logout', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, Cookie: `${SESSION_COOKIE_NAME}=${sessionB}` },
+      });
+      assert.equal(logoutRes.status, 200);
+      const promptAfterLogout = promptAttempt('att-after-logout', true);
+      assert.equal(await postBatch(sessionB, [promptAfterLogout], 'guest-device-0003'), 1);
+
+      await cloudTracking.shutdown({ timeoutMs: 2000 });
+      assert.equal(sink.events.length, 4);
+      const sent = sink.propertiesById();
+      assert.equal(sent.get(guestPrompt.event_id)?.distinct_id, 'guest-device-0001');
+      assert.equal(sent.get(guestPrompt.event_id)?.user_id, undefined);
+      assert.equal(sent.get(loginA.event_id)?.distinct_id, 'usr_app_A');
+      assert.equal(sent.get(loginA.event_id)?.user_id, 'usr_app_A');
+      assert.equal(sent.get(clickB.event_id)?.user_id, 'usr_app_B');
+      assert.equal(sent.get(promptAfterLogout.event_id)?.distinct_id, 'guest-device-0003');
+      assert.equal(sent.get(promptAfterLogout.event_id)?.user_id, undefined);
+      assert.doesNotMatch(JSON.stringify(sink.events), /usr_spoofed_victim|app_user_id/);
+
+      // Item 13: Studio main HTML document reports (not enforces) the GIS CSP and enforces Permissions-Policy and compatible COOP
+      const htmlRes = await app.request('/');
+      assert.equal(htmlRes.status, 200);
+      assert.equal(htmlRes.headers.get('content-security-policy'), null);
+      const csp = htmlRes.headers.get('content-security-policy-report-only') ?? '';
+      assert.match(csp, /script-src[^;]*https:\/\/accounts\.google\.com\/gsi\/client/);
+      assert.match(csp, /style-src[^;]*https:\/\/accounts\.google\.com\/gsi\/style/);
+      assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
+      assert.match(csp, /connect-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
+      assert.match(csp, /connect-src[^;]*http:\/\/127\.0\.0\.1:\*/);
+      assert.match(csp, /connect-src[^;]*http:\/\/localhost:\*/);
+      assert.equal(
+        htmlRes.headers.get('permissions-policy'),
+        'identity-credentials-get=(self "https://accounts.google.com")',
+      );
+      assert.equal(htmlRes.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups');
+      assert.notEqual(htmlRes.headers.get('cross-origin-opener-policy'), 'same-origin');
+
+      // The API owns these document headers; the Ingress must not add snippets (rejected by default
+      // ingress-nginx admission) or override COOP with same-origin.
+      const ingressYaml = await readFile(path.resolve('deploy/k8s/ingress.yaml'), 'utf8');
+      assert.doesNotMatch(ingressYaml, /configuration-snippet/);
+      assert.doesNotMatch(ingressYaml, /Cross-Origin-Opener-Policy:\s*same-origin["';\s]*$/m);
+
+      // K8s ConfigMap & NetworkPolicy alignment for internal AMR One Tap service (port 18080)
+      const configMapYaml = await readFile(path.resolve('deploy/k8s/configmap.yaml'), 'utf8');
+      assert.match(configMapYaml, /OPENDESIGN_ONE_TAP_INTERNAL_URL:\s*"http:\/\/amr-api\.nexu\.svc\.cluster\.local:18080"/);
+      const netPolYaml = await readFile(path.resolve('deploy/k8s/networkpolicy.yaml'), 'utf8');
+      assert.match(netPolYaml, /kubernetes\.io\/metadata\.name:\s*nexu[\s\S]*?port:\s*18080/);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves event utm_source in the PostHog payload and revokes session if logout races createSession commit', async () => {
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-onetap-r3-'));
+    try {
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const config = makeConfig();
+      const outboundBatches: Array<{ batch: Array<{ event: string; properties: Record<string, unknown> }> }> = [];
+      const { createPosthogSender } = await import('../../tracking/node.ts');
+      const sender = createPosthogSender({
+        host: 'https://us.i.posthog.com',
+        token: 'phc_test_r3_token_12345',
+        identity: { installation_id: '00000000-0000-4000-8000-000000000098', utm_source: 'openmotion_web', created_at: new Date().toISOString() },
+        appVersion: '0.1.0',
+        env: 'test',
+        fetch: (async (_url, init) => {
+          outboundBatches.push(JSON.parse(String(init?.body)));
+          return Response.json({ status: 1 });
+        }) as typeof fetch,
+      });
+
+      const amrIdentity = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+        oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+            return Response.json({
+              challengeId: 'otc_r3_race',
+              nonce: 'nonce_r3_race',
+              clientId: 'gid-r3',
+              expiresAt: '2026-11-24T12:00:00.000Z',
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+            return Response.json({
+              ok: true,
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              isNewUser: false,
+              planTier: 'free',
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
+            return Response.json({
+              ticket: 'ht_r11_recovered',
+              handoffUrl: `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_r11_recovered`,
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            });
+          }
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/auth_r3_u`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_r3',
+                workspaceName: 'WS R3',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_r3',
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+          throw new Error(`Unexpected AMR fetch: ${url}`);
+        }) as typeof fetch,
+      });
+
+      // Intercept createSession to inject a concurrent /auth/logout AFTER pre-insert checks pass
+      // and BEFORE createSession resolves!
+      let triggerLogoutDuringCommit: (() => Promise<void>) | null = null;
+      const originalCreateSession = store.createSession.bind(store);
+      store.createSession = async (input) => {
+        const created = await originalCreateSession(input);
+        if (triggerLogoutDuringCommit) {
+          const fn = triggerLogoutDuringCommit;
+          triggerLogoutDuringCommit = null;
+          await fn();
+        }
+        return created;
+      };
+
+      const { app } = createApiApp({
+        config,
+        db: {} as Database,
+        storage: {} as StoragePort,
+        queues: {} as ApiQueuesPort,
+        eventBus: {} as ApiEventBusPort,
+        authStore: store,
+        authCache: cache,
+        amrIdentity,
+        gateway: new MockModelGateway(),
+        runtimeRoot: tmpRoot,
+      });
+
+      // 1. The PostHog payload keeps the event's own utm_source instead of the deployment identity's.
+      const makeUtmEvent = () => ({
+        event: 'onetap_login_success',
+        event_id: crypto.randomUUID(),
+        occurred_at: new Date().toISOString(),
+        entrypoint: 'studio',
+        device_timezone: 'UTC',
+        utc_offset_minutes: 0,
+        properties: {
+          surface: 'motion_web',
+          attempt_id: 'att-utm-1',
+          is_new_user: false,
+          plan_tier: 'free',
+          post_login_action: 'in_place',
+          utm_source: 'x_launch',
+        },
+      });
+      assert.equal(await sender([makeUtmEvent() as never], new AbortController().signal), 'accepted');
+      assert.equal(outboundBatches.length, 1);
+      assert.equal(outboundBatches[0].batch[0].properties.utm_source, 'x_launch');
+      assert.equal(outboundBatches[0].batch[0].properties.od_utm_source, 'x_launch');
+
+      // 2. Concurrent logout racing DURING createSession commit must revoke the newly created session and return 409
+      const cRes = await app.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-commit-race' }),
+      });
+      const cBody = (await cRes.json()) as { challengeId: string };
+      const cName = oneTapChallengeCookieName(cBody.challengeId);
+      const cTok = extractCookieValue(cRes.headers.getSetCookie(), cName)!;
+
+      triggerLogoutDuringCommit = async () => {
+        const lRes = await app.request('/auth/logout', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            Cookie: `${cName}=${cTok}`,
+          },
+        });
+        assert.equal(lRes.status, 200);
+      };
+
+      const raceRes = await app.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${cName}=${cTok}`,
+        },
+        body: JSON.stringify({ challengeId: cBody.challengeId, idToken: 'tok_race' }),
+      });
+      assert.equal(raceRes.status, 409);
+      const raceCookies = raceRes.headers.getSetCookie();
+      assert.equal(extractCookieValue(raceCookies, SESSION_COOKIE_NAME), null, 'No om_session cookie may be emitted');
+      // Verify all sessions created in store were revoked
+      const activeSessions = [...store.sessions.values()].filter((s) => s.revokedAt === null);
+      assert.equal(activeSessions.length, 0, 'Newly created session must be revoked when logout raced commit');
+
+      // 3. Logout racing DURING saveSessionProof (cache.set) must ALSO revoke session + delete proof + return 409
+      const cProofRes = await app.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-proof-race' }),
+      });
+      const cProofBody = (await cProofRes.json()) as { challengeId: string };
+      const cProofName = oneTapChallengeCookieName(cProofBody.challengeId);
+      const cProofTok = extractCookieValue(cProofRes.headers.getSetCookie(), cProofName)!;
+
+      // Return sessionProof from AMR and trigger logout right while cache.set persists sessionProof
+      const originalCacheSet = cache.set.bind(cache);
+      let proofRaceTriggered = false;
+      cache.set = async (key, value, ttlSec) => {
+        await originalCacheSet(key, value, ttlSec);
+        if (!proofRaceTriggered && key.startsWith(oneTapSessionProofCacheKey(''))) {
+          proofRaceTriggered = true;
+          const lRes = await app.request('/auth/logout', {
+            method: 'POST',
+            headers: { Origin: PUBLIC_ORIGIN, Cookie: `${cProofName}=${cProofTok}` },
+          });
+          assert.equal(lRes.status, 200);
+        }
+      };
+
+      const amrWithProof = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+        oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input, init) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+            return Response.json({
+              challengeId: 'otc_r4_proof_race',
+              nonce: 'nonce_r4',
+              clientId: 'gid-r4',
+              expiresAt: '2026-11-24T12:00:00.000Z',
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+            const parsed = JSON.parse(String(init?.body ?? '{}')) as { attribution?: { odEntry?: Record<string, unknown> } };
+            // A client-claimed device id is never forwarded to AMR, even with a consent flag
+            assert.equal(parsed.attribution?.odEntry?.odDeviceId, undefined);
+            assert.equal(parsed.attribution?.odEntry?.odDeviceIdConsent, undefined);
+            return Response.json({
+              ok: true,
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              isNewUser: false,
+              planTier: 'free',
+              sessionProof: 'otsp_r4_proof_race',
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
+            return Response.json({
+              ticket: 'ht_r11_recovered',
+              handoffUrl: `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_r11_recovered`,
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            });
+          }
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/auth_r3_u`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_r3',
+                workspaceName: 'WS R3',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_r3',
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+          throw new Error(`Unexpected AMR fetch: ${url}`);
+        }) as typeof fetch,
+      });
+
+      const { app: appProofRace } = createApiApp({
+        config,
+        db: {} as Database,
+        storage: {} as StoragePort,
+        queues: {} as ApiQueuesPort,
+        eventBus: {} as ApiEventBusPort,
+        authStore: store,
+        authCache: cache,
+        amrIdentity: amrWithProof,
+        gateway: new MockModelGateway(),
+        runtimeRoot: tmpRoot,
+      });
+
+      const c4Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r4' }),
+      });
+      const c4Body = (await c4Res.json()) as { challengeId: string };
+      const c4Name = oneTapChallengeCookieName(c4Body.challengeId);
+      const c4Tok = extractCookieValue(c4Res.headers.getSetCookie(), c4Name)!;
+
+      // Wire logout during saveSessionProof to use c4Name/c4Tok
+      cache.set = async (key, value, ttlSec) => {
+        await originalCacheSet(key, value, ttlSec);
+        if (key.startsWith(oneTapSessionProofCacheKey(''))) {
+          const lRes = await appProofRace.request('/auth/logout', {
+            method: 'POST',
+            headers: { Origin: PUBLIC_ORIGIN, Cookie: `${c4Name}=${c4Tok}` },
+          });
+          assert.equal(lRes.status, 200);
+        }
+      };
+
+      const proofRaceRes = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${c4Name}=${c4Tok}`,
+        },
+        body: JSON.stringify({
+          challengeId: c4Body.challengeId,
+          idToken: 'tok_r4',
+          attribution: {
+            odEntry: {
+              sourceProduct: 'open_design',
+              entryId: 'ent_denied',
+              sourceDetail: 'openmotion_manage_subscription',
+              entryOccurredAt: '2026-11-24T02:00:00.000Z',
+              odDeviceId: 'dev_client_claimed',
+              odDeviceIdConsent: true,
+            },
+          },
+        }),
+      });
+      assert.equal(proofRaceRes.status, 409);
+      assert.equal(extractCookieValue(proofRaceRes.headers.getSetCookie(), SESSION_COOKIE_NAME), null);
+      assert.equal([...store.sessions.values()].filter((s) => s.revokedAt === null).length, 0);
+
+      // 4. GET /auth/upgrade-handoff with om_session cookie when store/cache throws DB error MUST fail closed (503, NO Location)
+      const originalFindSession = store.findActiveSessionByTokenHash.bind(store);
+      store.findActiveSessionByTokenHash = async () => {
+        throw new Error('simulated postgres connection error');
+      };
+      const dbErrInitRes = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=some_valid_length_session_token_0123456789` },
+      });
+      store.findActiveSessionByTokenHash = originalFindSession;
+      assert.equal(dbErrInitRes.status, 303);
+      const dbErrBoundUrl = dbErrInitRes.headers.get('location')!;
+      assert.match(dbErrBoundUrl, /^\/auth\/upgrade-handoff\?.*requireAuth=1.*expectedSession=.*unavailable=1/);
+      const dbErrRes = await appProofRace.request(dbErrBoundUrl, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=some_valid_length_session_token_0123456789` },
+      });
+      assert.equal(dbErrRes.status, 503);
+      assert.equal(dbErrRes.headers.get('location'), null);
+
+      // 5. Post-response logout barrier: even if /auth/logout commits AFTER POST /auth/one-tap returns 200,
+      //    resolveBrowserSession rejects & revokes the late One Tap session immediately.
+      cache.set = originalCacheSet;
+      const c5Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r5-late' }),
+      });
+      const c5Body = (await c5Res.json()) as { challengeId: string };
+      const c5Name = oneTapChallengeCookieName(c5Body.challengeId);
+      const c5Tok = extractCookieValue(c5Res.headers.getSetCookie(), c5Name)!;
+      const okOneTapRes = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${c5Name}=${c5Tok}`,
+        },
+        body: JSON.stringify({ challengeId: c5Body.challengeId, idToken: 'tok_r5_late' }),
+      });
+      assert.equal(okOneTapRes.status, 200);
+      const lateSessionTok = extractCookieValue(okOneTapRes.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+      assert.ok(lateSessionTok);
+
+      // Another tab completes /auth/logout with the same browser binding after POST /auth/one-tap finished
+      const lateLogoutRes = await appProofRace.request('/auth/logout', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, Cookie: `${c5Name}=${c5Tok}` },
+      });
+      assert.equal(lateLogoutRes.status, 200);
+
+      // Late om_session cookie MUST be rejected and revoked on resolution
+      const meAfterLateLogout = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${lateSessionTok}` },
+      });
+      assert.equal(meAfterLateLogout.status, 401);
+
+      // 6. Active Motion session encountering upstream 401/403 on /auth/upgrade-handoff MUST fail closed (no unbound Pricing Location)
+      const c6Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r5-401' }),
+      });
+      const c6Body = (await c6Res.json()) as { challengeId: string };
+      const c6Name = oneTapChallengeCookieName(c6Body.challengeId);
+      const c6Tok = extractCookieValue(c6Res.headers.getSetCookie(), c6Name)!;
+      const okRes2 = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${c6Name}=${c6Tok}`,
+        },
+        body: JSON.stringify({ challengeId: c6Body.challengeId, idToken: 'tok_r5_401' }),
+      });
+      assert.equal(okRes2.status, 200);
+      const activeTok = extractCookieValue(okRes2.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+      const origVerify = amrWithProof.verifyAndEnrichAuthContext.bind(amrWithProof);
+      amrWithProof.verifyAndEnrichAuthContext = async () => {
+        const { CloudError } = await import('../../src/contracts/errors.ts');
+        throw new CloudError('UNAUTHORIZED', 'Account disabled upstream', { status: 401 });
+      };
+      const upstream401Res = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      amrWithProof.verifyAndEnrichAuthContext = origVerify;
+      assert.equal(upstream401Res.status, 401);
+      assert.equal(upstream401Res.headers.get('location'), null);
+      assert.equal(extractCookieValue(upstream401Res.headers.getSetCookie(), SESSION_COOKIE_NAME), null);
+
+      // 7. Revoked/expired om_session cookie on /auth/upgrade-handoff MUST fail closed (401, NO Location to guest Pricing)
+      const revokedCookieHandoff = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${lateSessionTok}` },
+      });
+      assert.equal(revokedCookieHandoff.status, 401);
+      assert.equal(revokedCookieHandoff.headers.get('location'), null);
+
+      // 8. Transient Redis read error & transient Postgres revoke error in resolveBrowserSession MUST fail closed
+      //    without clearing the One Tap binding key
+      const c8Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r7-err' }),
+      });
+      const c8Body = (await c8Res.json()) as { challengeId: string };
+      const c8Name = oneTapChallengeCookieName(c8Body.challengeId);
+      const c8Tok = extractCookieValue(c8Res.headers.getSetCookie(), c8Name)!;
+      const okRes8 = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json', Cookie: `${c8Name}=${c8Tok}` },
+        body: JSON.stringify({ challengeId: c8Body.challengeId, idToken: 'tok_r7_err' }),
+      });
+      assert.equal(okRes8.status, 200);
+      const tok8 = extractCookieValue(okRes8.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+      await appProofRace.request('/auth/logout', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, Cookie: `${c8Name}=${c8Tok}` },
+      });
+      const origCacheGet = cache.get.bind(cache);
+      cache.get = async (key: string) => {
+        if (key.startsWith('om:onetap:revoked-binding:')) {
+          throw new Error('simulated redis read error');
+        }
+        return origCacheGet(key);
+      };
+      const redisFailMe = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${tok8}` },
+      });
+      cache.get = origCacheGet;
+      assert.ok(redisFailMe.status >= 500, 'Redis revocation read error must fail closed (never 200)');
+
+      const origRevoke = store.revokeSessionByTokenHash.bind(store);
+      store.revokeSessionByTokenHash = async () => {
+        throw new Error('simulated db revoke error');
+      };
+      const dbRevokeFailMe = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${tok8}` },
+      });
+      store.revokeSessionByTokenHash = origRevoke;
+      assert.ok(dbRevokeFailMe.status >= 500, 'DB revoke error must fail closed and retain binding');
+
+      // Once DB recovers, the retained binding MUST still reject & revoke the late session
+      const afterRecoveryMe = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${tok8}` },
+      });
+      assert.equal(afterRecoveryMe.status, 401);
+
+      // 9. Browser F5 reload of the post-303 bound 503 URL (with ZERO retry cookies!):
+      //    - after logout (no om_session) -> 401 (NO guest Pricing)
+      //    - after switching to another session -> 409 ACCOUNT_MISMATCH
+      //    - Retry link without cookie -> 401, Retry link with different session -> 409
+      //    - Original valid session following its own post-303 Retry link once recovered -> 302 AMR handoff ticket
+      const reloadAfterLogout = await appProofRace.request(dbErrBoundUrl);
+      assert.equal(reloadAfterLogout.status, 401);
+      assert.equal(reloadAfterLogout.headers.get('location'), null);
+
+      const reloadAfterSwitch = await appProofRace.request(dbErrBoundUrl, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      assert.equal(reloadAfterSwitch.status, 409);
+      assert.equal(reloadAfterSwitch.headers.get('location'), null);
+
+      const retryHtml = await dbErrRes.text();
+      const hrefMatch = retryHtml.match(/<a class="ui-button ui-button--primary" href="([^"]+)"/);
+      assert.ok(hrefMatch?.[1], '503 page must render a bound Retry link');
+      const generatedRetryUrl = hrefMatch[1].replaceAll('&amp;', '&');
+      assert.match(generatedRetryUrl, /requireAuth=1/);
+      assert.match(generatedRetryUrl, /expectedSession=/);
+      assert.doesNotMatch(generatedRetryUrl, /unavailable=1/);
+
+      const missingCookieRetry = await appProofRace.request(generatedRetryUrl);
+      assert.equal(missingCookieRetry.status, 401);
+      assert.equal(missingCookieRetry.headers.get('location'), null);
+
+      const switchedSessionRetry = await appProofRace.request(generatedRetryUrl, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      assert.equal(switchedSessionRetry.status, 409);
+      assert.equal(switchedSessionRetry.headers.get('location'), null);
+
+      // Verify a real valid session gets 303 -> 503 on outage, and then succeeds on its own Retry link after recovery
+      const origVerifyForRecovery = amrWithProof.verifyAndEnrichAuthContext.bind(amrWithProof);
+      amrWithProof.verifyAndEnrichAuthContext = async () => {
+        throw new Error('transient amr outage');
+      };
+      const activeOutageInit = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      amrWithProof.verifyAndEnrichAuthContext = origVerifyForRecovery;
+      assert.equal(activeOutageInit.status, 303);
+      const activeOutage503 = await appProofRace.request(activeOutageInit.headers.get('location')!, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      assert.equal(activeOutage503.status, 503);
+      const activeRetryHref = (await activeOutage503.text())
+        .match(/<a class="ui-button ui-button--primary" href="([^"]+)"/)![1]
+        .replaceAll('&amp;', '&');
+      const activeRecoveredRes = await appProofRace.request(activeRetryHref, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      assert.equal(activeRecoveredRes.status, 302);
+      assert.match(activeRecoveredRes.headers.get('location')!, /\/api\/auth\/one-tap\/handoff\?ticket=/);
+
+      const switchedAccountRetry = await appProofRace.request(
+        '/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1&expectedAppUserId=usr_other_b',
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` } },
+      );
+      assert.equal(switchedAccountRetry.status, 409);
+      assert.equal(switchedAccountRetry.headers.get('location'), null);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('gives sessions without a stored proof a terminal recovery path, returns navigable HTML for browser upgrade failures, and falls back when AMR identity is absent', async () => {
+    const config = makeConfig();
+    const store = new InMemoryAuthStore();
+    const cache = new InMemoryAuthCache();
+
+    const projected = await store.projectAmrUserAndWorkspace({
+      oidcSub: 'ba_usr_noproof',
+      appUserId: 'usr_app_noproof',
+      email: 'noproof@open-design.ai',
+      displayName: 'Legacy User',
+      avatarUrl: null,
+      externalWorkspaceId: 'ws_amr_noproof',
+      workspaceName: 'Legacy Workspace',
+      role: 'owner',
+    });
+
+    // Session created without a stored session proof (legacy session / OIDC login omitting the proof claim).
+    const legacySession = await createBrowserSession(store, {
+      userId: projected.user.id,
+      workspaceId: projected.workspace.id,
+    });
+
+    const amrIdentity = new AmrIdentityClient({
+      apiUrl: AMR_API_URL,
+      internalToken: INTERNAL_TOKEN,
+      oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+      oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+      cache,
+      fetcher: (async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_noproof`)) {
+          return Response.json({
+            active: true,
+            status: 'active',
+            authUserId: 'ba_usr_noproof',
+            appUserId: 'usr_app_noproof',
+            email: 'noproof@open-design.ai',
+            name: 'Legacy User',
+            image: null,
+            workspace: {
+              workspaceId: 'ws_amr_noproof',
+              workspaceName: 'Legacy Workspace',
+              workspaceType: 'personal',
+              workspaceMemberId: 'wm_noproof',
+              role: 'owner',
+            },
+          });
+        }
+        return new Response('unexpected', { status: 404 });
+      }) as typeof fetch,
+    });
+
+    const fakeOidc = {
+      startLogin: async () => ({
+        authorizationUrl: 'https://idp.open-design.test/authorize',
+        txCookieValue: 'tx',
+      }),
+    } as unknown as OidcService;
+
+    const app = new Hono<AuthEnv>();
+    app.route('/', createAuthRoutes({ config, store, cache, amrIdentity, oidc: fakeOidc }));
+
+    // 1. Missing stored proof MUST NOT enter a 303 -> 503 retry loop.
+    //    a) Programmatic caller gets terminal 401 REAUTH_REQUIRED JSON with loginUrl.
+    const apiNoProof = await app.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` },
+    });
+    assert.equal(apiNoProof.status, 401);
+    assert.equal(apiNoProof.headers.get('location'), null);
+    const apiNoProofBody = (await apiNoProof.json()) as { code?: string; loginUrl?: string };
+    assert.equal(apiNoProofBody.code, 'REAUTH_REQUIRED');
+    assert.match(apiNoProofBody.loginUrl ?? '', /^\/auth\/login\?prompt=login&returnTo=/);
+
+    //    b) Browser HTML navigation redirects once to /auth/login?prompt=login&returnTo=...&reauth=1
+    const browserNoProof = await app.request('/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1', {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}`,
+      },
+    });
+    assert.equal(browserNoProof.status, 302);
+    const reauthLocation = browserNoProof.headers.get('location')!;
+    assert.match(reauthLocation, /^\/auth\/login\?prompt=login&returnTo=/);
+    const reauthReturnTo = new URL(reauthLocation, PUBLIC_ORIGIN).searchParams.get('returnTo')!;
+    assert.match(reauthReturnTo, /reauth=1/);
+    assert.doesNotMatch(reauthReturnTo, /unavailable=1/);
+    assert.doesNotMatch(reauthReturnTo, /expectedSession=/);
+
+    //    c) If reauth=1 returns and proof is STILL absent (IdP omits claim), render terminal 401 HTML notice (no loop, no 503, no guest Pricing).
+    const browserStillNoProof = await app.request(reauthReturnTo, {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}`,
+      },
+    });
+    assert.equal(browserStillNoProof.status, 401);
+    assert.equal(browserStillNoProof.headers.get('location'), null);
+    assert.match(browserStillNoProof.headers.get('content-type') ?? '', /^text\/html/);
+    const noticeHtml = await browserStillNoProof.text();
+    assert.match(noticeHtml, /Sign in required to continue/);
+    assertDesignSystemNotice(browserStillNoProof, noticeHtml);
+    assert.match(noticeHtml, /<a class="ui-button" href="\/">Back to Studio<\/a>/);
+    assert.match(noticeHtml, /href="\/auth\/login\?/);
+    assert.doesNotMatch(noticeHtml, /Unable to verify billing handoff/);
+
+    //    d) The notice stylesheet, its imports and fonts are served from the same origin the notice CSP allows.
+    const { app: apiApp } = createApiApp({
+      config,
+      db: {} as never,
+      storage: {} as never,
+      queues: {} as never,
+      eventBus: {} as never,
+      authStore: store,
+      authCache: cache,
+      amrIdentity,
+      disableWelcomeBootstrap: true,
+    });
+    const uiCss = await apiApp.request('/design-system/ui.css');
+    assert.equal(uiCss.status, 200);
+    assert.match(uiCss.headers.get('content-type') ?? '', /^text\/css/);
+    const imports = [...(await uiCss.text()).matchAll(/@import url\('\.\/([^']+)'\)/g)].map((m) => m[1]);
+    assert.ok(imports.includes('tokens.css') && imports.includes('fonts.css'));
+    const fontFiles: string[] = [];
+    for (const file of imports) {
+      const res = await apiApp.request(`/design-system/${file}`);
+      assert.equal(res.status, 200, file);
+      if (file === 'fonts.css') {
+        fontFiles.push(...[...(await res.text()).matchAll(/url\('\.\/([^']+)'\)/g)].map((m) => m[1]));
+      } else {
+        await res.body?.cancel();
+      }
+    }
+    assert.ok(fontFiles.length > 0);
+    for (const file of fontFiles) {
+      const res = await apiApp.request(`/design-system/${file}`);
+      assert.equal(res.status, 200, file);
+      await res.body?.cancel();
+    }
+
+    // 2. Browser navigations hitting expired/missing session or ACCOUNT_MISMATCH get navigable responses (never raw JSON).
+    const browserMissingSession = await app.request('/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1', {
+      headers: { Accept: 'text/html' },
+    });
+    assert.equal(browserMissingSession.status, 302);
+    assert.match(browserMissingSession.headers.get('location')!, /^\/auth\/login\?returnTo=/);
+
+    const browserMismatch = await app.request(
+      '/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1&expectedAppUserId=usr_other',
+      {
+        headers: {
+          Accept: 'text/html',
+          Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}`,
+        },
+      },
+    );
+    assert.equal(browserMismatch.status, 409);
+    assert.match(browserMismatch.headers.get('content-type') ?? '', /^text\/html/);
+    assert.match(await browserMismatch.text(), /Signed-in account changed/);
+
+    // 3. OIDC deployment WITHOUT optional AMR identity client mounts fallback /auth/upgrade-handoff (no 404)
+    //    and reports upgradeHandoffEnabled: false in /motion-api/account/summary.
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-no-amr-handoff-'));
+    try {
+      const { createApiApp } = await import('../../src/entrypoints/api.ts');
+      const noAmrConfig = makeConfig({
+        OPENDESIGN_INTERNAL_API_TOKEN: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_URL: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: undefined,
+      });
+      const { app: noAmrApp } = createApiApp({
+        config: noAmrConfig,
+        db: {} as never,
+        storage: {} as never,
+        queues: {} as never,
+        eventBus: {} as never,
+        authStore: store,
+        authCache: cache,
+        disableWelcomeBootstrap: true,
+        runtimeRoot: tmpRoot,
+      });
+
+      const summaryRes = await noAmrApp.request('/motion-api/account/summary', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` },
+      });
+      assert.equal(summaryRes.status, 200);
+      const summaryBody = (await summaryRes.json()) as { upgradeHandoffEnabled?: boolean };
+      assert.equal(summaryBody.upgradeHandoffEnabled, false);
+
+      const fallbackPricing = await noAmrApp.request(
+        '/auth/upgrade-handoff?targetPath=%2Fpricing&od_origin=openmotion&od_entry_id=no-amr-1',
+      );
+      assert.equal(fallbackPricing.status, 302);
+      assert.equal(
+        fallbackPricing.headers.get('location'),
+        'https://open-design.ai/pricing?od_origin=openmotion&od_entry_id=no-amr-1',
+      );
+
+      const fallbackDashboard = await noAmrApp.request(
+        '/auth/upgrade-handoff?targetPath=%2Fdashboard&billing=plan&od_origin=openmotion',
+      );
+      assert.equal(fallbackDashboard.status, 302);
+      assert.equal(
+        fallbackDashboard.headers.get('location'),
+        'https://open-design.ai/cloud/dashboard?billing=plan&od_origin=openmotion',
+      );
+
+      // 4. OIDC deployment WITH OPENDESIGN_INTERNAL_API_TOKEN (AMR client present) but WITHOUT
+      //    One Tap S2S env vars MUST also report upgradeHandoffEnabled: false and use the safe fallback redirect
+      //    instead of entering the One Tap handoff branch and failing with 503 ONE_TAP_UNAVAILABLE.
+      const amrNoOneTapClient = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input: string | URL | Request) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/ba_usr_noproof`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'ba_usr_noproof',
+              appUserId: 'usr_app_noproof',
+              email: 'noproof@open-design.ai',
+              name: 'Legacy User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_amr_noproof',
+                workspaceName: 'Legacy Workspace',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_noproof',
+                role: 'owner',
+              },
+            });
+          }
+          return new Response('unexpected', { status: 404 });
+        }) as typeof fetch,
+      });
+      assert.equal(amrNoOneTapClient.isOneTapConfigured(), false);
+      const { app: amrNoOneTapApp } = createApiApp({
+        config: makeConfig({
+          OPENDESIGN_INTERNAL_API_TOKEN: INTERNAL_TOKEN,
+          OPENDESIGN_ONE_TAP_INTERNAL_URL: undefined,
+          OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: undefined,
+        }),
+        db: {} as never,
+        storage: {} as never,
+        queues: {} as never,
+        eventBus: {} as never,
+        authStore: store,
+        authCache: cache,
+        amrIdentity: amrNoOneTapClient,
+        disableWelcomeBootstrap: true,
+        runtimeRoot: tmpRoot,
+      });
+
+      const amrNoOneTapSummary = await amrNoOneTapApp.request('/motion-api/account/summary', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` },
+      });
+      assert.equal(amrNoOneTapSummary.status, 200);
+      assert.equal(((await amrNoOneTapSummary.json()) as { upgradeHandoffEnabled?: boolean }).upgradeHandoffEnabled, false);
+
+      const amrNoOneTapPricing = await amrNoOneTapApp.request(
+        '/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1&od_origin=openmotion&od_entry_id=amr-no-onetap',
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${legacySession.token}` } },
+      );
+      assert.equal(amrNoOneTapPricing.status, 302);
+      assert.equal(
+        amrNoOneTapPricing.headers.get('location'),
+        'https://open-design.ai/pricing?od_origin=openmotion&od_entry_id=amr-no-onetap',
+      );
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('allows configured HTTP object store and blob iframes in Studio CSP, keeps cloud preferences deployment-locked, and keeps guest One Tap attribution anonymous', async () => {
+    const { buildStudioDocumentSecurityHeaders, createApiApp } = await import('../../src/entrypoints/api.ts');
+
+    // 1. Studio CSP allows configured HTTP object store (default Compose http://127.0.0.1:9000) and blob: iframes
+    const composeHeaders = buildStudioDocumentSecurityHeaders({
+      storagePublicOrigin: 'http://127.0.0.1:9000',
+    });
+    const csp = composeHeaders['Content-Security-Policy-Report-Only']!;
+    assert.match(csp, /frame-src[^;]*\bblob:/);
+    assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
+    assert.match(csp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+    assert.match(csp, /media-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+    assert.match(csp, /connect-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+    assert.match(csp, /font-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+
+    // Invalid/injected storage origins are safely ignored
+    const injectedHeaders = buildStudioDocumentSecurityHeaders({
+      storagePublicOrigin: "http://127.0.0.1:9000; script-src 'unsafe-eval'",
+    });
+    assert.doesNotMatch(injectedHeaders['Content-Security-Policy-Report-Only']!, /unsafe-eval/);
+
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-csp-privacy-rl-'));
+    try {
+      await mkdir(path.join(tmpRoot, 'studio', 'build'), { recursive: true });
+      await writeFile(path.join(tmpRoot, 'studio', 'build', 'index.html'), '<!doctype html><html><head></head><body>ok</body></html>');
+
+      const config = makeConfig({
+        S3_PUBLIC_ENDPOINT: 'http://127.0.0.1:9000',
+        TRUST_PROXY_HOPS: '1',
+        OPENDESIGN_INTERNAL_API_TOKEN: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_URL: undefined,
+        OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: undefined,
+      });
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const projected = await store.projectAmrUserAndWorkspace({
+        oidcSub: 'ba_usr_privacy',
+        appUserId: 'usr_app_privacy',
+        email: 'privacy@open-design.ai',
+        displayName: 'Privacy User',
+        avatarUrl: null,
+        externalWorkspaceId: 'ws_amr_privacy',
+        workspaceName: 'Privacy Workspace',
+        role: 'owner',
+      });
+      const session = await createBrowserSession(store, {
+        userId: projected.user.id,
+        workspaceId: projected.workspace.id,
+      });
+
+      const sink = createPosthogSink();
+      const { app, cloudTracking } = createApiApp({
+        config,
+        db: {} as never,
+        storage: {} as never,
+        queues: {} as never,
+        eventBus: {} as never,
+        authStore: store,
+        authCache: cache,
+        disableWelcomeBootstrap: true,
+        runtimeRoot: tmpRoot,
+        trackingEnv: TRACKING_TEST_ENV,
+        trackingOptions: { posthogFetch: sink.posthogFetch },
+      });
+
+      // Served SPA document carries the Compose HTTP object store and blob: frame-src
+      const indexRes = await app.request('/');
+      assert.equal(indexRes.status, 200);
+      const servedCsp = indexRes.headers.get('content-security-policy-report-only')!;
+      assert.match(servedCsp, /frame-src[^;]*\bblob:/);
+      assert.match(servedCsp, /img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+      assert.match(servedCsp, /media-src[^;]*http:\/\/127\.0\.0\.1:9000/);
+
+      // 2. Cloud tracking preferences stay deployment-locked.
+      const prefRes = await app.request('/motion-api/tracking/preferences', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+      });
+      assert.equal(prefRes.status, 200);
+      assert.equal(((await prefRes.json()) as { locked?: boolean }).locked, true);
+
+      // 3. Guest One Tap events are anonymous; a packet claiming a user id is rejected, never forwarded.
+      const postGuest = (events: unknown[]) =>
+        app.request('/motion-api/tracking', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            'sec-fetch-site': 'same-origin',
+            'content-type': 'application/json',
+            'x-forwarded-for': '203.0.113.20',
+          },
+          body: JSON.stringify({ events, device_id: 'guest-device-privacy' }),
+        });
+      const guestPrompt = makeBrowserEvent('onetap_prompt_attempt', {
+        surface: 'motion_web',
+        attempt_id: 'att-1',
+        device_type: 'desktop',
+        suppressed: false,
+      });
+      const spoofedRes = await postGuest([{ ...guestPrompt, event_id: crypto.randomUUID(), app_user_id: 'usr_spoofed_victim' }]);
+      assert.equal(spoofedRes.status, 202);
+      assert.equal(((await spoofedRes.json()) as { acceptedCount?: number }).acceptedCount, 0);
+      const guestRes = await postGuest([guestPrompt]);
+      assert.equal(guestRes.status, 202);
+      assert.equal(((await guestRes.json()) as { acceptedCount?: number }).acceptedCount, 1);
+      assert.equal(guestRes.headers.getSetCookie().length, 0, 'Guest tracking must not set cookies');
+
+      await cloudTracking.shutdown({ timeoutMs: 2000 });
+      assert.equal(sink.events.length, 1);
+      assert.equal(sink.events[0].properties.distinct_id, 'guest-device-privacy');
+      assert.equal(sink.events[0].properties.user_id, undefined);
+      assert.doesNotMatch(JSON.stringify(sink.events), /usr_spoofed_victim/);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});

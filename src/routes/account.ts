@@ -16,6 +16,7 @@ export interface AccountRoutesDeps {
   authStore: AuthStore;
   gateway: PlatformModelGateway;
   cache?: AuthKeyValueCache;
+  upgradeHandoffEnabled?: boolean;
 }
 
 /**
@@ -47,6 +48,7 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
         authenticated: true,
         authMode: auth.authMode,
         authMethod: auth.authMethod,
+        upgradeHandoffEnabled: Boolean(deps.upgradeHandoffEnabled),
         consoleUrl,
         user: {
           id: auth.userId,

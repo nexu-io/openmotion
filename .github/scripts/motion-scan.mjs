@@ -62,6 +62,12 @@ export function privacyFindings(name, text, kind = 'source') {
   // Public DEV routing and synthetic redaction fixtures are intentional, not credentials or employee paths.
   if (name === 'prism-templates.ts' || name === './prism-templates.ts') text = text.replace(/https:\/\/r\.powerformer\.net/g, 'https://dev.example.invalid');
   if (kind === 'source') {
+    if (name === 'desktop/src/auth-handoff.ts' || name === './desktop/src/auth-handoff.ts') {
+      text = text.replace(/https:\/\/open-design\.powerformer\.net\/pricing(?=['"\s`]|$)/g, 'https://test.example.invalid/pricing');
+    }
+    if (name === 'desktop/tests/one-tap-handoff.test.mjs' || name === './desktop/tests/one-tap-handoff.test.mjs') {
+      text = text.replace(/https:\/\/(?:motion\.open-design\.powerformer\.net|open-design\.powerformer\.net\/pricing)(?=['"\s`]|$)/g, 'https://test.example.invalid/pricing');
+    }
     const fixtures = {
       'studio/src/components/feedback/projectProvenance.test.ts': /\/Users\/me\/x/g,
       'studio/src/player/store/previewQualitySlice.test.ts': /\/Users\/a\/film\.mp3/g,

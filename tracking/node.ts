@@ -82,6 +82,12 @@ export function createPosthogSender(options: {
                 : override.user_id,
           }
         : {};
+      // One Tap sign-in events carry their landing utm_source; other events keep the installation source.
+      const eventUtmSource =
+        typeof event.properties?.utm_source === 'string' && event.properties.utm_source.length > 0
+          ? event.properties.utm_source
+          : null;
+      const resolvedUtmSource = eventUtmSource ?? source;
       return { event: event.event, uuid: event.event_id, timestamp: event.occurred_at,
         properties: { ...event.properties, event_schema_version: 1, schema_version: 1, product: 'openmotion',
           ...(event.host_context ?? unknownHost),
@@ -90,7 +96,7 @@ export function createPosthogSender(options: {
           event_id: event.event_id, $insert_id: event.event_id, occurred_at: event.occurred_at,
           installation_id: options.identity.installation_id, ...effectiveDevice,
           distinct_id: distinctId, ...userProps,
-          utm_source: source, od_utm_source: source,
+          utm_source: resolvedUtmSource, od_utm_source: resolvedUtmSource,
           entrypoint: event.entrypoint, runtime: event.entrypoint === 'studio' ? 'browser' : 'node',
           capture_source: 'explicit', client_type: event.entrypoint === 'studio' ? 'web' : 'local',
           platform: os.platform(), arch: os.arch(), $os: os.type(), $os_version: os.release(),
