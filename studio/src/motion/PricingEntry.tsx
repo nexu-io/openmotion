@@ -2,7 +2,7 @@ import { useId, useState, type MouseEvent } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHost';
 import { useAccountSummary } from './AccountSettings';
-import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
+import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
@@ -76,8 +76,7 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
     <a
       className={styles.trigger}
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+      {...pricingLinkTargetProps()}
       aria-label={aria}
       onClick={open}
       onAuxClick={event => { if (event.button === 1) open(event); }}

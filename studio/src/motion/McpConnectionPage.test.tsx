@@ -712,3 +712,45 @@ it('shows exact contract descriptions for MCP tools in zh-CN without misattribut
   expect(chips.openmotion_list_templates).toContain('模板目录');
   expect(chips.openmotion_open_preview).toContain('预览');
 });
+
+it.each(['en', 'zh-CN'] as const)('shows local-to-cloud migration guidance on /mcp-setup in %s without cluttering ChatGPT or local stdio mode', async locale => {
+  const cloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://app.open-design.ai',
+    version: '1.2.3',
+    workspaceId: 'ws-prod',
+    authMode: 'oidc',
+    oauth2Enabled: true,
+    patEnabled: true,
+    tools: info.tools,
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('template-catalog')) return Response.json({ items: [] });
+    return Response.json(cloud);
+  }));
+  await mount(locale);
+
+  // Codex (default tab) shows hero upgrade hint + manual migration note + cloud FAQ entry.
+  const heroHint = document.querySelector('[data-mcp-local-migration-hint]');
+  expect(heroHint?.textContent).toContain(locale === 'en' ? 'legacy local MCP/plugin' : '旧本地 MCP/插件');
+  await act(async () => button(locale === 'en' ? 'Manual setup' : '手动配置').click());
+  const manualNote = document.querySelector('[data-mcp-manual-migration-note]');
+  expect(manualNote?.textContent).toContain('codex mcp remove openmotion');
+
+  const faqItem = [...document.querySelectorAll<HTMLDetailsElement>('#mcp-faq .om-mcp-faq-acc')]
+    .find(item => item.querySelector('summary')?.textContent?.includes(
+      locale === 'en' ? 'switch from local OpenMotion to Cloud' : '本地版 OpenMotion',
+    ));
+  expect(faqItem).toBeDefined();
+
+  // Claude Desktop omits the "paste instruction" hero hint (its primary button opens manual setup) but keeps the manual migration note.
+  await act(async () => tab('Claude Desktop').click());
+  expect(document.querySelector('[data-mcp-local-migration-hint]')).toBeNull();
+  await act(async () => button(locale === 'en' ? 'Configure Claude Desktop' : '配置 Claude Desktop').click());
+  expect(document.querySelector('[data-mcp-manual-migration-note]')).not.toBeNull();
+
+  // ChatGPT never had a local stdio install, so both hints stay hidden.
+  await act(async () => tab('ChatGPT').click());
+  expect(document.querySelector('[data-mcp-local-migration-hint]')).toBeNull();
+  await act(async () => button(locale === 'en' ? 'Manual setup' : '手动配置').click());
+  expect(document.querySelector('[data-mcp-manual-migration-note]')).toBeNull();
+});

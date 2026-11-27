@@ -4,7 +4,7 @@ import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHos
 import { useI18n } from '../i18n/I18n';
 import flameArtUrl from './bf-dusk-flame.jpg';
 import styles from './BlackFridayTopBanner.module.css';
-import { BLACK_FRIDAY_CAMPAIGN, COUNTDOWN_CYCLE_SECONDS, blackFridayActive, campaignPricingUrl, newCampaignEntryId, readBlackFridayCountdown } from './campaignAttribution';
+import { BLACK_FRIDAY_CAMPAIGN, COUNTDOWN_CYCLE_SECONDS, blackFridayActive, campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, readBlackFridayCountdown } from './campaignAttribution';
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
@@ -112,7 +112,7 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
           <b>{copy.offerHighlight}</b>
           {copy.offerAfter}
         </p>
-        <a className={styles.cta} href={pricingHref} target="_blank" rel="noopener noreferrer" onClick={claimOffer} onAuxClick={event => { if (event.button === 1) claimOffer(event); }}>
+        <a className={styles.cta} href={pricingHref} {...pricingLinkTargetProps()} onClick={claimOffer} onAuxClick={event => { if (event.button === 1) claimOffer(event); }}>
           {copy.bfCta}
         </a>
       </div>

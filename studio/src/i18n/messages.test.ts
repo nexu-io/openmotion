@@ -14,6 +14,16 @@ import { errorNoticeMessage } from '../components/ui/errorNoticeMessage';
 import { historyEntryLabel } from './historyMessages';
 
 describe('editor language resources', () => {
+  it('uses the generation offer upgrade label only in locales that need different copy', () => {
+    for (const { locale } of languages) {
+      const upgrade = translate(locale, 'Upgrade');
+      expect(translate(locale, 'Upgrade', undefined, 'generation offer')).toBe(locale === 'zh-CN' ? '立即升级' : upgrade);
+    }
+    expect(translate('zh-CN', 'Upgrade')).toBe('升级');
+    expect(translate('zh-CN', 'Upgrade to Plus')).toBe('升级到 Plus');
+    expect(translate('zh-CN', 'Upgrade to Plus', undefined, 'subscription offer')).toBe('立即升级');
+  });
+
   it('keeps Studio navigation and handbook messages complete in each supported locale', () => {
     const keys = Object.keys(studioNavigationUi['zh-CN']).sort();
     for (const { locale } of languages) {

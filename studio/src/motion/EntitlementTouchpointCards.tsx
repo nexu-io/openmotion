@@ -2,13 +2,14 @@ import { useEffect, useRef } from 'react';
 import { Button } from 'open-design-ui/button';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
-import { newCampaignEntryId } from './campaignAttribution';
+import { newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
 import {
   entitlementAttributionFields,
   openEntitlementModal,
   type EntitlementAttributionContext,
   type EntitlementHookId,
 } from './entitlementModalBus';
+import offerStyles from './GenerationOffer.module.css';
 import './EntitlementTouchpointCards.css';
 
 function trackGateClick(payload: {
@@ -47,6 +48,7 @@ export function FreePlanGenerationGate({
   attribution?: EntitlementAttributionContext;
 }) {
   const { t } = useI18n();
+  const blackFriday = useBlackFridayActive();
   const entryIdRef = useRef<string>(newCampaignEntryId());
   const resolvedAttr: EntitlementAttributionContext = {
     gateReason: 'plan_locked',
@@ -65,6 +67,53 @@ export function FreePlanGenerationGate({
     });
   }, [hookId, attrFields.model_id, attrFields.model_provider, attrFields.modality, attrFields.gate_reason, attrFields.user_plan]);
 
+  const openUpgradeModal = () => {
+    const clickedEntryId = entryIdRef.current;
+    entryIdRef.current = newCampaignEntryId();
+    trackGateClick({
+      page_name: 'creative_studio',
+      area: 'entitlement_gate',
+      element: 'view_plans',
+      hook_id: hookId,
+      entry_id: clickedEntryId,
+      ...attrFields,
+    });
+    openEntitlementModal({
+      mode: 'upgrade',
+      hookId,
+      entryId: clickedEntryId,
+      attribution: resolvedAttr,
+    });
+  };
+
+  if (blackFriday) {
+    const isImage = resolvedAttr.modality === 'image';
+    const title = t(isImage ? '7 days of unlimited flagship image generation' : 'Black Friday: up to 50% off your first year');
+    const details = t(isImage ? 'Annual Pro & Max · Up to 50% off' : 'Enjoy this offer with Plus or higher');
+    return (
+      <section
+        className={`om-entitlement-gate ${offerStyles.card}`}
+        data-generation-offer="upgrade"
+        role="status"
+        aria-label={title}
+      >
+        <h3>{title}</h3>
+        <p title={details}>{details}</p>
+        <Button variant="plain" onClick={openUpgradeModal}>
+          {t('Upgrade', undefined, 'generation offer')}
+          <RemixIcon name="arrow-right-up-line" size={12} />
+        </Button>
+        {onOpenProviders && (
+          <div className="om-entitlement-gate-secondary">
+            <Button variant="plain" className="om-entitlement-gate-secondary" onClick={onOpenProviders}>
+              {t('Use own API key')}
+            </Button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <div className="om-entitlement-gate" role="status">
       <div className="om-entitlement-gate-copy">
@@ -76,24 +125,7 @@ export function FreePlanGenerationGate({
           variant="plain"
           className="om-button h-auto"
           data-primary
-          onClick={() => {
-            const clickedEntryId = entryIdRef.current;
-            entryIdRef.current = newCampaignEntryId();
-            trackGateClick({
-              page_name: 'creative_studio',
-              area: 'entitlement_gate',
-              element: 'view_plans',
-              hook_id: hookId,
-              entry_id: clickedEntryId,
-              ...attrFields,
-            });
-            openEntitlementModal({
-              mode: 'upgrade',
-              hookId,
-              entryId: clickedEntryId,
-              attribution: resolvedAttr,
-            });
-          }}
+          onClick={openUpgradeModal}
         >
           <RemixIcon name="sparkling-line" size={15} />
           {t('Upgrade to Plus')}
