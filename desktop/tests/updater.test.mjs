@@ -892,6 +892,28 @@ test('resolveBuildTrustAnchors embeds a validated Sentry DSN and can require one
     resolveBuildTrustAnchors({ OPENMOTION_DESKTOP_REQUIRE_SENTRY_DSN: '1', SENTRY_DESKTOP_DSN: dsn }).sentryDsn,
     dsn,
   );
+
+  // A packaged build without an embedded root anchor cannot verify any signed config, so the
+  // release build must fail instead of shipping an inert two-tier config control.
+  const { publicKeySpkiBase64 } = generateEd25519KeyPair();
+  assert.equal(resolveBuildTrustAnchors({}).rootPublicKeySpki, '');
+  assert.throws(
+    () => resolveBuildTrustAnchors({ OPENMOTION_DESKTOP_REQUIRE_ROOT_KEY: '1' }),
+    /OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI is required/,
+  );
+  assert.throws(
+    () => resolveBuildTrustAnchors({ OPENMOTION_DESKTOP_REQUIRE_ROOT_KEY: 'true' }),
+    /OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI is required/,
+  );
+  assert.equal(
+    resolveBuildTrustAnchors({
+      OPENMOTION_DESKTOP_REQUIRE_ROOT_KEY: '1',
+      OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI: publicKeySpkiBase64,
+    }).rootPublicKeySpki,
+    publicKeySpkiBase64,
+  );
+  // The requirement stays opt-in so local development builds keep working.
+  assert.equal(resolveBuildTrustAnchors({ OPENMOTION_DESKTOP_REQUIRE_ROOT_KEY: '0' }).rootPublicKeySpki, '');
 });
 
 test('injectBundleDebugId embeds deterministic TC39/Sentry Debug IDs into JS and .map files', () => {

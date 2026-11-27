@@ -20,6 +20,9 @@ const WIN_THUMBPRINT_RE = /^[0-9A-F]{40}$|^[0-9A-F]{64}$/;
  * - `OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI`: Ed25519 SPKI DER (base64 or PEM)
  * - `OPENMOTION_MURMUR_APPLE_TEAM_ID`: 10-char Apple Developer Team ID
  * - `OPENMOTION_MURMUR_WIN_THUMBPRINTS`: comma-separated SHA-1 (40-hex) / SHA-256 (64-hex) cert thumbprints
+ * - `OPENMOTION_DESKTOP_REQUIRE_ROOT_KEY`: set to `1` or `true` to turn a missing
+ *   `OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI` into a build failure, so a packaged shell cannot ship with
+ *   an inert signed-config trust anchor. Off by default for local builds.
  * - `SENTRY_DESKTOP_DSN`: public Sentry DSN for main-process error and crash reporting; reporting stays
  *   off when unset, and `OPENMOTION_DESKTOP_REQUIRE_SENTRY_DSN=1` turns a missing value into a build failure
  */
@@ -47,6 +50,13 @@ export function resolveBuildTrustAnchors(env = process.env) {
       );
     }
     rootPublicKeySpki = keyObj.export({ format: 'der', type: 'spki' }).toString('base64');
+  } else if (/^(1|true)$/i.test(env.OPENMOTION_DESKTOP_REQUIRE_ROOT_KEY?.trim() ?? '')) {
+    // Without an embedded anchor every fetched signed config fails with INVALID_ROOT_KEY, so key
+    // revocation and minShellVersion never reach the installed client. Fail the release build
+    // instead of shipping a shell whose two-tier config control is inert.
+    throw new Error(
+      'OPENMOTION_DESKTOP_ROOT_PUBLIC_KEY_SPKI is required for this build (OPENMOTION_DESKTOP_REQUIRE_ROOT_KEY is set)',
+    );
   }
 
   let murmurAppleTeamId = '';
