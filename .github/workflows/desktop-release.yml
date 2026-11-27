@@ -616,14 +616,17 @@ jobs:
     needs: [prepare, verify-desktop, build-desktop]
     if: needs.prepare.outputs.publish == 'true' && (github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/desktop-test' && needs.prepare.outputs.channel == 'test'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
-      - name: Checkout Feishu release notifier
+      - name: Checkout desktop release scripts
         uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 30
           sparse-checkout: |
             desktop/scripts/notify-feishu-release.mjs
+            desktop/scripts/publish-github-release.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -754,6 +757,117 @@ jobs:
             echo "- Windows feed: [${CHANNEL}.yml](${WIN_MANIFEST_URL})"
           } >> "${GITHUB_STEP_SUMMARY}"
 
+      - name: Resolve release changelog context
+        shell: bash
+        env:
+          RELEASE_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET || secrets.RELEASE_S3_BUCKET }}
+          RELEASE_S3_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL || secrets.RELEASE_S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK || secrets.RELEASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK || secrets.RELEASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+        run: |
+          set -euo pipefail
+          DEST_PREFIX="s3://${RELEASE_BUCKET}/open-motion/desktop/${CHANNEL}"
+          AWS_ARGS=(--region auto)
+          if [ -n "${RELEASE_S3_ENDPOINT:-}" ]; then
+            AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
+          fi
+
+          PREVIOUS_VERSION=""
+          PREVIOUS_SHA=""
+          if aws "${AWS_ARGS[@]}" s3 cp "${DEST_PREFIX}/latest-meta.json" /tmp/latest-meta.json --only-show-errors 2>/dev/null; then
+            PREVIOUS_VERSION="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/latest-meta.json", "utf8")); console.log(d.version || "");' 2>/dev/null || true)"
+            PREVIOUS_SHA="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/latest-meta.json", "utf8")); console.log(d.commitSha || "");' 2>/dev/null || true)"
+          fi
+
+          COMMIT_SUBJECT="$(git log -1 --pretty=%s 2>/dev/null || true)"
+          COMPARE_URL=""
+          if [ -n "${PREVIOUS_SHA}" ] && git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null && [ "${PREVIOUS_SHA}" != "${GITHUB_SHA}" ]; then
+            LOG_RANGE="${PREVIOUS_SHA}..HEAD"
+            COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREVIOUS_SHA:0:12}...${GITHUB_SHA:0:12}"
+          else
+            LOG_RANGE="-n 5"
+          fi
+
+          RELEASE_COMMITS_JSON="$(git log ${LOG_RANGE} --no-merges --pretty=format:'%s' -- desktop/ shared/desktop-*.ts shared/platform-host.ts shared/signed-config.ts packages/design-system/brand/ .github/workflows/desktop-release.yml 2>/dev/null | node -e 'const lines = require("node:fs").readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean); console.log(JSON.stringify(lines));')"
+
+          node -e '
+            const fs = require("node:fs");
+            const payload = {
+              previousVersion: process.argv[1] || "",
+              commitSubject: process.argv[2] || "",
+              compareUrl: process.argv[3] || "",
+              commits: JSON.parse(process.argv[4] || "[]"),
+            };
+            fs.writeFileSync("/tmp/release-changelog-context.json", JSON.stringify(payload, null, 2) + "\n", "utf8");
+          ' "${PREVIOUS_VERSION}" "${COMMIT_SUBJECT}" "${COMPARE_URL}" "${RELEASE_COMMITS_JSON}"
+
+      - name: Publish stable installers to GitHub Releases
+        if: needs.prepare.outputs.channel == 'stable' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET || secrets.RELEASE_S3_BUCKET }}
+          RELEASE_S3_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL || secrets.RELEASE_S3_ENDPOINT }}
+          RELEASE_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || 'https://releases.open-design.ai' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK || secrets.RELEASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK || secrets.RELEASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          DEST_PREFIX="s3://${RELEASE_BUCKET}/open-motion/desktop/${CHANNEL}"
+          AWS_ARGS=(--region auto)
+          if [ -n "${RELEASE_S3_ENDPOINT:-}" ]; then
+            AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
+          fi
+
+          ASSETS_DIR="/tmp/gh-release-assets"
+          rm -rf "${ASSETS_DIR}"
+          mkdir -p "${ASSETS_DIR}"
+
+          INSTALLERS=(
+            "OpenDesign-${EXPECTED_VERSION}-mac-arm64.dmg"
+            "OpenDesign-${EXPECTED_VERSION}-mac-x64.dmg"
+            "OpenDesign-Setup-${EXPECTED_VERSION}-win-x64.exe"
+            "OpenDesign-Portable-${EXPECTED_VERSION}-win-x64.exe"
+          )
+
+          dl_pids=()
+          for file in "${INSTALLERS[@]}"; do
+            aws "${AWS_ARGS[@]}" s3 cp "${DEST_PREFIX}/${file}" "${ASSETS_DIR}/${file}" --only-show-errors &
+            dl_pids+=($!)
+          done
+          failed=0
+          for pid in "${dl_pids[@]}"; do
+            if ! wait "$pid"; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::Failed to download one or more verified stable installers from R2 for GitHub Release."
+            exit 1
+          fi
+
+          COMMIT_SUBJECT="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/release-changelog-context.json", "utf8")); process.stdout.write(d.commitSubject || "");')"
+          COMPARE_URL="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/release-changelog-context.json", "utf8")); process.stdout.write(d.compareUrl || "");')"
+          RELEASE_COMMITS_JSON="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/release-changelog-context.json", "utf8")); process.stdout.write(JSON.stringify(d.commits || []));')"
+          export RELEASE_ASSETS_DIR="${ASSETS_DIR}" COMMIT_SUBJECT COMPARE_URL RELEASE_COMMITS_JSON
+
+          node desktop/scripts/publish-github-release.mjs
+
       - name: Generate structured changelog and optionally notify Feishu group
         continue-on-error: true
         shell: bash
@@ -788,23 +902,10 @@ jobs:
             AWS_ARGS+=(--endpoint-url "${RELEASE_S3_ENDPOINT}")
           fi
 
-          PREVIOUS_VERSION=""
-          PREVIOUS_SHA=""
-          if aws "${AWS_ARGS[@]}" s3 cp "${DEST_PREFIX}/latest-meta.json" /tmp/latest-meta.json --only-show-errors 2>/dev/null; then
-            PREVIOUS_VERSION="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/latest-meta.json", "utf8")); console.log(d.version || "");' 2>/dev/null || true)"
-            PREVIOUS_SHA="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/latest-meta.json", "utf8")); console.log(d.commitSha || "");' 2>/dev/null || true)"
-          fi
-
-          COMMIT_SUBJECT="$(git log -1 --pretty=%s 2>/dev/null || true)"
-          COMPARE_URL=""
-          if [ -n "${PREVIOUS_SHA}" ] && git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null && [ "${PREVIOUS_SHA}" != "${GITHUB_SHA}" ]; then
-            LOG_RANGE="${PREVIOUS_SHA}..HEAD"
-            COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREVIOUS_SHA:0:12}...${GITHUB_SHA:0:12}"
-          else
-            LOG_RANGE="-n 5"
-          fi
-
-          RELEASE_COMMITS_JSON="$(git log ${LOG_RANGE} --no-merges --pretty=format:'%s' -- desktop/ shared/desktop-*.ts shared/platform-host.ts shared/signed-config.ts packages/design-system/brand/ .github/workflows/desktop-release.yml 2>/dev/null | node -e 'const lines = require("node:fs").readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean); console.log(JSON.stringify(lines));')"
+          PREVIOUS_VERSION="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/release-changelog-context.json", "utf8")); process.stdout.write(d.previousVersion || "");' 2>/dev/null || true)"
+          COMMIT_SUBJECT="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/release-changelog-context.json", "utf8")); process.stdout.write(d.commitSubject || "");' 2>/dev/null || true)"
+          COMPARE_URL="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/release-changelog-context.json", "utf8")); process.stdout.write(d.compareUrl || "");' 2>/dev/null || true)"
+          RELEASE_COMMITS_JSON="$(node -e 'const d = JSON.parse(require("node:fs").readFileSync("/tmp/release-changelog-context.json", "utf8")); process.stdout.write(JSON.stringify(d.commits || []));' 2>/dev/null || echo '[]')"
           export COMMIT_SUBJECT PREVIOUS_VERSION COMPARE_URL RELEASE_COMMITS_JSON
 
           node desktop/scripts/notify-feishu-release.mjs

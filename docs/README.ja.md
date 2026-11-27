@@ -27,7 +27,7 @@
   <a href="https://www.youtube.com/channel/UChtshixMhvtgBWzoD9R_Qfg"><img src="readme/badges/youtube.svg" alt="OpenDesign の YouTube チャンネル" /></a>
 </p>
 
-<p align="center"><a href="#quick-start">インストール</a> · <a href="#agent-wall">対応エージェント</a> · <a href="#showcase">用途と再現例</a> · <a href="#features">OpenMotion の特長</a> · <a href="#technical-guide">セットアップと技術資料</a> · <a href="#community">コミュニティ・貢献</a></p>
+<p align="center"><a href="#desktop-app">デスクトップアプリ</a> · <a href="#quick-start">インストール</a> · <a href="#agent-wall">対応エージェント</a> · <a href="#showcase">用途と再現例</a> · <a href="#features">OpenMotion の特長</a> · <a href="#technical-guide">セットアップと技術資料</a> · <a href="#community">コミュニティ・貢献</a></p>
 
 <div align="center">
 
@@ -43,6 +43,21 @@ OpenMotion は、**AI エージェントが動画制作の全工程を担うフ�
 - 🔑 **BYOA（自分のエージェント）と BYOK（自分の API キー）。** OpenMotion は無料のオープンソースソフトウェアです。[使い慣れたローカルエージェント](#agent-wall)で動画を再現し、各工程に自分の API キーを使えます。
 - 🧩 **Motion.md** は、OpenMotion が定義した Markdown 形式です。カットの順番、尺、トランジションを記録し、ブランド動画の演出をプロジェクトと一緒に共有できます。
 - 🎛️ **画像・動画・音楽・音声。** GPT Image 2.6 で画像を、Seedance 2.5 で追加カットを作成。Suno で音楽を付け、Eleven v4 でナレーションを生成できます。[モデルと接続方法を見る](#model-wall)
+
+<a id="desktop-app"></a>
+
+### デスクトップアプリをダウンロード（macOS / Windows）
+
+クラウドファーストのネイティブデスクトップクライアント（`OpenDesign`）から OpenMotion Studio をそのまま利用できます。署名・Apple 公証済みの macOS インストーラーと Windows インストーラー、ローカルエージェントへの MCP 自動接続、自動アップデートを備えています。
+
+| プラットフォーム | インストーラー | 備考 |
+| --- | --- | --- |
+| **macOS（Apple Silicon · Intel）** | `OpenDesign-<version>-mac-arm64.dmg` / `OpenDesign-<version>-mac-x64.dmg` | 署名・Apple 公証済み |
+| **Windows（x64）** | `OpenDesign-Setup-<version>-win-x64.exe` / `OpenDesign-Portable-<version>-win-x64.exe` | インストーラー版（自動更新対応）・ポータブル版 |
+
+**[GitHub Releases からダウンロード（`desktop-v*`）→](https://github.com/nexu-io/openmotion/releases)**
+
+デスクトップ安定版は npm の `v*` リリースとは独立した `desktop-v<version>` タグで、`SHA256SUMS.txt` とともに公開されます。ソースから起動またはパッケージ化する場合は [desktop/](../desktop/) を参照してください。
 
 <a id="快速开始"></a> <a id="quick-start"></a>
 
