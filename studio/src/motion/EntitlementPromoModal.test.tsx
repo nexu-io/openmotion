@@ -123,3 +123,19 @@ it('keeps posters for reduced motion, Save-Data, and background tabs', async () 
   act(() => document.dispatchEvent(new Event('visibilitychange')));
   expect(host.querySelectorAll('video')).toHaveLength(1);
 });
+
+it('keeps resource cards, feature cards, and model rows free from truncation rules across locales', () => {
+  render();
+  const rowsWrap = host.querySelector('.om-epm-mrows');
+  expect(rowsWrap?.querySelectorAll('.om-epm-mrow')).toHaveLength(5);
+  expect(host.querySelectorAll('.om-epm-card.is-res')).toHaveLength(4);
+
+  const css = readFileSync(resolve(import.meta.dirname, './EntitlementPromoModal.css'), 'utf8');
+  expect(css).toMatch(/\.om-epm-card\.is-res\s*\{[^}]*grid-column:\s*span 2/);
+  expect(css).toMatch(/\.om-epm-card\.is-res\s*\{[^}]*grid-template-columns:\s*\d+px\s+minmax\(0,\s*1fr\)/);
+  expect(css).not.toMatch(/\.om-epm-card\.is-res\s+(?:h4|p)\s*\{[^}]*overflow:\s*visible/);
+  expect(css).not.toMatch(/\.om-epm-card\s+(?:h4|p)\s*\{[^}]*white-space:\s*nowrap/);
+  expect(css).toMatch(/\.om-epm-mrows\s*\{[^}]*grid-template-columns:\s*max-content\s+minmax\(0,\s*1fr\)\s+auto/);
+  expect(css).toMatch(/\.om-epm-mrow\s*\{[^}]*grid-template-columns:\s*subgrid/);
+  expect(css).toMatch(/\.om-epm-giftbar\s*\{[^}]*min-height:/);
+});
