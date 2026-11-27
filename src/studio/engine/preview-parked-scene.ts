@@ -1,6 +1,9 @@
+import { needsPreparedSceneSwap } from '../../../shared/preview-scene-swap.ts';
+
 // The player owns the markup and scripts from which a parked scene will mount.
 // A DOM edit to the empty placeholder would be lost on the next seek.
 export const PREVIEW_PARKED_SCENE = `
+  const needsPreparedSceneSwap = ${needsPreparedSceneSwap.toString()};
   let applyingSceneUpdate = null;
   function uniqueSceneHost(path, root = document) {
     const hosts = Array.from(root.querySelectorAll('[data-hf-scene][data-composition-file]'))
@@ -186,6 +189,9 @@ export const PREVIEW_PARKED_SCENE = `
     if (Array.from(targets).some(([path, target]) => oldParts.scenes[target.scene] === newParts.scenes[target.scene] &&
         appliedSceneVersions.get(path) !== target.base)) return false;
     if (!changed.length) return confirm();
+    // A known visible restart needs a prepared player. Its first fragment and the live
+    // scripts already establish that, so don't download the rest of a rejected batch.
+    if (needsPreparedSceneSwap(document, snapshot.doc, oldParts.scenes, newParts.scenes)) return false;
     const fragments = await Promise.all(changed.map(([path]) => path === firstPath ? snapshot : readSceneSnapshot(path, signal)));
     const complete = snapshot.doc;
     for (const [i, [path, target]] of changed.entries()) {
@@ -199,6 +205,8 @@ export const PREVIEW_PARKED_SCENE = `
       }
     }
     if (!current() || !sameOtherEntries(sourceVersions, versions, targets)) return false;
+    // Visibility can change while reading siblings, and a sibling may introduce its first script.
+    if (needsPreparedSceneSwap(document, complete, oldParts.scenes, newParts.scenes)) return false;
     const html = changed.length === 1 && changed[0][0] === firstPath ? snapshot.html : '<!doctype html>' + complete.documentElement.outerHTML;
     const update = {targets, versions, ready: null};
     applyingSceneUpdate = update;

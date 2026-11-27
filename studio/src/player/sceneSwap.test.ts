@@ -126,6 +126,22 @@ describe("sceneSwapFor", () => {
     await sceneSwapFor(iframe)!("/preview", () => true);
     expect(swap).toHaveBeenCalledWith("<html></html>", expect.anything());
   });
+
+  it("prepares a fresh frame when an active scene gains a script, including a compiler-hoisted one", async () => {
+    const { iframe, swap } = swappableIframe();
+    const manifest = (scene: string) => `<meta name="hf-scene-parts" content='{"scenes":{"intro":"${scene}"}}'>`;
+    const host = '<section data-hf-scene="intro" data-composition-file="intro.html"></section>';
+    const doc = iframe.contentDocument!;
+    doc.head.innerHTML = manifest("before");
+    doc.body.innerHTML = host;
+    const html = manifest("after") + host + '<script data-hf-scene="intro">startTimeline()</script>';
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(html));
+    await expect(sceneSwapFor(iframe)!("/preview", () => true)).rejects.toThrow("before presentation");
+    expect(swap).not.toHaveBeenCalled();
+    doc.head.innerHTML = manifest("after");
+    await sceneSwapFor(iframe)!("/preview", () => true);
+    expect(swap).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("onPreviewContentReplaced", () => {

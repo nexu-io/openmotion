@@ -1,3 +1,4 @@
+import { needsPreparedSceneSwap } from "../../../shared/preview-scene-swap";
 import { studioApiFetch } from "../utils/studioApiFetch";
 import { studioFileRevision } from "../utils/studioFileVersion";
 import { logReload } from "../utils/reloadDebug";
@@ -162,6 +163,16 @@ export function sceneSwapFor(
       if (!response.ok) throw new Error(`preview request failed with ${response.status}`);
       const html = await response.text();
       if (!isCurrent()) throw new Error("superseded by a newer reload");
+      const live = iframe.contentDocument;
+      const manifest = 'meta[name="hf-scene-parts"]';
+      const before = live?.querySelector<HTMLMetaElement>(manifest)?.content;
+      if (live && before) {
+        const incoming = new DOMParser().parseFromString(html, "text/html");
+        const after = incoming.querySelector<HTMLMetaElement>(manifest)?.content;
+        if (after && needsPreparedSceneSwap(live, incoming, JSON.parse(before).scenes, JSON.parse(after).scenes)) {
+          throw new Error("the visible scene must be initialized at the playhead before presentation");
+        }
+      }
       // Aborted with the deadline, so a swap still waiting cannot land after the reload has begun.
       logReload("perf-swap-runtime");
       await swap.call(win, html, deadline.signal);
