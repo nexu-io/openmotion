@@ -33,17 +33,22 @@ export function blackFridayHeroActive(now = Date.now()) {
 }
 
 export const COUNTDOWN_CYCLE_SECONDS = 12 * 60 * 60; // 12h rolling cycle anchored at 2026-11-21 18:00 +08:00
+export const COUNTDOWN_CYCLE_MS = COUNTDOWN_CYCLE_SECONDS * 1000;
+
+export function readBlackFridayCountdownRemainingMs(now = Date.now(), forcePreview = false): number {
+  const totalLeftMs = Math.max(0, BLACK_FRIDAY_ENDS_AT - now);
+  if (!forcePreview && totalLeftMs <= 0) return 0;
+  const inCycleMs = (((now - BLACK_FRIDAY_STARTS_AT) % COUNTDOWN_CYCLE_MS) + COUNTDOWN_CYCLE_MS) % COUNTDOWN_CYCLE_MS;
+  const cycleRemainingMs = COUNTDOWN_CYCLE_MS - inCycleMs;
+  return !forcePreview && totalLeftMs > 0 ? Math.min(cycleRemainingMs, totalLeftMs) : cycleRemainingMs;
+}
 
 export function readBlackFridayCountdown(now = Date.now()) {
-  const remainingMs = Math.max(0, BLACK_FRIDAY_ENDS_AT - now);
+  const remainingMs = readBlackFridayCountdownRemainingMs(now, false);
   if (remainingMs <= 0) {
     return { hours: '00', minutes: '00', seconds: '00', datetime: 'PT00H00M00S' };
   }
-  const elapsedSec = Math.floor((now - BLACK_FRIDAY_STARTS_AT) / 1000);
-  const inCycleSec = ((elapsedSec % COUNTDOWN_CYCLE_SECONDS) + COUNTDOWN_CYCLE_SECONDS) % COUNTDOWN_CYCLE_SECONDS;
-  const cycleRemaining = COUNTDOWN_CYCLE_SECONDS - 1 - inCycleSec;
-  const untilEndSec = Math.floor((remainingMs - 1) / 1000);
-  const remaining = Math.min(cycleRemaining, untilEndSec);
+  const remaining = Math.floor((remainingMs - 1) / 1000);
   const hours = Math.floor(remaining / 3600);
   const minutes = Math.floor((remaining % 3600) / 60);
   const seconds = remaining % 60;
@@ -109,7 +114,7 @@ export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_bf_hero' 
  * whole attribution, entry id included. Entries are told apart by `utm_medium` and by the OpenMotion click
  * event that carries the same `entry_id`.
  */
-const REGISTERED_ENTRY_SOURCE = 'openmotion_manage_subscription';
+export const REGISTERED_ENTRY_SOURCE = 'openmotion_manage_subscription';
 const utmMedium: Record<CampaignEntrySource, string> = {
   openmotion_bf_banner: 'banner',
   openmotion_bf_hero: 'hero',

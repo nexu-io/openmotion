@@ -218,13 +218,26 @@
   gap: 7px;
   text-align: center;
   box-sizing: border-box;
-  transition: background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  transition: background 180ms ease, transform 180ms ease;
   box-shadow: 0 0 8px var(--om-m2-cta-shadow-rest);
 }
 
-.modal[data-playing='true'] .cta {
+.cta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 16px var(--om-m2-cta-shadow-peak),
+    0 0 14px var(--om-m2-cta-glow);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.modal[data-playing='true'] .cta::before {
   animation: omMagi2CtaBreathe 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  will-change: transform, box-shadow;
+  will-change: opacity;
 }
 
 .cta::after {
@@ -233,50 +246,49 @@
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 0 0 var(--om-m2-cta-ring);
+  box-shadow: 0 0 0 2px var(--om-m2-cta-ring);
   opacity: 0;
+  transform: scale(1);
 }
 
 .modal[data-playing='true'] .cta::after {
   animation: omMagi2CtaHalo 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+  will-change: transform, opacity;
 }
 
 @keyframes omMagi2CtaBreathe {
   0%,
   100% {
-    box-shadow:
-      0 0 8px var(--om-m2-cta-shadow-rest),
-      0 0 0 0 transparent;
+    opacity: 0;
   }
   50% {
-    box-shadow:
-      0 0 16px var(--om-m2-cta-shadow-peak),
-      0 0 14px var(--om-m2-cta-glow);
+    opacity: 1;
   }
 }
 
 @keyframes omMagi2CtaHalo {
   0% {
-    box-shadow: 0 0 0 0 var(--om-m2-cta-ring);
+    transform: scale(1);
     opacity: 0;
   }
   25% {
     opacity: 0.52;
   }
   100% {
-    box-shadow: 0 0 0 5px transparent;
+    transform: scale(1.035, 1.18);
     opacity: 0;
   }
 }
 
 .cta:hover {
-  animation: none;
   background: var(--motion-neutral-n2);
   color: var(--motion-neutral-n11);
   transform: translateY(-1px) scale(1.015);
-  box-shadow:
-    0 0 16px var(--om-m2-cta-shadow-peak),
-    0 0 14px var(--om-m2-cta-glow);
+}
+
+.cta:hover::before {
+  animation: none;
+  opacity: 1;
 }
 
 .cta:hover::after {
@@ -285,8 +297,12 @@
 }
 
 .cta:active {
-  animation: none;
   transform: translateY(0) scale(0.985);
+}
+
+.cta:active::before,
+.cta:active::after {
+  animation: none;
 }
 
 .cta:focus-visible {
@@ -374,6 +390,7 @@
   .backdrop,
   .modal,
   .cta,
+  .cta::before,
   .cta::after,
   .ctaArrow {
     transition: none;

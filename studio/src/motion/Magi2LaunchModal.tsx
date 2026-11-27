@@ -1,28 +1,31 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from 'open-design-ui/button';
+import { useDialogBehavior } from '../components/ui/useDialogBehavior';
 import { useI18n } from '../i18n/I18n';
 import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHost';
 import { useAccountSummary } from './AccountSettings';
 import magi2PosterUrl from './black-friday-modal/magi2-planet-poster.webp';
-import magi2VideoUrl from './black-friday-modal/magi2-planet-6s.mp4';
 import { blackFridayActive, newCampaignEntryId, pricingLinkTargetProps } from './campaignAttribution';
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import type { CreativePage } from './exploreTracking';
 import {
   MAGI2_MODAL_AUDIENCE_TIMEOUT_MS,
   MAGI2_MODAL_CAMPAIGN_ID,
-  MAGI2_MODAL_COPY,
+  MAGI2_MODAL_VIDEO_URL,
   buildMagi2ConsolePlanUrl,
   classifyMagi2Audience,
   isMagi2PreviewForced,
   isMagi2SuppressedByFatigue,
   markMagi2ModalSeen,
   readMagi2CountdownParts,
+  resolveMagi2ModalCopy,
   setMagi2ModalOpenSignal,
 } from './magi2LaunchModalConfig';
 import styles from './Magi2LaunchModal.module.css';
 import { trackMotion } from './tracking';
+
+export const MAGI2_MODAL_EXIT_MS = 280;
 
 function prefersReducedMotion(): boolean {
   return (
@@ -39,7 +42,7 @@ export function Magi2LaunchModal({
   trackingPage: CreativePage;
   suppressed?: boolean;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const forcePreview = isMagi2PreviewForced();
   const [initiallySuppressed] = useState(() => (forcePreview ? false : isMagi2SuppressedByFatigue()));
   const [dismissed, setDismissed] = useState(initiallySuppressed);
@@ -49,9 +52,11 @@ export function Magi2LaunchModal({
   const [entryId, setEntryId] = useState(newCampaignEntryId);
   const [audienceTimedOut, setAudienceTimedOut] = useState(false);
 
-  const canCheckAudience = !dismissed && !suppressed && (forcePreview || blackFridayActive());
+  const externallySuppressed = suppressed || (!forcePreview && !blackFridayActive());
+  const canCheckAudience = !dismissed && !externallySuppressed;
   const { account, error } = useAccountSummary({ eager: canCheckAudience && !forcePreview });
 
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hrsRef = useRef<HTMLSpanElement | null>(null);
   const minRef = useRef<HTMLSpanElement | null>(null);
@@ -59,6 +64,19 @@ export function Magi2LaunchModal({
   const msRef = useRef<HTMLSpanElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   const settledRef = useRef(false);
+  const closingRef = useRef(false);
+
+  const unmountImmediately = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    closingRef.current = false;
+    setOpen(false);
+    setPlaying(false);
+    try { videoRef.current?.pause(); } catch { /* ignore */ }
+    setMounted(false);
+  }, []);
 
   // Enforce the shared 5-second fail-closed audience deadline.
   useEffect(() => {
@@ -74,6 +92,8 @@ export function Magi2LaunchModal({
 
   const closeModal = useCallback(
     (trackClose = false, method: 'pointer' | 'keyboard' = 'pointer') => {
+      if (closingRef.current) return;
+      closingRef.current = true;
       setDismissed(true);
       if (!forcePreview) markMagi2ModalSeen();
       setOpen(false);
@@ -90,13 +110,23 @@ export function Magi2LaunchModal({
         });
       }
       if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = window.setTimeout(
-        () => setMounted(false),
-        prefersReducedMotion() ? 0 : 280,
-      );
+      closeTimerRef.current = window.setTimeout(() => {
+        closeTimerRef.current = null;
+        setMounted(false);
+      }, prefersReducedMotion() ? 0 : MAGI2_MODAL_EXIT_MS);
     },
     [forcePreview, trackingPage],
   );
+
+  const handleKeyboardClose = useCallback(() => {
+    closeModal(true, 'keyboard');
+  }, [closeModal]);
+
+  useDialogBehavior({
+    open: mounted && !dismissed,
+    onClose: handleKeyboardClose,
+    containerRef: dialogRef,
+  });
 
   useEffect(() => {
     return () => {
@@ -104,21 +134,21 @@ export function Magi2LaunchModal({
     };
   }, []);
 
+  // External suppression or campaign expiry unmounts immediately without waiting for the user-close fade-out.
+  useEffect(() => {
+    if (!externallySuppressed) return;
+    if (mounted) unmountImmediately();
+  }, [externallySuppressed, mounted, unmountImmediately]);
+
   // Decide eligibility once account resolves within the 5s window (or immediately when preview is forced).
   useEffect(() => {
-    if (!canCheckAudience) {
-      if (mounted) {
-        setOpen(false);
-        setPlaying(false);
-        setMounted(false);
-      }
-      return;
-    }
+    if (!canCheckAudience) return;
 
     if (forcePreview) {
       if (mounted) return;
       const timer = window.setTimeout(() => {
         settledRef.current = true;
+        closingRef.current = false;
         setMounted(true);
       }, 120);
       return () => window.clearTimeout(timer);
@@ -132,12 +162,13 @@ export function Magi2LaunchModal({
     const status = classifyMagi2Audience(account);
     if (status === 'paid') {
       settledRef.current = true;
-      if (mounted) closeModal(false);
+      if (mounted) unmountImmediately();
       return;
     }
 
     if ((status === 'guest' || status === 'free') && !settledRef.current) {
       settledRef.current = true;
+      closingRef.current = false;
       markMagi2ModalSeen();
       setMounted(true);
       void trackMotion('surface_view', {
@@ -148,7 +179,7 @@ export function Magi2LaunchModal({
         hook_id: 'bf_banner',
       });
     }
-  }, [account, audienceTimedOut, canCheckAudience, closeModal, error, forcePreview, mounted, trackingPage]);
+  }, [account, audienceTimedOut, canCheckAudience, error, forcePreview, mounted, trackingPage, unmountImmediately]);
 
   useEffect(() => {
     setMagi2ModalOpenSignal(mounted);
@@ -157,24 +188,36 @@ export function Magi2LaunchModal({
 
   useEffect(() => {
     if (!mounted) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeModal(true, 'keyboard');
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [mounted, closeModal]);
-
-  useEffect(() => {
-    if (!mounted) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
+    let prevH = hrsRef.current?.textContent ?? '';
+    let prevM = minRef.current?.textContent ?? '';
+    let prevS = secRef.current?.textContent ?? '';
+    let prevCs = msRef.current?.textContent ?? '';
+
     const renderCountdown = () => {
       const [h, m, s, cs] = readMagi2CountdownParts(Date.now(), forcePreview);
-      if (hrsRef.current) hrsRef.current.textContent = String(h).padStart(2, '0');
-      if (minRef.current) minRef.current.textContent = String(m).padStart(2, '0');
-      if (secRef.current) secRef.current.textContent = String(s).padStart(2, '0');
-      if (msRef.current) msRef.current.textContent = String(cs).padStart(2, '0');
+      const nextH = String(h).padStart(2, '0');
+      const nextM = String(m).padStart(2, '0');
+      const nextS = String(s).padStart(2, '0');
+      const nextCs = String(cs).padStart(2, '0');
+      if (nextH !== prevH) {
+        prevH = nextH;
+        if (hrsRef.current) hrsRef.current.textContent = nextH;
+      }
+      if (nextM !== prevM) {
+        prevM = nextM;
+        if (minRef.current) minRef.current.textContent = nextM;
+      }
+      if (nextS !== prevS) {
+        prevS = nextS;
+        if (secRef.current) secRef.current.textContent = nextS;
+      }
+      if (nextCs !== prevCs) {
+        prevCs = nextCs;
+        if (msRef.current) msRef.current.textContent = nextCs;
+      }
     };
 
     const playVideoIfAllowed = () => {
@@ -189,6 +232,7 @@ export function Magi2LaunchModal({
     renderCountdown();
 
     const rafId = window.requestAnimationFrame(() => {
+      if (closingRef.current) return;
       const reduced = prefersReducedMotion();
       setOpen(true);
       setPlaying(!reduced && !document.hidden);
@@ -199,7 +243,7 @@ export function Magi2LaunchModal({
     const clockTimer = window.setInterval(() => {
       if (document.hidden) return;
       if (!forcePreview && !blackFridayActive()) {
-        closeModal(false);
+        unmountImmediately();
         return;
       }
       renderCountdown();
@@ -210,7 +254,7 @@ export function Magi2LaunchModal({
       if (document.hidden) {
         setPlaying(false);
         try { video?.pause(); } catch { /* ignore */ }
-      } else {
+      } else if (!closingRef.current) {
         setPlaying(!prefersReducedMotion());
         playVideoIfAllowed();
         renderCountdown();
@@ -225,13 +269,13 @@ export function Magi2LaunchModal({
       try { videoRef.current?.pause(); } catch { /* ignore */ }
       document.body.style.overflow = previousOverflow;
     };
-  }, [mounted, forcePreview, closeModal]);
+  }, [mounted, forcePreview, unmountImmediately]);
 
   if (!mounted || typeof document === 'undefined') {
     return null;
   }
 
-  const copy = MAGI2_MODAL_COPY[locale] ?? MAGI2_MODAL_COPY.en;
+  const copy = resolveMagi2ModalCopy(locale, t);
   const ctaHref = buildMagi2ConsolePlanUrl(entryId, { consoleUrl: account?.consoleUrl });
   const [initH, initM, initS, initCs] = readMagi2CountdownParts(Date.now(), forcePreview);
 
@@ -260,6 +304,8 @@ export function Magi2LaunchModal({
 
   return createPortal(
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       className={styles.backdrop}
       data-open={open ? 'true' : 'false'}
       data-testid="magi2-launch-modal-backdrop"
@@ -283,7 +329,7 @@ export function Magi2LaunchModal({
               ref={videoRef}
               className={styles.video}
               data-testid="magi2-launch-modal-video"
-              src={magi2VideoUrl}
+              src={MAGI2_MODAL_VIDEO_URL}
               poster={magi2PosterUrl}
               muted
               loop

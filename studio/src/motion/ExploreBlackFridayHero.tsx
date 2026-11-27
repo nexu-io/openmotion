@@ -428,14 +428,17 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
 
   // Sync with the MAGI-2 launch modal: immediately settle into the compact hero and pause background 3D motion while open.
   useEffect(() => {
-    const onModalChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
-      const open = typeof detail?.open === 'boolean' ? detail.open : isMagi2ModalOpen();
+    const applyModalState = (open: boolean) => {
       setMagi2ModalOpen(open);
       if (open) {
         introStartRef.current = (typeof performance !== 'undefined' ? performance.now() : 0) - 10_000;
         setCollapsed(true);
       }
+    };
+    if (isMagi2ModalOpen()) applyModalState(true);
+    const onModalChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      applyModalState(typeof detail?.open === 'boolean' ? detail.open : isMagi2ModalOpen());
     };
     window.addEventListener(MAGI2_MODAL_OPEN_EVENT, onModalChange);
     return () => window.removeEventListener(MAGI2_MODAL_OPEN_EVENT, onModalChange);
@@ -917,7 +920,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
           <span className={styles.cnHeadline}>{copy.cnHeadline}</span>
         </h2>
 
-        <BlackFridayCountdown playing={playing} skipIntro={startedCollapsed} onExpire={onExpire} />
+        <BlackFridayCountdown playing={playing} skipIntro={startedCollapsed || collapsed} onExpire={onExpire} />
 
         <p className={styles.metaLine}>
           <span className={styles.metaGroup}>
