@@ -47,6 +47,8 @@ import {
   parseCookies,
   resolveBrowserSession,
   resolveTrackingAttestationSecret,
+  hasCrossSiteInitiatorSignal,
+  hasSameOriginFetchMetadata,
   revokeBrowserSession,
   serializeCookie,
   verifyCsrfOrigin,
@@ -517,8 +519,18 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const deviceId = sanitizeBrowserDeviceId(c.req.query('device_id'));
     const switchAccount = c.req.query('switch') === '1';
     const prompt = c.req.query('prompt') ?? (switchAccount ? 'login' : null);
+    // Revoking the authoritative session row is a state change, and `om_session` is SameSite=Lax
+    // so a cross-site top-level navigation still carries it. The side effect is therefore only
+    // safe when the navigation shows no cross-site initiator signal, or when that signal passes
+    // the standard origin check. An initiator-less navigation (address bar, bookmark, or a URL
+    // opened by the desktop shell) has no signal at all and must still revoke, which is how the
+    // desktop account switch works.
+    const mayRevokeForSwitch =
+      switchAccount &&
+      (!hasCrossSiteInitiatorSignal(c.req.raw) ||
+        hasSameOriginFetchMetadata(c.req.raw, deps.config.APP_PUBLIC_ORIGIN));
 
-    if (switchAccount) {
+    if (mayRevokeForSwitch) {
       const cookies = parseCookies(c.req.header('cookie'));
       const rawSession = cookies[SESSION_COOKIE_NAME];
       if (rawSession) {
@@ -535,7 +547,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     }
     const { authorizationUrl, txCookieValue } = await deps.oidc.startLogin(returnTo, { prompt });
     const headers = new Headers();
-    if (switchAccount) {
+    if (mayRevokeForSwitch) {
       headers.append('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie, '/'));
     }
     headers.append(

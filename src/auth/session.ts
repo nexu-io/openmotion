@@ -328,6 +328,50 @@ export function isMutatingMethod(method: string): boolean {
 }
 
 /**
+ * Detects whether a request carries any browser signal about who initiated it.
+ *
+ * `Origin`, a non-`none` `Sec-Fetch-Site` and a `Referer` all describe the initiator. A request with
+ * none of them came from an address-bar visit, a bookmark or a desktop shell opening the URL, which
+ * has no cross-site initiator to worry about. A signal is not proof of a same-origin initiator by
+ * itself: callers still compare it with `hasSameOriginFetchMetadata` or `verifyCsrfOrigin`, because
+ * a same-origin redirect can produce a same-origin `Referer` from an attacker-initiated navigation.
+ */
+export function hasCrossSiteInitiatorSignal(request: Request): boolean {
+  if (request.headers.get('origin') !== null) return true;
+  const secFetchSite = request.headers.get('sec-fetch-site')?.trim().toLowerCase();
+  if (secFetchSite !== undefined && secFetchSite !== '' && secFetchSite !== 'none') return true;
+  const referer = request.headers.get('referer');
+  return referer !== null && referer !== '';
+}
+
+/**
+ * True only when the request's own fetch metadata names this origin.
+ *
+ * Unlike `verifyCsrfOrigin`, this never falls back to `Referer`, so it cannot be satisfied by a
+ * same-origin redirect hop that an attacker started on another site. It also compares the `Origin`
+ * header itself, so a caller cannot pass a foreign origin through by presenting one.
+ */
+export function hasSameOriginFetchMetadata(request: Request, publicOrigin: string): boolean {
+  let expectedOrigin: string;
+  try {
+    expectedOrigin = new URL(publicOrigin).origin;
+  } catch {
+    return false;
+  }
+  const originHeader = request.headers.get('origin');
+  if (originHeader !== null) {
+    const trimmed = originHeader.trim();
+    if (!trimmed || trimmed.toLowerCase() === 'null') return false;
+    try {
+      return new URL(trimmed).origin === expectedOrigin;
+    } catch {
+      return false;
+    }
+  }
+  return request.headers.get('sec-fetch-site')?.trim().toLowerCase() === 'same-origin';
+}
+
+/**
  * CSRF defense for cookie-authenticated mutations.
  * Requires `Origin` to match `APP_PUBLIC_ORIGIN` exactly (never `'null'` or foreign origin).
  * If `Origin` is omitted by a browser, falls back to `Sec-Fetch-Site: same-origin` or matching `Referer`.

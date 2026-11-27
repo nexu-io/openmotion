@@ -20,6 +20,7 @@ import {
   isHttpsOrigin,
   oidcIdTokenCacheKey,
   parseCookies,
+  hasCrossSiteInitiatorSignal,
   resolveBrowserSession,
   serializeCookie,
   verifyCsrfOrigin,
@@ -583,12 +584,10 @@ export function mountDesktopHandoffRoutes(
     // Reject cross-site browser requests (login CSRF / session fixation) while
     // still permitting native Electron `session.fetch` calls that send no Origin
     // or Sec-Fetch-Site header.
-    const originHeader = c.req.raw.headers.get('origin');
-    const secFetchSite = c.req.raw.headers.get('sec-fetch-site')?.trim().toLowerCase();
-    const hasCrossSiteSignal =
-      originHeader !== null ||
-      (secFetchSite !== undefined && secFetchSite !== '' && secFetchSite !== 'none');
-    if (hasCrossSiteSignal && !verifyCsrfOrigin(c.req.raw, deps.config.APP_PUBLIC_ORIGIN)) {
+    if (
+      hasCrossSiteInitiatorSignal(c.req.raw) &&
+      !verifyCsrfOrigin(c.req.raw, deps.config.APP_PUBLIC_ORIGIN)
+    ) {
       return c.json(
         { code: 'CSRF_FORBIDDEN', error: 'Cross-site requests are not allowed on desktop handoff exchange' },
         403,
