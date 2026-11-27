@@ -207,6 +207,8 @@ export type MediaGeneratePayloadMap = {
 // Queue 3: render-export (worker-render, concurrency 1-2, attempts: 1)
 // ---------------------------------------------------------------------------
 
+const exportAudioPolicy = z.enum(['silent', 'optional', 'required']);
+
 export const exportRenderPayloadSchema = z.object({
   jobId: uuidSchema,
   workspaceId: uuidSchema,
@@ -222,13 +224,14 @@ export const exportRenderPayloadSchema = z.object({
   exportRoute: z.enum(['mcp', 'studio']).optional(),
   telemetryOptOut: z.boolean().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
+  audio: exportAudioPolicy.optional(),
   expected: z
     .object({
       width: z.number().int().positive(),
       height: z.number().int().positive(),
       fps: z.number().positive(),
       duration: z.number().positive(),
-      audio: z.enum(['silent', 'optional', 'required']),
+      audio: exportAudioPolicy,
     })
     .optional(),
 });

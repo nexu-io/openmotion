@@ -7,11 +7,14 @@ import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
 import { bundleToSingleHtml } from '@hyperframes/core/compiler';
 import {
+  execute,
   executeIsolated,
   pluginRoot,
   snapshotExportExpectation,
   snapshotExportExpectationIsolated,
 } from '../../hyperframes.ts';
+import { verificationBinaries } from '../../scripts/verify-export.ts';
+import { exportRenderPayloadSchema } from '../../src/contracts/jobs.ts';
 import type { RenderWorkerHealth } from '../../src/contracts/events.ts';
 import type { StoragePort } from '../../src/contracts/storage.ts';
 import type { Database } from '../../src/db/client.ts';
@@ -760,6 +763,51 @@ describe('worker-render: CLI Argument Builders (hyperframes@0.9.7 snapshot & ren
 });
 
 describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Cleanup, Thumbnail & Heartbeat', () => {
+  it('checks the requested audio policy on the encoded MP4 before publishing it', async t => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-audio-policy-'));
+    t.after(() => rm(tmpBase, { recursive: true, force: true }));
+    const html = '<html><body><div data-composition-id="main">Audio policy test</div></body></html>';
+    const digest = sha256(html);
+    const snapshot = [{ path: 'index.html', blobScope: 'workspace', sha256: digest, sizeBytes: html.length, mimeType: 'text/html' }];
+    const cases = [
+      { audio: 'required', hasAudio: false, passed: false },
+      { audio: 'required', hasAudio: true, passed: true },
+      { audio: 'optional', hasAudio: false, passed: true },
+      { audio: 'silent', hasAudio: true, passed: false },
+      { audio: undefined, hasAudio: false, passed: true },
+    ] as const;
+    for (const { audio, hasAudio, passed } of cases) {
+      const storage = new MemoryStorage();
+      await storage.putObject(workspaceBlobKey(WID_A, digest), html, 'text/html');
+      const updates: Record<string, unknown>[] = [];
+      const job = processExportRenderJob({
+        db: createFakeRenderDb(snapshot, values => { updates.push(values); return [{ id: JID_OK }]; }),
+        storage, eventBus: new MemoryEventBus(), logger: SILENT_LOGGER, workerId: 'audio-test', tmpBaseDir: tmpBase,
+        extractExpectationFn: async () => ({ width: 64, height: 64, fps: 24, duration: 2, audio: 'optional' }),
+        runRenderCommand: async (_runtime, dir, args) => execute(verificationBinaries().ffmpeg, [
+          '-v', 'error', '-f', 'lavfi', '-i', 'color=size=64x64:rate=24',
+          ...(hasAudio ? ['-f', 'lavfi', '-i', 'sine=frequency=440', '-c:a', 'aac'] : []),
+          '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', args[args.indexOf('--output') + 1],
+        ], dir),
+      }, exportRenderPayloadSchema.parse({
+        jobId: JID_OK, workspaceId: WID_A, projectId: PID_A, versionId: VID_A, revision: REV_1,
+        outputName: 'audio.mp4', exportRoute: 'mcp', audio,
+      }));
+      if (passed) {
+        assert.equal((await job).state, 'completed');
+        const result = updates.find(row => row.state === 'completed')?.resultJson as { verification: { expected: { audio: string } } };
+        assert.equal(result.verification.expected.audio, audio ?? 'optional');
+      } else {
+        await assert.rejects(job, audio === 'required' ? /Missing required audio track/ : /policy=silent/);
+        const failed = updates.find(row => row.state === 'failed');
+        assert.equal(failed?.errorCode, 'EXPORT_VERIFICATION_FAILED');
+        const result = failed?.resultJson as { verification: { expected: { audio: string } } };
+        assert.equal(result.verification.expected.audio, audio);
+      }
+      assert.equal(storage.objects.has(exportKey(WID_A, JID_OK, 'audio.mp4')), passed);
+    }
+  });
+
   it('completes verified export, uploads MP4 + render.log, and ALWAYS wipes /tmp on success, failure, and cancellation', async () => {
     const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-test-render-root-'));
     try {

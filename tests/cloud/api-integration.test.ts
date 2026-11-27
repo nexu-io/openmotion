@@ -696,7 +696,7 @@ function createFakeQueues(): { queues: ApiQueuesPort; enqueued: Array<{ queue: s
       enqueued.push({ queue: 'media-generate', payload });
       return { id: randomUUID() } as never;
     },
-    async enqueueRenderExport(payload: unknown) {
+    async enqueueRenderExport(_name: string, payload: unknown) {
       enqueued.push({ queue: 'render-export', payload });
       return { id: randomUUID() } as never;
     },
@@ -1690,7 +1690,7 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
 
 describe('Cloud API Entrypoint — End-to-End Product, Studio & Streamable HTTP /mcp', () => {
   it('creates a project, edits via /mcp, reads via Diskless Studio, and enforces MCP limits & P2 codes', async () => {
-    const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const { app, config, pgClient, enqueued } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const mcpHeaders = {
       Authorization: `Bearer ${config.DEV_PAT}`,
       'Content-Type': 'application/json',
@@ -1823,6 +1823,21 @@ describe('Cloud API Entrypoint — End-to-End Product, Studio & Streamable HTTP 
       projects: Array<{ projectId?: string; id?: string }>;
     };
     assert.ok(listStructured.projects.some((p) => (p.projectId ?? p.id) === projectId));
+
+    const exportArgs = { projectId, versionId: created.versionId, expectedRevision: created.revision,
+      requestId: 'req-e2e-export-audio', audio: 'required' };
+    const requestExport = (audio: string) => callMcp(23, 'tools/call', {
+      name: 'openmotion_export_request', arguments: { ...exportArgs, audio },
+    });
+    const requiredExport = await requestExport('required');
+    assert.equal(requiredExport.result?.isError, undefined, JSON.stringify(requiredExport));
+    const queued = enqueued.find(entry => entry.queue === 'render-export');
+    assert.equal((queued?.payload as { audio?: string })?.audio, 'required');
+    const replay = await requestExport('required');
+    assert.equal((replay.result?.structuredContent as { replayed: boolean }).replayed, true);
+    const conflict = await requestExport('silent');
+    assert.equal(conflict.result?.isError, true);
+    assert.equal((conflict.result?.structuredContent as { error: { code: string } }).error.code, 'REQUEST_ID_CONFLICT');
 
     // 6. openmotion_edit_project writes notes.txt and advances revision
     const editRes = await callMcp(4, 'tools/call', {

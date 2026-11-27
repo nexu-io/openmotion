@@ -1800,6 +1800,7 @@ function createMcpDomainPorts(deps: {
           compositionPath: typeof args.compositionPath === 'string' ? args.compositionPath : undefined,
           workId: typeof args.workId === 'string' ? args.workId : undefined,
           exportRoute: 'mcp',
+          audio: args.audio,
           phase1: true,
         });
         return started as unknown as Record<string, unknown>;

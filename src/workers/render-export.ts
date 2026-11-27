@@ -1029,6 +1029,7 @@ export async function processExportRenderJob(
   let unsubscribeCancel: (() => Promise<void>) | null = null;
   let claimed = false;
   let lintFindings: ExportLintFinding[] | undefined;
+  let failedVerification: Pick<VerificationReport, 'status' | 'expected' | 'checks'> | undefined;
   let failureStage = 'hydrating';
   let failureCode = 'EXPORT_HYDRATION_FAILED';
   let uploadedOutputKey: string | null = null;
@@ -1446,12 +1447,16 @@ export async function processExportRenderJob(
         ((file: string, exp: ExportExpectation, signal?: AbortSignal) =>
           verifyExport(file, exp, verificationBinaries(), signal));
 
-      verificationReport = await verifyFn(outputFilePath, expectation, abortController.signal);
+      const requestedExpectation = payload.audio === undefined ? expectation : { ...expectation, audio: payload.audio };
+      verificationReport = await verifyFn(outputFilePath, requestedExpectation, abortController.signal);
       if (verificationReport.status !== 'passed') {
+        const { status, expected, checks } = verificationReport;
+        failedVerification = { status, expected, checks };
         if (verificationReport.status === 'blocked') {
           failureCode = 'EXPORT_VERIFICATION_BLOCKED';
         }
-        throw new Error(`EXPORT_VERIFICATION_FAILED: ${JSON.stringify(verificationReport.checks)}`);
+        const firstFailure = checks.find(check => check.status === 'failed');
+        throw new Error(`EXPORT_VERIFICATION_FAILED: ${firstFailure?.details ?? JSON.stringify(checks)}`);
       }
     }
 
@@ -1594,6 +1599,7 @@ export async function processExportRenderJob(
                 stage: 'failed',
                 failureStage,
                 ...(lintFindings && { resultJson: { lintFindings } }),
+                ...(failedVerification && { resultJson: { verification: failedVerification } }),
                 errorCode: failureCode,
                 errorMessage,
                 terminalAt: failNow,
