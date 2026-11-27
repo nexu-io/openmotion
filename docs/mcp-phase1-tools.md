@@ -101,6 +101,8 @@ List trashed projects with `openmotion_get_project({ trashed: true })`. Use `tra
 
 `action=export` accepts `projectIds` or `all=true`, a stable `requestId`, and optional `expectedRevisions`. It validates the finished ZIP and returns `archiveId`, `downloadUrl`, `filename`, `bytes`, `sha256` and source project revisions. Export-all excludes Trash.
 
+The export call requires a token with `projects:write` and at least editor access, matching `POST /motion-api/project-archives/export`. A connection authorized with `projects:read` alone receives `INSUFFICIENT_SCOPE`; reconnect it with a wider scope before retrying.
+
 Cloud MCP exposes the export action. Its absolute `downloadUrl` uses the deployment's public origin. Open it while signed in to the same Studio workspace or send an OAuth access token or workspace PAT in the `Authorization: Bearer` header with `projects:read`. Follow the short-lived storage redirect and compare the ZIP's SHA-256 to `sha256`.
 
 In the cloud, upload the ZIP in Studio or send its bytes to `POST <origin>/motion-api/project-archives/import?requestId=<stable-id>` with `Content-Type: application/zip`. An API client uses OAuth or PAT Bearer authentication with `projects:write` and at least editor access. Desktop MCP accepts `action=import` with an absolute local ZIP `sourcePath` and a stable `requestId`. Cloud rejects legacy MCP imports with `sourcePath` as `LOCAL_PATH_UNSUPPORTED_IN_CLOUD`.

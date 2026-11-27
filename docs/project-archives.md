@@ -4,6 +4,8 @@ Use **All projects** at the bottom of the project sidebar to search and open pro
 
 Project ZIPs contain editable source, local media, fonts and their licenses, and Studio manual-edit/motion manifests. Export waits for Studio saves and snapshots the checked source revisions. It then parses the finished ZIP and validates its projects in a clean folder using the same rules as import. Building and validating the ZIP does not hold the workspace lock, so other project saves can proceed. If validation fails, no download is created. ZIP sharing is separate from rendering MP4 and does not require cloud collaboration or a model account. Current-project export and multi-project export use the same format.
 
+Exporting through MCP or the API needs a token with `projects:write` and at least editor access in the workspace. A connection that only holds `projects:read` must be re-authorized with a wider scope before it can export; downloading an archive that already exists still needs only `projects:read`.
+
 ## Import from HyperFrames
 
 Already have an editable HyperFrames project? Import its ZIP into OpenMotion, then continue editing in Studio or with your connected Agent. You can reuse the existing composition, timing and local assets to get started without rebuilding the project.

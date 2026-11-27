@@ -25,7 +25,7 @@ export function cloudProjectArchiveTool(publicOrigin: string) {
   return {
     name: archiveName,
     title: archiveTitle,
-    description: `Export editable projects as a ZIP with current source, assets, fonts and Studio editing metadata. List projects with openmotion_get_project, then pass projectIds or all=true and a stable requestId. Optionally pin expectedRevisions. The result includes an absolute downloadUrl, byte count and SHA-256. ${cloudProjectArchiveDownloadInstructions} ${cloudProjectArchiveImportInstructions(publicOrigin)} Limits: 500 MB archive and expanded content, 5000 files, 100 projects. Remote URLs remain external dependencies.`,
+    description: `Export editable projects as a ZIP with current source, assets, fonts and Studio editing metadata. List projects with openmotion_get_project, then pass projectIds or all=true and a stable requestId. Optionally pin expectedRevisions. The export call requires a token with projects:write and at least editor access in the workspace; a connection that only holds projects:read must be re-authorized with a wider scope before it can export. Downloading the finished ZIP still needs only projects:read. The result includes an absolute downloadUrl, byte count and SHA-256. ${cloudProjectArchiveDownloadInstructions} ${cloudProjectArchiveImportInstructions(publicOrigin)} Limits: 500 MB archive and expanded content, 5000 files, 100 projects. Remote URLs remain external dependencies.`,
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: { action: { enum: ['export'] }, ...archiveExportProperties },

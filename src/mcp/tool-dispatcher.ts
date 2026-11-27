@@ -644,7 +644,16 @@ export class McpToolDispatcher {
       }
 
       case 'openmotion_project_archive': {
-        requireToolScopes(auth, ['projects:read']);
+        // Archive export creates new immutable ZIP objects in workspace storage and buffers every
+        // selected project, so the MCP entry point must enforce the same policy as the HTTP route
+        // (POST /motion-api/project-archives/export: projects:write plus editor or higher).
+        requireToolScopes(auth, ['projects:write']);
+        if (!hasMinRole(auth, 'editor')) {
+          throw new CloudError('FORBIDDEN', 'Project archive export requires editor or higher role', {
+            status: 403,
+            applied: false,
+          });
+        }
         if (!this.ports.archive) {
           throw new CloudError('SERVICE_UNAVAILABLE', 'Project archive service is not wired', { status: 503, applied: false });
         }
