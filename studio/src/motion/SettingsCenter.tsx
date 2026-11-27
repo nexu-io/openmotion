@@ -7,7 +7,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { languages, useI18n, type Locale } from '../i18n/I18n';
 import { Select } from '../components/ui/Select';
 import { AppearanceSettings } from './AppearanceSettings';
-import { ModelSettings, modelKindLabel } from './ModelSettings';
+import { ModelSettings, ModelSettingsSignInGuide, modelKindLabel, useModelSettingsSignedOut } from './ModelSettings';
 import { AccountSettings } from './AccountSettings';
 import { PrivacySettings } from './PrivacySettings';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
@@ -145,7 +145,7 @@ export function SettingsCenter({
           ) : effectiveSection === 'account' || effectiveSection === 'subscription' ? (
             <AccountSettings key={effectiveSection} subscription={effectiveSection === 'subscription'} openProviders={openProviders} />
           ) : effectiveSection === 'models' ? (
-            <DefaultModels openProviders={openProviders} openAccount={() => onSection('subscription')} />
+            <DefaultModels openProviders={openProviders} openAccount={() => onSection('subscription')} openSignIn={() => onSection('account')} />
           ) : effectiveSection === 'appearance' ? (
             <AppearanceSettings />
           ) : effectiveSection === 'privacy' ? (
@@ -161,15 +161,16 @@ export function SettingsCenter({
   );
 }
 
-function DefaultModels({ openProviders, openAccount }: { openProviders?: () => void; openAccount: () => void }) {
+function DefaultModels({ openProviders, openAccount, openSignIn }: { openProviders?: () => void; openAccount: () => void; openSignIn: () => void }) {
   const { t, locale } = useI18n();
   const directory = useProviderDirectory();
+  const signedOut = useModelSettingsSignedOut(directory.authRequired);
   const hasModels = (directory.data?.models.length ?? 0) > 0;
   return (
     <div className="om-settings-page">
       <h1 className="om-title">{t('Default models')}</h1>
       <p className="om-muted">{t('Choose the workspace default model for each media capability on the OpenDesign Model Gateway.')}</p>
-      {directory.error ? <SettingsError retry={directory.refresh} /> : !directory.data ? <SettingsLoading /> : (
+      {signedOut ? <ModelSettingsSignInGuide openAccount={openSignIn} /> : directory.error ? <SettingsError retry={directory.refresh} /> : !directory.data ? <SettingsLoading /> : (
         <>
           {!hasModels && (
             <section className="om-card om-plan-guide" data-empty-models="true">

@@ -1,7 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { isCloudError } from '../contracts/errors.ts';
-import { sanitizeEntryId, sanitizeHookId, type CloudTrackingHandle } from '../cloud-tracking.ts';
+import { sanitizeBrowserDeviceId, sanitizeEntryId, sanitizeHookId, type CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { AppConfig } from '../infra/config.ts';
 import { isUuid } from '../../shared/project-validation.ts';
 import { isAmrOneTapError, type AmrOneTapAttribution, type AmrOneTapError } from './amr-identity.ts';
@@ -334,13 +334,24 @@ export interface AuthRoutesDeps extends AuthMiddlewareDeps {
 
 const AUTH_ATTR_COOKIE_NAME = 'om_auth_attr';
 
-function parseAuthAttributionCookie(raw: string | undefined): { hookId?: string; entryId?: string; startedAt?: number } {
+function parseAuthAttributionCookie(raw: string | undefined): {
+  hookId?: string;
+  entryId?: string;
+  deviceId?: string;
+  startedAt?: number;
+} {
   if (!raw) return {};
   try {
-    const parsed = JSON.parse(decodeURIComponent(raw)) as { hookId?: unknown; entryId?: unknown; startedAt?: unknown };
+    const parsed = JSON.parse(decodeURIComponent(raw)) as {
+      hookId?: unknown;
+      entryId?: unknown;
+      deviceId?: unknown;
+      startedAt?: unknown;
+    };
     return {
       hookId: typeof parsed.hookId === 'string' ? sanitizeHookId(parsed.hookId) : undefined,
       entryId: typeof parsed.entryId === 'string' ? sanitizeEntryId(parsed.entryId) : undefined,
+      deviceId: typeof parsed.deviceId === 'string' ? sanitizeBrowserDeviceId(parsed.deviceId) : undefined,
       startedAt: typeof parsed.startedAt === 'number' && Number.isFinite(parsed.startedAt) ? parsed.startedAt : undefined,
     };
   } catch {
@@ -503,6 +514,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const returnTo = assertSafeReturnTo(c.req.query('returnTo'));
     const hookId = sanitizeHookId(c.req.query('hook_id'));
     const entryId = sanitizeEntryId(c.req.query('entry_id'));
+    const deviceId = sanitizeBrowserDeviceId(c.req.query('device_id'));
     const switchAccount = c.req.query('switch') === '1';
     const prompt = c.req.query('prompt') ?? (switchAccount ? 'login' : null);
 
@@ -536,12 +548,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         maxAgeSec: 600,
       }),
     );
-    if (hookId || entryId) {
+    if (hookId || entryId || deviceId) {
       headers.append(
         'Set-Cookie',
         serializeCookie(
           AUTH_ATTR_COOKIE_NAME,
-          encodeURIComponent(JSON.stringify({ hookId, entryId, startedAt: Date.now() })),
+          encodeURIComponent(JSON.stringify({ hookId, entryId, deviceId, startedAt: Date.now() })),
           {
             httpOnly: true,
             secure: secureCookie,
@@ -581,11 +593,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           iss,
           error: oauthError,
         });
-        if (verified && (authAttribution.hookId || authAttribution.entryId)) {
+        if (verified && (authAttribution.hookId || authAttribution.entryId || authAttribution.deviceId)) {
           deps.cloudTracking?.trackWebSignInResult({
             outcome: 'cancelled',
             hookId: authAttribution.hookId,
             entryId: authAttribution.entryId,
+            deviceId: authAttribution.deviceId,
             durationMs: authAttribution.startedAt ? Date.now() - authAttribution.startedAt : 0,
           });
         }
@@ -620,11 +633,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         await saveSessionProof(session.tokenHash, motionSessionProof, SESSION_PROOF_TTL_SEC);
       }
 
-      if (authAttribution.hookId || authAttribution.entryId) {
+      if (authAttribution.hookId || authAttribution.entryId || authAttribution.deviceId) {
         deps.cloudTracking?.trackWebSignInResult({
           outcome: 'success',
           hookId: authAttribution.hookId,
           entryId: authAttribution.entryId,
+          deviceId: authAttribution.deviceId,
           userId: membership.user.appUserId ?? membership.user.id,
           durationMs: authAttribution.startedAt ? Date.now() - authAttribution.startedAt : 0,
         });

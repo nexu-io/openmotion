@@ -47,6 +47,7 @@ export const I18N_EXTENSION_SOURCES: readonly I18nExtensionSource[] = [
   { kind: 'multi-locale-json', path: 'studio/src/i18n/settings-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/auth-recovery-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/mcp-ui.json' },
+  { kind: 'multi-locale-json', path: 'studio/src/i18n/mcp-tools-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/assets-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/skills-ui.json' },
   { kind: 'per-locale-dir', dir: 'studio/src/i18n/skill-library' },

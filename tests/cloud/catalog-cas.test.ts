@@ -23,6 +23,7 @@ import type { HotTextCache } from '../../src/infra/redis.ts';
 import { createCatalogRoutes, type CatalogRouteEnv } from '../../src/routes/catalog.ts';
 import {
   BUILTIN_TEMPLATES,
+  type CatalogListResult,
   CatalogService,
   GSAP_CDN_URL,
   WELCOME_PROJECT_TITLE,
@@ -1182,14 +1183,15 @@ function publishedTemplate(id: string, html: string, catalogVersion = 'prism:tes
 
 describe('Runtime template clones', () => {
   const ctx = makeAuthContext({ workspaceId: WID_A, userId: USER_A });
-  function fixture(getTemplates: () => Promise<PreparedCatalogTemplate[]>) {
+  function fixture(getPublication: () => PreparedCatalogTemplate[]) {
     const pg = new MockPgHarness();
     pg.seedWorkspace(WID_A, USER_A);
     const storage = new MockStorage();
-    return { pg, storage, catalog: new CatalogService({ db: pg.db, storage, prismCatalog: { getTemplates } }) };
+    const prismCatalog = { getPublication, getTemplates: async () => getPublication() };
+    return { pg, storage, catalog: new CatalogService({ db: pg.db, storage, prismCatalog }) };
   }
 
-  it('answers exact lookups immediately during the first load and distinguishes absence after publication', async () => {
+  it('serves incomplete pages during the first load and keeps validated pages available after a failed refresh', async () => {
     const resourceId = '1500c9af-186b-457f-b74d-a58113f657d8';
     const versionPath = '/resources/' + resourceId + '/channels/default/versions/v1';
     const published = JSON.stringify({ templates: [{
@@ -1205,8 +1207,9 @@ describe('Runtime template clones', () => {
     const gate = Promise.withResolvers<void>();
     let requests = 0;
     let offline = true;
+    let now = 0;
     const prismCatalog = new PrismMotionCatalog('dev', {
-      publicOrigin: 'https://cms-test.example', retryMs: 0,
+      publicOrigin: 'https://cms-test.example', now: () => now, retryMs: 10, ttlMs: 100,
       fetchImpl: async input => {
         requests++;
         await gate.promise;
@@ -1217,20 +1220,76 @@ describe('Runtime template clones', () => {
     const pg = new MockPgHarness();
     pg.seedWorkspace(WID_A, USER_A);
     const catalog = new CatalogService({ db: pg.db, storage: new MockStorage(), prismCatalog });
+    const app = createCatalogRoutes({ catalog });
+    const endpoints = ['/api/templates', '/api/template-catalog'];
+    for (const endpoint of endpoints) {
+      const builtins = await app.request(endpoint + '?kind=builtin');
+      const page = await builtins.json() as CatalogListResult;
+      assert.equal(page.catalogReady, undefined);
+      assert.equal(page.total, BUILTIN_TEMPLATES.length);
+      assert.match(builtins.headers.get('cache-control') ?? '', /public/);
+    }
+    assert.equal(requests, 0, 'built-in lists are complete without fetching Prism');
     const unavailable = { code: 'SERVICE_UNAVAILABLE', status: 503 };
-    await assert.rejects(catalog.getTemplate('published'), unavailable);
-    await assert.rejects(catalog.cloneTemplateToProject(ctx, { templateId: 'published' }), unavailable);
-    await assert.rejects(catalog.headTemplateAsset('published', 'index.html'), unavailable);
-    assert.equal((await catalog.listTemplates()).catalogTotal, BUILTIN_TEMPLATES.length);
+    // Exact lookups wait for the in-flight first load; listing and built-in lookups do not.
+    const waiting = Promise.all([
+      catalog.getTemplate('published'),
+      catalog.cloneTemplateToProject(ctx, { templateId: 'published' }),
+      catalog.headTemplateAsset('published', 'index.html'),
+    ].map(lookup => assert.rejects(lookup, unavailable)));
+    for (const endpoint of endpoints) {
+      const cold = await app.request(endpoint, { headers: { 'If-None-Match': '*' } });
+      assert.equal(cold.status, 200);
+      assert.equal(cold.headers.get('cache-control'), 'no-store');
+      assert.equal(cold.headers.get('etag'), null);
+      const page = await cold.json() as CatalogListResult;
+      assert.equal(page.catalogReady, false);
+      assert.equal(page.catalogTotal, BUILTIN_TEMPLATES.length);
+      assert.deepEqual(page.items.map(item => item.id), BUILTIN_TEMPLATES.map(item => item.id));
+    }
+    const coldPrism = await catalog.listTemplates({ kind: 'prism' });
+    assert.equal(coldPrism.total, 0);
+    assert.equal(coldPrism.catalogReady, false);
     assert.equal((await catalog.getTemplate(WELCOME_TEMPLATE_ID)).id, WELCOME_TEMPLATE_ID);
     assert.equal(requests, 1);
     gate.resolve();
-    await setImmediate();
+    await waiting;
+    assert.equal(requests, 1, 'waiting lookups share the failed first load');
+    assert.equal((await catalog.listTemplates()).catalogReady, false);
     offline = false;
-    await assert.rejects(catalog.getTemplate('published'), unavailable);
-    await setImmediate();
+    now += 10;
     assert.equal((await catalog.getTemplate('published')).id, 'published');
     await assert.rejects(catalog.getTemplate('absent'), { code: 'NOT_FOUND', status: 404 });
+    const etags = new Map<string, string>();
+    for (const endpoint of endpoints) {
+      const ready = await app.request(endpoint + '?kind=prism');
+      assert.match(ready.headers.get('cache-control') ?? '', /public/);
+      const etag = ready.headers.get('etag');
+      assert.ok(etag);
+      etags.set(endpoint, etag);
+      const page = await ready.json() as CatalogListResult;
+      assert.equal(page.catalogReady, true);
+      assert.equal(page.total, 1);
+      assert.equal(page.items[0].id, 'published');
+    }
+    now += 100;
+    offline = true;
+    for (const endpoint of endpoints) {
+      const stale = await app.request(endpoint + '?kind=prism', { headers: { 'If-None-Match': etags.get(endpoint)! } });
+      assert.equal(stale.status, 304);
+    }
+    await setImmediate();
+    const afterFailure = await catalog.listTemplates({ kind: 'prism' });
+    assert.equal(afterFailure.catalogReady, true);
+    assert.equal(afterFailure.items[0]?.id, 'published');
+    assert.equal(requests, 4, 'one failed refresh keeps the validated snapshot during retry backoff');
+  });
+
+  it('treats an available empty snapshot as complete', async () => {
+    const { catalog } = fixture(() => []);
+    const page = await catalog.listTemplates();
+    assert.equal(page.total, BUILTIN_TEMPLATES.length);
+    assert.equal(page.catalogReady, true);
   });
 
   it('materializes only the selected files, keeps projects independent across publications and replays after withdrawal', async t => {
@@ -1241,7 +1300,7 @@ describe('Runtime template clones', () => {
       const content = url === first.files[0]!.remoteUrl ? 'first source' : 'later source';
       return new Response(content);
     });
-    const { catalog, pg, storage } = fixture(async () => published);
+    const { catalog, pg, storage } = fixture(() => published);
     const options = { templateId: 'chosen', requestId: 'clone-current' };
     const before = await catalog.cloneTemplateToProject(ctx, options);
     assert.deepEqual(fetchAsset.mock.calls.map(call => call.arguments[0]), [first.files[0]!.remoteUrl]);
@@ -1264,7 +1323,7 @@ describe('Runtime template clones', () => {
     const edition = selected;
     let result = () => new Response('broken'); // same length as the real source
     t.mock.method(globalThis, 'fetch', () => result());
-    const { catalog, pg, storage } = fixture(async () => [selected, { ...edition, id: 'reference', hasHtmlProject: false, files: [] }]);
+    const { catalog, pg, storage } = fixture(() => [selected, { ...edition, id: 'reference', hasHtmlProject: false, files: [] }]);
     const clone = () => catalog.cloneTemplateToProject(ctx, { templateId: 'chosen' });
     await assert.rejects(() => catalog.cloneTemplateToProject(ctx, { templateId: 'reference' }), { code: 'TEMPLATE_NOT_COPYABLE' });
     await assert.rejects(clone, { code: 'TEMPLATE_MEDIA_UNAVAILABLE' });
@@ -1323,6 +1382,7 @@ describe('CatalogService Zero-Copy Cloning & Tenant Isolation', () => {
     const enList = await catalog.listTemplates({ category: 'all', locale: 'en', limit: 20 });
     assert.equal(enList.source, 'catalog-cas');
     assert.equal(enList.catalogTotal, 4);
+    assert.equal(enList.catalogReady, undefined);
     const notionEn = enList.items.find((item) => item.id === 'motion-c74e1725-6fd2-4885-be7f-f1f705e9af66');
     assert.equal(notionEn?.title, 'Notion — Custom Agents');
 
@@ -1390,6 +1450,18 @@ describe('CatalogService Zero-Copy Cloning & Tenant Isolation', () => {
     // Product Promo (contains vendor/gsap-3.14.2/dist/gsap.min.js) also clones cleanly zero-copy
     const promoClone = await catalog.cloneTemplateToProject(ctxA, { templateId: 'product-promo' });
     assert.ok(promoClone.files.some((f) => f.path === 'vendor/gsap-3.14.2/dist/gsap.min.js'));
+    const promoBlob = (filePath: string) => {
+      const file = promoClone.files.find(f => f.path === filePath);
+      assert.ok(file, filePath);
+      return storage.objects.get(catalogBlobKey(file.sha256))!.body;
+    };
+    const manifest = JSON.parse(promoBlob('vendor/manifest.json').toString('utf8'));
+    const font = manifest.files.find((entry: { file: string }) => entry.file.endsWith('.woff2'));
+    const fontBytes = promoBlob(`vendor/${font.file}`);
+    assert.equal(fontBytes.toString('ascii', 0, 4), 'wOF2');
+    assert.equal(fontBytes.length, font.bytes);
+    assert.equal(createHash('sha256').update(fontBytes).digest('hex'), font.sha256);
+    assert.match(promoBlob('vendor/fonts/inter-OFL.txt').toString('utf8'), /The Inter Project Authors/);
     pg.assertZeroWorkspaceBlobWrites();
 
     // Non-HTML template fails with TEMPLATE_NOT_COPYABLE

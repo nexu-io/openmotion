@@ -129,6 +129,10 @@ export function createClipGestureHandlers(
   const onResizeStart = (edge: "start" | "end", e: ReactPointerEvent): void => {
     if (!canStartResize(edge, e, capabilities, onResizeElement)) return;
     e.stopPropagation();
+    (e.currentTarget as HTMLElement | null)?.closest?.<HTMLElement>("[data-clip]")?.focus?.({
+      preventScroll: true,
+    });
+    usePlayerStore.getState().setSelectionOrigin("timeline");
     blockedClipRef.current = null;
     setShowPopover(false);
     setRangeSelection(null);
@@ -163,6 +167,8 @@ export function createClipGestureHandlers(
     }
 
     const { rect } = action;
+    (e.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true });
+    usePlayerStore.getState().setSelectionOrigin("timeline");
     blockedClipRef.current = null;
     setShowPopover(false);
     setRangeSelection(null);
@@ -209,13 +215,18 @@ export function createClipGestureHandlers(
       razorSplit(e, onRazorSplit);
       return;
     }
+    // Keep keyboard focus inside [data-studio-timeline] across browsers (Safari/Firefox do
+    // not move focus onto clicked buttons) so Delete/Backspace acts on the selected clip.
+    (e.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true });
     if (isAdditiveClick(e)) {
       const primary = toggleClipWithLinks(elementKey, e.altKey);
+      usePlayerStore.getState().setSelectionOrigin(primary ? "timeline" : null);
       onSelectElement?.(primary);
       return;
     }
     // Clip selection is idempotent; empty timeline space owns deselection.
     selectClipWithLinks(elementKey, e.altKey, setSelectedElementId);
+    usePlayerStore.getState().setSelectionOrigin("timeline");
     onSelectElement?.(el);
   };
 

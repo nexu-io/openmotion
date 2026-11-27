@@ -8,6 +8,7 @@ import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { trackMotion } from './tracking';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 const categories = [
   ['builtin', 'Ready to edit'], ['featured', 'Featured references'], ['ads', 'Product promos'],
@@ -75,7 +76,7 @@ export function HomeTemplates({ onSelect }: { onSelect?: (template: GalleryTempl
       setInfo(connection);
       const prompt = templatePrompt(connection, host, template, locale);
       try {
-        await navigator.clipboard.writeText(prompt);
+        if (!(await copyTextToClipboard(prompt))) throw new Error('Clipboard copy failed');
         void trackMotion('template_instruction_copy_result', { host_product: host, copy_status: 'clipboard_written' });
         setFeedback(t('Copied. Send it to {agent} to recreate this template.', { agent: hostNames[host] }));
       } catch {

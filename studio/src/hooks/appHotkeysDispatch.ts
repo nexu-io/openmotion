@@ -36,6 +36,7 @@ function handleUndoRedoKey(event: KeyboardEvent, onUndo: () => void, onRedo: () 
 export interface HotkeyCallbacks extends LinkShortcutCallbacks {
   handleTimelineElementsDelete: (elements: TimelineElement[]) => Promise<void>;
   disableRazorTool?: boolean;
+  disableKeyframeReset?: boolean;
   handleSplitAtPlayhead?: (splitTime: number) => Promise<void>;
   handleTimelineElementSplit: (element: TimelineElement, splitTime: number) => Promise<void>;
   handleDomEditElementDelete: (
@@ -58,8 +59,12 @@ export interface HotkeyCallbacks extends LinkShortcutCallbacks {
   readOnlyPreview: boolean;
 }
 
-function timelineOwnsKey(event: KeyboardEvent): boolean {
+export function timelineOwnsKey(event: KeyboardEvent): boolean {
   return event.target instanceof Element && event.target.closest("[data-studio-timeline]") !== null;
+}
+
+export function timelineOwnsSelectionOrKey(event: KeyboardEvent): boolean {
+  return timelineOwnsKey(event) || usePlayerStore.getState().selectionOrigin === "timeline";
 }
 
 function dispatchTabKey(event: KeyboardEvent): boolean {
@@ -103,7 +108,11 @@ function dispatchClipboardKey(event: KeyboardEvent, cb: HotkeyCallbacks): boolea
     }
     return true;
   }
-  if (cb.readOnlyPreview && cb.domEditSelectionRef.current !== null && !timelineOwnsKey(event)) {
+  if (
+    cb.readOnlyPreview &&
+    cb.domEditSelectionRef.current !== null &&
+    !timelineOwnsSelectionOrKey(event)
+  ) {
     event.preventDefault();
     return true;
   }
@@ -263,6 +272,17 @@ export function dispatchPlainKey(event: KeyboardEvent, _key: string, cb: HotkeyC
     }
   }
 
+  if (matchesKey(event, "resetKeyframes")) {
+    if (cb.disableKeyframeReset || cb.readOnlyPreview) return;
+    const { automationSelection, selectedElementId, selectedElementIds, keyframeCache } =
+      usePlayerStore.getState();
+    if (automationSelection || selectedElementIds.size > 1) return;
+    if (selectedElementId && keyframeCache.has(selectedElementId) && cb.onResetKeyframes()) {
+      event.preventDefault();
+    }
+    return;
+  }
+
   if (matchesKey(event, "deleteSelected") || matchesKey(event, "deleteSelectedAlt")) {
     if (usePlayerStore.getState().selectedKeyframes.size > 0) {
       cb.onDeleteSelectedKeyframes();
@@ -275,32 +295,24 @@ export function dispatchPlainKey(event: KeyboardEvent, _key: string, cb: HotkeyC
     // is what lets the document-level handler still see the key instead of
     // the press reaching the clip delete below.
     if (usePlayerStore.getState().automationSelection) return;
-    if (matchesKey(event, "resetKeyframes")) {
-      const { selectedElementId, keyframeCache } = usePlayerStore.getState();
-      if (selectedElementId && keyframeCache.has(selectedElementId) && cb.onResetKeyframes()) {
-        event.preventDefault();
-        return;
-      }
-    }
-    // The canvas selection owns Delete first: the timeline mirror of it is
-    // lossy (drops a member with no timeline row of its own), so deleting via
-    // the timeline left other selected elements behind. Timeline stays as the
-    // fallback for rows with no canvas node (audio, an inactive comp).
+    // Canvas and timeline mirror each other lossily in opposite directions:
+    // canvas marquee drops members without a timeline row, while timeline
+    // selection only mirrors its primary clip (or clears DOM selection for
+    // audio/offscreen rows). Let the surface owning focus or selection origin
+    // delete first, falling back when that surface has no matching targets.
     const domSel = cb.domEditSelectionRef.current;
-    const timelineOwnsDelete = timelineOwnsKey(event);
-    if (domSel && !timelineOwnsDelete) {
+    const { selectedElementId, selectedElementIds, elements } = usePlayerStore.getState();
+    const selectionKeys = new Set(selectedElementIds);
+    if (selectedElementId) selectionKeys.add(selectedElementId);
+    const selected = elements.filter((e) => selectionKeys.has(e.key ?? e.id));
+    const timelineOwnsDelete = timelineOwnsSelectionOrKey(event);
+    if (domSel && (!timelineOwnsDelete || selected.length === 0)) {
       event.preventDefault();
       if (cb.readOnlyPreview) return;
       // The whole marquee group, not just the primary the ref holds.
       void cb.handleDomEditElementDelete(domSel, { expandGroup: true });
       return;
     }
-    // Takes the WHOLE selection: `find` returned the first match, so selecting
-    // every clip and pressing Delete removed exactly one of them.
-    const { selectedElementId, selectedElementIds, elements } = usePlayerStore.getState();
-    const selectionKeys = new Set(selectedElementIds);
-    if (selectedElementId) selectionKeys.add(selectedElementId);
-    const selected = elements.filter((e) => selectionKeys.has(e.key ?? e.id));
     if (selected.length > 0) {
       event.preventDefault();
       void cb.handleTimelineElementsDelete(selected);

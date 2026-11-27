@@ -9,6 +9,7 @@ import type { AssetDraft } from './AssetComposer';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
 import { assetMediaUrl, type LibraryAsset } from '../../../shared/asset-library';
+import { resetVideoFrameThumbnailLoaderForTests } from '../components/ui/videoFrameThumbnailLoader';
 import type { GameCard } from '../../../shared/game-contract';
 import { gameApi } from './game/gameCatalog';
 
@@ -21,8 +22,10 @@ let lastComposerUploadingReferences: boolean | undefined;
 let lastComposerPromptAppliedToken: number | undefined;
 let lastComposerSetDraft: ((next: AssetDraft | ((current: AssetDraft) => AssetDraft)) => void) | undefined;
 let lastComposerOnClose: (() => void) | undefined;
+let lastTaskMenuOnSelect: ((task: import('./assetTasks').AssetTask) => void) | undefined;
+let lastTaskMenuTasks: import('./assetTasks').AssetTask[] = [];
 vi.mock('./AssetComposer', () => ({ AssetComposer: ({ draft, setDraft, promptAppliedToken, onReference, onUploadFiles, uploadingReferences, onCreated, onClose, showCurrentJob }: { draft: AssetDraft; setDraft: (next: AssetDraft | ((current: AssetDraft) => AssetDraft)) => void; promptAppliedToken?: number; onReference: () => void; onUploadFiles?: (files: File[]) => void; uploadingReferences?: boolean; onCreated: (job: import('../../../shared/gateway').GenerationJob) => void; onClose: () => void; showCurrentJob?: boolean }) => { lastComposerOnCreated = onCreated; lastComposerOnClose = onClose; lastShowCurrentJob = showCurrentJob; lastComposerOnUploadFiles = onUploadFiles; lastComposerUploadingReferences = uploadingReferences; lastComposerPromptAppliedToken = promptAppliedToken; lastComposerSetDraft = setDraft; return <><input aria-label="Creation draft" data-reference-count={draft.references.length} data-prompt={draft.prompt} data-prompt-applied-token={promptAppliedToken ?? 0} /><button onClick={onReference}>References</button></>; } }));
-vi.mock('./AssetTaskHistory', () => ({ AssetTaskMenu: () => null }));
+vi.mock('./AssetTaskHistory', () => ({ AssetTaskMenu: ({ tasks, onSelect }: { tasks: import('./assetTasks').AssetTask[]; onSelect: (task: import('./assetTasks').AssetTask) => void }) => { lastTaskMenuTasks = tasks; lastTaskMenuOnSelect = onSelect; return null; } }));
 vi.mock('./assetClient', () => ({ assetRequest: vi.fn(), uploadLibraryAsset: vi.fn() }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: async () => ({ conversations: [] }) }));
 vi.mock('./game/gameCatalog', async importOriginal => {
@@ -49,6 +52,7 @@ let pendingRead: ReturnType<typeof deferred<{ asset: LibraryAsset }>> | undefine
 let pendingList: ReturnType<typeof deferred<{ assets: LibraryAsset[]; total: number; nextOffset: null }>> | undefined;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
+  resetVideoFrameThumbnailLoaderForTests();
   vi.useFakeTimers(); vi.clearAllMocks(); pendingWrite = undefined; pendingRead = undefined; pendingList = undefined;
   records = new Map(['A', 'B'].map(id => [id, fixture(id)]));
   vi.mocked(assetRequest).mockImplementation(async args => {
@@ -234,7 +238,7 @@ it('extracts a gallery video cover from the current immutable version using the 
 
   await render();
   expect(videos).toHaveLength(1);
-  expect(videos[0].getAttribute('src')).toBe('/motion-api/assets/video/versions/video-v1/file');
+  expect(videos[0].getAttribute('src')).toBe('/motion-api/assets/video/versions/video-v1/file?frame=1');
   await act(async () => videos[0].dispatchEvent(new Event('loadedmetadata')));
   expect(videos[0].currentTime).toBe(2);
   await act(async () => videos[0].dispatchEvent(new Event('seeked')));
@@ -1612,4 +1616,41 @@ it('keeps standalone persisted draft cleared after job creation until the user e
   await flush();
   expect(window.sessionStorage.getItem('openmotion.studio.drafts.v1')).toContain('Midnight neon harbor');
   window.sessionStorage.clear();
+});
+
+it('keeps current job card visible when reopening a completed task from library Tasks even while pending/failed placeholders exist (OPEND-5664)', async () => {
+  const completedImageJob: import('../../../shared/gateway').GenerationJob = {
+    id: 'job-completed-img', requestId: 'req-completed-img', modality: 'image', prompt: 'Completed poster', state: 'completed',
+    saveToLibrary: true,
+    model: { id: 'nano-banana-2-lite', label: 'Nano Banana 2 Lite', provider: 'opendesign' },
+    libraryAssets: [{ assetId: 'A', versionId: 'A-v1' }],
+    createdAt: 400, updatedAt: 410,
+  };
+  const runningVideoJob: import('../../../shared/gateway').GenerationJob = {
+    id: 'job-running-vid', requestId: 'req-running-vid', modality: 'video', prompt: 'Still rendering', state: 'running',
+    saveToLibrary: true,
+    model: { id: 'wan-2.7', label: 'Wan 2.7', provider: 'opendesign' },
+    createdAt: 420, updatedAt: 425,
+  };
+  const baseImpl = vi.mocked(assetRequest).getMockImplementation()!;
+  vi.mocked(assetRequest).mockImplementation(async args => {
+    if (args.action === 'jobs') return { jobs: [runningVideoJob, completedImageJob] };
+    return baseImpl(args);
+  });
+
+  await render();
+  const completedTask = lastTaskMenuTasks.find(task => task.id === 'job-completed-img');
+  expect(completedTask).toBeDefined();
+  await act(async () => { lastTaskMenuOnSelect?.(completedTask!); });
+  await flush();
+  // Even though runningVideoJob keeps showLibraryPlaceholders=true in the gallery,
+  // the reopened completed task is not a placeholder tile and must show AssetGenerationCard (with "View asset").
+  expect(lastShowCurrentJob).toBe(true);
+
+  const runningTask = lastTaskMenuTasks.find(task => task.id === 'job-running-vid');
+  expect(runningTask).toBeDefined();
+  await act(async () => { lastTaskMenuOnSelect?.(runningTask!); });
+  await flush();
+  // Reopening the running job that IS already shown as a placeholder tile avoids duplicating the card.
+  expect(lastShowCurrentJob).toBe(false);
 });

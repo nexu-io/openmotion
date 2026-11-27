@@ -276,7 +276,7 @@
   display: none;
 }
 :root[data-motion-ui] .hf-dock .dv-groupview .dv-tabs-container > .dv-tab:has(.hf-dock-tab[data-icon-navigation]) {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
   justify-content: center;
   height: var(--motion-space-40);

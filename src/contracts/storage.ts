@@ -88,6 +88,8 @@ export interface PresignGetOptions {
   expiresInSec?: number;
   responseContentDisposition?: string;
   responseContentType?: string;
+  /** Fixed UTC signing window in seconds for cacheable presigned URLs. Pass `0` to bypass. */
+  cacheWindowSec?: number;
 }
 
 export interface PresignPutOptions {

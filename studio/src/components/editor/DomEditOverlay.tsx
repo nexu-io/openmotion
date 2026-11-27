@@ -41,6 +41,7 @@ import type { ZOrderAction, ZOrderPatch } from "./canvasContextMenuZOrder";
 import { getPreviewTargetFromPointer } from "../../utils/studioPreviewHelpers";
 import { logSelect } from "../../utils/selectDebug";
 import { useOffCanvasIndicators } from "./useOffCanvasIndicators";
+import { usePlayerStore } from "../../player/store/playerStore";
 
 // Re-exports for external consumers — preserving existing import paths.
 export {
@@ -165,7 +166,7 @@ export const DomEditOverlay = memo(function DomEditOverlay({
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const onMarqueeSelectRef = useRef(onMarqueeSelect);
-  onMarqueeSelectRef.current = onMarqueeSelect;
+  onMarqueeSelectRef.current = onMarqueeSelect && ((sels, add) => { if (sels.length > 0) usePlayerStore.getState().setSelectionOrigin("canvas"); return onMarqueeSelect(sels, add); });
 
   const selectionShapeStyles = readDomEditSelectionShapeStyles(selection);
   const gestureRef = useRef<GestureState | null>(null);
@@ -237,7 +238,7 @@ export const DomEditOverlay = memo(function DomEditOverlay({
   const onCanvasPointerLeaveRef = useRef(onCanvasPointerLeave);
   onCanvasPointerLeaveRef.current = onCanvasPointerLeave;
   const onSelectionChangeRef = useRef(onSelectionChange);
-  onSelectionChangeRef.current = onSelectionChange;
+  onSelectionChangeRef.current = (next, opts) => { usePlayerStore.getState().setSelectionOrigin(next ? "canvas" : null); onSelectionChange(next, opts); };
 
   const {
     overlayRect,

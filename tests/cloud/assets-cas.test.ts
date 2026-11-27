@@ -14,6 +14,7 @@ import {
 import { idempotencyReceipts, jobs } from '../../src/db/schema/jobs.ts';
 import {
   projectFiles,
+  projectHistoryEntries,
   projectVersionFiles,
   projectVersions,
 } from '../../src/db/schema/project-files.ts';
@@ -64,7 +65,7 @@ function authFor(overrides: Partial<AuthContext> = {}): AuthContext {
 class MemoryStorage implements StoragePort {
   readonly objects = new Map<string, { bytes: Buffer; contentType: string }>();
   readonly presignedPuts: Array<{ key: string; contentType: string; contentLength?: number }> = [];
-  readonly presignedGets: Array<{ key: string; disposition?: string }> = [];
+  readonly presignedGets: Array<{ key: string; disposition?: string; cacheWindowSec?: number }> = [];
 
   async putObject(
     key: string,
@@ -141,13 +142,18 @@ class MemoryStorage implements StoragePort {
 
   async presignGet(
     key: string,
-    options: { responseContentDisposition?: string; responseContentType?: string } = {},
+    options: { responseContentDisposition?: string; responseContentType?: string; cacheWindowSec?: number } = {},
   ): Promise<string> {
-    this.presignedGets.push({ key, disposition: options.responseContentDisposition });
+    this.presignedGets.push({
+      key,
+      disposition: options.responseContentDisposition,
+      cacheWindowSec: options.cacheWindowSec,
+    });
     const disp = options.responseContentDisposition
       ? `&response-content-disposition=${encodeURIComponent(options.responseContentDisposition)}`
       : '';
-    return `https://s3.example.test/openmotion/${encodeURI(key)}?X-Amz-Signature=get-mock${disp}`;
+    const windowPart = options.cacheWindowSec !== undefined ? `&window=${options.cacheWindowSec}` : '';
+    return `https://s3.example.test/openmotion/${encodeURI(key)}?X-Amz-Signature=get-mock${disp}${windowPart}`;
   }
 
   readonly multiparts = new Map<
@@ -688,8 +694,29 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
       blobMetadata: { width: 1920, height: 1080 },
     };
 
+    const videoMetaRow = {
+      assetTrashed: false,
+      versionId: VID_A,
+      assetId: AID_A,
+      filename: 'clip.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: 98_765,
+      sha256: SHA_A,
+      blobMetadata: { width: 1280, height: 720 },
+    };
+
     const { db } = createScriptedDb({
-      selectQueue: [[versionMetaRow], [versionMetaRow], [versionMetaRow]],
+      selectQueue: [
+        [versionMetaRow],
+        [versionMetaRow],
+        [versionMetaRow],
+        [versionMetaRow],
+        [videoMetaRow],
+        [videoMetaRow],
+        [videoMetaRow],
+        [videoMetaRow],
+        [versionMetaRow],
+      ],
     });
     const assetService = new AssetLibraryService({
       db,
@@ -718,6 +745,46 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     assert.match(getRes.headers.get('location') ?? '', /^https:\/\/s3\.example\.test\/openmotion\/workspaces\//);
     assert.equal(storage.presignedGets.at(-1)?.key, workspaceBlobKey(WID_A, SHA_A));
     assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^attachment; filename="hero\.png"/);
+
+    // Non-video assets ignore `?frame=1` and keep their normal inline filename disposition.
+    const imageInlineRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file`);
+    assert.equal(imageInlineRes.status, 302);
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^inline; filename="hero\.png"/);
+
+    const imageFrameRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?frame=1&retry=1`);
+    assert.equal(imageFrameRes.status, 302);
+    assert.equal(imageFrameRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^inline; filename="hero\.png"/);
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+
+    // Video assets: inline playback (`inline; filename="..."`) vs CORS frame extraction (`?frame=1`
+    // -> bare RFC 6266 `inline`) mint distinct S3 presigned URLs, and neither collides with
+    // `preview.ts` (which omits responseContentDisposition altogether).
+    const videoInlineRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file`);
+    assert.equal(videoInlineRes.status, 302);
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^inline; filename="clip\.mp4"/);
+
+    const videoFrameRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?frame=1`);
+    assert.equal(videoFrameRes.status, 302);
+    assert.equal(videoFrameRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.equal(videoFrameRes.headers.get('vary'), 'Origin, Cookie');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+    assert.notEqual(videoFrameRes.headers.get('location'), videoInlineRes.headers.get('location'));
+
+    // Explicit `?frame=1&retry=1` escapes the 1-hour signing window and disables 302 caching.
+    const videoRetryRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?frame=1&retry=1`);
+    assert.equal(videoRetryRes.status, 302);
+    assert.equal(videoRetryRes.headers.get('cache-control'), 'no-store');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, 0);
+    assert.notEqual(videoRetryRes.headers.get('location'), videoFrameRes.headers.get('location'));
+
+    // Explicit `?download=1` still takes precedence over `?frame=1`.
+    const downloadFrameRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/file?download=1&frame=1`);
+    assert.equal(downloadFrameRes.status, 302);
+    assert.match(storage.presignedGets.at(-1)?.disposition ?? '', /^attachment; filename="clip\.mp4"/);
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
 
     // Thumbnail GET returns 302 pointing to thumbnailKey.
     const thumbRes = await app.request(`http://localhost/${AID_A}/versions/${VID_A}/thumbnail`);
@@ -1000,6 +1067,110 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     assert.match(sseText, /"status":"complete"/);
   });
 
+  it('never lets frame: true override explicit attachment disposition in ExportService or legacy render file route', async () => {
+    const storage = new MemoryStorage();
+    const eventBus = new MemoryEventBus();
+    const videoExportRow = {
+      id: JID_A,
+      workspaceId: WID_A,
+      projectId: PID_A,
+      kind: 'export_render',
+      state: 'completed',
+      stage: 'completed',
+      progress: 100,
+      versionId: VID_A,
+      revision: REV_1,
+      requestId: null,
+      idempotencyKey: null,
+      inputPayload: { outputName: 'launch-film.mp4', format: 'mp4', compositionPath: 'index.html' },
+      resultJson: {
+        s3Key: exportKey(WID_A, JID_A, 'launch-film.mp4'),
+        outputName: 'launch-film.mp4',
+        mimeType: 'video/mp4',
+        bytes: 987_654,
+        sha256: SHA_A,
+      },
+      errorCode: null,
+      errorMessage: null,
+      createdAt: new Date(),
+      startedAt: new Date(),
+      terminalAt: new Date(),
+      deletedAt: null,
+      updatedAt: new Date(),
+    };
+    const gifExportRow = {
+      ...videoExportRow,
+      inputPayload: { outputName: 'loop.gif', format: 'gif', compositionPath: 'index.html' },
+      resultJson: {
+        s3Key: exportKey(WID_A, JID_A, 'loop.gif'),
+        outputName: 'loop.gif',
+        mimeType: 'image/gif',
+        bytes: 123_456,
+        sha256: SHA_A,
+      },
+    };
+
+    const { db } = createScriptedDb({
+      selectQueue: [
+        [videoExportRow], // presignExportFile attachment + frame: true
+        [videoExportRow], // presignExportFile inline + frame: true
+        [videoExportRow], [videoExportRow], [videoExportRow], // route (frame=1&retry=1): lookup + meta + presign
+        [videoExportRow], [videoExportRow], [videoExportRow], // route (download=1&frame=1): lookup + meta + presign
+        [gifExportRow], [gifExportRow], [gifExportRow], // route (non-video frame=1&retry=1): lookup + meta + presign
+      ],
+    });
+    const svc = new ExportService({
+      db,
+      storage,
+      eventBus,
+      queues: { enqueueRenderExport: async () => ({}) as never, renderExport: { getJob: async () => null } as never },
+    });
+
+    // Contradictory `{ disposition: 'attachment', frame: true }` MUST preserve attachment semantics.
+    await svc.presignExportFile(authFor(), JID_A, {
+      disposition: 'attachment',
+      frame: true,
+      bypassCacheWindow: true,
+    });
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'attachment; filename="launch-film.mp4"');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+
+    // Explicit `{ disposition: 'inline', frame: true }` mints bare RFC 6266 `inline`.
+    await svc.presignExportFile(authFor(), JID_A, {
+      disposition: 'inline',
+      frame: true,
+      bypassCacheWindow: true,
+    });
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, 0);
+
+    // Legacy `/projects/:projectId/renders/file/:filename` passes inline only for video `?frame=1`,
+    // and keeps attachment for `?download=1&frame=1` and non-video exports.
+    const exportApp = createExportRoutes({ exportService: svc, getAuth: () => authFor() });
+    const frameRes = await exportApp.request(
+      `http://localhost/projects/${PID_A}/renders/file/launch-film.mp4?frame=1&retry=1`,
+    );
+    assert.equal(frameRes.status, 302);
+    assert.equal(frameRes.headers.get('cache-control'), 'no-store');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'inline');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, 0);
+
+    const downloadRes = await exportApp.request(
+      `http://localhost/projects/${PID_A}/renders/file/launch-film.mp4?download=1&frame=1`,
+    );
+    assert.equal(downloadRes.status, 302);
+    assert.equal(downloadRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'attachment; filename="launch-film.mp4"');
+
+    const gifFrameRes = await exportApp.request(
+      `http://localhost/projects/${PID_A}/renders/file/loop.gif?frame=1&retry=1`,
+    );
+    assert.equal(gifFrameRes.status, 302);
+    assert.equal(gifFrameRes.headers.get('cache-control'), 'private, max-age=60');
+    assert.equal(storage.presignedGets.at(-1)?.disposition, 'attachment; filename="loop.gif"');
+    assert.equal(storage.presignedGets.at(-1)?.cacheWindowSec, undefined);
+  });
+
   it('rejects cross-tenant export access cleanly (workspace_id scoping)', async () => {
     const storage = new MemoryStorage();
     const eventBus = new MemoryEventBus();
@@ -1022,20 +1193,31 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     const casKey = workspaceBlobKey(WID_A, SHA_A);
     storage.objects.set(casKey, { bytes: Buffer.alloc(sizeBytes, 0x11), contentType: 'video/mp4' });
 
-    // 1. Same-workspace CAS instant commit ("秒传"): skips S3 presign PUT and publishes file-change SSE.
+    // 1. Same-workspace CAS instant commit ("秒传"): skips S3 presign PUT, allocates past MAX(version_number)
+    //    even after Undo (currentVersionNumber < maxVer), writes a history entry, and publishes file-change + history-changed.
+    let insertedVersionNumber: number | undefined;
+    let insertedHistorySeq: number | undefined;
     const { db: instantDb } = createScriptedDb({
       selectQueue: [
         [{ id: PID_A, trashed: false }], // project exists check
         [{ workspaceId: WID_A, sha256: SHA_A, sizeBytes, mimeType: 'video/mp4', gcState: 'active' }], // workspaceBlobs lookup
-        [{ id: PID_A, workspaceId: WID_A, trashed: false, currentVersionNumber: 2, revision: REV_1 }], // locked project FOR UPDATE
+        [{ id: PID_A, workspaceId: WID_A, trashed: false, currentVersionNumber: 1, currentHistorySeq: 1, revision: REV_1 }], // locked project FOR UPDATE (rewound by Undo)
         [], // existing project_files
+        [{ maxVer: 3 }], // MAX(project_versions.version_number) still holds undone versions
+        [{ maxSeq: 3 }], // MAX(project_history_entries.seq)
+        [{ id: '99999999-9999-4999-8999-999999999999' }], // parent history entry
       ],
-      insertImpl: (table) =>
-        table === projectVersions
-          ? [{ id: VID_A }]
-          : table === workspaceBlobs
-            ? [{ sha256: SHA_A }]
-            : [],
+      insertImpl: (table, values) => {
+        if (table === projectVersions) {
+          insertedVersionNumber = (values as { versionNumber?: number }).versionNumber;
+          return [{ id: VID_A }];
+        }
+        if (table === projectHistoryEntries) {
+          insertedHistorySeq = (values as { seq?: number }).seq;
+          return [];
+        }
+        return table === workspaceBlobs ? [{ sha256: SHA_A }] : [];
+      },
     });
     const instantSvc = new AssetLibraryService({
       db: instantDb,
@@ -1056,12 +1238,21 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
     assert.equal(instantTicket.instantCommitted, true);
     assert.equal(instantTicket.projectPath, 'assets/dup.mp4');
     assert.equal(instantTicket.sha256, SHA_A);
+    assert.equal(insertedVersionNumber, 4);
+    assert.equal(insertedHistorySeq, 4);
     assert.equal(storage.presignedPuts.length, 0);
     assert.ok(
       eventBus.published.some(
         (e) =>
           e.channel === projectChannel(WID_A, PID_A) &&
           (e.payload as { type?: string }).type === 'file-change',
+      ),
+    );
+    assert.ok(
+      eventBus.published.some(
+        (e) =>
+          e.channel === projectChannel(WID_A, PID_A) &&
+          (e.payload as { type?: string }).type === 'history-changed',
       ),
     );
 

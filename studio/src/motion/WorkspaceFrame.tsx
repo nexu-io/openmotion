@@ -80,6 +80,10 @@ import { parseProjectIdFromHash } from '../utils/projectRouting';
 import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard, type GuestSignInIntent } from './WorkspaceChromeContext';
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 
+// Right after sign-in the API can briefly answer 503 (for example while a new pod loads the
+// template catalog). Retry the saved intent with its idempotency key before asking the user.
+const AUTO_RESUME_RETRY_DELAYS_MS = [1_000, 3_000, 6_000] as const;
+
 type WorkspaceFrameProps = {
   children: ReactNode; waitForSaves: () => Promise<void>; projectId?: string; sessionId?: string; blocked?: boolean; message?: string; saveState?: string; onLibraryClose?: () => void; onNavigate?: (targetHref?: string, opened?: WorkspaceRoute) => void; onInvalidProject?: (projectId: string) => void;
 };
@@ -479,20 +483,39 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     }
     return true;
   }, [sessionId, workspace.createArtifact, workspace.startSession, workspace.create, workspace.open, workspace.projects, projectId, openEditor]);
-  const autoResumedKeyRef = useRef<string | null>(null);
+  const autoResumeRef = useRef<{ key: string; failures: number; waiting: boolean } | null>(null);
+  const autoResumeTimer = useRef<number | undefined>(undefined);
+  const [autoResumeRetry, setAutoResumeRetry] = useState(0);
+  useEffect(() => () => window.clearTimeout(autoResumeTimer.current), []);
   useEffect(() => {
     if (!workspace.status || guestMode || workspace.busy) return;
     const pending = readAuthPendingDraft();
     if (!pending?.autoResume) return;
     if (pending.action === 'open_editor' && !workspace.catalogLoaded) return;
-    if (autoResumedKeyRef.current === pending.idempotencyKey) return;
-    autoResumedKeyRef.current = pending.idempotencyKey;
+    const previous = autoResumeRef.current?.key === pending.idempotencyKey ? autoResumeRef.current : null;
+    if (previous?.waiting) return;
+    const attempt = { key: pending.idempotencyKey, failures: previous?.failures ?? 0, waiting: true };
+    autoResumeRef.current = attempt;
+    // A finished chain must not block a later sign-in that re-saves the same intent and key.
+    const release = () => { if (autoResumeRef.current === attempt) autoResumeRef.current = null; };
     void resumePendingDraft(pending).then(ok => {
       const latest = readAuthPendingDraft();
-      if (!latest || latest.idempotencyKey !== pending.idempotencyKey) return;
+      if (!latest || latest.idempotencyKey !== pending.idempotencyKey) {
+        release();
+        return;
+      }
       if (ok) {
+        release();
         clearAuthPendingDraft();
+      } else if (latest.autoResume && attempt.failures < AUTO_RESUME_RETRY_DELAYS_MS.length) {
+        // A sign-in failure replaces the intent without autoResume, so only other failures retry here.
+        autoResumeTimer.current = window.setTimeout(() => {
+          attempt.failures += 1;
+          attempt.waiting = false;
+          setAutoResumeRetry(value => value + 1);
+        }, AUTO_RESUME_RETRY_DELAYS_MS[attempt.failures]);
       } else {
+        release();
         saveAuthPendingDraft({
           action: latest.action,
           returnTo: latest.returnTo,
@@ -503,9 +526,13 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
           homeDraftSnapshot: latest.homeDraftSnapshot,
           autoResume: false,
         });
+        // The template detail is a modal dialog that makes the Continue prompt behind it inert.
+        if (readWorkspacePage(location.search, location.hash, location.pathname).template) {
+          writeWorkspaceHistory(workspacePageHref(location.href, { template: null }), true);
+        }
       }
     });
-  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft]);
+  }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft, autoResumeRetry]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
   const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
   const canReturnToBlockedEditor = Boolean(editorState?.blocked && projectId && !workspace.busy && !blocked);
@@ -551,13 +578,13 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   // Hiding a notice never clears an editor's write guard. New errors reset the dismissal.
   const visibleNotice = notice && dismissedNotice !== noticeKey;
   if (!notice && dismissedNotice !== null) setDismissedNotice(null);
-  const openLibrary: WorkspaceChrome['openLibrary'] = (trigger, template, collection) => {
-    if (templatesPage && !page.creators && page.templateCollection === (collection ?? null) && !template) return;
+  const openLibrary: WorkspaceChrome['openLibrary'] = (trigger, template, collection, industry) => {
+    if (templatesPage && !page.creators && page.templateCollection === (collection ?? null) && page.templateIndustry === industry && !template) return;
     libraryTrigger.current = trigger ?? null;
     workspace.clearError();
     const openCollection = Boolean(collection) || !template;
     cardPreview.current = !openCollection && template ? { template, locale } : null;
-    navigatePage({ templates: openCollection, template: template?.id ?? null, templateCollection: openCollection ? (collection ?? null) : null, creators: false, creator: null, ...(page.templateCollection === 'black-friday' && { skill: null }) },
+    navigatePage({ templates: openCollection, template: template?.id ?? null, templateCollection: openCollection ? (collection ?? null) : null, templateIndustry: industry, creators: false, creator: null, ...(page.templateCollection === 'black-friday' && { skill: null }) },
       false, collection === 'black-friday' && page.explore && !connectionsOpen ? 'from-page' : undefined);
   };
   const openMotionTemplates = (trigger?: HTMLElement) => {

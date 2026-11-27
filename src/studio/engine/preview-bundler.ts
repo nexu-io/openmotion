@@ -390,6 +390,30 @@ function joinCssHoistingImports(sheets: readonly string[]): string {
   return [...imports, ...parts].join('\n\n').trim();
 }
 
+// Font preparation reads inline @font-face declarations. Keep their URLs relative
+// to the originating stylesheet when moving them into the preview document.
+function inlineLocalStylesheets(document: Document, project: VirtualProjectReader, sourceDir: string): boolean {
+  let changed = false;
+  for (const el of document.querySelectorAll('link[rel="stylesheet"]')) {
+    const href = el.getAttribute('href');
+    if (!href || !isRelativeUrl(href) || cssStyleMergeKey(el) === undefined) continue;
+    if (el.hasAttribute('disabled') || el.getAttribute('integrity')?.trim()) continue;
+    const cssPath = resolveVirtualPath(sourceDir, decodedUrlPath(href));
+    if (!cssPath) continue;
+    const css = project.readText(cssPath);
+    if (css === null) continue;
+    const style = document.createElement('style');
+    for (const name of ['media', 'title']) {
+      const val = el.getAttribute(name);
+      if (val !== null) style.setAttribute(name, val);
+    }
+    style.textContent = inlineCssVirtual(project, css, virtualDirname(cssPath), new Set([cssPath]));
+    el.replaceWith(style);
+    changed = true;
+  }
+  return changed;
+}
+
 function joinJsChunks(chunks: readonly string[]): string {
   return chunks
     .map((chunk) => chunk.trim())
@@ -824,23 +848,7 @@ export async function bundlePreviewInMemory(
     !Object.keys(options.variables ?? {}).length && !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)
     ? staticPreviewHtmlSources(entryFile, document, runtimeUrl) : undefined;
 
-  // Inline local <link rel="stylesheet"> stylesheets from VirtualProjectReader.
-  for (const el of [...document.querySelectorAll('link[rel="stylesheet"]')]) {
-    const href = el.getAttribute('href');
-    if (!href || !isRelativeUrl(href) || cssStyleMergeKey(el) === undefined) continue;
-    if (el.hasAttribute('disabled')) continue;
-    const cssPath = resolveVirtualPath(sourceDir, decodedUrlPath(href));
-    if (!cssPath) continue;
-    const css = project.readText(cssPath);
-    if (css === null) continue;
-    const style = document.createElement('style');
-    for (const name of ['media', 'title']) {
-      const val = el.getAttribute(name);
-      if (val !== null) style.setAttribute(name, val);
-    }
-    style.textContent = inlineCssVirtual(project, css, virtualDirname(cssPath), new Set([cssPath]));
-    el.replaceWith(style);
-  }
+  inlineLocalStylesheets(document, project, sourceDir);
 
   // Inline sub-compositions using pure `@hyperframes/core/compiler` virtual callbacks.
   const trackedHosts = Array.from(document.querySelectorAll('[data-composition-src], [data-composition-id]')).filter(
@@ -1142,17 +1150,17 @@ export async function buildSubCompositionHtmlInMemory(
   const htmlSources = options.bridgeOrigin && !options.capture && !Object.keys(options.variables ?? {}).length &&
     !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)
     ? await standaloneHtmlSources(project, compPath, scriptsDoc) : undefined;
+  let headChanged = inlineLocalStylesheets(scriptsDoc, project, '');
   if (options.cacheProjectScripts) {
     // The inherited head and the rebased clip body now use project-root paths.
-    let headChanged = false;
     for (const el of scriptsDoc.querySelectorAll('script[src]')) {
       const src = el.getAttribute('src');
       if (!src || !isRelativeUrl(src)) continue;
       const jsPath = resolveVirtualPath('', decodedUrlPath(src));
       if (jsPath && versionLargeScript(el, project, jsPath, baseHref) && scriptsDoc.head.contains(el)) headChanged = true;
     }
-    if (headChanged) headContent = scriptsDoc.head.innerHTML;
   }
+  if (headChanged) headContent = scriptsDoc.head.innerHTML;
   deferScriptsUntilFonts(scriptsDoc);
   if (options.capture) {
     prepareCaptureMediaElements(scriptsDoc.body);

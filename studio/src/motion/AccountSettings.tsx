@@ -1,6 +1,8 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import * as tracking from './pageTracking';
+import { isBrowserTrackingSuppressed } from './tracking';
+import { getBrowserTrackingDeviceId } from './trackingDeviceId';
 import { resetMotionTrackingIdentity } from './trackingIdentity';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
@@ -176,13 +178,16 @@ function normalizeAccountSummary(raw: CloudSummaryApiResponse): CloudAccountSumm
   };
 }
 
-export function buildLoginUrl(returnTo?: string, attribution?: { hookId?: string; entryId?: string }): string {
+export function buildLoginUrl(returnTo?: string, attribution?: { hookId?: string; entryId?: string; deviceId?: string }): string {
   const target = returnTo ?? (typeof window !== 'undefined'
     ? `${window.location.pathname}${window.location.search}${window.location.hash}`
     : '/');
   const params = new URLSearchParams({ returnTo: target || '/' });
   if (attribution?.hookId) params.set('hook_id', attribution.hookId);
   if (attribution?.entryId) params.set('entry_id', attribution.entryId);
+  const deviceId = attribution?.deviceId
+    ?? (typeof window !== 'undefined' && !isBrowserTrackingSuppressed() ? getBrowserTrackingDeviceId() : undefined);
+  if (deviceId) params.set('device_id', deviceId);
   return `/auth/login?${params.toString()}`;
 }
 

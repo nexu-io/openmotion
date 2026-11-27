@@ -67,23 +67,13 @@
         },
         {
           "path": "template-library/product-promo/registry-item.json",
-          "sha256": "79efd07c5523e6e91c1552aecbe07c2bef624d57660de1bf14d6751b71bcebdc",
-          "bytes": 3245
+          "sha256": "8922f26f4c9411e6d688e79fffb9d2286dcb4e600f57235315ff314b2d62d794",
+          "bytes": 2319
         },
         {
-          "path": "template-library/product-promo/vendor/fonts/inter-1b08e7fc267a.ttf",
-          "sha256": "1b08e7fc267a5c7e1d614100f604b83e7e8a0be241f0f288faa2b3ac93a683ba",
-          "bytes": 324820
-        },
-        {
-          "path": "template-library/product-promo/vendor/fonts/inter-5b717029a2c4.ttf",
-          "sha256": "5b717029a2c4cfca2167e97be1157edb24151591e5ec96eb484745c392817a7a",
-          "bytes": 327260
-        },
-        {
-          "path": "template-library/product-promo/vendor/fonts/inter-8c883f63b2c4.ttf",
-          "sha256": "8c883f63b2c4157d997319f2c8bc6995ed4357ef371940d31ca159004a4aae63",
-          "bytes": 325304
+          "path": "template-library/product-promo/vendor/fonts/inter-b30dd38f082a.woff2",
+          "sha256": "b30dd38f082a2881ab101fae208a027706103f0f0cb73fccd0e73218258da5a6",
+          "bytes": 236640
         },
         {
           "path": "template-library/product-promo/vendor/fonts/inter-OFL.txt",
@@ -91,29 +81,9 @@
           "bytes": 4377
         },
         {
-          "path": "template-library/product-promo/vendor/fonts/inter-b37284b5701b.ttf",
-          "sha256": "b37284b5701b6b168dfc770aa1a4ac492106422fd3ba76bc7641e37434e8019c",
-          "bytes": 326468
-        },
-        {
-          "path": "template-library/product-promo/vendor/fonts/inter-d0f4bc7faca4.ttf",
-          "sha256": "d0f4bc7faca468376e3db9b5e57afcdc2192134c9ac82a9511f32767b56853a4",
-          "bytes": 325748
-        },
-        {
-          "path": "template-library/product-promo/vendor/fonts/inter-e7a1aaf7eda9.ttf",
-          "sha256": "e7a1aaf7eda9f2fad4131725fa556265ec75ca7b2d756260173a040363e8d4f7",
-          "bytes": 326048
-        },
-        {
-          "path": "template-library/product-promo/vendor/fonts/inter-eec66af7f233.ttf",
-          "sha256": "eec66af7f2337bd34fe6e801cf92ededcb57a20c0d7bc40a61d4eefcbe3dd40c",
-          "bytes": 327324
-        },
-        {
           "path": "template-library/product-promo/vendor/fonts/inter.css",
-          "sha256": "49e25a73ba83dc58df53dc0035ee9802628d2eba9dfbd91fb1cc4a264ff4199d",
-          "bytes": 1113
+          "sha256": "3bcc7be9069e42c71580f107ec3826752de25eed7ce922726c63bb1583fb051e",
+          "bytes": 162
         },
         {
           "path": "template-library/product-promo/vendor/gsap-3.14.2/LICENSE.txt",
@@ -132,8 +102,8 @@
         },
         {
           "path": "template-library/product-promo/vendor/manifest.json",
-          "sha256": "cfe5ffe56812842702877139a2a0ad223ba862f9e2ccd6b5c37e0e097d783ee0",
-          "bytes": 3642
+          "sha256": "72a8a2fec1b57ed1a8593671b76f4e8f030563424e169ed731c4413d1c72d898",
+          "bytes": 2203
         }
       ]
     },

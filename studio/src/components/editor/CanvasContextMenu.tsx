@@ -35,6 +35,7 @@ import {
   type ZOrderPatch,
 } from "./canvasContextMenuZOrder";
 import { menuClasses } from "../ui/menuStyle";
+import { keyHint, useStudioKeys } from "../../player/components/studioShortcuts";
 
 interface CanvasContextMenuProps {
   /** Viewport x of the right-click event. */
@@ -150,6 +151,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   isolatedZActions,
 }: CanvasContextMenuProps) {
   const { t } = useI18n();
+  const keys = useStudioKeys();
   const menuRef = useContextMenuDismiss(onClose);
 
   // Gate each item group on the presence of its persist handler. Without the
@@ -272,7 +274,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
           }}
         >
           <span>{t("Delete")}</span>
-          <span className="text-neutral-500 text-[10px] ml-3">⌫</span>
+          <span className="text-neutral-500 text-[10px] ml-3">{keyHint("deleteSelectedAlt", keys)}</span>
         </button>
       )}
     </div>,

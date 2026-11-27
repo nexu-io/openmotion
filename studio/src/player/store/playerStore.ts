@@ -112,6 +112,9 @@ interface PlayerState extends PlayerStoreSlices {
 
   /** Multi-select: additional selected elements beyond selectedElementId. */
   selectedElementIds: Set<string>;
+  /** Surface that originated the current selection, used to arbitrate Delete/Backspace. */
+  selectionOrigin: "timeline" | "canvas" | null;
+  setSelectionOrigin: (origin: "timeline" | "canvas" | null) => void;
   clearSelectedElementIds: () => void;
   /** Replace the whole multi-selection at once (marquee live updates). */
   setSelectedElementIds: (ids: Set<string>) => void;
@@ -269,6 +272,7 @@ function selectAroundPlayhead(
   const ids = state.elements.filter((el) => keep(el, playhead)).map((el) => el.key ?? el.id);
   state.setSelectedElementId(ids[0] ?? null);
   state.setSelectedElementIds(new Set(ids));
+  state.setSelectionOrigin(ids.length > 0 ? "timeline" : null);
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -317,6 +321,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setActiveKeyframePct: (pct) => set({ activeKeyframePct: pct }),
 
   selectedElementIds: new Set<string>(),
+  selectionOrigin: null,
+  setSelectionOrigin: (origin) =>
+    set((state) => (state.selectionOrigin === origin ? state : { selectionOrigin: origin })),
   setSelection: (ids, anchor) => set(resolveElementSelection(ids, anchor)),
   addSelectedElementId: (id: string) =>
     set((s) => {
@@ -331,7 +338,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       else next.add(id);
       return resolveElementSelection(next, s.selectedElementId);
     }),
-  clearSelection: () => set({ selectedElementId: null, selectedElementIds: new Set() }),
+  clearSelection: () =>
+    set({ selectedElementId: null, selectedElementIds: new Set(), selectionOrigin: null }),
 
   requestedSeekTime: null,
   requestSeek: (time) => set({ requestedSeekTime: time }),
@@ -534,16 +542,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // `sourceFile#domId`. A direct `===` was silently never true — the exact
       // shape of failure the id-space split produces.
       const revealSurvives = revealTargetsSelection(s.revealedAudioFxTarget, id);
+      const originPatch = id === null && selectedElementIds.size === 0 ? { selectionOrigin: null } : {};
       return id !== s.selectedElementId
         ? {
             selectedElementId: id,
             selectedElementIds,
+            ...originPatch,
             activeKeyframePct: null,
             motionPathArmed: false,
             focusedEaseSegment: null,
             ...(revealSurvives ? {} : { revealedAudioFxTarget: null }),
           }
-        : { selectedElementId: id, selectedElementIds };
+        : { selectedElementId: id, selectedElementIds, ...originPatch };
     }),
   // Move the anchor within an active multi-selection WITHOUT collapsing it — used by
   // DOM->store sync echoes while a group gesture re-patches the preview. A non-member

@@ -61,6 +61,7 @@ export interface CloudTrackingHandle {
     outcome: 'success' | 'failure' | 'cancelled';
     hookId?: string | null;
     entryId?: string | null;
+    deviceId?: string | null;
     userId?: string | null;
     durationMs?: number;
   }): void;
@@ -214,7 +215,7 @@ function sanitizeIdentity(value: string | null | undefined): string | undefined 
   return trimmed.length > 0 && trimmed.length <= MAX_IDENTITY_LENGTH ? trimmed : undefined;
 }
 
-function sanitizeBrowserDeviceId(value: unknown): string | undefined {
+export function sanitizeBrowserDeviceId(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return DEVICE_ID_PATTERN.test(trimmed) ? trimmed : undefined;
@@ -427,6 +428,7 @@ export function createCloudTracking(
     entrypoint: 'mcp' | 'worker';
     properties: Record<string, unknown>;
     userId?: string | null;
+    deviceId?: string | null;
     anonymousId?: string | null;
     eventId?: string;
     occurredAt?: Date;
@@ -450,11 +452,13 @@ export function createCloudTracking(
       params.eventId && uuid.test(params.eventId) ? params.eventId : crypto.randomUUID();
     const occurredAt = params.occurredAt ?? new Date();
     const trimmedUserId = sanitizeIdentity(params.userId);
-    const trimmedAnonId = sanitizeIdentity(params.anonymousId) ?? eventId;
+    const safeDeviceId = sanitizeBrowserDeviceId(params.deviceId);
+    const trimmedAnonId = sanitizeIdentity(params.anonymousId) ?? safeDeviceId ?? eventId;
 
     if (posthogOn && targetTracker) {
       rememberEventIdentity(eventId, {
         distinct_id: trimmedUserId ?? trimmedAnonId,
+        ...(safeDeviceId ? { device_id: safeDeviceId, device_id_source: 'browser' as const } : {}),
         ...(trimmedUserId ? { user_id: trimmedUserId } : {}),
       });
       const status = targetTracker.ingest({
@@ -587,11 +591,12 @@ export function createCloudTracking(
       }
       return accepted;
     },
-    trackWebSignInResult({ outcome, hookId, entryId, userId, durationMs }) {
+    trackWebSignInResult({ outcome, hookId, entryId, deviceId, userId, durationMs }) {
       const attemptId = crypto.randomUUID();
       const safeHook: EntitlementHookId | 'openmotion_editor_login' =
         sanitizeHookId(hookId) ?? 'openmotion_editor_login';
       const safeEntry = sanitizeEntryId(entryId);
+      const safeDeviceId = sanitizeBrowserDeviceId(deviceId);
       const trimmedUserId = sanitizeIdentity(userId);
       const safeAmrUserId = trimmedUserId && CODE_PATTERN.test(trimmedUserId) ? trimmedUserId : undefined;
 
@@ -599,7 +604,8 @@ export function createCloudTracking(
         event: 'account_sign_in_result',
         entrypoint: 'mcp',
         userId: trimmedUserId,
-        anonymousId: safeEntry ?? attemptId,
+        deviceId: safeDeviceId,
+        anonymousId: safeDeviceId ?? safeEntry ?? attemptId,
         tracertEntrypoint: 'api',
         properties: {
           attempt_id: attemptId,

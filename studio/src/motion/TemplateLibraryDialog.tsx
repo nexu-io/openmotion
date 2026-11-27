@@ -1,8 +1,9 @@
 import { IconButton } from 'open-design-ui/icon-button';
 import { CategoryStrip } from './CategoryStrip';
 import { TemplateIndustryMenu } from './TemplateIndustryMenu';
-import { collectionFacet, formatCategories, type TemplateCollection } from './templateCollections';
-import { loadCoveredTemplates, readCachedCoveredTemplates } from './useCoveredTemplates';
+import { collectionFacet, formatCategories, industryCollection, type TemplateCollection } from './templateCollections';
+import { libraryBatchSize, useTemplateLibraryCatalog } from './useTemplateLibraryCatalog';
+import { useLoadMoreOnScroll } from './useLoadMoreOnScroll';
 import { Button } from 'open-design-ui/button';
 import { blackFridayReference, blackFridayTemplates } from '../../../shared/black-friday-collection';
 import { BlackFridayCollection, type BlackFridayFilter } from './BlackFridayCollection';
@@ -17,7 +18,7 @@ import { BrandSeriesCard, BrandStoriesDialog } from './BrandStories';
 import { discoveryInsertions, groupBrandSeries, type BrandSeries } from './brandStoryData';
 import { seriesId, seriesContext, reportSeriesCard, openSeriesView, type SeriesView } from './brandStoryTracking';
 import storyStyles from './BrandStories.module.css';
-import { isEditableTemplate, matchesTemplateCategory, type GalleryTemplate, type TemplatePage } from '../../../shared/catalog';
+import { isEditableTemplate, matchesTemplateCategory, type GalleryTemplate } from '../../../shared/catalog';
 import { templatePrompt, type IntegrationInfo } from '../../../shared/integration';
 import { useI18n } from '../i18n/I18n';
 import { motionApi } from './useWorkspace';
@@ -42,7 +43,9 @@ import { TemplateReferenceDialog, TemplateSearchRecovery } from './TemplateSearc
 import { useTemplateSearchContext } from './useTemplateSearchContext';
 import * as tracking from './templateLibraryTracking';
 import type { DetailView, FilterAction, FilterGroup, Placement, Sort } from './templateLibraryTracking';
-import { TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress } from './TemplateHandoffInfo';
+import { hasDismissedLocalAgentHandoff, TemplateAiMediaPrepStrip, TemplateCopiedHandoffCard, TemplateHandoffSteps, TemplateOpenRecovery, type TemplateOpenProgress } from './TemplateHandoffInfo';
+import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { TemplateDetailReview, TemplateProductionNotes, TemplateGuideReview, TemplateReviewSpecs } from './TemplateDetailReview';
 import { templateHandoffEnabled, templateHandoffPrompt, preparedTemplateProjects, pendingTemplateProjects, rememberTemplateRequest, forgetTemplateRequest, TemplatePreparationBlockedError, findPreparedTemplate, type PreparedTemplateProject } from './templateHandoff';
 import { useAccountSummary } from './AccountSettings';
@@ -84,7 +87,7 @@ function DetailMedia({ template }: { template: GalleryTemplate }) {
 }
 
 
-type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; guestMode?: boolean; onGuestTemplateSignIn?: (templateId: string, requestId: string) => void; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
+type Props = { detailOnly?: boolean; initialTemplate?: GalleryTemplate; collection?: TemplateCollection | null; industry?: string; onCollectionChange?: (value: TemplateCollection | null) => void; collectionSkillOpen?: boolean; onBrowseTemplates?: () => void; onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void; onStartScenario?: () => void; inWorkspace?: boolean; returnFocus?: HTMLElement | null; open: boolean; busy: boolean; openingDisabled?: boolean; guestMode?: boolean; onGuestTemplateSignIn?: (templateId: string, requestId: string) => void; error: string; onClose: () => void; onOpen: (id: string) => void; creators?: boolean; creator?: string | null; onCreatorChange?: (creator: string | null) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string; onPrepareTemplate?: (template: GalleryTemplate, requestId: string) => Promise<PreparedTemplateProject>; onOpenProject?: (id: string) => Promise<boolean> };
 
 /** Full-window discovery using the existing catalog and guarded editable-project actions. */
 function DetailScroll({ enabled, container, children }: { enabled: boolean; container: RefObject<HTMLDivElement | null>; children: ReactNode }) {
@@ -93,6 +96,7 @@ function DetailScroll({ enabled, container, children }: { enabled: boolean; cont
 
 export function TemplateLibraryDialog(props: Props) {
   const { t, locale } = useI18n();
+  const chrome = useOptionalWorkspaceChrome();
   const cloudWeb = useCloudWebMode();
   const { account } = useAccountSummary({ eager: cloudWeb });
   const { detailOnly = false, initialTemplate } = props;
@@ -107,20 +111,24 @@ export function TemplateLibraryDialog(props: Props) {
   const detailInfo = useRef<HTMLDivElement>(null), search = useRef<HTMLInputElement>(null);
   const instructionText = useRef<HTMLElement>(null), libraryShown = useRef(false);
   const [downloading, setDownloading] = useState(false);
-  const [catalog, setCatalog] = useState<GalleryTemplate[]>([]);
-  const [warning, setWarning] = useState(''), [error, setError] = useState(''), [loading, setLoading] = useState(false);
-  const [attempt, retry] = useState(0), [libraryQuery, setLibraryQuery] = useState(''), [sort, setSort] = useState<Sort>('recommended');
+  const [copiedHandoff, setCopiedHandoff] = useState(false);
+  const progressive = Boolean(props.inWorkspace && !detailOnly && !props.creators && !storiesPreview && props.collection !== 'black-friday');
+  const { items: catalog, catalogVersion, complete, loading, error, warning, total, retry } = useTemplateLibraryCatalog(locale, props.open, progressive);
+  const [limit, setLimit] = useState(libraryBatchSize);
+  const [libraryQuery, setLibraryQuery] = useState(''), [sort, setSort] = useState<Sort>('recommended');
   const [facetsSelected, setFacetsSelected] = useState<Filters>({});
   const preset = useMemo(() => collectionFacet(props.collection), [props.collection]);
-  const selected = useMemo<Filters>(() => preset ? { ...facetsSelected, [preset.key]: [preset.value] } : facetsSelected, [preset, facetsSelected]);
+  const selected = useMemo<Filters>(() => ({ ...facetsSelected, ...(preset && { [preset.key]: [preset.value] }),
+    ...(props.industry && { industries: [props.industry] }) }), [preset, facetsSelected, props.industry]);
   function setSelected(next: Filters) {
-    if (preset && next[preset.key]?.length === 1 && next[preset.key]?.[0] === preset.value) {
-      const { [preset.key]: _preset, ...otherFacets } = next;
-      setFacetsSelected(otherFacets);
-    } else {
-      setFacetsSelected(next);
-      if (preset) props.onCollectionChange?.(null);
-    }
+    const local = { ...next };
+    const keepCollection = preset && next[preset.key]?.length === 1 && next[preset.key]?.[0] === preset.value;
+    const retainedIndustry = next.industries?.length === 1 && next.industries[0] === props.industry ? props.industry : undefined;
+    if (keepCollection) delete local[preset.key];
+    if (retainedIndustry) delete local.industries;
+    setFacetsSelected(local);
+    if (preset && !keepCollection) props.onCollectionChange?.(retainedIndustry ? industryCollection(retainedIndustry) : null);
+    else if (props.industry && !retainedIndustry) props.onCollectionChange?.(props.collection ?? null);
   }
   const [preview, setPreview] = useState<GalleryTemplate | null>(null), [prompt, setPrompt] = useState('');
   const [manualCopy, setManualCopy] = useState('');
@@ -277,12 +285,12 @@ export function TemplateLibraryDialog(props: Props) {
     if (!detailOnly) detail.current?.close();
   };
   // Tracking state. Ids tie one detail view, one copy and one search to the events that follow from them.
-  const detailView = useRef<DetailView | undefined>(undefined), searchId = useRef<string | undefined>(undefined), reportedQuery = useRef(''), shown = useRef(false);
+  const detailView = useRef<DetailView | undefined>(undefined), searchId = useRef<string | undefined>(undefined), reportedQuery = useRef('');
   useEffect(() => { if (guideOpen && preview) tracking.reportGuideShown(preview, detailView.current); }, [guideOpen, preview?.id]);
   const pendingResult = useRef<FilterAction | undefined>(undefined), composing = useRef(false), shownCards = useRef(new Set<string>()), instructionShown = useRef<string | undefined>(undefined);
   const [settle, setSettle] = useState(0);
   const [settledKeyword, setSettledKeyword] = useState(''), [searchComposing, setSearchComposing] = useState(false);
-  const [recoveryExpanded, setRecoveryExpanded] = useState(false), [catalogVersion, setCatalogVersion] = useState('');
+  const [recoveryExpanded, setRecoveryExpanded] = useState(false);
   const [referenceTrigger, setReferenceTrigger] = useState<HTMLButtonElement | null>(null);
   const referenceShownFor = useRef<string | undefined>(undefined);
   const searchShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
@@ -312,50 +320,12 @@ export function TemplateLibraryDialog(props: Props) {
   }, [props.open, props.returnFocus, props.inWorkspace, detailOnly]);
   useEffect(() => {
     if (!props.open) return;
-    const cached = readCachedCoveredTemplates(locale, true);
     setBrandStory(null); setFacetsSelected({}); setBrandFilter(false); setCompareWithout(''); setLibraryQuery(''); setCampaignSearch(emptyCampaignSearch); setSettledKeyword(''); setRecoveryExpanded(false); setPreview(null);
     if (dialog.current) detail.current?.close();
     searchId.current = undefined; reportedQuery.current = ''; pendingResult.current = undefined; shownCards.current.clear(); seriesLists.current.clear(); shownSeries.current.clear();
-    if (cached && cached.items.length > 0) {
-      setCatalog(cached.items);
-      setCatalogVersion(cached.catalogVersion ?? '');
-      setWarning(cached.warning ?? '');
-      setError('');
-      setLoading(false);
-      shown.current = true;
-    } else {
-      setCatalog([]);
-      shown.current = false;
-    }
-    const controller = new AbortController();
-    let version: string | undefined = cached?.catalogVersion, pending = false;
-    async function load(background = false) {
-      pending = true;
-      if (!background) { setLoading(true); setError(''); }
-      try {
-        const result = await loadCoveredTemplates(locale, controller.signal);
-        if (!controller.signal.aborted) {
-          version = result.catalogVersion;
-          setWarning(result.warning ?? ''); setCatalog(result.items); setCatalogVersion(version ?? ''); setError(''); shown.current = true;
-        }
-      } catch (err) { if (!controller.signal.aborted && !background) setError((err as Error).message); }
-      finally { pending = false; if (!controller.signal.aborted) setLoading(false); }
-    }
-    void load(Boolean(cached && cached.items.length > 0));
-    const timer = setInterval(async () => {
-      if (pending || document.hidden) return;
-      pending = true;
-      try {
-        const page = await motionApi<TemplatePage>(`/template-catalog?limit=1&locale=${encodeURIComponent(locale)}`, { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        setWarning(page.warning ?? '');
-        if (page.catalogVersion !== version) await load(shown.current);
-      } catch {} finally { pending = false; }
-    }, 5000);
-    return () => { controller.abort(); clearInterval(timer); };
-  }, [props.open, attempt, locale]);
+  }, [props.open, locale]);
   const available = useMemo(() => facets.map(([key, label]) => ({ key, label, values: [...new Set(catalog.flatMap(item => values(item, key)))] })).filter(facet => facet.values.length), [catalog]);
-  const missingTemplate = Boolean(props.templateId && shown.current && !loading && !error && !catalog.some(item => item.id === props.templateId) && !blackFridayReference(props.templateId, locale));
+  const missingTemplate = Boolean(props.templateId && complete && !error && !catalog.some(item => item.id === props.templateId) && !blackFridayReference(props.templateId, locale));
   const categories = orderedPurposes(available.find(facet => facet.key === 'uses')?.values ?? []);
   const industries = available.find(facet => facet.key === 'industries')?.values ?? [];
   const sortOptions = [['recommended', 'Recommended order'], ['name', 'Name A–Z'], ['reverse', 'Name Z–A'], ['duration', 'Duration']] as const;
@@ -370,17 +340,24 @@ export function TemplateLibraryDialog(props: Props) {
     if (props.creators) return props.creator ? searchable.filter(item => templateCredit(item)?.id === props.creator) : [];
     return searchable.filter(item => matchesFilters(item, selected, editableOnly)).sort((a, b) => sort === 'recommended' ? ((scores?.get(b.id) ?? 0) - (scores?.get(a.id) ?? 0) || (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity)) : sort === 'duration' ? (a.duration ?? Infinity) - (b.duration ?? Infinity) : a.title.localeCompare(b.title, locale) * (sort === 'reverse' ? -1 : 1));
   }, [searchable, scores, selected, sort, locale, editableOnly, props.creators, props.creator]);
-  useEffect(() => { if (dialog.current) dialog.current.scrollTop = 0; }, [libraryQuery, selected, sort, editableOnly, brandsOnly, compareWithout, blackFriday]);
+  useEffect(() => {
+    setLimit(libraryBatchSize);
+    if (dialog.current) dialog.current.scrollTop = 0;
+  }, [props.open, locale, libraryQuery, selected, sort, editableOnly, brandsOnly, compareWithout, props.collection]);
   const filterCount = Number(Boolean(format)) + Object.values(selected).flat().length + Number(editableOnly) + Number(brandsOnly) + Number(Boolean(compareWithout));
   const hasAppliedFilters = filterCount > 0;
   const campaignSelection = blackFriday ? activeCampaignFilter ?? 'all' : null;
   const galleryFilterCount = blackFriday ? Number(activeCampaignFilter !== null) : filterCount;
   const searchContextKey = JSON.stringify([campaignSelection, format, normalizedTemplateQuery(query), Object.entries(selected).filter(([, items]) => items?.length).map(([key, items]) => [key, [...items!].sort()]).sort(([a], [b]) => String(a).localeCompare(String(b))), editableOnly, brandsOnly, compareWithout, sort, catalogVersion]);
-  const searchContext = useTemplateSearchContext(props.open && !detailOnly, !loading && shown.current && !error && !searchComposing, searchContextKey, Boolean(query.trim() || galleryFilterCount));
+  const searchContext = useTemplateSearchContext(props.open && !detailOnly, complete && !error && !searchComposing, searchContextKey, Boolean(query.trim() || galleryFilterCount));
   const currentSearchContext = useRef(searchContext); currentSearchContext.current = searchContext;
   // A search id belongs to exactly one keyword: once the box holds something else, events stop carrying it.
   // The list state is read when a handler, timer or effect fires, not when it was scheduled.
   const galleryItems = blackFriday ? campaignItems : visible;
+  const mountedItems = progressive ? galleryItems.slice(0, limit) : galleryItems;
+  const mountedKey = mountedItems.map(item => item.id).join(',');
+  const hasMore = mountedItems.length < galleryItems.length;
+  const sentinel = useLoadMoreOnScroll(dialog, props.open && hasMore && !preview && !referenceTrigger, () => setLimit(count => count + libraryBatchSize), limit);
   const galleryContext = { items: galleryItems, query, sort, filterCount: galleryFilterCount, covered: Boolean(preview || brandStory), blackFriday };
   const latest = useRef(galleryContext); latest.current = galleryContext;
   const listContext = useCallback(() => {
@@ -393,7 +370,7 @@ export function TemplateLibraryDialog(props: Props) {
     const keyword = normalizedTemplateQuery(query);
     if (!keyword) { setSettledKeyword(''); return; }
     if (keyword === reportedQuery.current) { setSettledKeyword(keyword); return; }
-    if (composing.current || loading || error || !shown.current) return;
+    if (composing.current || !complete || error) return;
     const id = tracking.newTrackingId(); reportedQuery.current = keyword; searchId.current = id; setSettledKeyword(keyword);
     currentSearchContext.current.activity();
     tracking.reportSearchResult(id, query, galleryItems.length, { sort, filterCount: galleryFilterCount, ...currentSearchContext.current.read() });
@@ -403,14 +380,14 @@ export function TemplateLibraryDialog(props: Props) {
     if (!query.trim()) { reportedQuery.current = ''; searchId.current = undefined; setSettledKeyword(''); return; }
     const timer = setTimeout(() => settleLatest.current(), 500);
     return () => clearTimeout(timer);
-  }, [query, settle, loading, catalog.length]);
+  }, [query, settle, complete, error, catalog.length]);
   const confirmSearch = () => { if (composing.current || !query.trim()) return; settleSearch(); if (!blackFriday) dialog.current?.scrollTo?.({ top: 0 }); };
   const clearSearch = () => { settleSearch(); tracking.reportRecoveryAction('clear_search', listContext()); setQuery(''); };
   const searchRecoveryActivity = () => { settleSearch(); currentSearchContext.current.activity(); return listContext(); };
   const expandSearchRecovery = () => { searchRecoveryActivity(); setRecoveryExpanded(true); };
   const stableSearch = !searchComposing && (!query.trim() || normalizedTemplateQuery(query) === settledKeyword);
-  const showRecovery = !loading && !error && stableSearch;
-  const showEmptyRecovery = !loading && !error && !visible.length;
+  const showRecovery = complete && !error && stableSearch;
+  const showEmptyRecovery = complete && !error && !visible.length;
   const suggestedRemoval = useMemo(() => {
     if (!showEmptyRecovery || !stableSearch || !hasAppliedFilters || !catalog.length) return;
     const matches = catalog.filter(item => (!format || matchesTemplateCategory(item, format)) && (!compareWithout || item.brand !== compareWithout) && (!scores || scores.has(item.id)));
@@ -428,9 +405,10 @@ export function TemplateLibraryDialog(props: Props) {
   }, [showEmptyRecovery, stableSearch, hasAppliedFilters, format, catalog, scores, t, selected, editableOnly, brandsOnly, compareWithout]);
   // A filter, category or sort result is reported after the changed list has rendered, with the count the user now sees.
   useEffect(() => {
+    if (!complete) return;
     const action = pendingResult.current; pendingResult.current = undefined;
     if (action) tracking.reportFilterResult(action, latest.current.items.length, listContext());
-  }, [selected, sort, libraryQuery, editableOnly, brandsOnly]);
+  }, [selected, sort, libraryQuery, editableOnly, brandsOnly, complete]);
   // One result set per search, filter and sort combination: a card is reported again only when that combination changes.
   // Empty groups are dropped and groups and values sorted, so the same choices always make the same key.
   const resultSet = JSON.stringify([campaignSelection, format, query.trim(), sort, editableOnly, brandsOnly, compareWithout, Object.entries(selected).filter(([, items]) => items?.length).map(([key, items]) => [key, [...items!].sort()]).sort(([a], [b]) => String(a).localeCompare(String(b)))]);
@@ -458,7 +436,7 @@ export function TemplateLibraryDialog(props: Props) {
   };
   const referenceVisible = props.open && !blackFriday && !loading && !error && !query.trim() && visible.length > 0 && !preview && !brandStory && !referenceTrigger;
   useTemplateImpressions(dialog, 'library_home', referenceVisible, searchContextKey, () => referenceSeen(), 'data-reference-entry');
-  useTemplateImpressions(dialog, galleryItems.map(item => item.id).join(','), props.open && !preview && !brandStory, resultSet, cardSeen);
+  useTemplateImpressions(dialog, mountedKey, props.open && !preview && !brandStory, resultSet, cardSeen);
   const brandGroups = useMemo(() => groupBrandSeries(catalog), [catalog]);
   const visibleBrandGroups = useMemo(() => groupBrandSeries(visible), [visible]);
   const insertions = useMemo(() => discoveryInsertions(visible, brandGroups, storiesPreview && !hasFilters, discoverySeed), [visible, brandGroups, storiesPreview, hasFilters, discoverySeed]);
@@ -485,7 +463,7 @@ export function TemplateLibraryDialog(props: Props) {
     brandTrigger.current = element; setBrandStory({ series, view });
   };
   const closeBrand = () => { setBrandStory(null); brandTrigger.current?.focus({ preventScroll: true }); };
-  const active = useTemplatePlayback(dialog, galleryItems.map(item => item.id).join(','), props.open && !preview && !brandStory, true, priority);
+  const active = useTemplatePlayback(dialog, mountedKey, props.open && !preview && !brandStory, true, priority);
   const campaignStage = blackFriday && campaignStages.find(stage => stage.items.some(item => item.id === preview?.id));
   const related = useMemo(() => preview ? (campaignStage ? campaignStage.items.filter(item => item.id !== preview.id)
     : handoffPreview ? relatedTemplatesByTags(preview, catalog) : relatedTemplates(preview, catalog)) : [], [preview, catalog, handoffPreview, campaignStage]);
@@ -612,6 +590,7 @@ export function TemplateLibraryDialog(props: Props) {
     return () => { observer.disconnect(); document.removeEventListener('visibilitychange', report); };
   }, [props.open, preview, prompt, manualCopy, promptExpanded, guideOpen]);
   useEffect(() => {
+    setCopiedHandoff(false);
     if (!preview) return;
     setPromptError(false);
     if (handoffPreview || blackFridayReference(preview.id, locale)) {
@@ -634,11 +613,21 @@ export function TemplateLibraryDialog(props: Props) {
     const template = preview, view = detailView.current, attemptId = tracking.newTrackingId();
     if (template) tracking.reportUseClicked(template, submit ? 'recreate_submit' : 'recreate', view, attemptId);
     try {
-      await navigator.clipboard.writeText(text);
-      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(''); showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info'); }
+      if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
+      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) {
+        setManualCopy('');
+        if (!hasDismissedLocalAgentHandoff()) {
+          setCopiedHandoff(true);
+          if (!cloudWeb) {
+            showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info');
+          }
+        } else {
+          showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info');
+        }
+      }
       if (template) tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view);
     } catch {
-      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(text); setPromptExpanded(true); showToast(handoffPreview ? t('Copy failed. Select the instruction in this section to copy manually, or try again.') : 'Copy failed. Select and copy the instruction below.', 'error', 'feedback'); }
+      if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(text); setCopiedHandoff(false); setPromptExpanded(true); showToast(handoffPreview ? t('Copy failed. Select the instruction in this section to copy manually, or try again.') : 'Copy failed. Select and copy the instruction below.', 'error', 'feedback'); }
       if (template) tracking.reportCopyResult(template, 'manual_fallback_shown', attemptId, submit, view);
     }
   }
@@ -657,10 +646,11 @@ export function TemplateLibraryDialog(props: Props) {
     }
     let copyTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([
-        navigator.clipboard.writeText(text),
+      const copied = await Promise.race([
+        copyTextToClipboard(text),
         new Promise<never>((_, reject) => { copyTimeout = setTimeout(() => reject(new Error('Clipboard permission timed out')), 8000); }),
       ]);
+      if (!copied) throw new Error('Clipboard copy failed');
       showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
       tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view); return null;
     } catch {
@@ -699,6 +689,10 @@ export function TemplateLibraryDialog(props: Props) {
     if (dialog.current) dialog.current.scrollTop = 0;
   };
   const credit = preview && templateCredit(preview);
+  const resultCount = complete ? visible.length : hasFilters ? undefined : total;
+  const countLabel = (count?: number) => count !== undefined ? t('{count} templates', { count }) : loading ? t('Loading templates…') : '';
+  const introCount = complete && storiesPreview && brandsOnly
+    ? t('{brands} brands · {works} works', { brands: visibleBrandGroups.length, works: visible.length }) : countLabel(resultCount);
   const searchPlaceholder = t(blackFriday ? 'Search templates…' : props.creators && !props.creator ? 'Search creators' : 'Search templates, creators, styles…');
   const searchLabel = t(props.creators && !props.creator ? 'Search creators' : 'Search templates');
   const searchField = <label className="om-field om-search-field">
@@ -741,14 +735,14 @@ export function TemplateLibraryDialog(props: Props) {
           <GalleryFilterPopover groups={available.map(group => ({ ...group, values: group.key === 'uses' ? categories : group.values }))}
             open={filtersOpen} onOpenChange={openFilters} draft={draftFilters} onChange={setDraftFilters}
             tab={filterTab} onTabChange={value => setFilterTab(value as Facet)} query={facetQuery} onQueryChange={setFacetQuery}
-            active={Object.values(selected).flat().length + Number(editableOnly) > 0} countLabel={t('{count} templates', { count: draftCount })}
+            active={Object.values(selected).flat().length + Number(editableOnly) > 0} countLabel={countLabel(complete ? draftCount : undefined)}
             hasDraft={hasDraftFilters} onApply={applyFilters} onClear={() => { setDraftFilters({}); setDraftEditable(false); }}
             extra={{ label: 'Ready to edit', checked: draftEditable, onChange: setDraftEditable }}
             renderValue={(key, value) => key === 'brand' ? <Identity template={catalog.find(item => item.brand === value)!} brand /> : null} />
           <GallerySortMenu value={sort} options={sortOptions} onChange={changeSort} />
         </div>
       </div>
-      {hasFilters && <div className={styles.chips}>{format && <Button variant="plain" onClick={() => props.onCollectionChange?.(null)} aria-label={t('Remove filter {value}', { value: t(formatCategories[format]) })}>{t(formatCategories[format])}<MotionIcon name="close" size={12} /></Button>}{brandsOnly && <Button variant="plain" onClick={() => chooseBrands(false)} aria-label={t('Remove filter {value}', { value: t('TOP 100 brands') })}>{t('TOP 100 brands')}<MotionIcon name="close" size={12} /></Button>}{query && <Button variant="plain" onClick={clearSearch} aria-label={t('Remove filter {value}', { value: query })}><MotionIcon name="search" size={12} />{query}<MotionIcon name="close" size={12} /></Button>}{facets.flatMap(([key]) => (selected[key] ?? []).map(value => <Button variant="plain" key={key + value} onClick={() => toggle(key, value)} aria-label={t('Remove filter {value}', { value: t(value) })}>{key === 'brand' ? value : t(value)}<MotionIcon name="close" size={12} /></Button>))}{compareWithout && <Button variant="plain" onClick={() => setCompareWithout('')}>{t('Excluding {brand}', { brand: compareWithout })}<MotionIcon name="close" size={12} /></Button>}{editableOnly && <Button variant="plain" onClick={() => toggleEditable(false)}>{t('Ready to edit')}<MotionIcon name="close" size={12} /></Button>}{hasAppliedFilters && <Button variant="plain" onClick={reset}>{t('Clear filters')}</Button>}<span>{t('{count} templates', { count: visible.length })}</span></div>}
+      {hasFilters && <div className={styles.chips}>{format && <Button variant="plain" onClick={() => props.onCollectionChange?.(null)} aria-label={t('Remove filter {value}', { value: t(formatCategories[format]) })}>{t(formatCategories[format])}<MotionIcon name="close" size={12} /></Button>}{brandsOnly && <Button variant="plain" onClick={() => chooseBrands(false)} aria-label={t('Remove filter {value}', { value: t('TOP 100 brands') })}>{t('TOP 100 brands')}<MotionIcon name="close" size={12} /></Button>}{query && <Button variant="plain" onClick={clearSearch} aria-label={t('Remove filter {value}', { value: query })}><MotionIcon name="search" size={12} />{query}<MotionIcon name="close" size={12} /></Button>}{facets.flatMap(([key]) => (selected[key] ?? []).map(value => <Button variant="plain" key={key + value} onClick={() => toggle(key, value)} aria-label={t('Remove filter {value}', { value: t(value) })}>{key === 'brand' ? value : t(value)}<MotionIcon name="close" size={12} /></Button>))}{compareWithout && <Button variant="plain" onClick={() => setCompareWithout('')}>{t('Excluding {brand}', { brand: compareWithout })}<MotionIcon name="close" size={12} /></Button>}{editableOnly && <Button variant="plain" onClick={() => toggleEditable(false)}>{t('Ready to edit')}<MotionIcon name="close" size={12} /></Button>}{hasAppliedFilters && <Button variant="plain" onClick={reset}>{t('Clear filters')}</Button>}<span>{countLabel(resultCount)}</span></div>}
     </div>}
     {blackFriday && !props.creators ? <BlackFridayCollection templates={campaignItems}
       featuredPreviewsEnabled={props.open && !preview && !props.collectionSkillOpen} onBack={props.onClose}
@@ -759,11 +753,11 @@ export function TemplateLibraryDialog(props: Props) {
       </div>}
       active={active} onPreview={openCard} onPriority={setPriority} onOpenSkill={props.onOpenSkill} onStartScenario={props.onStartScenario} />
     : props.creators ? <TemplateCreators catalog={catalog} creator={props.creator ?? null} query={query} searchActions={searchActions} works={visible} loading={loading}
-      error={error} retry={() => retry(value => value + 1)} choose={chooseCreator} open={openCard} active={active} onPriority={setPriority} /> :
+      error={t(error)} retry={retry} choose={chooseCreator} open={openCard} active={active} onPriority={setPriority} /> :
     <main className={styles.results} aria-busy={loading}>
       {missingTemplate && <div className={styles.empty} role="alert"><p>{t('This template is no longer available.')}</p><Button variant="plain" onClick={closeDetail}>{t('View all templates')}</Button></div>}
       <div className={storiesPreview && brandsOnly ? storyStyles.brandGrid : styles.grid}>
-        {!showEmptyRecovery && <GalleryIntro eyebrow={storiesPreview && brandsOnly ? t('TOP 100 / Brand series') : t('Made to move.')} title={storiesPreview && brandsOnly ? t('Find ideas for your next launch.') : t('Find your next motion.')} description={storiesPreview && brandsOnly ? t('Browse by brand and follow their launches over time. Pick a video and make it your own.') : t('Explore the details. Find a direction. Make it your own.')} count={loading && !catalog.length ? t('Loading templates…') : storiesPreview && brandsOnly ? t('{brands} brands · {works} works', { brands: visibleBrandGroups.length, works: visible.length }) : t('{count} templates', { count: visible.length })} disabled={!visible.length || loading} onSurprise={surprise} submitLabel={t('Submit template')} submitUrl={templateContributionUrl} onSubmit={() => tracking.reportDiscoveryClick('submit_video', listContext())}
+        {!showEmptyRecovery && <GalleryIntro eyebrow={storiesPreview && brandsOnly ? t('TOP 100 / Brand series') : t('Made to move.')} title={storiesPreview && brandsOnly ? t('Find ideas for your next launch.') : t('Find your next motion.')} description={storiesPreview && brandsOnly ? t('Browse by brand and follow their launches over time. Pick a video and make it your own.') : t('Explore the details. Find a direction. Make it your own.')} count={introCount} disabled={!visible.length || !complete} onSurprise={surprise} submitLabel={t('Submit template')} submitUrl={templateContributionUrl} onSubmit={() => tracking.reportDiscoveryClick('submit_video', listContext())}
           afterActions={!query.trim() && <div className={`om-media-detail-actions ${styles.referenceEntry}`}>
             <span className={styles.referenceEntryLabel}>{t('Nothing suitable?')}</span>
             <Button variant="ghost" type="button" className="om-button h-auto" data-reference-entry="library_home" aria-haspopup="dialog" aria-label={t('Paste a video link to make your own')} onClick={event => {
@@ -776,10 +770,11 @@ export function TemplateLibraryDialog(props: Props) {
             </Button>
           </div>} />}
         {loading && !catalog.length && Array.from({ length: 12 }, (_, index) => <div key={index} className={styles.skeletonCard} aria-hidden="true"><Skeleton style={{ aspectRatio: [1.35, 1.78, 1, 1.78][index % 4] }} /><div><Skeleton style={{ width: 28, height: 28, borderRadius: '50%' }} /><Skeleton style={{ width: '55%', height: 9 }} /></div></div>)}
-        {storiesPreview && brandsOnly ? visibleBrandGroups.map(series => <BrandSeriesCard key={series.name} series={series} onOpen={(group, element) => openBrand(group, element, 'top100')} />) : visible.map((item, index) => <Fragment key={item.id}>{insertions.get(index) && <BrandSeriesCard series={insertions.get(index)!} discovery onOpen={(group, element) => openBrand(group, element, 'discovery')} />}<TemplateCard template={item} onSelect={openCard} active={active.has(item.id)} onPriority={setPriority} /></Fragment>)}
+        {storiesPreview && brandsOnly ? visibleBrandGroups.map(series => <BrandSeriesCard key={series.name} series={series} onOpen={(group, element) => openBrand(group, element, 'top100')} />) : mountedItems.map((item, index) => <Fragment key={item.id}>{insertions.get(index) && <BrandSeriesCard series={insertions.get(index)!} discovery onOpen={(group, element) => openBrand(group, element, 'discovery')} />}<TemplateCard template={item} onSelect={openCard} active={active.has(item.id)} onPriority={setPriority} /></Fragment>)}
       </div>
+      {hasMore && <div ref={sentinel} className="om-shelf-sentinel" aria-hidden="true" />}
       {loading && !catalog.length && <span className={styles.visuallyHidden} role="status">{t('Loading templates…')}</span>}
-      {error && <div className={styles.empty} role="alert"><p>{t(error)}</p><Button variant="plain" onClick={() => retry(value => value + 1)}>{t('Retry')}</Button></div>}
+      {error && <div className={styles.empty} role="alert"><p>{t(error)}</p><Button variant="plain" onClick={retry}>{t('Retry')}</Button></div>}
       {showEmptyRecovery && !showRecovery && <div className={styles.empty} role="status">
         <p>{t('No templates match the current conditions.')}</p>
         {(query.trim() || hasAppliedFilters) && <Button variant="ghost" className="om-button h-auto" onClick={() => {
@@ -790,7 +785,7 @@ export function TemplateLibraryDialog(props: Props) {
       </div>}
       {props.open && <div data-search-recovery="" hidden={!showRecovery}>
         <TemplateSearchRecovery visible={showRecovery} query={query} context={listContext()} reason={!catalog.length ? 'catalog_empty' : showEmptyRecovery ? 'no_results' : 'unsuitable'} expanded={showEmptyRecovery || recoveryExpanded}
-          searchAction={showEmptyRecovery && (!catalog.length ? <Button variant="ghost" className="om-button h-auto" onClick={() => retry(value => value + 1)}>{t('Reload')}</Button>
+          searchAction={showEmptyRecovery && (!catalog.length ? <Button variant="ghost" className="om-button h-auto" onClick={retry}>{t('Reload')}</Button>
             : suggestedRemoval ? <Button variant="ghost" className="om-button h-auto" onClick={() => {
               if (suggestedRemoval.key === 'editable') toggleEditable(false);
               else if (suggestedRemoval.key === 'top') chooseBrands(false);
@@ -819,7 +814,7 @@ export function TemplateLibraryDialog(props: Props) {
       {detailOnly && !preview && <div className={styles.empty}>
         {error || missingTemplate ? <p role="alert">{t(error || 'This template is no longer available.')}</p>
           : <p role="status">{t('Loading preview…')}</p>}
-        {error && <Button type="button" variant="secondary" className="om-button" onClick={() => retry(value => value + 1)}>{t('Retry')}</Button>}
+        {error && <Button type="button" variant="secondary" className="om-button" onClick={retry}>{t('Retry')}</Button>}
         <Button type="button" variant="secondary" className="om-button" onClick={closeDetail}>{t('Close template preview')}</Button>
       </div>}
       {preview && <>{(!handoffPreview || !guideOpen) && <DetailScroll enabled={handoffPreview} container={reviewScroll}><div className={`${styles.detailGrid} ${handoffPreview ? styles.reviewGrid : ''}`}>
@@ -859,7 +854,7 @@ export function TemplateLibraryDialog(props: Props) {
             </section>}
             {!handoffPreview && preview.description && <p className={styles.description}>{preview.description}</p>}
             {handoffPreview && <>
-              <TemplateDetailReview template={preview} onCopyColor={color => { tracking.reportDetailAction(preview, 'copy_color', detailView.current); void navigator.clipboard.writeText(color).then(() => showToast(t('Copied {color}', { color }), 'info')).catch(() => showToast(t('Could not copy color. Try again.'), 'error')); }} onFilter={filterBy} />
+              <TemplateDetailReview template={preview} onCopyColor={color => { tracking.reportDetailAction(preview, 'copy_color', detailView.current); void copyTextToClipboard(color).then(ok => showToast(ok ? t('Copied {color}', { color }) : t('Could not copy color. Try again.'), ok ? 'info' : 'error')); }} onFilter={filterBy} />
             </>}
             <section ref={instructionText} className={`${styles.instruction} ${handoffPreview ? styles.reviewCreation : ''}`} aria-label={t(handoffPreview ? 'Template recreation instruction' : 'Template instruction')}><header><h3>{t(handoffPreview ? 'Template recreation instruction' : 'Template instruction')}</h3>
               {handoffPreview && <Popover key={preview.id} container={detail} align="end" openOnHover aria-label={t('After copying')} className={styles.handoffPopover} initialFocus={false} onOpenChange={open => { if (open) tracking.reportDetailAction(preview, 'handoff_help', detailView.current); }}
@@ -868,11 +863,13 @@ export function TemplateLibraryDialog(props: Props) {
               </Popover>}
             </header>{(manualCopy ? <textarea className={styles.manualCopy} readOnly rows={8} value={manualCopy} aria-label={t('Content to copy')} onFocus={event => event.currentTarget.select()} /> : prompt ? <p className={promptExpanded ? styles.fullInstruction : styles.shortInstruction}>{prompt}</p> : promptError ? <div className={styles.promptFailure} role="status">{t('Could not load the instruction.')}<Button variant="plain" onClick={() => retryPrompt(value => value + 1)}>{t('Retry')}</Button></div> : <div className={styles.promptSkeleton} role="status" aria-label={t('Loading instruction…')}>{[100, 94, 100, 86, 62].map((width, index) => <Skeleton key={index} style={{ width: `${width}%`, height: 10 }} />)}</div>)}<Button variant="plain" disabled={!prompt} className={`om-text-link ${styles.expandInstruction}`} data-quiet aria-expanded={promptExpanded} onClick={() => { tracking.reportInstructionExpanded(preview, !promptExpanded, detailView.current); setPromptExpanded(!promptExpanded); }}>{t(promptExpanded ? 'Show less' : 'Show instruction')}<MotionIcon name="chevron-down" size={14} /></Button></section>
             {!handoffPreview && <div className={styles.actions}>
-              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
+              {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } closeDetail(); props.onOpen(preview.id); }}>{t(cloudWeb ? 'Open and edit in cloud' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
               <div className={styles.recreateActions}>
-                <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t('Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
+                <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
                 <Tooltip withinDialog wrap label={t('Recreate and submit')}><IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} onClick={() => void copy(true)} aria-label={t('Recreate and submit')} icon={<MotionIcon name="git-branch" size={17} />} /></Tooltip>
               </div>
+              {copiedHandoff && <TemplateCopiedHandoffCard mode={cloudWeb ? 'cloud' : 'local'} onOpenConnections={chrome ? () => { closeDetail(); chrome.openConnections('home_composer'); } : undefined} onDismiss={() => setCopiedHandoff(false)} />}
+              {chrome && <TemplateAiMediaPrepStrip pageName="studio" templateId={preview.id} onGenerate={() => { closeDetail(); chrome.openAssets(); }} />}
             </div>}
             {!handoffPreview && <div className={styles.resourceLinks}>
               {!handoffPreview && <a className={`om-text-link ${styles.repositoryLink}`} data-quiet href={templateRepositoryUrl(preview)} target="_blank" rel="noreferrer" onClick={() => tracking.reportDetailLink(preview, 'view_repository', detailView.current)}><GithubLogo size={16} weight="fill" aria-hidden="true" />{t('View on GitHub')}</a>}
@@ -893,14 +890,16 @@ export function TemplateLibraryDialog(props: Props) {
             {handoffPreview && <TemplateProductionNotes template={preview} onGuide={() => { tracking.reportDetailAction(preview, 'view_guide', detailView.current); setGuideOpen(true); }} />}
           </div>
           {handoffPreview && <div ref={reviewFooter} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
+              {copiedHandoff && <TemplateCopiedHandoffCard mode={cloudWeb ? 'cloud' : 'local'} onOpenConnections={chrome ? () => { closeDetail(); chrome.openConnections('home_composer'); } : undefined} onDismiss={() => setCopiedHandoff(false)} />}
               <div className={styles.handoffActions}>
-                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
+                {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => { if (props.guestMode && props.onGuestTemplateSignIn) { props.onGuestTemplateSignIn(preview.id, crypto.randomUUID()); return; } if (cloudWeb && account?.state === 'signed-out') { openEntitlementModal({ mode: 'guest', hookId: 'template_use' }); return; } void prepareProject(preview); }}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : cloudWeb ? 'Open and edit in cloud' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
                 <div className={styles.recreateActions}>
-                  <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t('Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
+                  <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>
                     <IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} aria-label={t('Copy contribution brief')} onClick={() => void copy(true)} icon={<MotionIcon name="git-branch" size={17} />} />
                   </Tooltip>
                 </div>
+                {chrome && <TemplateAiMediaPrepStrip pageName="studio" templateId={preview.id} onGenerate={() => { closeDetail(); chrome.openAssets(); }} />}
               </div>
               <TemplateOpenRecovery progress={projectProgress[preview.id]} onRetry={() => { tracking.reportDetailAction(preview, 'retry_template_project', detailView.current); void prepareProject(preview); }} onCheck={() => void checkProject(preview)} onOpen={() => { tracking.reportDetailAction(preview, 'open_prepared_project', detailView.current); const result = projectProgress[preview.id]?.result; if (result) void revealProject(preview, result); }} />
           </div>}

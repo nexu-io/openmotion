@@ -3,6 +3,7 @@ import { inspectIsolatedElement } from "../components/editor/isolatedInspector";
 import type { DomEditSelection } from "../components/editor/domEditing";
 import { projectPreviewAdapter } from "../player/lib/projectPreviewAdapter";
 import { onPreviewContentReplaced, previewContentGeneration } from "../player/sceneSwap";
+import { usePlayerStore } from "../player/store/playerStore";
 import type { UseDomSelectionParams } from "./useDomSelectionTypes";
 
 type PickIdentity = Parameters<typeof inspectIsolatedElement>[1];
@@ -36,6 +37,7 @@ export function useIsolatedCanvasPick({
       if (disposed || next === undefined || pending.current !== pick || pick.sequence !== selectionSequence.current ||
           frame !== previewIframeRef.current || previewContentGeneration(frame) !== generation) return;
       pending.current = null;
+      usePlayerStore.getState().setSelectionOrigin(next ? "canvas" : null);
       if (pick.additive && next) apply(next, { additive: true });
       else apply(next);
     }

@@ -274,6 +274,31 @@ describe("trackDocumentAssetReadiness", () => {
     }
   });
 
+  it.each(["loaded", "error"] as const)("reconciles a timed-out font with its final browser status %s in both trackers", async status => {
+    const doc = makeDocument();
+    const face = { status: "loading" };
+    const ready = Promise.withResolvers<void>();
+    const fonts = Object.assign(new Set([face]), { status: "loading", ready: ready.promise });
+    Object.defineProperty(doc, "fonts", { value: fonts });
+    const progress: PreviewAssetProgress[] = [];
+    const local = trackDocumentAssetReadiness(doc, window, update => progress.push(update));
+    const isolated = new Function("document", "window", `${PREVIEW_ASSET_READINESS}\nreturn createAssetTracker();`)(doc, window);
+    try {
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(progress.at(-1)?.failed[0]?.reason).toBe("timeout");
+      expect(isolated.snapshot()).toEqual(progress.at(-1));
+      face.status = status;
+      fonts.status = "loaded"; // FontFaceSet.ready resolves even when a face fails to decode.
+      ready.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(progress.at(-1)?.failed.map(f => f.reason)).toEqual(status === "error" ? ["error"] : []);
+      expect(isolated.snapshot()).toEqual(progress.at(-1));
+    } finally {
+      local.dispose();
+      isolated.dispose();
+    }
+  });
+
   it("retries transient image errors with backoff and succeeds without failing the editor", async () => {
     const doc = makeDocument();
     const img = makeImg(doc, "/assets/flaky.jpg");

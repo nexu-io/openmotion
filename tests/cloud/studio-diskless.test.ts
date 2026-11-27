@@ -558,7 +558,8 @@ class MockStorage implements StoragePort {
   async presignGet(key: string, opts?: PresignGetOptions): Promise<string> {
     this.presignGetCalls++;
     const disp = opts?.responseContentDisposition ? `&disp=${encodeURIComponent(opts.responseContentDisposition)}` : '';
-    return `https://s3.local/${key}?sig=get${disp}`;
+    const windowPart = opts?.cacheWindowSec !== undefined ? `&window=${opts.cacheWindowSec}` : '';
+    return `https://s3.local/${key}?sig=get${disp}${windowPart}`;
   }
   async ensureBucketAndCors(): Promise<void> {}
 }
@@ -1593,6 +1594,22 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(getRenderView.status, 302);
     assert.equal(getRenderView.headers.get('cache-control'), 'private, max-age=60');
     assert.equal(getRenderView.headers.get('vary'), 'Origin, Cookie');
+
+    const getRenderFrame = await env.studioApp.request(`/api/render/${jobId}/view?frame=1`);
+    assert.equal(getRenderFrame.status, 302);
+    assert.equal(getRenderFrame.headers.get('cache-control'), 'private, max-age=60');
+    assert.notEqual(getRenderFrame.headers.get('location'), getRenderView.headers.get('location'));
+    const frameLocation = new URL(getRenderFrame.headers.get('location')!);
+    assert.equal(frameLocation.searchParams.get('disp'), 'inline');
+    assert.equal(frameLocation.searchParams.get('window'), null);
+
+    const getRenderFrameRetry = await env.studioApp.request(`/api/render/${jobId}/view?frame=1&retry=1`);
+    assert.equal(getRenderFrameRetry.status, 302);
+    assert.equal(getRenderFrameRetry.headers.get('cache-control'), 'no-store');
+    const retryLocation = new URL(getRenderFrameRetry.headers.get('location')!);
+    assert.equal(retryLocation.searchParams.get('disp'), 'inline');
+    assert.equal(retryLocation.searchParams.get('window'), '0');
+    assert.notEqual(getRenderFrameRetry.headers.get('location'), getRenderFrame.headers.get('location'));
 
     const getRenderDownload = await env.studioApp.request(`/api/render/${jobId}/download`);
     assert.equal(getRenderDownload.status, 302);

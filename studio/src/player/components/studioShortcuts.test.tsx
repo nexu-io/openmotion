@@ -93,6 +93,15 @@ describe("studio key resolver", () => {
     expect(getStudioKey("mute")).toBe("x");
   });
 
+  it("keeps Backspace dedicated to deleting clips and separates resetKeyframes onto Shift+Backspace", () => {
+    expect(DEFAULT_STUDIO_KEYS.deleteSelectedAlt).toBe("Backspace");
+    expect(DEFAULT_STUDIO_KEYS.resetKeyframes).toBe("shift+Backspace");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setStudioKeys({ resetKeyframes: "Backspace" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(getStudioKey("resetKeyframes")).toBe("shift+Backspace");
+  });
+
   it("re-renders a component using the hook when the host swaps the map", () => {
     function Probe() {
       return <span data-probe>{useStudioKeys().razorTool}</span>;

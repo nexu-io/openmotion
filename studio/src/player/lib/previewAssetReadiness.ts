@@ -278,12 +278,14 @@ export function trackDocumentAssetReadiness(
   // 1. Fonts
   const fonts = (doc as Document & { fonts?: FontFaceSet }).fonts;
   if (fonts && fonts.size > 0) {
+    // FontFaceSet.ready resolves after both successful downloads and decode errors.
+    const fontFailure = () => Array.from(fonts).some(face => face.status === "error") ? "error" : null;
     const item: TrackedAssetItem = {
       id: "fonts",
       label: "Fonts",
       kind: "font",
       settled: fonts.status === "loaded",
-      failedReason: null,
+      failedReason: fontFailure(),
     };
     items.push(item);
     if (!item.settled) {
@@ -293,11 +295,11 @@ export function trackDocumentAssetReadiness(
       void Promise.resolve(fonts.ready).then(
         () => {
           cancelTimer();
-          if (!item.settled) settleItem(item, null);
+          settleItem(item, fontFailure());
         },
         () => {
           cancelTimer();
-          if (!item.settled) settleItem(item, "error");
+          settleItem(item, "error");
         },
       );
     }

@@ -9,6 +9,8 @@ import { MAX_TEMPLATE_PLAYERS } from './useTemplatePlayback';
 import { validProperties } from '../../../tracking/core.ts';
 import { studioEvents } from '../../../tracking/events.ts';
 import { TemplatePreparationBlockedError, pendingTemplateProjects } from './templateHandoff';
+import { clearAllSwrCache, readSwrCache, setSwrCacheEnabledForTests, writeSwrCache } from './swrCache';
+import { readCachedCoveredTemplates, useCoveredTemplates } from './useCoveredTemplates';
 
 const tracked = vi.hoisted(() => [] as { event: string; properties: Record<string, unknown> }[]);
 vi.mock('./tracking', () => ({ trackMotion: async (event: string, properties: Record<string, unknown>) => { tracked.push({ event, properties }); return 'queued'; } }));
@@ -75,6 +77,144 @@ async function fill(element: HTMLInputElement | HTMLTextAreaElement, value: stri
 const searchInput = () => host.querySelector<HTMLInputElement>('input[type=search]')!;
 const confirmSearch = () => act(async () => searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
 const clearKeyword = () => act(async () => button(`Remove filter ${searchInput().value}`).click());
+
+function mountWorkspace(templateId?: string) {
+  return act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open inWorkspace busy={false}
+    templateId={templateId} error="" onClose={() => {}} onOpen={() => {}} /></I18nProvider>));
+}
+
+it('renders a small first page, searches later pages and mounts more cards near the end of the gallery', async () => {
+  const catalog = Array.from({ length: 40 }, (_, index) => ({ ...items[1], id: `item-${index}`, sortOrder: index,
+    title: index === 39 ? 'Talking Head Animation' : `Template ${index}`, uses: index >= 16 ? ['Brand promotion'] : ['Product launch'] }));
+  let finish!: (response: Response) => void;
+  const limits: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    const url = new URL(input, location.origin);
+    if (!url.pathname.endsWith('/template-catalog')) return Response.json({});
+    limits.push(url.searchParams.get('limit')!);
+    if (url.searchParams.get('offset') === '16') return new Promise<Response>(resolve => { finish = resolve; });
+    return Response.json({ items: catalog.slice(0, 16), total: 40, next: 16, catalogVersion: 'v1' });
+  }));
+  await mountWorkspace();
+  expect(limits).toEqual(['16', '60']);
+  expect(cards()).toHaveLength(16);
+  expect(host.textContent).toContain('40 templates');
+  await search('animaton');
+  await confirmSearch();
+  expect(cards()).toEqual([]);
+  expect(host.textContent).not.toContain('0 templates');
+  expect(host.textContent).not.toContain('No templates match');
+  expect(tracked.some(row => row.event === 'template_search_result' || row.properties.result_count === 0)).toBe(false);
+  await act(async () => finish(Response.json({ items: catalog.slice(16), total: 40, next: null, catalogVersion: 'v1' })));
+  expect(cards()).toEqual(['item-39']);
+  await confirmSearch();
+  expect(tracked.find(row => row.event === 'template_search_result')?.properties.result_count).toBe(1);
+  await search('');
+  expect(cards()).toHaveLength(16);
+  const scroll = Observer.instances.findLast(item => !item.disconnected && item.elements.some(el => el.classList.contains('om-shelf-sentinel')))!;
+  expect(scroll.options?.root).toBe(host.querySelector('[data-motion-template-library]'));
+  await act(async () => scroll.emit());
+  expect(cards()).toHaveLength(32);
+  expect(host.textContent).toContain('40 templates');
+  expect(Observer.instances.some(item => !item.disconnected && item.elements.some(el => el.getAttribute('data-template-id') === 'item-31'))).toBe(true);
+  await act(async () => button('Brand & company films').click());
+  expect(cards()).toHaveLength(16);
+  expect(cards()[0]).toBe('item-16');
+  expect(host.textContent).toContain('24 templates');
+  await act(async () => { button('Sort').click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  await act(async () => [...host.querySelectorAll<HTMLElement>('[role=menuitemradio]')].find(item => item.textContent === 'Name A–Z')!.click());
+  expect(cards()[0]).toBe('item-39');
+});
+
+it('keeps cold builtins usable, preserves a search through failure, and recovers without scrolling', async () => {
+  vi.useFakeTimers();
+  setSwrCacheEnabledForTests(true);
+  const key = 'template-catalog:en:1';
+  const first = { ...items[1], id: 'fallback', kind: 'builtin' };
+  const cold = { items: [first], total: 1, next: null, catalogVersion: 'builtin', source: 'prism', catalogReady: false };
+  let requests = 0;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (!url.includes('/template-catalog')) return Response.json({});
+    requests++;
+    if (requests === 1) return Response.json(cold);
+    if (requests === 2) throw new Error('Offline');
+    return Response.json({ items, total: items.length, next: null, catalogVersion: 'recovered' });
+  }));
+  try {
+    await mountWorkspace('three');
+    expect(cards()).toEqual(['fallback']);
+    expect(host.textContent).not.toContain('This template is no longer available.');
+    expect(host.textContent).not.toContain('1 templates');
+    expect(button('Retry')).toBeTruthy();
+    expect(readSwrCache('public', key)).toBeNull();
+    await search('First');
+    await act(async () => button('Retry').click());
+    expect(host.textContent).toContain('Templates could not be loaded.');
+    expect(searchInput().value).toBe('First');
+    expect(readSwrCache('public', key)).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(cards()).toEqual(['one']);
+    expect(button('Retry')).toBeUndefined();
+    expect(readCachedCoveredTemplates('en')?.catalogVersion).toBe('recovered');
+  } finally { clearAllSwrCache(); setSwrCacheEnabledForTests(null); vi.useRealTimers(); }
+});
+
+it('keeps a complete snapshot through a legacy cold HTTP response and a changed version between pages', async () => {
+  vi.useFakeTimers();
+  setSwrCacheEnabledForTests(true);
+  const key = 'template-catalog:en:1';
+  const complete = { items, catalogVersion: 'previous' };
+  let requests = 0;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (!url.includes('/template-catalog')) return Response.json({});
+    requests++;
+    if (requests === 1) return Response.json({ source: 'prism', items: [], next: null, catalogVersion: 'builtin' });
+    if (requests === 2) return Response.json({ items: [items[0]], next: 1, total: 2, catalogVersion: 'next' });
+    if (requests === 3) return Response.json({ items: [items[1]], next: null, total: 2, catalogVersion: 'changed' });
+    return Response.json({ items: [items[2]], next: null, total: 1, catalogVersion: 'changed' });
+  }));
+  try {
+    for (const covered of [true, false]) {
+      writeSwrCache('public', `template-catalog:en:${Number(covered)}`, { items: [], catalogVersion: 'builtin' });
+      expect(readCachedCoveredTemplates('en', covered)).toBeNull();
+    }
+    writeSwrCache('public', key, complete);
+    await mountWorkspace();
+    expect(button('Retry')).toBeTruthy();
+    expect(cards()).toHaveLength(3);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(cards()).toHaveLength(3);
+    expect(readSwrCache('public', key)).toEqual(complete);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(cards()).toEqual(['three']);
+    expect(readCachedCoveredTemplates('en')?.catalogVersion).toBe('changed');
+  } finally { clearAllSwrCache(); setSwrCacheEnabledForTests(null); vi.useRealTimers(); }
+});
+
+it('recovers the shared Motion shelf after a cold catalog followed by a failed request', async () => {
+  vi.useFakeTimers();
+  let requests = 0;
+  const fallback = { ...items[0], id: 'builtin', kind: 'builtin' };
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    requests++;
+    if (requests === 2) throw new Error('Offline');
+    return Response.json({ source: 'prism', catalogVersion: 'builtin', catalogReady: requests > 2, next: null, total: 1, items: [fallback] });
+  }));
+  function Shelf() {
+    const { catalog, firstPage, failed } = useCoveredTemplates('en', true, { covered: false, showFirstPage: true });
+    return <output>{JSON.stringify({ catalog, firstPage, failed })}</output>;
+  }
+  const state = () => JSON.parse(host.querySelector('output')!.textContent!);
+  try {
+    await act(async () => root.render(<Shelf />));
+    expect(state()).toMatchObject({ catalog: null, firstPage: { items: [fallback], catalogReady: false }, failed: true });
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(state().firstPage.items).toEqual([fallback]);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(state()).toMatchObject({ catalog: [fallback], failed: false });
+  } finally { vi.useRealTimers(); }
+});
+
 it('finds multilingual and misspelled queries in later catalog pages', async () => {
   const later = { ...items[0], id: 'later', title: 'Talking Head Animation' };
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
@@ -819,6 +959,7 @@ it.each([
   runtime.content = 'cloud-diskless';
   document.head.append(runtime);
   sessionStorage.removeItem('motion.template-handoff.preview');
+  localStorage.removeItem('openmotion.local-agent-handoff.dismissed');
   const request = vi.fn(async (url: string) => url.endsWith('/integration')
     ? new Response('', { status: 401 })
     : Response.json({ items: [{ ...items[1], title, id }], catalogVersion: 'v1', next: null }));
@@ -827,9 +968,12 @@ it.each([
     await mount();
     await act(async () => preview(title));
     expect(host.querySelector('[aria-label="Template recreation instruction"]')?.textContent).toContain(id);
-    await act(async () => button('Recreate this template').click());
+    await act(async () => button('Copy for local Agent').click());
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(title));
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(location.origin + '/install.md'));
+    const handoffCard = host.querySelector('[aria-label="Copied — next step in your local Agent"]');
+    expect(handoffCard?.textContent).toContain('30s plugin install guide');
+    expect(handoffCard?.querySelector('a')?.getAttribute('href')).toBe(location.origin + '/install.md');
     expect(request.mock.calls.some(([url]) => url.endsWith('/integration'))).toBe(false);
   } finally { runtime.remove(); }
 });
@@ -1430,6 +1574,7 @@ it('reconciles a retained request after remount without minting a new creation i
 
 it('keeps a delayed handoff result tied to its initiating detail and does not switch a later selection', async () => {
   sessionStorage.removeItem('motion.template-handoff.preview');
+  localStorage.removeItem('openmotion.local-agent-handoff.dismissed');
   let finish!: (value: any) => void;
   const prepare = vi.fn((_template, _requestId) => new Promise<any>(resolve => { finish = resolve; }));
   const open = vi.fn().mockResolvedValue(true);
@@ -1451,6 +1596,7 @@ it('preserves the TOP100 detail and return path alongside the regular template h
   const previous = location.href;
   history.replaceState({}, '', '/?brandStoriesPreview=1');
   sessionStorage.removeItem('motion.template-handoff.preview');
+  localStorage.removeItem('openmotion.local-agent-handoff.dismissed');
   try {
     await mount();
     await act(async () => button('TOP 100 brands').click());

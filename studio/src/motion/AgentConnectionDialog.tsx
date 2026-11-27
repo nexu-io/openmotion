@@ -1,6 +1,7 @@
 import { IconButton } from 'open-design-ui/icon-button';
 import { Button } from 'open-design-ui/button';
 import { Tooltip } from '../components/ui/Tooltip';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { useState } from 'react';
 import {
   hostNames,
@@ -41,8 +42,10 @@ export function AgentConnectionDialog({ onClose, returnFocus }: { onClose: () =>
   })();
 
   async function copy(value: string) {
-    try { await navigator.clipboard.writeText(value); toast.showToast(t('Copied to clipboard'), 'info', 'feedback'); }
-    catch { toast.showToast(t('Could not copy. Select and copy the text manually.'), 'error', 'feedback'); }
+    try {
+      if (!(await copyTextToClipboard(value))) throw new Error('Clipboard copy failed');
+      toast.showToast(t('Copied to clipboard'), 'info', 'feedback');
+    } catch { toast.showToast(t('Could not copy. Select and copy the text manually.'), 'error', 'feedback'); }
   }
 
   return <SettingsDialog title={t('Connect Agent')} onClose={onClose} returnFocus={returnFocus}>

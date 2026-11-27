@@ -40,7 +40,6 @@ import { idempotencyReceipts, jobs } from '../db/schema/jobs.ts';
 import {
   projectFiles,
   projectVersionFiles,
-  projectVersions,
 } from '../db/schema/project-files.ts';
 import { projects } from '../db/schema/projects.ts';
 import type { AppConfig } from '../infra/config.ts';
@@ -48,6 +47,10 @@ import type { QueueService } from '../infra/queues.ts';
 import { projectChannel, type RedisEventBus } from '../infra/redis.ts';
 import { uploadLicenseStagingKey, uploadStagingKey } from '../infra/storage.ts';
 import { loadProjectOrThrow } from '../services/project-files-service.ts';
+import {
+  commitProjectVersionAndHistory,
+  resolveProjectHistoryActor,
+} from '../services/project-snapshot.ts';
 
 // ---------------------------------------------------------------------------
 // Hardened SSRF Pre-Validation (Public HTTPS URLs Only)
@@ -179,6 +182,7 @@ export interface LibraryAssetZeroCopyResult {
   projectRevision: string;
   projectVersionId: string;
   projectVersionNumber: number;
+  projectHistorySeq?: number;
 }
 
 export interface ImportAssetsStore {
@@ -240,6 +244,9 @@ export interface ImportAssetsStore {
     versionId: string;
     name?: string;
     requestId: string;
+    source?: 'studio' | 'agent';
+    actorKind?: 'user' | 'agent';
+    actorName?: string;
   }): Promise<LibraryAssetZeroCopyResult>;
 }
 
@@ -580,6 +587,8 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
 
         const replaced = existingFiles.find((f) => f.path === targetPath);
 
+        const versionSizeBytes = Number(version.sizeBytes);
+
         await tx
           .insert(projectFiles)
           .values(
@@ -589,7 +598,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
               path: targetPath,
               blobScope: 'workspace',
               sha256: version.sha256,
-              sizeBytes: version.sizeBytes,
+              sizeBytes: versionSizeBytes,
               mimeType: version.mimeType,
               isText: false,
             }),
@@ -599,7 +608,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
             set: asUpdate(projectFiles, {
               blobScope: 'workspace',
               sha256: version.sha256,
-              sizeBytes: version.sizeBytes,
+              sizeBytes: versionSizeBytes,
               mimeType: version.mimeType,
               isText: false,
               updatedAt: sql`now()`,
@@ -614,7 +623,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
             path: targetPath,
             blobScope: 'workspace' as const,
             sha256: version.sha256,
-            sizeBytes: version.sizeBytes,
+            sizeBytes: versionSizeBytes,
             mimeType: version.mimeType,
             isText: false,
           },
@@ -622,90 +631,78 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
 
         const sourceFiles: SourceFile[] = nextFiles.map((f) => ({
           path: f.path,
-          size: f.sizeBytes,
+          size: Number(f.sizeBytes),
           hash: f.sha256,
         }));
         const nextRevision = computeProjectRevision(sourceFiles);
-        const nextVersionNumber = project.currentVersionNumber + 1;
+        const summary = `Import library asset ${input.name || asset.name}`.slice(0, 256);
 
-        const [newVersion] = await tx
-          .insert(projectVersions)
-          .values(
-            asInsert(projectVersions, {
-              workspaceId: input.workspaceId,
-              projectId: input.projectId,
-              versionNumber: nextVersionNumber,
-              revision: nextRevision,
-              source: 'agent',
-              summary: `Import library asset ${input.name || asset.name}`.slice(0, 256),
-              requestId: `${input.requestId}:${asset.id}`.slice(0, 128),
-            }),
-          )
-          .returning();
+        const committed = await commitProjectVersionAndHistory(tx, {
+          workspaceId: input.workspaceId,
+          projectId: input.projectId,
+          currentVersionNumber: project.currentVersionNumber,
+          currentHistorySeq: project.currentHistorySeq,
+          revision: nextRevision,
+          source: input.source ?? 'agent',
+          summary,
+          requestId: `${input.requestId}:${asset.id}`.slice(0, 128),
+          actorKind: input.actorKind ?? 'agent',
+          actorName: input.actorName,
+          afterVersionInsert: async (versionId) => {
+            for (const file of nextFiles) {
+              await tx.insert(projectVersionFiles).values(
+                asInsert(projectVersionFiles, {
+                  versionId,
+                  workspaceId: input.workspaceId,
+                  projectId: input.projectId,
+                  path: file.path,
+                  blobScope: file.blobScope,
+                  sha256: file.sha256,
+                  sizeBytes: Number(file.sizeBytes),
+                  mimeType: file.mimeType,
+                }),
+              );
+            }
 
-        for (const file of nextFiles) {
-          await tx.insert(projectVersionFiles).values(
-            asInsert(projectVersionFiles, {
-              versionId: newVersion.id,
-              workspaceId: input.workspaceId,
-              projectId: input.projectId,
-              path: file.path,
-              blobScope: file.blobScope,
-              sha256: file.sha256,
-              sizeBytes: file.sizeBytes,
-              mimeType: file.mimeType,
-            }),
-          );
-        }
-
-        // Exact CAS refcount accounting in sorted sha256 order:
-        // - Live project_files: +1 for newly linked asset, -1 if an old workspace blob was replaced.
-        // - New project_version_files snapshot: +1 for every workspace-scoped file in the snapshot.
-        const deltas: BlobRefDelta[] = [
-          {
-            sha256: version.sha256,
-            delta: 1,
-            sizeBytes: version.sizeBytes,
-            mimeType: version.mimeType,
+            // Exact CAS refcount accounting in sorted sha256 order:
+            // - Live project_files: +1 for newly linked asset, -1 if an old workspace blob was replaced.
+            // - New project_version_files snapshot: +1 for every workspace-scoped file in the snapshot.
+            const deltas: BlobRefDelta[] = [
+              {
+                sha256: version.sha256,
+                delta: 1,
+                sizeBytes: versionSizeBytes,
+                mimeType: version.mimeType,
+              },
+            ];
+            if (replaced && replaced.blobScope === 'workspace') {
+              deltas.push({ sha256: replaced.sha256, delta: -1 });
+            }
+            for (const file of nextFiles) {
+              if (file.blobScope === 'workspace') {
+                deltas.push({
+                  sha256: file.sha256,
+                  delta: 1,
+                  sizeBytes: Number(file.sizeBytes),
+                  mimeType: file.mimeType,
+                });
+              }
+            }
+            await applyWorkspaceBlobRefDeltas(tx, input.workspaceId, deltas);
           },
-        ];
-        if (replaced && replaced.blobScope === 'workspace') {
-          deltas.push({ sha256: replaced.sha256, delta: -1 });
-        }
-        for (const file of nextFiles) {
-          if (file.blobScope === 'workspace') {
-            deltas.push({
-              sha256: file.sha256,
-              delta: 1,
-              sizeBytes: file.sizeBytes,
-              mimeType: file.mimeType,
-            });
-          }
-        }
-        await applyWorkspaceBlobRefDeltas(tx, input.workspaceId, deltas);
-
-        await tx
-          .update(projects)
-          .set(
-            asUpdate(projects, {
-              revision: nextRevision,
-              currentVersionId: newVersion.id,
-              currentVersionNumber: nextVersionNumber,
-              updatedAt: sql`now()`,
-            }),
-          )
-          .where(and(eq(projects.workspaceId, input.workspaceId), eq(projects.id, input.projectId)));
+        });
 
         return {
           assetId: asset.id,
           versionId: version.id,
           path: targetPath,
           sha256: version.sha256,
-          bytes: version.sizeBytes,
+          bytes: versionSizeBytes,
           mimeType: version.mimeType,
           projectRevision: nextRevision,
-          projectVersionId: newVersion.id,
-          projectVersionNumber: nextVersionNumber,
+          projectVersionId: committed.versionId,
+          projectVersionNumber: committed.versionNumber,
+          projectHistorySeq: committed.historySeq,
         };
       });
     },
@@ -1346,6 +1343,7 @@ export class CloudImportAssetsService {
             status: 400,
           });
         }
+        const historyActor = resolveProjectHistoryActor(auth);
         const committed = await this.deps.store.commitLibraryAssetZeroCopy({
           workspaceId: auth.workspaceId,
           projectId,
@@ -1353,8 +1351,12 @@ export class CloudImportAssetsService {
           versionId: source.versionId,
           name: item.name,
           requestId,
+          source: historyActor.source,
+          actorKind: historyActor.actorKind,
+          actorName: historyActor.actorName,
         });
         if (this.deps.eventBus) {
+          const ts = Date.now();
           const fileEvt: ProjectEvent = {
             type: 'file-change',
             workspaceId: auth.workspaceId,
@@ -1363,11 +1365,25 @@ export class CloudImportAssetsService {
             versionId: committed.projectVersionId,
             paths: [committed.path],
             affectsPreview: true,
-            ts: Date.now(),
+            ts,
           };
           await this.deps.eventBus
             .publish(projectChannel(auth.workspaceId, projectId), fileEvt)
             .catch(() => {});
+          if (typeof committed.projectHistorySeq === 'number') {
+            const historyEvt: ProjectEvent = {
+              type: 'history-changed',
+              workspaceId: auth.workspaceId,
+              projectId,
+              revision: committed.projectRevision,
+              versionId: committed.projectVersionId,
+              historySeq: committed.projectHistorySeq,
+              ts,
+            };
+            await this.deps.eventBus
+              .publish(projectChannel(auth.workspaceId, projectId), historyEvt)
+              .catch(() => {});
+          }
         }
         return {
           result: {

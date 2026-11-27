@@ -28,48 +28,51 @@ function extractBrandSymbolPaths(sourceSvgPath) {
 
 export function buildAppIconSvg(sourceSvgPath) {
   const { ringPath, arrowPath } = extractBrandSymbolPaths(sourceSvgPath);
-  // 291x291 symbol scaled by 1.62 -> ~471px centered inside 824x824 squircle on 1024x1024 canvas.
-  const symbolScale = 1.62;
-  const symbolSize = 291 * symbolScale;
+  // 291x291 symbol scaled to 530px (~64.3% of 824x824 squircle) to match the
+  // OpenDesign desktop mark proportions while preserving standard macOS padding.
+  const symbolSize = 530;
+  const symbolScale = symbolSize / 291;
   const offset = (1024 - symbolSize) / 2;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
   <defs>
-    <linearGradient id="squircle-bg" x1="180" y1="100" x2="860" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#25272b"/>
-      <stop offset="55%" stop-color="#18191c"/>
-      <stop offset="100%" stop-color="#0f1012"/>
+    <linearGradient id="squircle-bg" x1="512" y1="100" x2="512" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#444238"/>
+      <stop offset="38%" stop-color="#27241b"/>
+      <stop offset="100%" stop-color="#141208"/>
     </linearGradient>
-    <radialGradient id="emerald-aura" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(568 456) rotate(130) scale(410)">
-      <stop offset="0%" stop-color="#00ff08" stop-opacity="0.22"/>
-      <stop offset="58%" stop-color="#007106" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#007106" stop-opacity="0"/>
+    <radialGradient id="top-sheen" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 140) rotate(90) scale(460 540)">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="rim-highlight" x1="512" y1="100" x2="512" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.24"/>
-      <stop offset="35%" stop-color="#ffffff" stop-opacity="0.07"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="30%" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.08"/>
     </linearGradient>
-    <linearGradient id="ring-ink" x1="0" y1="0" x2="291" y2="291" gradientUnits="userSpaceOnUse">
+    <linearGradient id="mark-ink" x1="145" y1="0" x2="145" y2="291" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#e6e8e4"/>
-    </linearGradient>
-    <linearGradient id="arrow-ink" x1="88" y1="90" x2="220" y2="220" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#58ff5e"/>
-      <stop offset="100%" stop-color="#00e608"/>
+      <stop offset="55%" stop-color="#f2f2f0"/>
+      <stop offset="100%" stop-color="#d2d2ce"/>
     </linearGradient>
     <filter id="drop-shadow" x="60" y="72" width="904" height="912" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
       <feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#000000" flood-opacity="0.42"/>
     </filter>
+    <filter id="mark-shadow" x="150" y="150" width="724" height="754" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000000" flood-opacity="0.48"/>
+    </filter>
   </defs>
   <g filter="url(#drop-shadow)">
     <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#squircle-bg)"/>
-    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#emerald-aura)"/>
+    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#top-sheen)"/>
     <rect x="101.5" y="101.5" width="821" height="821" rx="184.5" stroke="url(#rim-highlight)" stroke-width="3"/>
   </g>
-  <g transform="translate(${offset.toFixed(2)} ${offset.toFixed(2)}) scale(${symbolScale})">
-    <path fill-rule="evenodd" clip-rule="evenodd" d="${ringPath}" fill="url(#ring-ink)"/>
-    <path d="${arrowPath}" fill="url(#arrow-ink)"/>
+  <g filter="url(#mark-shadow)">
+    <g transform="translate(${offset.toFixed(2)} ${offset.toFixed(2)}) scale(${symbolScale.toFixed(5)})">
+      <path fill-rule="evenodd" clip-rule="evenodd" d="${ringPath}" fill="url(#mark-ink)"/>
+      <path d="${arrowPath}" fill="url(#mark-ink)"/>
+    </g>
   </g>
 </svg>
 `;
@@ -83,30 +86,32 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
   rmSync(outIconDir, { recursive: true, force: true });
   mkdirSync(assetsDir, { recursive: true });
 
-  // Icon Composer uses a 1024x1024 full-bleed canvas; macOS applies the squircle
-  // mask, outer shadow, and Liquid Glass refraction rim dynamically.
-  // Size the 291x291 symbol to ~580px (~56.6% of canvas) to keep safe bevel clearance.
-  const symbolSize = 580;
+  // Icon Composer uses a 1024x1024 full-bleed canvas; macOS 26/27 applies the
+  // continuous squircle mask, outer shadow, and Liquid Glass refraction rim.
+  // Size the 291x291 symbol to 656px (~64.1% of canvas) to match OpenDesign's
+  // monochrome mark proportion while keeping safe Liquid Glass bevel clearance.
+  const symbolSize = 656;
   const symbolScale = symbolSize / 291;
   const offset = (1024 - symbolSize) / 2;
 
-  const auraSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  const sheenSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <radialGradient id="aura" cx="56%" cy="46%" r="48%">
-      <stop offset="0%" stop-color="#00ff22" stop-opacity="0.28"/>
-      <stop offset="55%" stop-color="#007a14" stop-opacity="0.10"/>
-      <stop offset="100%" stop-color="#007a14" stop-opacity="0"/>
+    <radialGradient id="sheen" cx="50%" cy="14%" r="62%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.11"/>
+      <stop offset="55%" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <rect width="1024" height="1024" fill="url(#aura)"/>
+  <rect width="1024" height="1024" fill="url(#sheen)"/>
 </svg>
 `;
 
   const ringSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="ring" x1="0" y1="0" x2="291" y2="291" gradientUnits="userSpaceOnUse">
+    <linearGradient id="ring" x1="145" y1="0" x2="145" y2="291" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#d8dde2"/>
+      <stop offset="58%" stop-color="#f2f2f0"/>
+      <stop offset="100%" stop-color="#d4d4d0"/>
     </linearGradient>
   </defs>
   <g transform="translate(${offset.toFixed(2)} ${offset.toFixed(2)}) scale(${symbolScale.toFixed(5)})">
@@ -117,9 +122,10 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
 
   const arrowSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="arrow" x1="88" y1="90" x2="220" y2="220" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#6cff72"/>
-      <stop offset="100%" stop-color="#00e608"/>
+    <linearGradient id="arrow" x1="145" y1="90" x2="145" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="58%" stop-color="#f2f2f0"/>
+      <stop offset="100%" stop-color="#d6d6d2"/>
     </linearGradient>
   </defs>
   <g transform="translate(${offset.toFixed(2)} ${offset.toFixed(2)}) scale(${symbolScale.toFixed(5)})">
@@ -131,8 +137,8 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
   const iconManifest = {
     fill: {
       'linear-gradient': [
-        'display-p3:0.16,0.175,0.195,1.0',
-        'display-p3:0.06,0.068,0.08,1.0',
+        'display-p3:0.26,0.25,0.215,1.0',
+        'display-p3:0.082,0.071,0.035,1.0',
       ],
     },
     'fill-specializations': [
@@ -140,8 +146,8 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
         appearance: 'dark',
         value: {
           'linear-gradient': [
-            'display-p3:0.11,0.125,0.145,1.0',
-            'display-p3:0.035,0.04,0.05,1.0',
+            'display-p3:0.18,0.172,0.148,1.0',
+            'display-p3:0.055,0.048,0.025,1.0',
           ],
         },
       },
@@ -149,8 +155,8 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
         appearance: 'tinted',
         value: {
           'linear-gradient': [
-            'display-p3:0.14,0.15,0.17,1.0',
-            'display-p3:0.05,0.055,0.065,1.0',
+            'display-p3:0.19,0.185,0.175,1.0',
+            'display-p3:0.065,0.06,0.05,1.0',
           ],
         },
       },
@@ -160,8 +166,8 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
         layers: [
           {
             glass: false,
-            'image-name': 'aura.svg',
-            name: 'aura',
+            'image-name': 'sheen.svg',
+            name: 'sheen',
             'hidden-specializations': [
               {
                 appearance: 'tinted',
@@ -187,12 +193,12 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
         ],
         shadow: {
           kind: 'neutral',
-          opacity: 0.5,
+          opacity: 0.45,
         },
         specular: true,
         translucency: {
           enabled: true,
-          value: 0.35,
+          value: 0.24,
         },
       },
     ],
@@ -201,7 +207,7 @@ export function buildLiquidGlassIconBundle(sourceSvgPath, outIconDir) {
     },
   };
 
-  writeFileSync(path.join(assetsDir, 'aura.svg'), auraSvg, 'utf8');
+  writeFileSync(path.join(assetsDir, 'sheen.svg'), sheenSvg, 'utf8');
   writeFileSync(path.join(assetsDir, 'ring.svg'), ringSvg, 'utf8');
   writeFileSync(path.join(assetsDir, 'arrow.svg'), arrowSvg, 'utf8');
   writeFileSync(path.join(outIconDir, 'icon.json'), `${JSON.stringify(iconManifest, null, 2)}\n`, 'utf8');

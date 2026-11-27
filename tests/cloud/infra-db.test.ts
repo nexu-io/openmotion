@@ -315,6 +315,52 @@ describe('S3 Tenant-Scoped Keyspace, Dual Clients & CORS Spec', () => {
       const url2 = await storage.presignGet(blobKey, { nowMs: t2 });
       assert.equal(url1, url2);
 
+      // Bare RFC 6266 `inline` (used by `?frame=1` CORS video frame extraction) MUST yield a
+      // distinct presigned URL inside the same UTC hour from ALL other routes on the same CAS blob:
+      // 1) project file preview (`preview.ts`, which omits responseContentDisposition),
+      // 2) inline `<video>` playback (`inline; filename="..."`), and
+      // 3) downloads (`attachment; filename="..."`).
+      const previewUrl = await storage.presignGet(blobKey, {
+        nowMs: t1,
+        responseContentType: 'video/mp4',
+      });
+      const inlineUrl = await storage.presignGet(blobKey, {
+        nowMs: t1,
+        responseContentType: 'video/mp4',
+        responseContentDisposition: 'inline; filename="clip.mp4"',
+      });
+      const downloadUrl = await storage.presignGet(blobKey, {
+        nowMs: t1,
+        responseContentType: 'video/mp4',
+        responseContentDisposition: 'attachment; filename="clip.mp4"',
+      });
+      const frameUrl = await storage.presignGet(blobKey, {
+        nowMs: t1,
+        responseContentType: 'video/mp4',
+        responseContentDisposition: 'inline',
+      });
+      assert.equal(new Set([previewUrl, inlineUrl, downloadUrl, frameUrl]).size, 4);
+      assert.equal(new URL(frameUrl).searchParams.get('X-Amz-Date'), '20261120T140000Z');
+      assert.equal(new URL(frameUrl).searchParams.get('X-Amz-Expires'), '7200');
+      assert.equal(new URL(frameUrl).searchParams.get('response-cache-control'), IMMUTABLE_PRIVATE_CACHE_CONTROL);
+      assert.equal(new URL(frameUrl).searchParams.get('response-content-disposition'), 'inline');
+      assert.equal(new URL(previewUrl).searchParams.get('response-content-disposition'), null);
+      assert.equal(
+        new URL(inlineUrl).searchParams.get('response-content-disposition'),
+        'inline; filename="clip.mp4"',
+      );
+
+      // Passing `cacheWindowSec: 0` (used by `?frame=1&retry=N`) escapes the 1-hour signing window.
+      const retryFrameUrl = await storage.presignGet(blobKey, {
+        nowMs: t1,
+        responseContentType: 'video/mp4',
+        responseContentDisposition: 'inline',
+        cacheWindowSec: 0,
+      });
+      assert.notEqual(retryFrameUrl, frameUrl);
+      assert.equal(new URL(retryFrameUrl).searchParams.get('X-Amz-Expires'), '300');
+      assert.equal(new URL(retryFrameUrl).searchParams.get('response-content-disposition'), 'inline');
+
       const parsed1 = new URL(url1);
       assert.equal(parsed1.searchParams.get('X-Amz-Date'), '20261120T140000Z');
       assert.equal(parsed1.searchParams.get('X-Amz-Expires'), '7200');

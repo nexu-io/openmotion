@@ -16,6 +16,8 @@ import { setCloudFeatureOverridesForTest } from '../utils/cloudFeatures';
 import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { invalidateHostCapabilities } from '../utils/platformHost';
 import { SettingsCenter } from './SettingsCenter';
+import { resetAccountSummaryCacheForTest } from './AccountSettings';
+import { subscribeEntitlementModal } from './entitlementModalBus';
 import { RecoveryScreen } from '../components/RecoveryScreen';
 import { setCachedCloudDisklessMode } from '../utils/cloudRuntime';
 
@@ -338,4 +340,90 @@ it('hides the Model providers entry and internal gateway jumps in Cloud P1 mode,
   expect(restoredNavLabels).toContain('模型供应商');
   const restoredAccountButtons = [...host.querySelectorAll('.om-settings-main button')].map(btn => btn.textContent?.trim());
   expect(restoredAccountButtons).toContain('模型网关');
+});
+
+const unauthorized = () => Response.json(
+  { code: 'UNAUTHORIZED', errorCode: 'auth_required', sessionExpired: false, error: 'Authentication required' },
+  { status: 401 },
+);
+const previewModel = { id: 'opendesign:gpt-image-2.6-flare', provider: 'opendesign', modelId: 'gpt-image-2.6-flare', label: 'GPT Image 2.6 Flare', modality: 'image', source: 'builtin' };
+const unavailableStatus = () => Response.json({
+  providers: [{ id: 'opendesign', label: 'OpenDesign', configured: true, enabled: true, available: false, credentialSource: 'environment' }],
+  routes: {},
+});
+
+it.each([
+  { name: 'empty public catalog', catalog: () => Response.json({ provider: 'opendesign', mode: 'opendesign', defaults: {}, models: [] }) },
+  { name: 'public preview catalog', catalog: () => Response.json({ provider: 'opendesign', mode: 'opendesign', defaults: {}, models: [previewModel] }) },
+  { name: 'catalog requiring auth', catalog: unauthorized },
+])('asks signed-out visitors to sign in on Default models instead of offering a Plus upgrade ($name)', async ({ catalog }) => {
+  resetAccountSummaryCacheForTest();
+  setCachedCloudDisklessMode(true);
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).includes('models/catalog')) return catalog();
+    if (String(url).includes('models/status')) return unavailableStatus();
+    return unauthorized();
+  }));
+  const modal = vi.fn();
+  const unsubscribe = subscribeEntitlementModal(modal);
+  const onSection = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  try {
+    await act(async () => root!.render(
+      <I18nProvider initialLocale="zh-CN">
+        <SettingsCenter section="models" onSection={onSection} openConnections={() => {}} />
+      </I18nProvider>,
+    ));
+    const main = host.querySelector('.om-settings-main')!;
+    expect(main.querySelector('h1')?.textContent).toBe('默认模型');
+    expect(main.querySelector('[data-empty-models="true"]')).toBeNull();
+    expect(main.textContent).not.toContain('Plus');
+    expect(main.querySelector('button[aria-label="选择模型"]')).toBeNull();
+    const guide = main.querySelector('[data-guest-auth-guide="true"]');
+    expect(guide).not.toBeNull();
+    const signIn = [...guide!.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.trim() === '使用 OpenDesign 登录');
+    expect(signIn).toBeTruthy();
+    await act(async () => signIn!.click());
+    expect(modal).toHaveBeenCalledWith({ mode: 'guest', hookId: 'settings_signin' });
+    expect(onSection).not.toHaveBeenCalledWith('subscription');
+  } finally {
+    unsubscribe();
+    resetAccountSummaryCacheForTest();
+  }
+});
+
+it.each([
+  { name: 'no models', models: [], emptyGuide: true },
+  { name: 'available models', models: [previewModel], emptyGuide: false },
+])('keeps the signed-in Default models view unchanged with $name', async ({ models, emptyGuide }) => {
+  resetAccountSummaryCacheForTest();
+  setCachedCloudDisklessMode(true);
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).includes('models/catalog')) return Response.json({ provider: 'opendesign', mode: 'opendesign', defaults: {}, models });
+    if (String(url).includes('account/summary')) {
+      return Response.json({ authenticated: true, authMode: 'oidc', user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' }, billing: { plan: 'plus' } });
+    }
+    return Response.json({
+      providers: [{ id: 'opendesign', label: 'OpenDesign', configured: true, enabled: true, available: models.length > 0, credentialSource: 'environment' }],
+      routes: {},
+    });
+  }));
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  try {
+    await act(async () => root!.render(
+      <I18nProvider initialLocale="zh-CN">
+        <SettingsCenter section="models" onSection={() => {}} openConnections={() => {}} />
+      </I18nProvider>,
+    ));
+    const main = host.querySelector('.om-settings-main')!;
+    expect(main.querySelector('[data-guest-auth-guide="true"]')).toBeNull();
+    expect(Boolean(main.querySelector('[data-empty-models="true"]'))).toBe(emptyGuide);
+    expect(main.querySelectorAll('button[aria-label="选择模型"]')).toHaveLength(3);
+  } finally {
+    resetAccountSummaryCacheForTest();
+  }
 });

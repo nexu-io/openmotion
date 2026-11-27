@@ -475,14 +475,27 @@ test('DesktopUpdaterController resolves CJS default autoUpdater export and repor
   assert.ok(resMissing.message);
 });
 
-test('splash.html uses pure inline vector SVG animation and thin-shell omits legacy thick-shell sidecar/staging files', () => {
+test('splash.html uses single-play WebGL startup logo animation and thin-shell omits legacy thick-shell sidecar/staging files', () => {
   const splashHtml = readFileSync(path.join(desktopRoot, 'src', 'splash.html'), 'utf8');
   assert.match(splashHtml, /id="retry-btn"/);
   assert.match(splashHtml, /id="export-logs-btn"/);
   assert.match(splashHtml, /prefers-reduced-motion/);
-  assert.match(splashHtml, /class="od-wordmark-svg"/);
-  assert.match(splashHtml, /id="od-wordmark-mask"/);
-  assert.equal(splashHtml.includes('<canvas'), false, 'Splash should use pure vector SVG without raster canvas/WebGL blur');
+  assert.match(splashHtml, /id="splash-canvas"/);
+  assert.match(splashHtml, /getContext\('webgl'/);
+  assert.match(splashHtml, /gl_FragColor/);
+  assert.match(splashHtml, /gl_FragColor = vec4\(0\.\);\\n  for \(float i = 0\.; i < LAYERS/, 'Reveal shader must initialize gl_FragColor before accumulating layers');
+  assert.match(splashHtml, /let playedOnce = false/);
+  assert.match(splashHtml, /const ENTRANCE_SECONDS = 0\.8;/, 'Splash logo reveal must finish within 0.8s');
+  assert.match(splashHtml, /renderSettledWordmark\(\)/);
+  assert.match(splashHtml, /id="splash-logo-img"/, 'Settled splash logo must be the vector artwork');
+  assert.match(splashHtml, /html\[data-logo-static="true"\] #splash-logo img/);
+  assert.match(splashHtml, /#splash-logo canvas \{\s*transition-delay: 160ms;/, 'Canvas must fade out only after the vector wordmark is fully in');
+  assert.match(splashHtml, /device-pixel-content-box/, 'Reveal canvas must map 1:1 onto device pixels');
+  assert.match(splashHtml, /UNPACK_PREMULTIPLY_ALPHA_WEBGL, true/);
+  assert.equal(splashHtml.includes('drawStatic'), false, 'WebGL fallback settles onto the vector artwork');
+  assert.match(splashHtml, /window\.__omSplashStopLogo\s*=/);
+  assert.equal(splashHtml.includes('HOLD_SECONDS'), false, 'Splash logo animation must play strictly once without looping');
+  assert.equal(splashHtml.includes('cycleStart'), false, 'Splash logo animation must not reset cycles');
   assert.match(splashHtml, /function teardownSplashResources/);
 
   assert.equal(
@@ -501,18 +514,28 @@ test('buildAppIconSvg, buildLiquidGlassIconBundle, and packPngFramesAsIco produc
   const brandSvg = path.resolve(desktopRoot, '..', 'packages', 'design-system', 'brand', 'loading-mark.svg');
   const iconSvg = buildAppIconSvg(brandSvg);
   assert.match(iconSvg, /viewBox="0 0 1024 1024"/);
-  assert.match(iconSvg, /#00e608|#58ff5e/);
+  assert.match(iconSvg, /#444238/);
+  assert.match(iconSvg, /#141208/);
+  assert.match(iconSvg, /#ffffff/);
+  assert.equal(iconSvg.includes('#00e608'), false, 'Converged OpenDesign desktop icon must use monochrome white mark instead of neon green');
+  assert.equal(iconSvg.includes('#00ff08'), false, 'Converged OpenDesign desktop icon must omit green radial aura');
 
   const tmpIconDir = path.join(os.tmpdir(), `om-liquid-glass-test-${Date.now()}`, `${LIQUID_GLASS_ICON_NAME}.icon`);
   try {
     const { iconDir, iconManifest } = buildLiquidGlassIconBundle(brandSvg, tmpIconDir);
     assert.ok(existsSync(path.join(iconDir, 'icon.json')));
-    assert.ok(existsSync(path.join(iconDir, 'Assets', 'aura.svg')));
+    assert.ok(existsSync(path.join(iconDir, 'Assets', 'sheen.svg')));
     assert.ok(existsSync(path.join(iconDir, 'Assets', 'ring.svg')));
     assert.ok(existsSync(path.join(iconDir, 'Assets', 'arrow.svg')));
+    assert.equal(
+      readFileSync(path.join(iconDir, 'Assets', 'arrow.svg'), 'utf8').includes('#00e608'),
+      false,
+      'Liquid Glass arrow layer must be monochrome white/silver',
+    );
     assert.equal(iconManifest['supported-platforms']?.squares, 'shared');
     assert.ok(Array.isArray(iconManifest['fill-specializations']));
     assert.ok(iconManifest['fill-specializations'].some(spec => spec.appearance === 'dark'));
+    assert.ok(iconManifest['fill-specializations'].some(spec => spec.appearance === 'tinted'));
     const glassGroup = iconManifest.groups.find(group => group.specular === true);
     assert.ok(glassGroup);
     assert.ok(glassGroup.layers.every(layer => layer.glass === true));

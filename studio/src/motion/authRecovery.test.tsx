@@ -79,12 +79,14 @@ describe('authRecovery (A01 / A03)', () => {
     const banner = host.querySelector('[data-kind="auth_required"]');
     expect(banner?.textContent).toContain('Your session has expired');
 
-    // Clicking Sign in again navigates to /auth/login?returnTo=... while keeping draft preserved.
+    // Clicking Sign in again navigates to /auth/login?returnTo=...&device_id=... while keeping draft preserved.
     const signInBtn = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Sign in again'))!;
     await act(async () => signInBtn.click());
-    expect(onLoginNavigate).toHaveBeenCalledWith(
-      `/auth/login?returnTo=${encodeURIComponent('/?templates=1&template=tpl-hero')}`,
-    );
+    expect(onLoginNavigate).toHaveBeenCalledTimes(1);
+    const loginNavUrl = new URL(String(onLoginNavigate.mock.calls[0]?.[0] ?? ''), 'https://cloud.example.test');
+    expect(loginNavUrl.pathname).toBe('/auth/login');
+    expect(loginNavUrl.searchParams.get('returnTo')).toBe('/?templates=1&template=tpl-hero');
+    expect(loginNavUrl.searchParams.get('device_id')).toBeTruthy();
     expect(window.localStorage.getItem(HOME_DRAFT_STORAGE_KEY)).toBe('My unsaved prompt');
     expect(readAuthPendingDraft()?.idempotencyKey).toBe(savedDraft.idempotencyKey);
 

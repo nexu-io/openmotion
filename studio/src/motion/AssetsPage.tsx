@@ -624,7 +624,12 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     currentPrompt={draft.prompt} modelName={studioModels?.selected && imageModelLabel(studioModels.selected)} /> : <p className="om-muted">{t('No assets yet')}</p>);
   const history = { tasks, selectedKey, loading: historyLoading, error: historyError, onRetry: () => { setHistoryLoading(true); setHistoryRetry(value => value + 1); }, onSelect: (task: AssetTask) => { tracking.reportAssetsClick('asset_tasks', 'select_task', { task_mode: task.mode }); void selectTask(task); } };
   const taskMenu = <AssetTaskMenu {...history} disabled={selectingTask} />;
-  const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} promptAppliedToken={promptAppliedToken} jobs={jobs} showCurrentJob={mediaGenerations ? false : !showLibraryPlaceholders} taskId={taskId} history={history} selectingTask={selectingTask}
+  const selectedJob = taskId ? jobs.find(job => job.id === taskId) : undefined;
+  const selectedJobShownInLibrary = Boolean(
+    selectedJob && showLibraryPlaceholders && browser.page === 0
+    && placeholderJobs.some(job => job.id === selectedJob.id),
+  );
+  const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} promptAppliedToken={promptAppliedToken} jobs={jobs} showCurrentJob={mediaGenerations ? false : !selectedJobShownInLibrary} taskId={taskId} history={history} selectingTask={selectingTask}
     onNew={() => startDraft({ modality: draft.modality, prompt: '', references: [] })}
     onCancel={cancelJob} onRetrySave={retrySave} onResume={resumeJob} onView={viewJob} uploadingReferences={uploadingReferences} onUploadReference={studioForm ? () => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } referenceUpload.current?.click(); } : undefined} onUploadFiles={studioForm ? (files, source) => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } void uploadReferenceFiles(files, source === 'paste' ? 'other' : 'library_drop'); } : undefined} onReference={() => { if (isCloudGuest) { openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' }); return; } openReferencePicker(); }} onCreated={job => {
       markDraftSubmitted(studio?.draftKey ?? STANDALONE_ASSET_DRAFT_KEY);

@@ -743,11 +743,73 @@ it('browses the complete Motion catalog in batches and filters by its existing t
   await scrollToShelfEnd();
   expect(cards().at(-1)?.getAttribute('data-template-id')).toBe('motion-fixture-1');
   await click('Product demos & explainers');
+  expect(cards()).toHaveLength(0);
+  expect(shelf.textContent).toContain('No matching templates.');
+  await click('Business software');
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent === 'All industries')!.click());
   expect(cards().map(card => card.getAttribute('data-template-id'))).toEqual(['motion-fixture-18']);
   await click('Editable templates');
   expect(cards()).toHaveLength(1);
   await click('All');
   expect(cards()).toHaveLength(16);
+});
+
+it.each(['industry', 'purpose'])('combines Motion purpose and industry with %s first and carries them into the library', async firstFilter => {
+  const purpose = 'Product demos & explainers', industry = 'Software & apps';
+  const entries = [
+    { id: 'both', title: 'Matches both', uses: ['Product demo'], industries: [industry] },
+    { id: 'purpose', title: 'Purpose only', uses: ['Product demo'], industries: ['Healthcare'] },
+    { id: 'industry', title: 'Industry only', uses: ['Product launch'], industries: [industry] },
+  ].map(item => ({ ...item, kind: 'builtin', tags: [] }));
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((input: string, init?: RequestInit) => new URL(input, location.origin).pathname.endsWith('/template-catalog')
+    ? Promise.resolve(Response.json({ items: entries, next: null, total: entries.length, catalogVersion: 'paired' })) : fallback(input, init));
+  history.replaceState(null, '', '/motion');
+  await mount();
+  const shelf = container.querySelector('.om-explore-shelf[aria-label="Motion templates"]')!;
+  const ids = (scope: Element) => [...scope.querySelectorAll<HTMLElement>('[data-template-id]')].map(item => item.dataset.templateId).sort();
+  const selectIndustry = async () => {
+    await click('By industry');
+    const option = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent === industry)!;
+    await act(async () => option.click());
+  };
+  if (firstFilter === 'industry') {
+    await selectIndustry();
+    expect(ids(shelf)).toEqual(['both', 'industry']);
+    await click(purpose);
+  } else {
+    await click(purpose);
+    expect(ids(shelf)).toEqual(['both', 'purpose']);
+    await selectIndustry();
+  }
+  expect(button(purpose).getAttribute('aria-pressed')).toBe('true');
+  expect(button(industry)).toBeTruthy();
+  expect(ids(shelf)).toEqual(['both']);
+  expect(shelf.querySelector('[role="status"]')?.textContent).toBe('1 templates');
+  await click('All');
+  expect(ids(shelf)).toEqual(['both', 'industry']);
+  await click(purpose);
+
+  await click('Template library');
+  expect(page()).toMatchObject({ templates: true, templateCollection: `purpose:${purpose}`, templateIndustry: industry });
+  const library = container.querySelector('[aria-label="Template library"]')!;
+  expect(ids(library)).toEqual(['both']);
+  const remove = firstFilter === 'industry' ? industry : purpose;
+  await click(`Remove filter ${remove}`);
+  expect(ids(library)).toEqual(['both', firstFilter === 'industry' ? 'purpose' : 'industry']);
+  expect(page().templateCollection).toBe(firstFilter === 'industry' ? `purpose:${purpose}` : `industry:${industry}`);
+  expect(new URLSearchParams(location.search).has('industry')).toBe(false);
+  await click('Clear filters');
+  expect(ids(library)).toEqual(['both', 'industry', 'purpose']);
+  expect(page().templateCollection).toBeNull();
+
+  history.replaceState(null, '', '/motion');
+  await mount(1);
+  if (firstFilter === 'industry') await selectIndustry();
+  else await click(purpose);
+  await click('Template library');
+  expect(page().templateCollection).toBe(firstFilter === 'industry' ? `industry:${industry}` : `purpose:${purpose}`);
+  expect(new URLSearchParams(location.search).has('industry')).toBe(false);
 });
 
 it('lists editable Motion projects without posters and appends later pages with their original template IDs', async () => {
@@ -994,7 +1056,7 @@ it('opens a collection with its filters and opens individual Explore cards direc
   fetcher.mockImplementation((input: string, options?: RequestInit) => {
     const url = new URL(input, location.origin);
     if (!url.pathname.endsWith('/template-catalog')) return fallback(input, options);
-    const firstPage = url.searchParams.get('limit') === '60' && url.searchParams.get('offset') === '0';
+    const firstPage = url.searchParams.get('category') === 'all' && url.searchParams.get('offset') === '0';
     return Promise.resolve(Response.json({ items: firstPage ? entries.slice(0, 2) : entries.slice(2), next: firstPage ? 2 : null, catalogVersion: 'test' }));
   });
   await mount(); await click('Explore');

@@ -20,6 +20,7 @@ export function useClipContextMenu(
         selectClipWithLinks(id, e.altKey, setSelectedElementId);
         onSelectElement?.(el);
       }
+      usePlayerStore.getState().setSelectionOrigin("timeline");
       dismissGapMenu();
       setClipContextMenu({
         x: e.clientX,

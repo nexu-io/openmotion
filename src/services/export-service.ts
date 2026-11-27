@@ -867,20 +867,30 @@ export class ExportService {
     return this.getExportFileMetadata(ctx, rows[0].id);
   }
 
-  /** Mint a short-lived S3 Presigned GET URL for an export output (`attachment` or `inline`). */
+  /** Mint a short-lived S3 Presigned GET URL for an export output (`attachment`, `inline`, or CORS video frame extraction). */
   async presignExportFile(
     ctx: AuthContext,
     jobId: string,
-    options: { disposition?: 'attachment' | 'inline'; expiresInSec?: number } = {},
+    options: {
+      disposition?: 'attachment' | 'inline';
+      frame?: boolean;
+      bypassCacheWindow?: boolean;
+      expiresInSec?: number;
+    } = {},
   ): Promise<{ url: string; metadata: ExportFileMetadata; expiresInSec: number }> {
     const metadata = await this.getExportFileMetadata(ctx, jobId);
     const expiresInSec = options.expiresInSec ?? this.presignGetTtlSec;
     const mode = options.disposition ?? 'attachment';
+    // Only allow CORS video frame extraction (`inline` bare disposition) when the caller explicitly
+    // requests inline viewing; never let `frame: true` silently override an `attachment` download.
+    const isVideoFrame = Boolean(options.frame && mode === 'inline' && metadata.mimeType.startsWith('video/'));
     const cleanFilename = metadata.filename.replace(/["\\\r\n]/g, '_') || 'export.mp4';
+    const bypassCacheWindow = isVideoFrame && Boolean(options.bypassCacheWindow);
     const url = await this.storage.presignGet(metadata.s3Key, {
       expiresInSec,
       responseContentType: metadata.mimeType,
-      responseContentDisposition: `${mode}; filename="${cleanFilename}"`,
+      responseContentDisposition: isVideoFrame ? 'inline' : `${mode}; filename="${cleanFilename}"`,
+      ...(bypassCacheWindow ? { cacheWindowSec: 0 } : {}),
     });
     return { url, metadata, expiresInSec };
   }

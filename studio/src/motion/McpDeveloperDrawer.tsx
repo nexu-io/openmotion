@@ -14,6 +14,32 @@ import { SettingsError } from './settingsPrimitives';
 
 type DevTab = 'tools' | 'compat' | 'privacy' | 'faq';
 
+const MCP_TOOL_SUMMARIES: Readonly<Record<string, string>> = {
+  openmotion_list_templates: 'Index templates from the catalog to browse IDs, summaries, and short-form metadata.',
+  openmotion_get_template: 'Read one exact template by templateId along with its TEMPLATE.md guidance.',
+  openmotion_list_skills: 'Index library video Skills to discover reusable editing techniques by scenario.',
+  openmotion_get_skill: 'Read one exact library Skill by ID and its instructions.',
+  openmotion_create_project: 'Create an independent editable OpenMotion project from a prompt, template ID, or reference video ID.',
+  openmotion_get_project: 'List workspace projects or inspect a project’s files, revision, session, and current version.',
+  openmotion_edit_project: 'Apply structured file edits to an existing OpenMotion project with optimistic revision checks.',
+  openmotion_manage_project: 'Rename, duplicate, trash, restore, delete projects, or manage project review comments.',
+  openmotion_project_archive: 'Export editable project ZIP archives or inspect archive download metadata.',
+  openmotion_open_preview: 'Open a project preview, start a work round, or navigate the user to a workspace target.',
+  openmotion_import_assets: 'Import images, video, audio, or fonts into a project via upload ticket, public HTTPS URL, or workspace library asset.',
+  openmotion_assets: 'Compatibility name for the original nine asset actions. Use openmotion_assets_use to read media content.',
+  openmotion_assets_use: 'Generate, track, inspect, and import reusable workspace image, video, and audio assets.',
+  openmotion_media_use: 'Discover available media providers, model IDs, entitlements, and parameter schemas.',
+  openmotion_export_request: 'Queue a background MP4 export from an explicit project version and immutable snapshot.',
+  openmotion_export_cancel: 'Cancel a queued or running MP4 export owned by the specified project.',
+  openmotion_show_video: 'Display a fallback player for a completed, technically verified MP4 export.',
+  openmotion_list_versions: 'List saved project content snapshots and version history.',
+  openmotion_restore_version: 'Restore an explicitly selected project snapshot as a new version.',
+  openmotion_design_catalog: 'Browse Design Studio HTML scenarios, starter templates, design systems, and craft rules.',
+  openmotion_design_project: 'Create, inspect, preview, export, or import HTML Design Studio projects.',
+  openmotion_design_edit: 'Read and edit files in an HTML Design Studio project with revision checks and version history.',
+  openmotion_design_comments: 'List, create, resolve, update, and delete review annotations on an HTML Design Studio project.',
+};
+
 function ComparisonTable({
   label,
   columns,
@@ -177,11 +203,9 @@ export function McpDeveloperDrawer({
                     <code>{tool.name}</code>
                     <span>
                       {t(
-                        tool.name === 'openmotion_assets'
-                          ? 'Compatibility name for the original nine asset actions. Use openmotion_assets_use to read media content.'
-                          : visibleExamples.find(item => (item.tools as readonly string[]).includes(tool.name) && item.tools.length === 1)?.description
-                            || tool.description.split(/(?<=[.!?])\s+|\n/)[0]
-                            || tool.description,
+                        MCP_TOOL_SUMMARIES[tool.name]
+                          || tool.description.split(/(?<=[.!?])\s+|\n/)[0]
+                          || tool.description,
                       )}
                     </span>
                   </div>

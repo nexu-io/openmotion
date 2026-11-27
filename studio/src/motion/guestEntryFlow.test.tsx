@@ -17,7 +17,8 @@ import type { GalleryTemplate } from '../../../shared/catalog';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock('./useCoveredTemplates', () => ({
+vi.mock('./useCoveredTemplates', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./useCoveredTemplates')>(),
   readCachedCoveredTemplates: () => null,
   useCoveredTemplates: () => ({
     catalog: [],
@@ -56,6 +57,7 @@ afterEach(() => {
   host.remove();
   clearAuthPendingDraft();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('Guest creation entry points (OPEND-5648)', () => {
@@ -281,7 +283,8 @@ describe('Guest creation entry points (OPEND-5648)', () => {
     expect(requests.some(r => r.url.includes('/motion-api/projects/proj-existing/open') && r.method === 'POST')).toBe(true);
   });
 
-  it('keeps the pending intent and idempotencyKey for manual retry when auto-resume fails with a non-401 error, and passes requestId through createArtifact', async () => {
+  it('retries a failing auto-resume with the same idempotencyKey, then keeps the intent for manual retry and passes requestId through createArtifact', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     window.history.replaceState(null, '', '/sessions/sess-1');
     const saved = saveAuthPendingDraft({
       action: 'use_template',
@@ -311,7 +314,8 @@ describe('Guest creation entry points (OPEND-5648)', () => {
       if (url.includes('/motion-api/sessions/sess-1/artifacts') && method === 'POST') {
         artifactAttempts += 1;
         artifactBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
-        if (artifactAttempts === 1) {
+        // The initial attempt and all three automatic retries fail; the manual retry succeeds.
+        if (artifactAttempts <= 4) {
           return new Response(JSON.stringify({ error: 'Temporary conflict' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -338,10 +342,25 @@ describe('Guest creation entry points (OPEND-5648)', () => {
       await new Promise(resolve => setTimeout(resolve, 40));
     });
 
-    // First auto-resume attempt failed with 500: intent + idempotencyKey must remain saved for manual retry.
+    // First auto-resume attempt failed with 500: the intent stays automatic while retries are pending.
     expect(artifactAttempts).toBe(1);
     expect(artifactBodies[0]?.requestId).toBe(saved.idempotencyKey);
     expect(artifactBodies[0]?.templateId).toBe('custom-agents');
+    expect(readAuthPendingDraft()?.autoResume).toBe(true);
+    expect(host.querySelector('[data-kind="pending_draft"]')).toBeNull();
+
+    for (const delay of [1_000, 3_000, 6_000]) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(delay);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(40);
+      });
+    }
+
+    // Every automatic retry reused the saved key; after the last one the intent is kept for manual retry.
+    expect(artifactAttempts).toBe(4);
+    expect(artifactBodies.every(body => body.requestId === saved.idempotencyKey)).toBe(true);
     const retained = readAuthPendingDraft();
     expect(retained?.idempotencyKey).toBe(saved.idempotencyKey);
     expect(retained?.autoResume).toBeUndefined();
@@ -358,8 +377,8 @@ describe('Guest creation entry points (OPEND-5648)', () => {
     });
 
     // Manual retry succeeds with the exact same idempotencyKey and clears the draft.
-    expect(artifactAttempts).toBe(2);
-    expect(artifactBodies[1]?.requestId).toBe(saved.idempotencyKey);
+    expect(artifactAttempts).toBe(5);
+    expect(artifactBodies[4]?.requestId).toBe(saved.idempotencyKey);
     expect(readAuthPendingDraft()).toBeNull();
   });
 

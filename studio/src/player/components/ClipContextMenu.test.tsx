@@ -5,12 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import { thumbnailScheduler } from "../lib/thumbnailScheduler";
 import { ClipContextMenu } from "./ClipContextMenu";
+import { setStudioKeys } from "./studioShortcuts";
 import type { TimelineClipMenuItem } from "./TimelineTypes";
 import { TimelineEditProvider } from "../../contexts/TimelineEditContext";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => {
+  setStudioKeys(null);
   document.body.innerHTML = "";
 });
 
@@ -115,6 +117,13 @@ describe("ClipContextMenu host items", () => {
     const { items, unmount } = renderMenu([]);
     expect(items().map((item) => item.textContent)).toEqual(["Copy⌘C", "Delete⌫"]);
     expect(document.body.querySelector("[role=group][aria-label=Host]")).toBeNull();
+    unmount();
+  });
+
+  it("updates the Delete shortcut hint when deleteSelectedAlt is remapped", () => {
+    setStudioKeys({ deleteSelectedAlt: "shift+x" });
+    const { items, unmount } = renderMenu([]);
+    expect(items().map((item) => item.textContent)).toEqual(["Copy⌘C", "Delete⇧X"]);
     unmount();
   });
 });

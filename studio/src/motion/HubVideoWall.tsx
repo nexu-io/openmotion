@@ -5,7 +5,9 @@ import { useToast } from '../hooks/useToast';
 import { Tooltip } from '../components/ui/Tooltip';
 import { Popover } from '../components/ui/Popover';
 import { MotionIcon } from './icons';
-import { TemplateHandoffSteps } from './TemplateHandoffInfo';
+import { hasDismissedLocalAgentHandoff, TemplateCopiedHandoffCard, TemplateHandoffSteps } from './TemplateHandoffInfo';
+import { copyTextToClipboard } from '../utils/clipboard';
+import { useCloudWebMode } from './entitlementModalBus';
 import { templateSubmissionPrompt } from './templateContribution';
 import type { GalleryTemplate } from '../../../shared/catalog';
 import styles from './TemplateLibraryDialog.module.css';
@@ -167,9 +169,10 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title, tra
   track: (element: Parameters<typeof reportHubClick>[2], fields: Parameters<typeof reportHubClick>[3]) => void;
 }) {
   const { t, locale } = useI18n();
+  const cloudWeb = useCloudWebMode();
   const { toasts, showToast, dismissToast } = useToast();
   const dialog = useRef<HTMLDialogElement>(null), scroll = useRef<HTMLDivElement>(null), footer = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState(false), [manualCopy, setManualCopy] = useState(''), [downloading, setDownloading] = useState(false);
+  const [expanded, setExpanded] = useState(false), [manualCopy, setManualCopy] = useState(''), [downloading, setDownloading] = useState(false), [copiedHandoff, setCopiedHandoff] = useState(false);
   async function downloadMotion() {
     const url = motionDocuments[video.id]; if (!url) return;
     track('download_guide', { video: video.id });
@@ -193,7 +196,7 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title, tra
     if (element && !element.open) element.showModal();
     return () => { element?.close(); focus?.focus(); };
   }, [returnFocus]);
-  useEffect(() => { setExpanded(false); setManualCopy(''); scroll.current?.scrollTo({ top: 0 }); }, [id]);
+  useEffect(() => { setExpanded(false); setManualCopy(''); setCopiedHandoff(false); scroll.current?.scrollTo({ top: 0 }); }, [id]);
   useEffect(() => {
     const element = footer.current; if (!element) return;
     const measure = () => dialog.current?.style.setProperty('--review-action-height', `${element.getBoundingClientRect().height}px`);
@@ -207,13 +210,18 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title, tra
     track('start_use', { video: video.id, action: submit ? 'recreate_submit' : 'recreate' });
     const text = submit ? templateSubmissionPrompt(prompt, locale) : prompt;
     try {
-      await navigator.clipboard.writeText(text); setManualCopy('');
-      showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
-    } catch { setManualCopy(text); setExpanded(true); showToast(t('Copy failed. Select the instruction in this section to copy manually, or try again.'), 'error', 'feedback'); }
+      if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
+      setManualCopy('');
+      if (cloudWeb && !hasDismissedLocalAgentHandoff()) {
+        setCopiedHandoff(true);
+      } else {
+        showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
+      }
+    } catch { setManualCopy(text); setCopiedHandoff(false); setExpanded(true); showToast(t('Copy failed. Select the instruction in this section to copy manually, or try again.'), 'error', 'feedback'); }
   }
   const copyColor = (color: string) => {
     track('copy_color', { video: video.id });
-    void navigator.clipboard.writeText(color).then(() => showToast(t('Copied {color}', { color }), 'info')).catch(() => showToast(t('Could not copy color. Try again.'), 'error'));
+    void copyTextToClipboard(color).then(ok => showToast(ok ? t('Copied {color}', { color }) : t('Could not copy color. Try again.'), ok ? 'info' : 'error'));
   };
   return <div className={styles.library} style={{ display: 'contents' }}>
     <dialog ref={dialog} className={`${styles.detail} ${styles.reviewDetail} om-hub-video-detail`} aria-label={t('Video preview')}
@@ -290,9 +298,10 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title, tra
               </section>
             </div>
             <div ref={footer} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
+              {copiedHandoff && <TemplateCopiedHandoffCard onDismiss={() => setCopiedHandoff(false)} />}
               <div className={styles.handoffActions}>
                 <div className={styles.recreateActions}>
-                  <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => void copy()}>{t('Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
+                  <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => void copy()}>{t(cloudWeb ? 'Copy for local Agent' : 'Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>
                     <IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} aria-label={t('Copy contribution brief')} onClick={() => void copy(true)} icon={<MotionIcon name="git-branch" size={17} />} />
                   </Tooltip>

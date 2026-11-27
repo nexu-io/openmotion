@@ -149,3 +149,51 @@ it('does not apply a late import result or success notification to another proje
   expect(listing().textContent).not.toContain('pinned-image.png');
   expect(document.querySelector('[role="status"]')).toBeNull();
 });
+
+it('accepts cloud zero-copy library import responses with status "imported" and both itemId formats', async () => {
+  await render(); await choose();
+  vi.mocked(assetRequest).mockResolvedValueOnce({
+    projectId: 'project-a',
+    status: 'completed',
+    items: [{ itemId: `library-${asset.id}-v2`, status: 'imported', kind: 'library_asset', assetId: asset.id, versionId: 'v2', path: imported }],
+  });
+  files = [...original, imported];
+  await click('Import selected version');
+  expect(document.querySelector('.om-settings-dialog')).toBeNull();
+  expect(listing().textContent).toContain('pinned-image.png');
+  expect(document.querySelector('[role="status"]')?.textContent).toContain('Asset imported.');
+
+  // Rolling-deploy compatibility: older cloud APIs may emit bare assetId as itemId.
+  files = [...original];
+  await render(); await choose();
+  vi.mocked(assetRequest).mockResolvedValueOnce({
+    projectId: 'project-a',
+    status: 'completed',
+    items: [{ itemId: asset.id, status: 'imported', kind: 'library_asset', assetId: asset.id, versionId: 'v2', path: imported }],
+  });
+  files = [...original, imported];
+  await click('Import selected version');
+  expect(document.querySelector('.om-settings-dialog')).toBeNull();
+  expect(listing().textContent).toContain('pinned-image.png');
+});
+
+it('extracts structured cloud item error messages without turning them into [object Object]', async () => {
+  await render(); await choose();
+  vi.mocked(assetRequest).mockResolvedValueOnce({
+    projectId: 'project-a',
+    status: 'failed',
+    items: [{
+      itemId: `library-${asset.id}-v2`,
+      status: 'failed',
+      kind: 'library_asset',
+      error: { code: 'ASSET_NOT_FOUND', message: 'Required file not found.' },
+    }],
+  });
+  await click('Import selected version');
+  expect(document.body.textContent).toContain('Required file not found.');
+  expect(document.body.textContent).not.toContain('[object Object]');
+  expect(document.querySelector('.om-settings-dialog')).not.toBeNull();
+  await click('Import selected version');
+  expect(calls()[1].requestId).not.toBe(calls()[0].requestId);
+  expect(listing().textContent).toContain('pinned-image.png');
+});

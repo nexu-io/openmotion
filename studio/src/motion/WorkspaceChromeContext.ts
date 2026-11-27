@@ -18,7 +18,7 @@ export type WorkspaceChrome = {
   guestMode?: boolean;
   startGuestSignIn?: (intent: GuestSignInIntent) => void;
   saveState: string;
-  openLibrary: (trigger?: HTMLElement, template?: GalleryTemplate, collection?: TemplateCollection) => void;
+  openLibrary: (trigger?: HTMLElement, template?: GalleryTemplate, collection?: TemplateCollection, industry?: string) => void;
   /** Opens the MCP connection page; `entry` records which control opened it. */
   openConnections: (entry: McpEntry) => void;
   openModelSettings: () => void;

@@ -8,5 +8,6 @@ import { timelineClipFocusId } from "./timelineNavigationIdentity";
 export function selectAndRevealTimelineElement(key: string): void {
   const store = usePlayerStore.getState();
   if (store.selectedElementId !== key || store.selectedElementIds.size !== 1) store.setSelectedElementId(key);
+  store.setSelectionOrigin("timeline");
   store.requestTimelineFocus(timelineClipFocusId(key));
 }

@@ -131,6 +131,7 @@ export function usePreviewInteraction({
           const child = await resolveDomSelectionFromPreviewPoint(e.clientX, e.clientY, {
             activeGroupElement: hit.element,
           });
+          usePlayerStore.getState().setSelectionOrigin("canvas");
           applyDomSelection(child ?? hit);
           return;
         }
@@ -144,6 +145,7 @@ export function usePreviewInteraction({
           e.stopPropagation();
           cycleRef.current = null;
           trackStudioClick("preview", "select_element", undefined, "pointer");
+          usePlayerStore.getState().setSelectionOrigin("canvas");
           applyDomSelection(hit);
           return;
         }
@@ -173,6 +175,7 @@ export function usePreviewInteraction({
         }
         e.preventDefault();
         e.stopPropagation();
+        usePlayerStore.getState().setSelectionOrigin("canvas");
         applyDomSelection(nextSelection, { additive: true });
         trackPreviewFeatureUsed("multi_select", "button");
         return;
@@ -185,6 +188,7 @@ export function usePreviewInteraction({
         cycleRef.current = { ...prev, index: nextIndex, at: now };
         e.preventDefault();
         e.stopPropagation();
+        usePlayerStore.getState().setSelectionOrigin("canvas");
         applyDomSelection(nextSel);
         return;
       }
@@ -214,6 +218,7 @@ export function usePreviewInteraction({
       }
       e.preventDefault();
       e.stopPropagation();
+      usePlayerStore.getState().setSelectionOrigin("canvas");
       applyDomSelection(nextSelection);
 
       if (!mvp && !e.shiftKey && e.altKey && onClickToSource) {

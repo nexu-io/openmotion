@@ -176,6 +176,8 @@ interface PrismMotionCatalogOptions {
   now?: () => number;
   ttlMs?: number;
   retryMs?: number;
+  /** How long an exact lookup on a fresh process waits for the in-flight first load before answering 503. */
+  firstLoadWaitMs?: number;
   onRefreshError?: (error: unknown) => void;
   /** Invoked asynchronously when a newly validated publication replaces the previous snapshot. */
   onPublicationChanged?: (
@@ -194,6 +196,7 @@ export class PrismMotionCatalog {
   private readonly now: () => number;
   private readonly ttlMs: number;
   private readonly retryMs: number;
+  private readonly firstLoadWaitMs: number;
   private readonly onRefreshError?: (error: unknown) => void;
   private readonly onPublicationChanged?: (
     templates: readonly PreparedCatalogTemplate[],
@@ -216,13 +219,30 @@ export class PrismMotionCatalog {
     this.now = options.now ?? Date.now;
     this.ttlMs = options.ttlMs ?? 5 * 60_000;
     this.retryMs = options.retryMs ?? 30_000;
+    this.firstLoadWaitMs = options.firstLoadWaitMs ?? 15_000;
     this.onRefreshError = options.onRefreshError;
     this.onPublicationChanged = options.onPublicationChanged;
   }
 
-  async getTemplates({ requirePublication = false } = {}): Promise<readonly PreparedCatalogTemplate[]> {
+  /** Starts a refresh when due and immediately returns the last validated publication, if any. */
+  getPublication(): readonly PreparedCatalogTemplate[] | undefined {
     if (!this.pending && this.now() >= this.checkAfter) {
       this.pending = this.refresh();
+    }
+    return this.cached;
+  }
+
+  async getTemplates({ requirePublication = false } = {}): Promise<readonly PreparedCatalogTemplate[]> {
+    const publication = this.getPublication();
+    if (publication) return publication;
+    // A fresh process has no snapshot yet; let callers that need one wait (bounded) for the first load.
+    if (requirePublication && this.pending) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        this.pending,
+        new Promise<void>(resolve => { timer = setTimeout(resolve, this.firstLoadWaitMs); }),
+      ]);
+      clearTimeout(timer);
     }
     if (requirePublication && !this.cached) {
       throw new CloudError('SERVICE_UNAVAILABLE', 'Motion template catalog is not ready yet. Retry shortly.', { status: 503 });

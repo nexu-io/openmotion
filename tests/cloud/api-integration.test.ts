@@ -4805,4 +4805,160 @@ describe('Cloud API Entrypoint — OpenDesign Console URL', () => {
     assert.equal(resumedStatus.job.state, 'queued');
     assert.equal(resumedStatus.job.failureStage, undefined);
   });
+
+  it('imports a library PNG via openmotion_assets_use(action=import_to_project) after Undo without version collision', async () => {
+    const { app, config, pgClient, storage } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const workspaceId = config.DEV_WORKSPACE_ID;
+    const nowIso = new Date().toISOString();
+
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const pngSha = createHash('sha256').update(pngBytes).digest('hex');
+    const s3Key = `workspaces/${workspaceId}/blobs/${pngSha}`;
+    await storage.putObject(s3Key, pngBytes, 'image/png');
+
+    const assetId = randomUUID();
+    const versionId = randomUUID();
+    pgClient.seed('workspace_blobs', {
+      workspace_id: workspaceId,
+      sha256: pngSha,
+      size_bytes: pngBytes.length,
+      mime_type: 'image/png',
+      s3_key: s3Key,
+      metadata: { modality: 'image', width: 1, height: 1, mimeType: 'image/png' },
+      ref_count: 1,
+      zero_ref_since: null,
+      gc_state: 'active',
+      created_at: nowIso,
+    });
+    pgClient.seed('assets', {
+      id: assetId,
+      workspace_id: workspaceId,
+      name: 'openmotion-s06-qa.png',
+      modality: 'image',
+      current_version_id: versionId,
+      trashed: false,
+      trashed_at: null,
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+    pgClient.seed('asset_versions', {
+      id: versionId,
+      workspace_id: workspaceId,
+      asset_id: assetId,
+      source: 'upload',
+      filename: 'openmotion-s06-qa.png',
+      display_name: null,
+      sha256: pngSha,
+      size_bytes: pngBytes.length,
+      mime_type: 'image/png',
+      width: 1,
+      height: 1,
+      duration_sec: null,
+      prompt: null,
+      model: null,
+      parameters: null,
+      references: [],
+      parent_version_id: null,
+      job_id: null,
+      request_id: null,
+      request_hash: null,
+      provider_result: null,
+      created_at: nowIso,
+    });
+
+    // 1. Create a project, make an edit, then Undo (rewinding current_version_number from 2 -> 1).
+    const createRes = await app.request('/motion-api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'QA Rerun 90', requestId: randomUUID() }),
+    });
+    assert.equal(createRes.status, 201);
+    const projectId = ((await createRes.json()) as { projectId: string }).projectId;
+
+    const readRes = await app.request(`/api/projects/${projectId}/files/index.html`);
+    assert.equal(readRes.status, 200);
+    const html = await readRes.text();
+    const etag = readRes.headers.get('etag');
+
+    const editRes = await app.request(`/api/projects/${projectId}/files/index.html`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(etag ? { 'If-Match': etag } : {}) },
+      body: JSON.stringify({ content: `${html}\n<!-- right-trim edit -->\n`, requestId: randomUUID() }),
+    });
+    assert.equal(editRes.status, 200);
+
+    const undoRes = await app.request(`/api/projects/${projectId}/history/undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(undoRes.status, 200);
+    const undoBody = (await undoRes.json()) as { versionNumber: number; seq: number; canRedo: boolean };
+    assert.equal(undoBody.versionNumber, 1);
+    assert.equal(undoBody.canRedo, true);
+
+    // 2. Import the library PNG version via POST /motion-api/phase1/call (exact Studio path).
+    const importRes = await app.request('/motion-api/phase1/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'openmotion_assets_use',
+        arguments: {
+          action: 'import_to_project',
+          projectId,
+          requestId: randomUUID(),
+          assetId,
+          versionId,
+        },
+      }),
+    });
+    assert.equal(importRes.status, 200);
+    const imported = (await importRes.json()) as {
+      projectId: string;
+      status: string;
+      items: Array<{ itemId: string; status: string; path?: string; assetId?: string; versionId?: string; zeroCopy?: boolean }>;
+    };
+    const expectedPath = `assets/imported/${assetId}.png`;
+    assert.equal(imported.projectId, projectId);
+    assert.equal(imported.status, 'completed');
+    assert.equal(imported.items.length, 1);
+    assert.equal(imported.items[0].itemId, `library-${assetId}-${versionId}`);
+    assert.equal(imported.items[0].status, 'imported');
+    assert.equal(imported.items[0].path, expectedPath);
+    assert.equal(imported.items[0].zeroCopy, true);
+
+    // 3. Verify the editor project listing includes the imported PNG and advanced past the undone version.
+    const listingRes = await app.request(`/api/projects/${projectId}?view=editor`);
+    assert.equal(listingRes.status, 200);
+    const listing = (await listingRes.json()) as { files: string[]; versionNumber: number; historySeq: number };
+    assert.ok(listing.files.includes(expectedPath), `expected ${expectedPath} in ${JSON.stringify(listing.files)}`);
+    assert.equal(listing.versionNumber, 3);
+    assert.equal(listing.historySeq, 3);
+
+    // 4. Verify Undo removes the imported asset cleanly and Redo brings it back.
+    const undoImportRes = await app.request(`/api/projects/${projectId}/history/undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(undoImportRes.status, 200);
+    const afterUndoListing = (await (await app.request(`/api/projects/${projectId}?view=editor`)).json()) as {
+      files: string[];
+    };
+    assert.ok(!afterUndoListing.files.includes(expectedPath));
+
+    const redoImportRes = await app.request(`/api/projects/${projectId}/history/undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction: 'redo' }),
+    });
+    assert.equal(redoImportRes.status, 200);
+    const afterRedoListing = (await (await app.request(`/api/projects/${projectId}?view=editor`)).json()) as {
+      files: string[];
+    };
+    assert.ok(afterRedoListing.files.includes(expectedPath));
+  });
 });
