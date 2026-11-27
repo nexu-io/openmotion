@@ -486,7 +486,11 @@ test('splash.html uses single-play WebGL startup logo animation and thin-shell o
   assert.match(splashHtml, /let playedOnce = false/);
   assert.match(splashHtml, /const ENTRANCE_SECONDS = 0\.8;/, 'Splash logo reveal must finish within 0.8s');
   assert.match(splashHtml, /renderSettledWordmark\(\)/);
-  assert.match(splashHtml, /function drawStatic\(\)/);
+  assert.match(splashHtml, /id="splash-logo-img"/, 'Settled splash logo must be the vector artwork');
+  assert.match(splashHtml, /html\[data-logo-static="true"\] #splash-logo img/);
+  assert.match(splashHtml, /device-pixel-content-box/, 'Reveal canvas must map 1:1 onto device pixels');
+  assert.match(splashHtml, /UNPACK_PREMULTIPLY_ALPHA_WEBGL, true/);
+  assert.equal(splashHtml.includes('drawStatic'), false, 'WebGL fallback settles onto the vector artwork');
   assert.match(splashHtml, /window\.__omSplashStopLogo\s*=/);
   assert.equal(splashHtml.includes('HOLD_SECONDS'), false, 'Splash logo animation must play strictly once without looping');
   assert.equal(splashHtml.includes('cycleStart'), false, 'Splash logo animation must not reset cycles');

@@ -157,10 +157,29 @@
         flex-shrink: 0;
       }
 
-      #splash-logo canvas {
+      #splash-logo canvas,
+      #splash-logo img {
+        position: absolute;
+        inset: 0;
         display: block;
         width: 100%;
         height: 100%;
+        transition: opacity 160ms cubic-bezier(0.23, 1, 0.32, 1);
+      }
+
+      /* The WebGL canvas only carries the one-off reveal. Once it settles, the
+         vector artwork takes over so the wordmark stays sharp at any scale. */
+      #splash-logo img {
+        opacity: 0;
+        user-select: none;
+      }
+
+      html[data-logo-static="true"] #splash-logo img {
+        opacity: 1;
+      }
+
+      html[data-logo-static="true"] #splash-logo canvas {
+        opacity: 0;
       }
 
       /* Boot progress bar & step counter */
@@ -419,6 +438,8 @@
         body,
         .om-stage,
         #splash-logo,
+        #splash-logo canvas,
+        #splash-logo img,
         .boot-footer,
         .boot-stage,
         .boot-progress-fill,
@@ -437,7 +458,8 @@
 
     <main class="om-stage" role="status" aria-live="polite">
       <div id="splash-logo" role="img" aria-label="OpenDesign">
-        <canvas id="splash-canvas"></canvas>
+        <canvas id="splash-canvas" aria-hidden="true"></canvas>
+        <img id="splash-logo-img" alt="" aria-hidden="true" draggable="false" />
       </div>
 
       <!-- Integrated OpenDesign Sign-In Panel -->
@@ -518,6 +540,7 @@
         const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
         const logoHost = document.getElementById('splash-logo');
         const logoCanvas = document.getElementById('splash-canvas');
+        const logoImg = document.getElementById('splash-logo-img');
 
         // Exact OpenDesign 1705x291 wordmark artwork and WebGL reveal shader,
         // adapted for light/dark themes and played strictly once per launch.
@@ -535,7 +558,6 @@
         let stopped = false;
         let freezeStatic = false;
         let playedOnce = false;
-        let dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
         const wordImg = new Image();
         const wordCanvas = document.createElement('canvas');
         let gl = null;
@@ -549,6 +571,7 @@
         let elapsedBeforePause = 0;
         let sizedW = 0;
         let sizedH = 0;
+        let observedPx = null;
         let resizeObserver = null;
 
         function buildThemedLogoSrc(theme) {
@@ -566,40 +589,18 @@
           };
         }
 
-        function rasteriseWordmark(size) {
-          wordCanvas.width = Math.max(1, Math.round(size.w * dpr));
-          wordCanvas.height = Math.max(1, Math.round(size.h * dpr));
+        function rasteriseWordmark(pxW, pxH) {
+          wordCanvas.width = pxW;
+          wordCanvas.height = pxH;
           const ctx = wordCanvas.getContext('2d');
           if (!ctx) return;
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.clearRect(0, 0, size.w, size.h);
+          ctx.clearRect(0, 0, pxW, pxH);
           if (wordImg.naturalWidth > 0 && wordImg.naturalHeight > 0) {
-            const s = Math.min(size.w / wordImg.naturalWidth, size.h / wordImg.naturalHeight);
+            const s = Math.min(pxW / wordImg.naturalWidth, pxH / wordImg.naturalHeight);
             const dw = wordImg.naturalWidth * s;
             const dh = wordImg.naturalHeight * s;
-            ctx.drawImage(wordImg, (size.w - dw) / 2, (size.h - dh) / 2, dw, dh);
+            ctx.drawImage(wordImg, (pxW - dw) / 2, (pxH - dh) / 2, dw, dh);
           }
-        }
-
-        function drawStatic() {
-          if (!logoCanvas) return;
-          const size = hostSize();
-          if (size.w < 2 || size.h < 2) return;
-          logoCanvas.width = Math.max(1, Math.round(size.w * dpr));
-          logoCanvas.height = Math.max(1, Math.round(size.h * dpr));
-          let ctx = null;
-          try {
-            ctx = logoCanvas.getContext('2d');
-          } catch {
-            ctx = null;
-          }
-          if (!ctx || !wordImg.naturalWidth) return;
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.clearRect(0, 0, size.w, size.h);
-          const s = Math.min(size.w / wordImg.naturalWidth, size.h / wordImg.naturalHeight);
-          const dw = wordImg.naturalWidth * s;
-          const dh = wordImg.naturalHeight * s;
-          ctx.drawImage(wordImg, (size.w - dw) / 2, (size.h - dh) / 2, dw, dh);
         }
 
         function compileShader(type, source) {
@@ -620,6 +621,7 @@
           if (!gl || !texture) return;
           gl.bindTexture(gl.TEXTURE_2D, texture);
           gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, wordCanvas);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -647,38 +649,24 @@
           playedOnce = true;
           cancelLogoRaf();
           document.documentElement.setAttribute('data-logo-static', 'true');
-          if (gl) {
-            resizeLogo();
-            if (sizedW) {
-              renderWebglFrame(ENTRANCE_SECONDS, 2);
-            }
-          } else {
-            drawStatic();
-          }
         }
 
         function resizeLogo() {
-          if (!logoCanvas) return;
-          const nextDpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+          if (!logoCanvas || !gl || playedOnce) return;
           const size = hostSize();
           if (size.w < 2 || size.h < 2) return;
-          if (size.w === sizedW && size.h === sizedH && nextDpr === dpr) return;
-          dpr = nextDpr;
-          sizedW = size.w;
-          sizedH = size.h;
-          if (!gl) {
-            drawStatic();
-            return;
-          }
-          logoCanvas.width = Math.max(1, Math.round(size.w * dpr));
-          logoCanvas.height = Math.max(1, Math.round(size.h * dpr));
-          gl.viewport(0, 0, logoCanvas.width, logoCanvas.height);
-          rasteriseWordmark(size);
+          const ratio = window.devicePixelRatio || 1;
+          const pxW = Math.max(1, observedPx ? observedPx.w : Math.round(size.w * ratio));
+          const pxH = Math.max(1, observedPx ? observedPx.h : Math.round(size.h * ratio));
+          if (pxW === sizedW && pxH === sizedH) return;
+          sizedW = pxW;
+          sizedH = pxH;
+          logoCanvas.width = pxW;
+          logoCanvas.height = pxH;
+          gl.viewport(0, 0, pxW, pxH);
+          rasteriseWordmark(pxW, pxH);
           uploadTexture();
-          gl.uniform2f(uni.resolution, logoCanvas.width, logoCanvas.height);
-          if (playedOnce) {
-            renderWebglFrame(ENTRANCE_SECONDS, 2);
-          }
+          gl.uniform2f(uni.resolution, pxW, pxH);
         }
 
         function frame() {
@@ -745,16 +733,14 @@
             gl = null;
           }
           if (!gl) {
-            playedOnce = true;
-            drawStatic();
+            renderSettledWordmark();
             return;
           }
           const vs = compileShader(gl.VERTEX_SHADER, VERT);
           const fs = compileShader(gl.FRAGMENT_SHADER, FRAG);
           if (!vs || !fs) {
             gl = null;
-            playedOnce = true;
-            drawStatic();
+            renderSettledWordmark();
             return;
           }
           program = gl.createProgram();
@@ -766,8 +752,7 @@
           if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
             console.error('[splash] program link failed:', gl.getProgramInfoLog(program));
             gl = null;
-            playedOnce = true;
-            drawStatic();
+            renderSettledWordmark();
             return;
           }
           gl.useProgram(program);
@@ -839,7 +824,7 @@
           gl = null;
           sizedW = 0;
           sizedH = 0;
-          drawStatic();
+          renderSettledWordmark();
         }
 
         function onContextRestored() {
@@ -852,16 +837,27 @@
           logoCanvas.addEventListener('webglcontextrestored', onContextRestored);
         }
         window.addEventListener('resize', resizeLogo);
-        if (typeof ResizeObserver === 'function' && logoHost) {
-          resizeObserver = new ResizeObserver(() => resizeLogo());
-          resizeObserver.observe(logoHost);
+        if (typeof ResizeObserver === 'function' && logoCanvas) {
+          resizeObserver = new ResizeObserver((entries) => {
+            const entry = entries[entries.length - 1];
+            const box = entry && entry.devicePixelContentBoxSize && entry.devicePixelContentBoxSize[0];
+            if (box) observedPx = { w: box.inlineSize, h: box.blockSize };
+            resizeLogo();
+          });
+          try {
+            resizeObserver.observe(logoCanvas, { box: 'device-pixel-content-box' });
+          } catch {
+            resizeObserver.observe(logoCanvas);
+          }
         }
 
         wordImg.onload = startLogoWebgl;
         wordImg.onerror = () => {
           console.error('[splash] logo failed to load');
         };
-        wordImg.src = buildThemedLogoSrc(activeTheme);
+        const logoSrc = buildThemedLogoSrc(activeTheme);
+        wordImg.src = logoSrc;
+        if (logoImg) logoImg.src = logoSrc;
 
         function onReducedMotionChange() {
           syncLogoAnimationState();
