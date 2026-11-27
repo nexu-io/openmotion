@@ -1,4 +1,3 @@
-import { WorkspaceBack } from './WorkspaceBack';
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { CategoryStrip } from './CategoryStrip';
@@ -50,7 +49,7 @@ function githubRepositoryOf(source?: string): string | null {
 }
 
 /** Open-source motion techniques the user can hand to an Agent through OpenMotion MCP. */
-export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryChange, studio, onExplore, onClose, onCreate, briefs, previewsEnabled = true, hasProject = false, detailOnly = false }: { routeCategory?: SkillCategory | null; onCategoryChange?: (value: SkillCategory | null) => void; detailOnly?: boolean; studio?: TechniqueStudio; previewsEnabled?: boolean; briefs?: Map<string, SkillParameters>; onCreate?: (destination: StudioDestination, draft?: AssetDraft) => void; onExplore?: () => void; onClose?: () => void; skillId: string | null; onSkillChange: (id: string | null) => void; hasProject?: boolean }) {
+export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryChange, studio, onClose, onCreate, briefs, previewsEnabled = true, hasProject = false, detailOnly = false }: { routeCategory?: SkillCategory | null; onCategoryChange?: (value: SkillCategory | null) => void; detailOnly?: boolean; studio?: TechniqueStudio; previewsEnabled?: boolean; briefs?: Map<string, SkillParameters>; onCreate?: (destination: StudioDestination, draft?: AssetDraft) => void; onClose?: () => void; skillId: string | null; onSkillChange: (id: string | null) => void; hasProject?: boolean }) {
   const { t, locale } = useI18n(), toast = useToast(), displayName = displayNameOf(t);
   const chrome = useOptionalWorkspaceChrome();
   const comingSoon = studioComingSoon(studio);
@@ -196,8 +195,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     } : undefined}>
     <StudioToastViewport {...toast} />
     {!detailOnly && <div ref={main} className="om-skills-main">
-      {studio && onExplore && <WorkspaceBack fallback={onExplore} />}
-      <main className="om-gallery-results">
+      <main className={studio ? 'om-gallery-results om-studio-landing' : 'om-gallery-results'}>
         {studio ? <StudioLandingHero title={t(studio.title)} description={t(studio.briefHint)} poster={featured?.cover?.poster}>
           {comingSoon ? <ComingSoonGuide compact /> : onCreate && <>
             <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={() => onCreate(mediaEditorDestination(studio.scenes[0]))}>

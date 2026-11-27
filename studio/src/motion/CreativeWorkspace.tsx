@@ -128,8 +128,8 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   const hideHeading = showSoundBar || isImageStudio || showVideoBar;
   const heading = destination.landing ? scene.label : destination.mediaTab ? mediaLabels[scene.modality] : studio.title;
   return <div className="om-assets-host om-creative-workspace">
+    {!destination.home && <>
     {breadcrumb}
-    {destination.home ? (onBackToExplore ? <BackToExploreButton onClick={onBackToExplore} /> : !breadcrumb && <WorkspaceBack fallback={onExplore} />) : <>
     <header className="om-studio-bar" data-sound-bar={showSoundBar || undefined} data-image-bar={showImageBar || undefined} data-video-bar={showVideoBar || undefined}>
       {!showSoundBar && (onBackToExplore ? <BackToExploreButton onClick={onBackToExplore} />
         : !breadcrumb && !destination.landing && studio.id === 'cinema' ? <WorkspaceBack inline fallback={onExplore} />

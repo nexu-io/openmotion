@@ -819,15 +819,16 @@
 @container model-controls (max-width: 300px) {
   .om-generation-pickers[data-paired] { grid-template-columns: minmax(0, 1fr); }
 }
-/* Sound Studio landing: the technique-studio banner and template grid, with audio previews. */
-.om-audio-landing { display: grid; gap: var(--motion-space-32); container-type: inline-size; }
+/* The Sound Studio landing supplies its own page padding. */
+.om-assets-main:has(> .om-audio-landing) { padding: 0; }
+.om-audio-landing { display: grid; gap: var(--motion-space-32); }
 .om-audio-card .om-gallery-poster img { opacity: 1; }
-.om-audio-card[data-current="true"] .om-gallery-cover { outline: 2px solid var(--motion-accent); outline-offset: 2px; }
 .om-audio-card-prompt { display: grid; justify-items: start; gap: var(--motion-space-8); padding-block-start: var(--motion-space-12); }
 .om-audio-card-prompt p { margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .om-audio-card-prompt p span { display: block; color: var(--motion-text); font-weight: var(--motion-weight-medium); }
 
 .om-audio-card .om-gallery-card-top { opacity: 1; }
+.om-audio-card .om-gallery-card-arrow { display: grid; opacity: 1; }
 
 /* Games made in Game Studio, merged into Assets (game/GameAssetsSection.tsx). Covers are 16:9 artwork. */
 .om-asset-games { display: grid; gap: var(--motion-space-12); margin-bottom: var(--motion-space-24); }

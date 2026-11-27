@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useCloudFeatureEnabled } from '../utils/cloudFeatures';
 import { scenesForStudio, type StudioDestination } from './creativeStudios';
+import soundStudioCover from './scene-art/ambient-piano.webp';
 import type { SoundLiveTabId } from './soundTabs';
 import { studioExamples } from './sceneShowcase';
 import { StudioLandingHero } from './StudioLandingHero';
@@ -21,53 +22,59 @@ export function AudioStudioLanding({ destination, active, onPrompt, onCreate }: 
       .filter(example => example.audio && (soundEffectsEnabled || example.kind !== 'Sound effect'))
       .map(example => ({ ...example, scene })),
   );
-  const [selected, setSelected] = useState(0), [playing, setPlaying] = useState(false);
+  const [playingSource, setPlayingSource] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
-  const featured = templates[selected] ?? templates[0];
   useEffect(() => { if (!active) audio.current?.pause(); }, [active]);
-  const play = (index: number) => {
-    const element = audio.current, item = templates[index];
-    if (!element) return;
-    if (index === selected && !element.paused) { element.pause(); return; }
-    setSelected(index);
-    if (!item.audio) return;
-    if (element.getAttribute('src') !== item.audio) element.src = item.audio;
-    void element.play().catch(() => setPlaying(false));
+  const togglePlayback = (source?: string) => {
+    const element = audio.current;
+    if (!element || !source) return;
+    if (element.getAttribute('src') !== source) element.src = source;
+    else if (!element.paused) { element.pause(); return; }
+    void element.play().catch(() => {});
   };
-  return <div className="om-gallery-results om-audio-landing">
-    <audio ref={audio} preload="none" hidden onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+  return <div className="om-gallery-results om-studio-landing om-audio-landing">
+    <audio
+      ref={audio}
+      preload="none"
+      hidden
+      onPlaying={event => setPlayingSource(event.currentTarget.getAttribute('src'))}
+      onPause={() => setPlayingSource(null)}
+      onEnded={() => setPlayingSource(null)}
+      onEmptied={() => setPlayingSource(null)}
+      onError={() => setPlayingSource(null)}
+    />
     <StudioLandingHero
       title={t(studio.title)}
       description={t('Create a voice, a soundtrack, an atmosphere.')}
-      poster={featured?.poster}
+      poster={soundStudioCover}
     >
       <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={onCreate}>
         <RemixIcon name="add-line" size={16} />{t('Generate audio')}
       </Button>
-      {featured && <Button variant="ghost" className="om-button h-auto" aria-pressed={playing} onClick={() => play(selected)}>
-        <RemixIcon name={playing ? 'pause-fill' : 'play-fill'} size={16} />{t(featured.title)}
-      </Button>}
     </StudioLandingHero>
     <section className="om-studio-template-shelf" aria-label={t('Audio templates')}>
       <header><h2 className="om-title">{t('Audio templates')}</h2></header>
       <div className="om-studio-template-grid">
-        {templates.map((item, index) => <article key={item.title} className="om-gallery-card om-audio-card" data-current={index === selected}>
-          <div className="om-gallery-card-media">
-            <Button variant="plain" className="motion-gallery-card-cover om-gallery-cover" aria-pressed={index === selected && playing} aria-label={t(item.title)} onClick={() => play(index)}>
-              <div className="om-gallery-poster" data-loaded="true"><img src={item.poster} alt="" loading="lazy" decoding="async" /></div>
-              <span className="om-gallery-card-shade" />
-              <span className="om-gallery-card-top">{item.kind && <span>{t(item.kind)}</span>}{item.seconds && <span>{t('{value}s', { value: item.seconds })}</span>}</span>
-              <span className="om-gallery-card-bottom">
-                <span className="om-gallery-card-caption"><strong>{t(item.title)}</strong>{item.model && <small>{t('Recommended model')} · {item.model}</small>}</span>
-                <span className="om-gallery-card-arrow"><RemixIcon name={index === selected && playing ? 'pause-fill' : 'play-fill'} size={18} /></span>
-              </span>
-            </Button>
-          </div>
-          <div className="om-audio-card-prompt">
-            <p className="om-muted"><span>{t('Audio prompt')}</span>{t(item.prompt)}</p>
-            <Button variant="ghost" className="om-button h-auto" onClick={() => onPrompt(t(item.prompt), item.kind === 'Sound effect' ? 'sfx' : item.scene.id === 'speech' ? 'speech' : 'music')}><RemixIcon name="add-line" size={15} />{t('Use prompt')}</Button>
-          </div>
-        </article>)}
+        {templates.map(item => {
+          const isPlaying = playingSource === item.audio;
+          return <article key={item.title} className="om-gallery-card om-audio-card">
+            <div className="om-gallery-card-media">
+              <Button variant="plain" className="motion-gallery-card-cover om-gallery-cover" aria-pressed={isPlaying} aria-label={t(item.title)} onClick={() => togglePlayback(item.audio)}>
+                <div className="om-gallery-poster" data-loaded="true"><img src={item.poster} alt="" loading="lazy" decoding="async" /></div>
+                <span className="om-gallery-card-shade" />
+                <span className="om-gallery-card-top">{item.kind && <span>{t(item.kind)}</span>}{item.seconds && <span>{t('{value}s', { value: item.seconds })}</span>}</span>
+                <span className="om-gallery-card-bottom">
+                  <span className="om-gallery-card-caption"><strong>{t(item.title)}</strong>{item.model && <small>{t('Recommended model')} · {item.model}</small>}</span>
+                  <span className="om-gallery-card-arrow"><RemixIcon name={isPlaying ? 'pause-fill' : 'play-fill'} size={18} /></span>
+                </span>
+              </Button>
+            </div>
+            <div className="om-audio-card-prompt">
+              <p className="om-muted"><span>{t('Audio prompt')}</span>{t(item.prompt)}</p>
+              <Button variant="ghost" className="om-button h-auto" onClick={() => onPrompt(t(item.prompt), item.kind === 'Sound effect' ? 'sfx' : item.scene.id === 'speech' ? 'speech' : 'music')}><RemixIcon name="add-line" size={15} />{t('Use prompt')}</Button>
+            </div>
+          </article>;
+        })}
       </div>
     </section>
   </div>;

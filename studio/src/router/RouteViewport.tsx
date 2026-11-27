@@ -508,7 +508,6 @@ export function RouteViewport({
                 onCreate={openStudioFromPage}
                 key={page.specialty?.id ?? 'skills'}
                 studio={page.specialty ?? undefined}
-                onExplore={returnToExplore}
                 onClose={skillsOpen ? closeSkills : undefined}
                 skillId={page.skill}
                 routeCategory={page.skills ? page.skillCategory : undefined}

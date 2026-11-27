@@ -58,9 +58,6 @@ async function accountAction(label: string) {
 async function openMcp() {
   await click('MCP');
 }
-async function clickWorkspaceBack() {
-  await act(async () => { button('Back').click(); await new Promise(resolve => setTimeout(resolve, 0)); });
-}
 const traverse = async (delta: number) => { await act(async () => { history.go(delta); await new Promise(resolve => setTimeout(resolve, 0)); }); };
 const settingsBack = () => container.querySelector<HTMLButtonElement>('.om-settings-heading > button.om-nav-item');
 const leaveSettings = async () => {
@@ -1664,7 +1661,8 @@ it('keeps Agent Skills available while the 3D studio is pending and preserves th
   ]);
   expect(banner.querySelector('.om-hero-actions button')?.textContent).toContain('3D');
   expect(button('Create a shot from this brief')).toBeUndefined();
-  await clickWorkspaceBack();
+  expect(container.querySelector('.om-skills-main .om-page-back-row')).toBeNull();
+  await traverse(-1);
   expect(page()).toMatchObject({ explore: true, community: '3d-motion', specialty: null, skill: null });
   expect(container.querySelector('.om-explore')).toBe(feed);
   expect(feed.scrollTop).toBe(326);
@@ -1923,6 +1921,7 @@ it('keeps the top-level Audio tab and Sound Studio home as independent navigatio
   expect(new URLSearchParams(location.search).has('home')).toBe(false);
   expect(button('Sound Studio').getAttribute('aria-current')).toBe('page');
   expect(button('Audio').getAttribute('aria-current')).toBeNull();
+  expect(container.querySelector('.om-creative-workspace .om-page-back-row')).toBeNull();
 });
 
 it.each([
@@ -2071,7 +2070,8 @@ it.each(['text-to-video', 'image-to-video'])('shows Coming soon for a direct 3D 
   await click('3D Creative Skills');
   expect(page()).toMatchObject({ specialty: { id: '3d' }, skill: null });
   expect(container.querySelector('.om-studio-coming-soon')).toBeNull();
-  await clickWorkspaceBack();
+  expect(container.querySelector('.om-skills-main .om-page-back-row')).toBeNull();
+  await click('Explore');
   expect(page().explore).toBe(true);
 });
 
