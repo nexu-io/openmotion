@@ -101,8 +101,11 @@ export function useExploreCampaign(filters: ExploreFilters) {
 export type ExploreCampaign = ReturnType<typeof useExploreCampaign>;
 export const shouldShowBlackFridayBanner = () => blackFridayActive() && !bannerDismissedToday();
 
-/** Where the click happened: the top campaign banner, the Explore hero, a model hub promo pill, or the header Pricing entry. */
-export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_bf_hero' | 'openmotion_bf_hub' | 'openmotion_header_pricing';
+/**
+ * Where the Pricing entry happened: the top campaign banner, the Explore hero, a model hub promo pill, the header
+ * Pricing entry, or the automatic Pricing redirect after a Free/Go Google One Tap sign-in.
+ */
+export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_bf_hero' | 'openmotion_bf_hub' | 'openmotion_header_pricing' | 'openmotion_onetap';
 /**
  * The `od_entry_source` sent for these entries. AMR keeps an attribution only for registered sources, and
  * `openmotion_manage_subscription` is the OpenMotion source it already accepts; an unregistered value would drop the
@@ -115,6 +118,7 @@ const utmMedium: Record<CampaignEntrySource, string> = {
   openmotion_bf_hero: 'hero',
   openmotion_bf_hub: 'model_hub',
   openmotion_header_pricing: 'header',
+  openmotion_onetap: 'onetap',
 };
 
 export function newCampaignEntryId() {
@@ -128,6 +132,39 @@ export function campaignPricingUrl(locale: string, source: CampaignEntrySource, 
     utm_source: 'openmotion', utm_medium: utmMedium[source], ...(campaign ? { utm_campaign: BLACK_FRIDAY_CAMPAIGN } : {}),
   }).toString();
   return url.toString();
+}
+
+/**
+ * The Pricing address for a browser entry. In browser cloud mode it goes through same-origin `/auth/upgrade-handoff`
+ * so the server inspects the live session when the address is opened and carries a signed-in account into Pricing;
+ * `requireAuth` binds the handoff to the account the page expects. Dev and desktop modes open public Pricing directly.
+ */
+export function campaignPricingHref(
+  locale: string,
+  source: CampaignEntrySource,
+  entryId: string,
+  useUpgradeHandoff: boolean,
+  signedInBinding?: { requireAuth: boolean; expectedAppUserId?: string | null },
+): string {
+  const direct = campaignPricingUrl(locale, source, entryId);
+  if (!useUpgradeHandoff) return direct;
+  const parsedDirect = new URL(direct);
+  const baseOrigin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'https://app.open-design.ai';
+  const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
+  handoff.searchParams.set('targetPath', locale.startsWith('zh') ? '/zh/pricing' : '/pricing');
+  if (signedInBinding?.requireAuth) {
+    handoff.searchParams.set('requireAuth', '1');
+    if (signedInBinding.expectedAppUserId) {
+      handoff.searchParams.set('expectedAppUserId', signedInBinding.expectedAppUserId);
+    }
+  }
+  for (const [key, value] of parsedDirect.searchParams.entries()) {
+    handoff.searchParams.set(key, value);
+  }
+  return handoff.href;
 }
 
 /**

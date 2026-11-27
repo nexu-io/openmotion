@@ -129,7 +129,7 @@ it('skips Google One Tap completely inside the Electron desktop app', async () =
   expect(document.getElementById(ONETAP_ANCHOR_ID)).toBeNull();
 });
 
-it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Friday banner, and completes in-place login', async () => {
+it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Friday banner, and sends a Free account to Pricing after sign-in', async () => {
   expect(MOTION_ONETAP_DELAY_MS).toBe(2000);
   let initConfig: GoogleAccountsIdInitializeConfig | null = null;
   let promptListener: ((n: GooglePromptMomentNotification) => void) | undefined;
@@ -173,8 +173,13 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
   const refreshAccount = vi.fn(async () => {});
   const accountChanged = vi.fn();
   window.addEventListener('motion:account-changed', accountChanged);
+  const navigateToPricing = vi.fn((url: string) => {
+    expect(accountChanged).toHaveBeenCalledTimes(1);
+    expect(tracked.at(-1)?.event).toBe('onetap_login_success');
+    return url;
+  });
 
-  const { container } = mountOneTap({ bfBannerVisible: true, refreshAccount });
+  const { container } = mountOneTap({ bfBannerVisible: true, refreshAccount, navigateToPricing, locale: 'zh-CN' });
 
   // Before 2500ms delay -> no challenge call yet
   await act(async () => {
@@ -229,6 +234,8 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
         accountError={false}
         bfBannerVisible={false}
         refreshAccount={refreshAccount}
+        navigateToPricing={navigateToPricing}
+        locale="zh-CN"
       />,
     );
   });
@@ -247,17 +254,28 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
   promptListener?.({ isDismissedMoment: () => true });
 
   // Trigger GIS credential callback -> POST /auth/one-tap -> refreshes account/summary + dispatches motion:account-changed
+  // -> Free account continues to Pricing through the signed-in upgrade handoff.
   await act(async () => {
     initConfig!.callback({ credential: 'jwt_google_token', select_by: 'user' });
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
   });
 
   expect(syncedIdentities).toEqual([{ signedIn: true, userId: 'usr_app_999' }]);
   expect(refreshAccount).toHaveBeenCalledTimes(1);
   expect(accountChanged).toHaveBeenCalledTimes(1);
   expect(document.getElementById(ONETAP_ANCHOR_ID)).toBeNull();
+  expect(navigateToPricing).toHaveBeenCalledTimes(1);
+  const pricingUrl = new URL(navigateToPricing.mock.calls[0][0]);
+  expect(pricingUrl.origin).toBe(window.location.origin);
+  expect(pricingUrl.pathname).toBe('/auth/upgrade-handoff');
+  expect(pricingUrl.searchParams.get('targetPath')).toBe('/zh/pricing');
+  expect(pricingUrl.searchParams.get('requireAuth')).toBe('1');
+  expect(pricingUrl.searchParams.get('expectedAppUserId')).toBe('usr_app_999');
+  expect(pricingUrl.searchParams.get('od_origin')).toBe('openmotion');
+  expect(pricingUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  expect(pricingUrl.searchParams.get('od_entry_id')).toMatch(/^[0-9a-f-]{36}$/);
+  expect(pricingUrl.searchParams.get('utm_source')).toBe('openmotion');
+  expect(pricingUrl.searchParams.get('utm_medium')).toBe('onetap');
 
   // Verify every emitted event passes tracking registry validation
   const eventNames = tracked.map(item => item.event);
@@ -289,7 +307,7 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
     surface: 'motion_web',
     is_new_user: true,
     plan_tier: 'free',
-    post_login_action: 'in_place',
+    post_login_action: 'redirect_pricing',
     ref: 'INVITE1',
     utm_source: 'twitter',
     utm_campaign: 'opengame',
@@ -835,7 +853,8 @@ it('supports cross-tab logout cancellation and in-place retry with a fresh chall
 
   const onError = vi.fn();
   const refreshAccount = vi.fn(async () => {});
-  mountOneTap({ onError, refreshAccount });
+  const navigateToPricing = vi.fn();
+  mountOneTap({ onError, refreshAccount, navigateToPricing });
 
   await act(async () => {
     await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS);
@@ -874,6 +893,15 @@ it('supports cross-tab logout cancellation and in-place retry with a fresh chall
   });
   expect(refreshAccount).toHaveBeenCalledTimes(1);
   expect(syncedIdentities.at(-1)).toEqual({ signedIn: true, userId: 'usr_app_retry' });
+  // Paid accounts stay signed in on the current page.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(navigateToPricing).not.toHaveBeenCalled();
+  expect(tracked.find(row => row.event === 'onetap_login_success')?.properties).toMatchObject({
+    plan_tier: 'plus',
+    post_login_action: 'in_place',
+  });
 
   // Cross-tab logout storage event cancels local runtime and disables auto-select
   window.dispatchEvent(

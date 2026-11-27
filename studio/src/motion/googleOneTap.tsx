@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { normalizeDesktopHandoffPlanTier } from '../../../shared/desktop-auth-handoff';
 import { isDesktopApp } from '../utils/platformHost';
 import type { CloudAccountSummary } from './AccountSettings';
+import { campaignPricingHref, newCampaignEntryId } from './campaignAttribution';
 import { clearPrivateSwrCache } from './swrCache';
 import { trackMotion } from './tracking';
 import { syncMotionTrackingIdentity } from './trackingIdentity';
@@ -610,9 +611,17 @@ export interface UseMotionGoogleOneTapOptions {
   hostChrome?: boolean;
   onError?: (message: string, errorCode?: RegisteredLoginErrorCode) => void;
   onSuccess?: () => void;
+  /** Studio locale; selects the localized Pricing page for Free/Go accounts after sign-in. */
+  locale?: string;
+  /** Opens Pricing after a Free/Go sign-in. Defaults to a same-tab navigation. */
+  navigateToPricing?: (url: string) => void;
   delayMs?: number;
   loadTimeoutMs?: number;
   exchangeTimeoutMs?: number;
+}
+
+function navigateCurrentTab(url: string): void {
+  window.location.assign(url);
 }
 
 export function useMotionGoogleOneTap({
@@ -623,6 +632,8 @@ export function useMotionGoogleOneTap({
   hostChrome = false,
   onError,
   onSuccess,
+  locale = 'en',
+  navigateToPricing = navigateCurrentTab,
   delayMs = MOTION_ONETAP_DELAY_MS,
   loadTimeoutMs = GOOGLE_GIS_LOAD_TIMEOUT_MS,
   exchangeTimeoutMs = ONETAP_EXCHANGE_TIMEOUT_MS,
@@ -635,6 +646,12 @@ export function useMotionGoogleOneTap({
   onErrorRef.current = onError;
   const onSuccessRef = useRef(onSuccess);
   onSuccessRef.current = onSuccess;
+  const accountRef = useRef(account);
+  accountRef.current = account;
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
+  const navigateToPricingRef = useRef(navigateToPricing);
+  navigateToPricingRef.current = navigateToPricing;
   const [retrySeq, setRetrySeq] = useState(0);
 
   // Capture landing attribution on initial mount before user navigates within Studio.
@@ -952,12 +969,17 @@ export function useMotionGoogleOneTap({
               const safeUtmContent = sanitizeTelemetryCode(utmContent);
               const safeUtmTerm = sanitizeTelemetryCode(utmTerm);
 
-              void trackMotion('onetap_login_success', {
+              // OPEND-5751 post-login destination: Free and Go accounts continue to Pricing, while paid accounts and
+              // unknown tiers stay signed in on the current page.
+              const planTier = normalizeDesktopHandoffPlanTier(data.planTier);
+              const redirectToPricing = planTier === 'free' || planTier === 'go';
+
+              const successTracked = trackMotion('onetap_login_success', {
                 surface: 'motion_web',
                 attempt_id: attemptId,
                 is_new_user: Boolean(data.isNewUser),
-                plan_tier: normalizeDesktopHandoffPlanTier(data.planTier),
-                post_login_action: 'in_place',
+                plan_tier: planTier,
+                post_login_action: redirectToPricing ? 'redirect_pricing' : 'in_place',
                 ...(safeRef ? { ref: safeRef } : {}),
                 ...(safeUtmSource ? { utm_source: safeUtmSource } : {}),
                 ...(safeUtmMedium ? { utm_medium: safeUtmMedium } : {}),
@@ -971,6 +993,21 @@ export function useMotionGoogleOneTap({
               clearPrivateSwrCache();
               await refreshRef.current();
               window.dispatchEvent(new Event('motion:account-changed'));
+
+              // The refreshed signed-in account ends this prompt run, so only a logout since it started cancels
+              // the Pricing redirect. The page is refreshed first so Back from Pricing shows the signed-in state.
+              if (!redirectToPricing || generationAtStart !== oneTapGeneration) return;
+              await successTracked.catch(() => undefined);
+              if (generationAtStart !== oneTapGeneration) return;
+              const currentAccount = accountRef.current;
+              const useUpgradeHandoff =
+                currentAccount?.authMode !== 'dev' && currentAccount?.upgradeHandoffEnabled !== false;
+              navigateToPricingRef.current(
+                campaignPricingHref(localeRef.current, 'openmotion_onetap', newCampaignEntryId(), useUpgradeHandoff, {
+                  requireAuth: true,
+                  expectedAppUserId: appUserId,
+                }),
+              );
             })();
           },
         });

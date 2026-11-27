@@ -65,6 +65,7 @@ it('builds a Pricing link that carries the OpenMotion entry the website keeps th
   });
   expect(new URL(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).pathname).toBe('/pricing/');
   expect(params(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).get('utm_medium')).toBe('header');
+  expect(params(campaignPricingUrl('en', 'openmotion_onetap', 'x')).get('utm_medium')).toBe('onetap');
   expect(params(campaignPricingUrl('en', 'openmotion_bf_hero', 'x')).get('utm_medium')).toBe('hero');
   expect(params(campaignPricingUrl('en', 'openmotion_bf_hero', 'x')).get('od_entry_source')).toBe('openmotion_manage_subscription');
   expect(params(campaignPricingUrl('en', 'openmotion_bf_hub', 'x')).get('utm_medium')).toBe('model_hub');

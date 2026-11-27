@@ -2,7 +2,7 @@ import { useId, useState, type MouseEvent } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { isDesktopApp, openBillingAndRefreshOnFocus } from '../utils/platformHost';
 import { useAccountSummary } from './AccountSettings';
-import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
+import { BLACK_FRIDAY_CAMPAIGN, campaignPricingHref, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
@@ -14,25 +14,7 @@ function resolvePricingHref(
   useUpgradeHandoff: boolean,
   signedInBinding?: { requireAuth: boolean; expectedAppUserId?: string | null },
 ): string {
-  const direct = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
-  if (!useUpgradeHandoff) return direct;
-  const parsedDirect = new URL(direct);
-  const baseOrigin =
-    typeof window !== 'undefined' && window.location?.origin
-      ? window.location.origin
-      : 'https://app.open-design.ai';
-  const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
-  handoff.searchParams.set('targetPath', locale.startsWith('zh') ? '/zh/pricing' : '/pricing');
-  if (signedInBinding?.requireAuth) {
-    handoff.searchParams.set('requireAuth', '1');
-    if (signedInBinding.expectedAppUserId) {
-      handoff.searchParams.set('expectedAppUserId', signedInBinding.expectedAppUserId);
-    }
-  }
-  for (const [key, value] of parsedDirect.searchParams.entries()) {
-    handoff.searchParams.set(key, value);
-  }
-  return handoff.href;
+  return campaignPricingHref(locale, 'openmotion_header_pricing', entryId, useUpgradeHandoff, signedInBinding);
 }
 
 export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {

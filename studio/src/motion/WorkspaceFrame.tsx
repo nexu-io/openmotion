@@ -891,7 +891,7 @@ export function WorkspaceGoogleOneTap({
   dismissToast: ReturnType<typeof useToast>['dismissToast'];
   navigateToLogin?: (url: string) => void;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const { account, error, refresh } = useAccountSummary();
   const oneTapErrorToastIdRef = useRef<number | null>(null);
   const handleOneTapError = useCallback(
@@ -945,6 +945,7 @@ export function WorkspaceGoogleOneTap({
       refreshAccount={() => refresh(false)}
       onError={handleOneTapError}
       onSuccess={handleOneTapSuccess}
+      locale={locale}
     />
   );
 }
