@@ -10,11 +10,9 @@ import { blackFridayActive, newCampaignEntryId, pricingLinkTargetProps } from '.
 import { markExternalCheckoutPending } from './entitlementModalBus';
 import type { CreativePage } from './exploreTracking';
 import {
-  MAGI2_MODAL_AUDIENCE_TIMEOUT_MS,
   MAGI2_MODAL_CAMPAIGN_ID,
   MAGI2_MODAL_VIDEO_URL,
   buildMagi2ConsolePlanUrl,
-  classifyMagi2Audience,
   isMagi2PreviewForced,
   isMagi2SuppressedByFatigue,
   markMagi2ModalSeen,
@@ -50,11 +48,10 @@ export function Magi2LaunchModal({
   const [open, setOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [entryId, setEntryId] = useState(newCampaignEntryId);
-  const [audienceTimedOut, setAudienceTimedOut] = useState(false);
 
   const externallySuppressed = suppressed || (!forcePreview && !blackFridayActive());
-  const canCheckAudience = !dismissed && !externallySuppressed;
-  const { account, error } = useAccountSummary({ eager: canCheckAudience && !forcePreview });
+  const canOpen = !dismissed && !externallySuppressed;
+  const { account } = useAccountSummary({ eager: false });
 
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -63,7 +60,7 @@ export function Magi2LaunchModal({
   const secRef = useRef<HTMLSpanElement | null>(null);
   const msRef = useRef<HTMLSpanElement | null>(null);
   const closeTimerRef = useRef<number | null>(null);
-  const settledRef = useRef(false);
+  const openedRef = useRef(false);
   const closingRef = useRef(false);
 
   const unmountImmediately = useCallback(() => {
@@ -77,18 +74,6 @@ export function Magi2LaunchModal({
     try { videoRef.current?.pause(); } catch { /* ignore */ }
     setMounted(false);
   }, []);
-
-  // Enforce the shared 5-second fail-closed audience deadline.
-  useEffect(() => {
-    if (!canCheckAudience || forcePreview || settledRef.current) return;
-    const timer = window.setTimeout(() => {
-      if (!settledRef.current) {
-        settledRef.current = true;
-        setAudienceTimedOut(true);
-      }
-    }, MAGI2_MODAL_AUDIENCE_TIMEOUT_MS);
-    return () => window.clearTimeout(timer);
-  }, [canCheckAudience, forcePreview]);
 
   const closeModal = useCallback(
     (trackClose = false, method: 'pointer' | 'keyboard' = 'pointer') => {
@@ -140,46 +125,31 @@ export function Magi2LaunchModal({
     if (mounted) unmountImmediately();
   }, [externallySuppressed, mounted, unmountImmediately]);
 
-  // Decide eligibility once account resolves within the 5s window (or immediately when preview is forced).
+  // Open for all visitors (regardless of account tier or loading state) unless suppressed or already seen.
   useEffect(() => {
-    if (!canCheckAudience) return;
+    if (!canOpen || openedRef.current) return;
 
     if (forcePreview) {
-      if (mounted) return;
       const timer = window.setTimeout(() => {
-        settledRef.current = true;
+        openedRef.current = true;
         closingRef.current = false;
         setMounted(true);
       }, 120);
       return () => window.clearTimeout(timer);
     }
 
-    if (audienceTimedOut || error) {
-      settledRef.current = true;
-      return;
-    }
-
-    const status = classifyMagi2Audience(account);
-    if (status === 'paid') {
-      settledRef.current = true;
-      if (mounted) unmountImmediately();
-      return;
-    }
-
-    if ((status === 'guest' || status === 'free') && !settledRef.current) {
-      settledRef.current = true;
-      closingRef.current = false;
-      markMagi2ModalSeen();
-      setMounted(true);
-      void trackMotion('surface_view', {
-        page_name: trackingPage,
-        area: 'campaign_banner',
-        element: 'modal',
-        campaign_id: MAGI2_MODAL_CAMPAIGN_ID,
-        hook_id: 'bf_banner',
-      });
-    }
-  }, [account, audienceTimedOut, canCheckAudience, error, forcePreview, mounted, trackingPage, unmountImmediately]);
+    openedRef.current = true;
+    closingRef.current = false;
+    markMagi2ModalSeen();
+    setMounted(true);
+    void trackMotion('surface_view', {
+      page_name: trackingPage,
+      area: 'campaign_banner',
+      element: 'modal',
+      campaign_id: MAGI2_MODAL_CAMPAIGN_ID,
+      hook_id: 'bf_banner',
+    });
+  }, [canOpen, forcePreview, trackingPage]);
 
   useEffect(() => {
     setMagi2ModalOpenSignal(mounted);

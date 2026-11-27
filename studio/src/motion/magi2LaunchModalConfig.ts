@@ -1,5 +1,4 @@
 import type { Locale, Translate } from '../i18n/I18n';
-import type { CloudAccountSummary } from './AccountSettings';
 import {
   BLACK_FRIDAY_CAMPAIGN,
   REGISTERED_ENTRY_SOURCE,
@@ -12,7 +11,6 @@ export const MAGI2_MODAL_SEEN_COOKIE = 'od_bf_magi2_modal_seen';
 export const MAGI2_MODAL_SEEN_PARAM = 'od_bf_seen';
 export const MAGI2_MODAL_DISMISSED_STORAGE_NAME = MAGI2_MODAL_SEEN_COOKIE;
 export const MAGI2_MODAL_OPEN_EVENT = 'om:magi2-modal-change';
-export const MAGI2_MODAL_AUDIENCE_TIMEOUT_MS = 5000;
 export const DEFAULT_CONSOLE_PLAN_URL = 'https://open-design.ai/cloud/dashboard?billing=plan';
 export const MAGI2_MODAL_VIDEO_URL = 'https://open-design.ai/black-friday-modal/magi2-planet-6s.mp4';
 
@@ -90,22 +88,6 @@ export function resolveMagi2ModalCopy(locale: Locale, t: Translate): Magi2ModalC
     countdownPrefix: t(MAGI2_MODAL_COPY_MESSAGES.countdownPrefix, undefined, MAGI2_MODAL_COUNTDOWN_CONTEXT),
     closeLabel: t(MAGI2_MODAL_COPY_MESSAGES.closeLabel),
   };
-}
-
-export type Magi2AudienceStatus = 'guest' | 'free' | 'paid' | 'unknown';
-
-/** Classify account eligibility: guests and confirmed free users are eligible; paid or unknown fail closed. */
-export function classifyMagi2Audience(
-  account: Pick<CloudAccountSummary, 'state' | 'plan' | 'billingUnavailable' | 'mediaEntitlement'> | null | undefined,
-): Magi2AudienceStatus {
-  if (!account) return 'unknown';
-  if (account.state === 'signed-out') return 'guest';
-  if (account.state !== 'signed-in' || account.billingUnavailable) return 'unknown';
-  if (account.mediaEntitlement === 'included') return 'paid';
-  const rawPlan = typeof account.plan === 'string' ? account.plan.trim().toLowerCase() : '';
-  if (rawPlan === 'free') return 'free';
-  if (!rawPlan || rawPlan === 'unknown') return 'unknown';
-  return 'paid';
 }
 
 export function isMagi2PreviewForced(search?: string): boolean {
@@ -200,8 +182,8 @@ export function setMagi2ModalOpenSignal(open: boolean): void {
 
 /**
  * Pure read-only check used by ExploreBlackFridayHero to skip the full-screen-to-compact intro
- * only when the MAGI-2 launch modal is actively open. Paid or timed-out visitors who never open
- * the modal keep the full Explore Hero intro.
+ * only when the MAGI-2 launch modal is actively open. Visits where the modal is suppressed or
+ * already seen keep the full Explore Hero intro.
  */
 export function shouldSkipExploreHeroIntro(): boolean {
   return isMagi2ModalOpen();
