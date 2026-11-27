@@ -69,6 +69,12 @@ function renderWithI18n(node: React.ReactNode, locale: Locale = mockAccountState
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-11-27T12:00:00+08:00'));
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) =>
+    window.setTimeout(() => cb(performance.now()), 16),
+  );
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id: number) => {
+    window.clearTimeout(id);
+  });
   clearCookies();
   window.sessionStorage.clear();
   window.localStorage.clear();
@@ -90,6 +96,7 @@ afterEach(() => {
   window.sessionStorage.clear();
   window.localStorage.clear();
   delete document.documentElement.dataset.magi2ModalOpen;
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
