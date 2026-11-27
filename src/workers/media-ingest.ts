@@ -585,9 +585,23 @@ export async function probeMediaFile(
     throw new CloudError('INVALID_ARGUMENT', 'Media file failed decode validation', { status: 400 });
   }
 
-  const sideData = Array.isArray(primary.side_data_list)
-    ? (primary.side_data_list as Array<Record<string, unknown>>)
-    : [];
+  // Phone footage is stored sideways with a display matrix on the stream. A photo taken upright says the same
+  // with an EXIF orientation, which ffprobe reports on the decoded frame only, so an image's first frame is read too.
+  const frameProbe = imageMatch
+    ? await runCmd(
+        'ffprobe',
+        ['-v', 'error', '-select_streams', String(streamIndex), '-read_intervals', '%+#1', '-show_frames', '-of', 'json', filePath],
+        path.dirname(filePath),
+        60_000,
+      )
+    : undefined;
+  const frameSideData =
+    frameProbe?.code === 0
+      ? (JSON.parse(frameProbe.stdout) as { frames?: Array<{ side_data_list?: unknown }> }).frames?.[0]?.side_data_list
+      : undefined;
+  const sideData = [primary.side_data_list, frameSideData].flatMap((list) =>
+    Array.isArray(list) ? (list as Array<Record<string, unknown>>) : [],
+  );
   const rotationValue = Number(sideData.find((d) => d.rotation !== undefined)?.rotation ?? 0);
   const turned = Math.abs(rotationValue) % 180 === 90;
   const modality = resolvedKind[0].split('/')[0] as AssetModality;

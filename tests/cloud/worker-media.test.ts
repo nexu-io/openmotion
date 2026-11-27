@@ -77,6 +77,7 @@ import {
   computeSpriteTileDimensions,
   computeVideoProxyBitratePlan,
   computeVideoProxyDimensions,
+  defaultGenerateThumbnailBuffer,
   handleExtractWaveformPeaksJob,
   handleFreezeFrameJob,
   handleGeneratePreviewProxyJob,
@@ -86,6 +87,7 @@ import {
   handleMediaProbeJob,
   handleUploadCommitJob,
   handleUrlFetchJob,
+  probeMediaFile,
   processMediaIngestJob,
   safePublicHttpsFetchToFile,
 } from '../../src/workers/media-ingest.ts';
@@ -2087,6 +2089,38 @@ describe('MCP CloudImportAssetsService -> worker-media end-to-end project_asset 
         'fonts/Inter-Bold-v2.woff2',
         'fonts/OFL.txt',
       ]);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('worker-media: Probed Size Of A Photo With An EXIF Orientation', () => {
+  it('records a sideways EXIF photo at the size it is shown at, matching its thumbnail', async () => {
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-test-exif-probe-'));
+    try {
+      const bins = verificationBinaries();
+      const flat = path.join(tmpRoot, 'flat.jpg');
+      await execFileAsync(bins.ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=64x48', '-frames:v', '1', '-y', flat]);
+      // What a phone held upright saves: landscape pixels plus an EXIF Orientation tag, here spliced in after the SOI marker.
+      const jpeg = await readFile(flat);
+      const exif = (orientation: number) =>
+        Buffer.from(`ffe1002245786966000049492a0008000000010012010300010000000${orientation}00000000000000`, 'hex');
+      const sizes = async (orientation?: number) => {
+        const file = orientation ? path.join(tmpRoot, `orientation-${orientation}.jpg`) : flat;
+        if (orientation) await writeFile(file, Buffer.concat([jpeg.subarray(0, 2), exif(orientation), jpeg.subarray(2)]));
+        const media = await probeMediaFile(file);
+        assert.equal(media.mimeType, 'image/jpeg');
+        const thumbnail = await defaultGenerateThumbnailBuffer(file, media, { width: 640 });
+        assert.ok(thumbnail);
+        const shown = await sharp(thumbnail).metadata();
+        return { probed: [media.width, media.height], thumbnail: [shown.width, shown.height] };
+      };
+      assert.deepEqual(await sizes(), { probed: [64, 48], thumbnail: [64, 48] });
+      assert.deepEqual(await sizes(6), { probed: [48, 64], thumbnail: [48, 64] });
+      assert.deepEqual(await sizes(8), { probed: [48, 64], thumbnail: [48, 64] });
+      // Upside down is still landscape.
+      assert.deepEqual(await sizes(3), { probed: [64, 48], thumbnail: [64, 48] });
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }
