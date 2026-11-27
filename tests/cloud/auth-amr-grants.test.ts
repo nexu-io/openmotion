@@ -616,6 +616,7 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
     assert.equal(isVerifiedOAuthRedirectUri('https://chatgpt.com/connector_platform_oauth_redirect'), true);
     assert.equal(isVerifiedOAuthRedirectUri('https://app.open-design.ai/oauth/callback'), true);
     assert.equal(isVerifiedOAuthRedirectUri('https://www.doubao.com/oauth/callback'), false);
+    assert.equal(isVerifiedOAuthRedirectUri('HTTPS://ChatGPT.com./connector_platform_oauth_redirect'), true);
     assert.equal(isVerifiedOAuthRedirectUri('https://claude.ai.evil.example/cb'), false);
     assert.equal(isVerifiedOAuthRedirectUri('http://127.0.0.1:51234/callback'), false);
     assert.equal(
@@ -647,6 +648,10 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
       'https://intranet/callback',
       'https://localhost/callback',
       'https://app.localhost/callback',
+      'https://localhost./callback',
+      'https://app.localhost./callback',
+      'https://a..example.com/callback',
+      'https://.example.com/callback',
       'http://evil.example.com/callback',
     ]) {
       assert.equal(isAllowedOAuthRedirectUri(blocked), false, `expected blocked: ${blocked}`);
@@ -702,8 +707,8 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
   it('cuts off clients whose redirect host is on OAUTH_DCR_BLOCKED_HTTPS_HOSTS at register, authorize and token', async () => {
     const store = new InMemoryAuthStore();
     const seeded = store.seedWorkspace({ email: 'blocked@example.test', displayName: 'Blocked' });
-    const redirectUri = 'https://cb.phish.example/oauth/callback';
-    // Registered while the host was still open, then the operator blocks it.
+    // Registered while the host was still open (terminal-dot spelling), then the operator blocks it.
+    const redirectUri = 'https://cb.phish.example./oauth/callback';
     const client = await registerOAuthClient(store, { client_name: 'Doubao', redirect_uris: [redirectUri] });
     const refreshToken = `om_ort_${'r'.repeat(48)}`;
     await store.createOAuthToken({
@@ -727,13 +732,19 @@ describe('AMR Identity Lookup, 60s Multi-Workspace Cache, Ban/503 Handling, DCR 
 
     const app = new Hono<AuthEnv>();
     app.route('/', createAuthRoutes({ config, store, cache: new InMemoryAuthCache(), oauth21 }));
-    const blockedDcr = await app.request('/oauth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_name: 'Doubao', redirect_uris: [redirectUri] }),
-    });
-    assert.equal(blockedDcr.status, 400);
-    assert.match(((await blockedDcr.json()) as { error_description: string }).error_description, /blocked/);
+    for (const blockedUri of [
+      'https://cb.phish.example/oauth/callback',
+      redirectUri,
+      'HTTPS://CB.PHISH.EXAMPLE/oauth/callback',
+    ]) {
+      const blockedDcr = await app.request('/oauth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_name: 'Doubao', redirect_uris: [blockedUri] }),
+      });
+      assert.equal(blockedDcr.status, 400, `expected blocked registration: ${blockedUri}`);
+      assert.match(((await blockedDcr.json()) as { error_description: string }).error_description, /blocked/);
+    }
 
     const { codeChallenge } = generatePkcePair();
     await assert.rejects(

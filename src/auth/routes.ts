@@ -20,6 +20,8 @@ import {
   buildProtectedResourceMetadata,
   exchangeOAuthToken,
   formatRedirectHostLabel,
+  httpsRedirectHostname,
+  isAllowedHttpsHost,
   isVerifiedOAuthRedirectUri,
   issueAuthorizationCode,
   registerOAuthClient,
@@ -1503,8 +1505,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         clientName: registered.client_name,
         redirectHosts: describeRedirectHosts(registered.redirect_uris),
         unverifiedHttpsHosts: registered.redirect_uris
-          .filter((uri) => uri.startsWith('https:') && !isVerifiedOAuthRedirectUri(uri, oauthCfg.verifiedHttpsHosts))
-          .map(formatRedirectHostLabel),
+          .map(httpsRedirectHostname)
+          .filter((host): host is string => host !== null && !isAllowedHttpsHost(host, oauthCfg.verifiedHttpsHosts)),
       });
       return c.json(registered, 201);
     } catch (error) {

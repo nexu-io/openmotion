@@ -79,14 +79,20 @@ export function isAllowedNativeAppScheme(protocol: string): boolean {
   );
 }
 
+// `cb.example.` and `cb.example` are the same DNS name; `URL.hostname` keeps the terminal dot.
+function canonicalDnsHost(host: string): string {
+  const normalized = host.trim().toLowerCase();
+  return normalized.endsWith('.') ? normalized.slice(0, -1) : normalized;
+}
+
 export function isAllowedHttpsHost(
   host: string,
   allowedHttpsHosts: readonly string[] = DEFAULT_VERIFIED_HTTPS_HOSTS,
 ): boolean {
-  const normalized = host.trim().toLowerCase();
+  const normalized = canonicalDnsHost(host);
   if (!normalized) return false;
   return allowedHttpsHosts.some((allowed) => {
-    const target = allowed.trim().toLowerCase();
+    const target = canonicalDnsHost(allowed);
     if (!target) return false;
     if (target.startsWith('*.')) {
       const suffix = target.slice(1);
@@ -232,15 +238,17 @@ export function formatRedirectHostLabel(raw: string): string {
 
 // Consent shows the redirect host, so it must be a public DNS name a user can recognize.
 function isPublicDnsHostname(hostname: string): boolean {
-  const host = hostname.toLowerCase();
+  const host = canonicalDnsHost(hostname);
   if (!host.includes('.') || host.startsWith('[') || IPV4_LITERAL_RE.test(host)) return false;
+  if (host.split('.').some((label) => label === '')) return false;
   return !host.endsWith('.localhost');
 }
 
-function httpsRedirectHostname(raw: string): string | null {
+/** Canonical host of an HTTPS redirect URI, or null for any other scheme. */
+export function httpsRedirectHostname(raw: string): string | null {
   try {
     const parsed = new URL(raw);
-    return parsed.protocol === 'https:' ? parsed.hostname.toLowerCase() : null;
+    return parsed.protocol === 'https:' ? canonicalDnsHost(parsed.hostname) : null;
   } catch {
     return null;
   }
