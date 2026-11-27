@@ -84,7 +84,7 @@ export function AssetGenerationPlaceholder({
     : working && job.phase === 'reconnecting'
       ? t('Reconnecting…')
       : job.state === 'queued'
-        ? t('Queued')
+        ? t(job.phase === 'resuming' ? 'Checking original task…' : 'Queued')
         : working
           ? `${t('Generating')} · ${elapsed}`
           : done
