@@ -2541,12 +2541,16 @@ export function createApiApp(deps: CreateApiAppDeps): {
 
     const [postgres, redis, s3] = await Promise.all([checkPg(), checkRedis(), checkS3()]);
     const ok = postgres && redis && s3;
+    // Dependency errors stay in the server log: these probes are unauthenticated, so their
+    // bodies must not disclose driver messages (internal hosts, ports, credentials in URIs).
+    if (errors.length > 0) {
+      logger.warn('Readiness probe reported unhealthy dependencies', { errors });
+    }
     return {
       ok,
       status: ok ? 'ready' : 'not_ready',
       version: VERSION,
       checks: { postgres, redis, storage: s3 },
-      ...(errors.length > 0 ? { errors } : {}),
     };
   };
 

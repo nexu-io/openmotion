@@ -1454,6 +1454,31 @@ describe('Cloud API Entrypoint — Health Probes', () => {
     const allDown = await app.request('/api/health/ready');
     assert.equal(allDown.status, 503);
   });
+
+  it('keeps dependency error details out of the public readiness body', async () => {
+    const { app } = createApiFixture({
+      config: { AUTH_MODE: 'oidc' },
+      deps: {
+        checkDbHealth: async () => {
+          throw new Error('connect ECONNREFUSED 10.1.2.3:5432 (user=openmotion password=hunter2)');
+        },
+        checkRedisHealth: async () => {
+          throw new Error('connect ECONNREFUSED redis.internal:6379');
+        },
+        checkStorageHealth: async () => false,
+      },
+    });
+
+    for (const path of ['/api/health/ready', '/api/health', '/motion-api/health']) {
+      const response = await app.request(path);
+      assert.equal(response.status, 503, `${path} must still report the degraded state`);
+      const body = (await response.json()) as Record<string, unknown>;
+      assert.deepEqual(body.checks, { postgres: false, redis: false, storage: false });
+      assert.equal('errors' in body, false, `${path} must not expose a dependency error list`);
+      const serialized = JSON.stringify(body);
+      assert.doesNotMatch(serialized, /10\.1\.2\.3|redis\.internal|hunter2|ECONNREFUSED/, path);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
