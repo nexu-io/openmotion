@@ -27,7 +27,7 @@ OpenMotion runs as a hosted **Streamable HTTP MCP** service with **OAuth 2.1** a
 If this machine previously used local OpenMotion, an old local `stdio` MCP entry or local plugin can conflict with or shadow the Cloud MCP endpoint. Inspect the current host first and remove **only** the legacy local MCP/plugin registration (**never** delete local project directories, exported videos, standalone Skills, or unrelated MCP servers/plugins):
 
 - **Codex**:
-  1. Check `codex mcp list --json` for an `openmotion` entry (or legacy `motion` entry) whose `transport.type` is `"stdio"` or whose `url` differs from `https://motion.open-design.ai/mcp`. If found, remove it with `codex mcp remove openmotion` (and `codex mcp remove motion` only when it is a legacy local OpenMotion `stdio` server).
+  1. Check `codex mcp list --json` for an `openmotion` entry (or legacy `motion` entry) whose `transport.type` is `"stdio"` or whose `transport.url` differs from `https://motion.open-design.ai/mcp`. If found, remove it with `codex mcp remove openmotion` (and `codex mcp remove motion` only when it is a legacy local OpenMotion `stdio` server).
   2. Check installed Codex plugins (for example `codex plugin list --json`) for a legacy local `openmotion` plugin bundling `.mcp.json` `stdio` (such as `openmotion@openmotion-local` or a local-path `openmotion` plugin). If present, remove it with `codex plugin remove <plugin@marketplace>` so its bundled local `stdio` server does not shadow Cloud MCP.
 - **Claude Code**:
   - Check `claude mcp list` / `claude mcp get openmotion`. If `openmotion` uses `stdio` or another origin, run `claude mcp remove openmotion` (matching its scope such as `-s user` or `-s local`). If a repository `.mcp.json` still registers local `stdio` `openmotion`, warn the user instead of editing unrelated repository files.
@@ -52,7 +52,7 @@ Use **only** the row matching the current host (skip if `openmotion` is already 
 ## Step 2: Authorize via OAuth 2.1
 
 1. **Skip login if already authorized**:
-   - In **Codex**, if `codex mcp list --json` confirms `openmotion` uses `"type": "streamable_http"`, points to `https://motion.open-design.ai/mcp`, and already reports `"auth_status": "o_auth"` (with no conflicting legacy local `openmotion` plugin), skip login and go straight to Step 3.
+   - In **Codex**, if `codex mcp list --json` confirms `openmotion` has `"transport": { "type": "streamable_http", "url": "https://motion.open-design.ai/mcp" }` (`transport.type === "streamable_http"` and `transport.url === "https://motion.open-design.ai/mcp"`) and already reports `"auth_status": "o_auth"` (with no conflicting legacy local `openmotion` plugin), skip login and go straight to Step 3.
    - In **Claude Code**, run `claude mcp get openmotion` — if transport is HTTP pointing to `https://motion.open-design.ai/mcp` and status is already **`Connected`**, skip login and go straight to Step 3.
 2. **Run login (prefer the host's built-in browser when available)**:
    - **Hosts with a built-in browser (e.g., Codex Desktop / CUA)**:

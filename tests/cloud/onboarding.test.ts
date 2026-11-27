@@ -57,6 +57,8 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(body.includes('codex mcp add openmotion --url'));
     assert.ok(body.includes('codex mcp remove openmotion'));
     assert.ok(body.includes('codex plugin remove <plugin@marketplace>'));
+    assert.ok(body.includes('whose `transport.url` differs from'));
+    assert.ok(body.includes(`"transport": { "type": "streamable_http", "url": "${customOrigin}/mcp" }`));
     assert.ok(body.includes('claude mcp add --transport http'));
     assert.ok(body.includes('claude mcp remove openmotion'));
     assert.ok(body.includes('codex mcp login openmotion'));
