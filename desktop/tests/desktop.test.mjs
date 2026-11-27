@@ -475,14 +475,20 @@ test('DesktopUpdaterController resolves CJS default autoUpdater export and repor
   assert.ok(resMissing.message);
 });
 
-test('splash.html uses pure inline vector SVG animation and thin-shell omits legacy thick-shell sidecar/staging files', () => {
+test('splash.html uses single-play WebGL startup logo animation and thin-shell omits legacy thick-shell sidecar/staging files', () => {
   const splashHtml = readFileSync(path.join(desktopRoot, 'src', 'splash.html'), 'utf8');
   assert.match(splashHtml, /id="retry-btn"/);
   assert.match(splashHtml, /id="export-logs-btn"/);
   assert.match(splashHtml, /prefers-reduced-motion/);
-  assert.match(splashHtml, /class="od-wordmark-svg"/);
-  assert.match(splashHtml, /id="od-wordmark-mask"/);
-  assert.equal(splashHtml.includes('<canvas'), false, 'Splash should use pure vector SVG without raster canvas/WebGL blur');
+  assert.match(splashHtml, /id="splash-canvas"/);
+  assert.match(splashHtml, /getContext\('webgl'/);
+  assert.match(splashHtml, /gl_FragColor/);
+  assert.match(splashHtml, /let playedOnce = false/);
+  assert.match(splashHtml, /renderSettledWordmark\(\)/);
+  assert.match(splashHtml, /function drawStatic\(\)/);
+  assert.match(splashHtml, /window\.__omSplashStopLogo\s*=/);
+  assert.equal(splashHtml.includes('HOLD_SECONDS'), false, 'Splash logo animation must play strictly once without looping');
+  assert.equal(splashHtml.includes('cycleStart'), false, 'Splash logo animation must not reset cycles');
   assert.match(splashHtml, /function teardownSplashResources/);
 
   assert.equal(

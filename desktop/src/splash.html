@@ -1,9 +1,9 @@
 <!doctype html>
 <!--
   OpenDesign Desktop Splash
-  100% pure vector inline SVG OpenDesign wordmark (exact paths from
-  packages/design-system/brand/loading-wordmark.svg) with GPU-composited
-  emerald light-sweep shimmer — zero WebGL / bitmap rasterization blur.
+  Embeds the OpenDesign startup wordmark WebGL reveal shader (1705x291 artwork),
+  adapted for light/dark themes and configured to play strictly once before
+  settling on the static wordmark.
 -->
 <html lang="en" data-theme="dark">
   <head>
@@ -137,7 +137,7 @@
         display: none;
       }
 
-      /* Center stage: keeps the vector wordmark dead-center during boot */
+      /* Center stage: keeps the wordmark dead-center during boot */
       .om-stage {
         position: relative;
         display: flex;
@@ -151,74 +151,16 @@
 
       #splash-logo {
         position: relative;
-        height: 44px;
+        height: min(40px, 14vw);
         width: auto;
         aspect-ratio: 1705 / 291;
         flex-shrink: 0;
-        animation: od-logo-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
       }
 
-      .od-wordmark-svg {
+      #splash-logo canvas {
         display: block;
         width: 100%;
         height: 100%;
-        overflow: visible;
-        shape-rendering: geometricPrecision;
-      }
-
-      .od-base-ink {
-        fill: var(--sp-text);
-      }
-
-      .od-cursor-arrow {
-        fill: var(--sp-cursor);
-        transform-box: fill-box;
-        transform-origin: center;
-        animation: od-cursor-breathe 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-      }
-
-      .od-shimmer-band {
-        animation: od-shimmer-sweep 1.85s cubic-bezier(0.42, 0, 0.22, 1) infinite;
-        will-change: transform;
-      }
-
-      html[data-logo-static="true"] .od-shimmer-band,
-      html[data-logo-static="true"] .od-cursor-arrow {
-        animation: none !important;
-      }
-
-      html[data-logo-static="true"] .od-shimmer-band {
-        opacity: 0;
-      }
-
-      @keyframes od-logo-enter {
-        from {
-          opacity: 0;
-          transform: translateY(4px) scale(0.985);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      @keyframes od-shimmer-sweep {
-        0% {
-          transform: translateX(-720px);
-        }
-        100% {
-          transform: translateX(2180px);
-        }
-      }
-
-      @keyframes od-cursor-breathe {
-        0%,
-        100% {
-          opacity: 0.92;
-        }
-        50% {
-          opacity: 1;
-        }
       }
 
       /* Boot progress bar & step counter */
@@ -477,8 +419,6 @@
         body,
         .om-stage,
         #splash-logo,
-        .od-shimmer-band,
-        .od-cursor-arrow,
         .boot-footer,
         .boot-stage,
         .boot-progress-fill,
@@ -486,9 +426,6 @@
         .om-panel {
           animation: none !important;
           transition: none !important;
-        }
-        .od-shimmer-band {
-          opacity: 0 !important;
         }
       }
     </style>
@@ -500,57 +437,7 @@
 
     <main class="om-stage" role="status" aria-live="polite">
       <div id="splash-logo" role="img" aria-label="OpenDesign">
-        <svg
-          class="od-wordmark-svg"
-          viewBox="0 0 1705 291"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-        >
-          <defs>
-            <g id="od-wordmark-shapes">
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M145.5 0C225.857 0 291 65.1426 291 145.5C291 225.857 225.857 291 145.5 291H19.3581C8.64385 291 0.000681982 282.358 0.000616442 271.644C0.000417939 239.193 1.50624e-09 174.523 0 145.5C0 65.1426 65.1426 5.2069e-06 145.5 0ZM145.501 29.1004C81.2147 29.1004 29.1004 81.2147 29.1004 145.501C29.1005 209.786 81.2147 261.9 145.501 261.9C209.786 261.9 261.9 209.786 261.9 145.501C261.9 81.2147 209.786 29.1004 145.501 29.1004Z"/>
-              <path d="M137.934 215.04L94.3119 100.247C92.9002 96.5317 96.5286 92.8895 100.219 94.3172L215.067 138.749C219.793 140.578 218.491 147.633 213.427 147.633H146.769V213.4C146.769 218.499 139.744 219.804 137.934 215.04Z"/>
-              <path d="M441.001 211.799C428.322 211.799 416.414 209.571 405.278 205.117C394.141 200.662 384.375 194.408 375.98 186.356C367.756 178.132 361.245 168.451 356.448 157.315C351.822 146.007 349.509 133.585 349.509 120.05C349.509 106.686 351.822 94.4354 356.448 83.2988C361.245 71.9908 367.756 62.2248 375.98 54.0008C384.375 45.7768 394.141 39.4374 405.278 34.9828C416.414 30.5281 428.322 28.3008 441.001 28.3008C453.679 28.3008 465.501 30.5281 476.467 34.9828C487.603 39.4374 497.284 45.7768 505.508 54.0008C513.903 62.2248 520.414 71.9908 525.04 83.2988C529.837 94.4354 532.236 106.686 532.236 120.05C532.236 133.585 529.837 146.007 525.04 157.315C520.414 168.451 513.903 178.132 505.508 186.356C497.284 194.408 487.603 200.662 476.467 205.117C465.501 209.571 453.679 211.799 441.001 211.799ZM441.001 185.842C452.651 185.842 463.017 183.186 472.098 177.875C481.178 172.392 488.289 164.768 493.429 155.002C498.569 145.064 501.139 133.414 501.139 120.05C501.139 106.514 498.569 94.8638 493.429 85.0978C488.289 75.3318 481.178 67.7931 472.098 62.4818C463.017 56.9991 452.651 54.2578 441.001 54.2578C429.35 54.2578 418.984 56.9991 409.904 62.4818C400.823 67.7931 393.627 75.3318 388.316 85.0978C383.176 94.8638 380.606 106.514 380.606 120.05C380.606 133.414 383.176 145.064 388.316 155.002C393.627 164.768 400.823 172.392 409.904 177.875C418.984 183.186 429.35 185.842 441.001 185.842Z"/>
-              <path d="M573.919 190.982L577.26 190.211V261.4H548.219V81.4998H574.433L576.489 97.4338C580.772 92.4651 586.34 88.2674 593.194 84.8408C600.047 81.4141 608.357 79.7008 618.123 79.7008C629.259 79.7008 639.111 82.4421 647.678 87.9248C656.416 93.4074 663.183 101.117 667.981 111.055C672.949 120.821 675.434 132.386 675.434 145.75C675.434 158.942 672.949 170.507 667.981 180.445C663.183 190.382 656.501 198.092 647.935 203.575C639.368 209.057 629.431 211.799 618.123 211.799C607.843 211.799 598.933 209.828 591.395 205.888C583.856 201.776 578.031 196.807 573.919 190.982ZM644.337 145.75C644.337 133.928 641.167 124.333 634.828 116.966C628.66 109.598 620.693 105.915 610.927 105.915C604.759 105.915 599.105 107.457 593.965 110.541C588.996 113.625 584.97 118.079 581.886 123.905C578.802 129.73 577.26 137.012 577.26 145.75C577.26 154.316 578.802 161.598 581.886 167.595C584.97 173.42 588.996 177.875 593.965 180.959C599.105 184.043 604.759 185.585 610.927 185.585C620.693 185.585 628.66 181.901 634.828 174.534C641.167 167.166 644.337 157.572 644.337 145.75Z"/>
-              <path d="M754.787 211.799C741.937 211.799 730.629 208.972 720.863 203.318C711.268 197.664 703.729 189.782 698.247 179.674C692.935 169.565 690.28 157.914 690.28 144.722C690.28 132.214 692.935 121.078 698.247 111.312C703.558 101.546 710.925 93.8358 720.349 88.1818C729.772 82.5278 740.48 79.7008 752.474 79.7008C764.638 79.7008 775.347 82.3564 784.599 87.6678C793.851 92.9791 801.047 100.432 806.187 110.027C811.498 119.45 814.154 130.415 814.154 142.923C814.154 144.979 814.068 147.206 813.897 149.605C813.725 151.832 813.468 154.231 813.126 156.801H721.634C722.49 162.797 724.375 168.023 727.288 172.478C730.372 176.761 734.227 180.102 738.853 182.501C743.479 184.899 748.79 186.099 754.787 186.099C761.983 186.099 768.408 184.642 774.062 181.73C779.887 178.817 783.913 174.962 786.141 170.165L811.584 178.646C806.444 188.926 798.819 197.064 788.711 203.061C778.602 208.886 767.294 211.799 754.787 211.799ZM782.543 133.157C782.371 127.845 780.915 123.048 778.174 118.765C775.432 114.481 771.834 111.14 767.38 108.742C762.925 106.172 757.956 104.887 752.474 104.887C747.676 104.887 743.136 106.086 738.853 108.485C734.569 110.883 730.886 114.224 727.802 118.508C724.889 122.62 723.004 127.503 722.148 133.157H782.543Z"/>
-              <path d="M828.219 81.4998H854.433L856.489 94.0928C860.772 89.6381 865.826 86.1258 871.652 83.5558C877.648 80.9858 884.073 79.7008 890.927 79.7008C901.035 79.7008 909.688 81.8424 916.884 86.1258C924.251 90.2378 929.905 96.4058 933.846 104.63C937.786 112.682 939.757 122.791 939.757 134.956V210H910.716V138.811C910.716 128.017 908.488 119.878 904.034 114.396C899.75 108.913 893.24 106.172 884.502 106.172C875.592 106.172 868.825 108.999 864.199 114.653C859.573 120.135 857.26 128.274 857.26 139.068V210H828.219V81.4998Z"/>
-              <path d="M1034.01 30.0999C1053.37 30.0999 1070.08 33.7836 1084.13 41.151C1098.35 48.5183 1109.31 59.0553 1117.02 72.7619C1124.9 86.2973 1128.84 102.317 1128.84 120.821C1128.84 139.154 1124.9 155.002 1117.02 168.366C1109.31 181.73 1098.35 192.01 1084.13 199.206C1070.08 206.402 1053.37 210 1034.01 210H969.761V30.0999H1034.01ZM1034.01 184.557C1054.57 184.557 1070.33 178.989 1081.3 167.852C1092.44 156.544 1098 140.867 1098 120.821C1098 100.604 1092.44 84.6696 1081.3 73.0189C1070.33 61.3683 1054.57 55.543 1034.01 55.543H1000.34V184.557H1034.01Z"/>
-              <path d="M1208.79 211.799C1195.94 211.799 1184.63 208.972 1174.86 203.318C1165.27 197.664 1157.73 189.783 1152.25 179.674C1146.94 169.565 1144.28 157.915 1144.28 144.722C1144.28 132.215 1146.94 121.078 1152.25 111.312C1157.56 101.546 1164.93 93.836 1174.35 88.182C1183.77 82.528 1194.48 79.701 1206.47 79.701C1218.64 79.701 1229.35 82.3566 1238.6 87.668C1247.85 92.9793 1255.05 100.432 1260.19 110.027C1265.5 119.45 1268.15 130.416 1268.15 142.923C1268.15 144.979 1268.07 147.206 1267.9 149.605C1267.73 151.832 1267.47 154.231 1267.13 156.801H1175.63C1176.49 162.798 1178.38 168.023 1181.29 172.478C1184.37 176.761 1188.23 180.102 1192.85 182.501C1197.48 184.9 1202.79 186.099 1208.79 186.099C1215.98 186.099 1222.41 184.643 1228.06 181.73C1233.89 178.817 1237.91 174.962 1240.14 170.165L1265.58 178.646C1260.44 188.926 1252.82 197.064 1242.71 203.061C1232.6 208.886 1221.29 211.799 1208.79 211.799ZM1236.54 133.157C1236.37 127.846 1234.92 123.048 1232.17 118.765C1229.43 114.482 1225.83 111.141 1221.38 108.742C1216.93 106.172 1211.96 104.887 1206.47 104.887C1201.68 104.887 1197.14 106.086 1192.85 108.485C1188.57 110.884 1184.89 114.225 1181.8 118.508C1178.89 122.62 1177 127.503 1176.15 133.157H1236.54Z"/>
-              <path d="M1306.72 168.623C1307.92 173.42 1309.98 177.104 1312.89 179.674C1315.97 182.244 1319.32 184.043 1322.91 185.071C1326.51 185.928 1329.94 186.356 1333.19 186.356C1339.88 186.356 1345.1 185.071 1348.87 182.501C1352.81 179.76 1354.78 176.333 1354.78 172.221C1354.78 168.794 1353.5 166.139 1350.93 164.254C1348.36 162.369 1345.02 160.913 1340.9 159.885C1336.96 158.686 1332.85 157.486 1328.57 156.287C1323.94 155.088 1318.97 153.717 1313.66 152.175C1308.52 150.633 1303.64 148.491 1299.01 145.75C1294.39 143.009 1290.62 139.496 1287.7 135.213C1284.79 130.93 1283.34 125.618 1283.34 119.279C1283.34 111.226 1285.56 104.287 1290.02 98.462C1294.47 92.4653 1300.55 87.8393 1308.26 84.584C1315.97 81.3286 1324.63 79.701 1334.22 79.701C1345.7 79.701 1355.64 82.0996 1364.03 86.897C1372.43 91.6943 1378.51 98.719 1382.28 107.971L1356.84 116.195C1355.64 113.796 1353.84 111.74 1351.44 110.027C1349.21 108.314 1346.47 107.114 1343.22 106.429C1340.13 105.572 1336.96 105.144 1333.71 105.144C1328.23 105.144 1323.6 106.258 1319.83 108.485C1316.06 110.712 1314.18 113.882 1314.18 117.994C1314.18 120.05 1314.78 121.849 1315.97 123.391C1317.35 124.933 1319.14 126.218 1321.37 127.246C1323.6 128.103 1326.25 128.959 1329.34 129.816C1332.42 130.501 1335.68 131.358 1339.1 132.386C1344.59 133.928 1349.98 135.641 1355.3 137.526C1360.78 139.239 1365.75 141.467 1370.2 144.208C1374.83 146.949 1378.43 150.547 1381 155.002C1383.74 159.457 1385.28 165.111 1385.62 171.964C1385.62 179.331 1383.48 186.099 1379.2 192.267C1374.91 198.264 1368.75 203.061 1360.69 206.659C1352.81 210.086 1343.39 211.799 1332.42 211.799C1319.74 211.799 1308.86 209.058 1299.78 203.575C1290.7 198.092 1284.54 189.269 1281.28 177.104L1306.72 168.623Z"/>
-              <path d="M1404.33 81.5H1433.37V210H1404.33V81.5ZM1418.98 61.968C1413.67 61.968 1409.21 60.169 1405.62 56.571C1402.02 52.973 1400.22 48.6896 1400.22 43.721C1400.22 38.4096 1402.02 33.955 1405.62 30.357C1409.21 26.759 1413.67 24.96 1418.98 24.96C1424.12 24.96 1428.49 26.759 1432.09 30.357C1435.68 33.955 1437.48 38.4096 1437.48 43.721C1437.48 48.6896 1435.68 52.973 1432.09 56.571C1428.49 60.169 1424.12 61.968 1418.98 61.968Z"/>
-              <path d="M1553.28 81.5H1579.49V190.725C1579.49 205.288 1575.9 217.796 1568.7 228.247C1561.5 238.87 1551.14 247.008 1537.6 252.662C1524.07 258.487 1507.79 261.4 1488.77 261.4L1484.4 236.471C1505.99 235.957 1522.36 231.845 1533.49 224.135C1544.8 216.425 1550.45 205.374 1550.45 190.982V190.725H1553.79C1549.85 196.55 1544.11 201.519 1536.58 205.631C1529.21 209.743 1520.38 211.799 1510.1 211.799C1498.8 211.799 1488.77 209.058 1480.04 203.575C1471.3 198.092 1464.44 190.382 1459.48 180.445C1454.68 170.508 1452.28 158.943 1452.28 145.75C1452.28 132.557 1454.68 120.992 1459.48 111.055C1464.44 101.118 1471.3 93.4076 1480.04 87.925C1488.77 82.4423 1498.8 79.701 1510.1 79.701C1516.44 79.701 1522.18 80.5576 1527.32 82.271C1532.64 83.813 1537.26 85.9546 1541.2 88.696C1545.31 91.266 1548.65 94.1786 1551.22 97.434L1553.28 81.5ZM1483.38 145.75C1483.38 157.572 1486.46 167.167 1492.63 174.534C1498.8 181.901 1507.02 185.585 1517.3 185.585C1523.3 185.585 1528.78 184.043 1533.75 180.959C1538.72 177.704 1542.74 173.078 1545.83 167.081C1548.91 161.084 1550.45 153.974 1550.45 145.75C1550.45 137.183 1548.91 129.987 1545.83 124.162C1542.74 118.165 1538.63 113.625 1533.49 110.541C1528.52 107.457 1523.13 105.915 1517.3 105.915C1507.02 105.915 1498.8 109.599 1492.63 116.966C1486.46 124.162 1483.38 133.757 1483.38 145.75Z"/>
-              <path d="M1593.22 81.5H1619.43L1621.49 94.093C1625.77 89.6383 1630.83 86.126 1636.65 83.556C1642.65 80.986 1649.07 79.701 1655.93 79.701C1666.04 79.701 1674.69 81.8426 1681.88 86.126C1689.25 90.238 1694.91 96.406 1698.85 104.63C1702.79 112.683 1704.76 122.791 1704.76 134.956V210H1675.72V138.811C1675.72 128.017 1673.49 119.879 1669.03 114.396C1664.75 108.913 1658.24 106.172 1649.5 106.172C1640.59 106.172 1633.82 108.999 1629.2 114.653C1624.57 120.136 1622.26 128.274 1622.26 139.068V210H1593.22V81.5Z"/>
-            </g>
-
-            <mask id="od-wordmark-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1705" height="291">
-              <use href="#od-wordmark-shapes" fill="#ffffff" />
-            </mask>
-
-            <linearGradient id="od-shimmer-grad" x1="0%" y1="0%" x2="100%" y2="20%">
-              <stop offset="0%" stop-color="var(--sp-sweep-edge)" stop-opacity="0" />
-              <stop offset="32%" stop-color="var(--sp-sweep-edge)" stop-opacity="0.72" />
-              <stop offset="50%" stop-color="var(--sp-sweep-core)" stop-opacity="0.96" />
-              <stop offset="68%" stop-color="var(--sp-sweep-edge)" stop-opacity="0.72" />
-              <stop offset="100%" stop-color="var(--sp-sweep-edge)" stop-opacity="0" />
-            </linearGradient>
-          </defs>
-
-          <!-- Crisp vector base wordmark -->
-          <use href="#od-wordmark-shapes" class="od-base-ink" />
-          <!-- Signature emerald cursor accent inside the mark -->
-          <path
-            class="od-cursor-arrow"
-            d="M137.934 215.04L94.3119 100.247C92.9002 96.5317 96.5286 92.8895 100.219 94.3172L215.067 138.749C219.793 140.578 218.491 147.633 213.427 147.633H146.769V213.4C146.769 218.499 139.744 219.804 137.934 215.04Z"
-          />
-
-          <!-- Pure vector masked emerald light sweep (infinite Retina sharpness) -->
-          <g mask="url(#od-wordmark-mask)">
-            <g class="od-shimmer-band">
-              <polygon points="0,-60 440,-60 320,351 -120,351" fill="url(#od-shimmer-grad)" />
-            </g>
-          </g>
-        </svg>
+        <canvas id="splash-canvas"></canvas>
       </div>
 
       <!-- Integrated OpenDesign Sign-In Panel -->
@@ -629,13 +516,352 @@
         document.documentElement.setAttribute('data-theme', activeTheme);
 
         const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+        const logoHost = document.getElementById('splash-logo');
+        const logoCanvas = document.getElementById('splash-canvas');
+
+        // Exact OpenDesign 1705x291 wordmark artwork and WebGL reveal shader,
+        // adapted for light/dark themes and played strictly once per launch.
+        const LOGO_SVG_B64 = "PHN2ZyB3aWR0aD0iMTcwNSIgaGVpZ2h0PSIyOTEiIHZpZXdCb3g9IjAgMCAxNzA1IDI5MSIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGcgY2xpcC1wYXRoPSJ1cmwoI2NsaXAwXzEzODlfNTc0KSI+CjxwYXRoIGQ9Ik0xMDM0LjAxIDMwLjA5OTlDMTA1My4zNyAzMC4wOTk5IDEwNzAuMDggMzMuNzgzNiAxMDg0LjEzIDQxLjE1MUMxMDk4LjM1IDQ4LjUxODMgMTEwOS4zMSA1OS4wNTUzIDExMTcuMDIgNzIuNzYxOUMxMTI0LjkgODYuMjk3MyAxMTI4Ljg0IDEwMi4zMTcgMTEyOC44NCAxMjAuODIxQzExMjguODQgMTM5LjE1NCAxMTI0LjkgMTU1LjAwMiAxMTE3LjAyIDE2OC4zNjZDMTEwOS4zMSAxODEuNzMgMTA5OC4zNSAxOTIuMDEgMTA4NC4xMyAxOTkuMjA2QzEwNzAuMDggMjA2LjQwMiAxMDUzLjM3IDIxMCAxMDM0LjAxIDIxMEg5NjkuNzYxVjMwLjA5OTlIMTAzNC4wMVpNMTAzNC4wMSAxODQuNTU3QzEwNTQuNTcgMTg0LjU1NyAxMDcwLjMzIDE3OC45ODkgMTA4MS4zIDE2Ny44NTJDMTA5Mi40NCAxNTYuNTQ0IDEwOTggMTQwLjg2NyAxMDk4IDEyMC44MjFDMTA5OCAxMDAuNjA0IDEwOTIuNDQgODQuNjY5NiAxMDgxLjMgNzMuMDE4OUMxMDcwLjMzIDYxLjM2ODMgMTA1NC41NyA1NS41NDMgMTAzNC4wMSA1NS41NDNIMTAwMC4zNFYxODQuNTU3SDEwMzQuMDFaIiBmaWxsPSIjMjAyMDIwIi8+CjxwYXRoIGQ9Ik0xMjA4Ljc5IDIxMS43OTlDMTE5NS45NCAyMTEuNzk5IDExODQuNjMgMjA4Ljk3MiAxMTc0Ljg2IDIwMy4zMThDMTE2NS4yNyAxOTcuNjY0IDExNTcuNzMgMTg5Ljc4MyAxMTUyLjI1IDE3OS42NzRDMTE0Ni45NCAxNjkuNTY1IDExNDQuMjggMTU3LjkxNSAxMTQ0LjI4IDE0NC43MjJDMTE0NC4yOCAxMzIuMjE1IDExNDYuOTQgMTIxLjA3OCAxMTUyLjI1IDExMS4zMTJDMTE1Ny41NiAxMDEuNTQ2IDExNjQuOTMgOTMuODM2IDExNzQuMzUgODguMTgyQzExODMuNzcgODIuNTI4IDExOTQuNDggNzkuNzAxIDEyMDYuNDcgNzkuNzAxQzEyMTguNjQgNzkuNzAxIDEyMjkuMzUgODIuMzU2NiAxMjM4LjYgODcuNjY4QzEyNDcuODUgOTIuOTc5MyAxMjU1LjA1IDEwMC40MzIgMTI2MC4xOSAxMTAuMDI3QzEyNjUuNSAxMTkuNDUgMTI2OC4xNSAxMzAuNDE2IDEyNjguMTUgMTQyLjkyM0MxMjY4LjE1IDE0NC45NzkgMTI2OC4wNyAxNDcuMjA2IDEyNjcuOSAxNDkuNjA1QzEyNjcuNzMgMTUxLjgzMiAxMjY3LjQ3IDE1NC4yMzEgMTI2Ny4xMyAxNTYuODAxSDExNzUuNjNDMTE3Ni40OSAxNjIuNzk4IDExNzguMzggMTY4LjAyMyAxMTgxLjI5IDE3Mi40NzhDMTE4NC4zNyAxNzYuNzYxIDExODguMjMgMTgwLjEwMiAxMTkyLjg1IDE4Mi41MDFDMTE5Ny40OCAxODQuOSAxMjAyLjc5IDE4Ni4wOTkgMTIwOC43OSAxODYuMDk5QzEyMTUuOTggMTg2LjA5OSAxMjIyLjQxIDE4NC42NDMgMTIyOC4wNiAxODEuNzNDMTIzMy44OSAxNzguODE3IDEyMzcuOTEgMTc0Ljk2MiAxMjQwLjE0IDE3MC4xNjVMMTI2NS41OCAxNzguNjQ2QzEyNjAuNDQgMTg4LjkyNiAxMjUyLjgyIDE5Ny4wNjQgMTI0Mi43MSAyMDMuMDYxQzEyMzIuNiAyMDguODg2IDEyMjEuMjkgMjExLjc5OSAxMjA4Ljc5IDIxMS43OTlaTTEyMzYuNTQgMTMzLjE1N0MxMjM2LjM3IDEyNy44NDYgMTIzNC45MiAxMjMuMDQ4IDEyMzIuMTcgMTE4Ljc2NUMxMjI5LjQzIDExNC40ODIgMTIyNS44MyAxMTEuMTQxIDEyMjEuMzggMTA4Ljc0MkMxMjE2LjkzIDEwNi4xNzIgMTIxMS45NiAxMDQuODg3IDEyMDYuNDcgMTA0Ljg4N0MxMjAxLjY4IDEwNC44ODcgMTE5Ny4xNCAxMDYuMDg2IDExOTIuODUgMTA4LjQ4NUMxMTg4LjU3IDExMC44ODQgMTE4NC44OSAxMTQuMjI1IDExODEuOCAxMTguNTA4QzExNzguODkgMTIyLjYyIDExNzcgMTI3LjUwMyAxMTc2LjE1IDEzMy4xNTdIMTIzNi41NFoiIGZpbGw9IiMyMDIwMjAiLz4KPHBhdGggZD0iTTEzMDYuNzIgMTY4LjYyM0MxMzA3LjkyIDE3My40MiAxMzA5Ljk4IDE3Ny4xMDQgMTMxMi44OSAxNzkuNjc0QzEzMTUuOTcgMTgyLjI0NCAxMzE5LjMyIDE4NC4wNDMgMTMyMi45MSAxODUuMDcxQzEzMjYuNTEgMTg1LjkyOCAxMzI5Ljk0IDE4Ni4zNTYgMTMzMy4xOSAxODYuMzU2QzEzMzkuODggMTg2LjM1NiAxMzQ1LjEgMTg1LjA3MSAxMzQ4Ljg3IDE4Mi41MDFDMTM1Mi44MSAxNzkuNzYgMTM1NC43OCAxNzYuMzMzIDEzNTQuNzggMTcyLjIyMUMxMzU0Ljc4IDE2OC43OTQgMTM1My41IDE2Ni4xMzkgMTM1MC45MyAxNjQuMjU0QzEzNDguMzYgMTYyLjM2OSAxMzQ1LjAyIDE2MC45MTMgMTM0MC45IDE1OS44ODVDMTMzNi45NiAxNTguNjg2IDEzMzIuODUgMTU3LjQ4NiAxMzI4LjU3IDE1Ni4yODdDMTMyMy45NCAxNTUuMDg4IDEzMTguOTcgMTUzLjcxNyAxMzEzLjY2IDE1Mi4xNzVDMTMwOC41MiAxNTAuNjMzIDEzMDMuNjQgMTQ4LjQ5MSAxMjk5LjAxIDE0NS43NUMxMjk0LjM5IDE0My4wMDkgMTI5MC42MiAxMzkuNDk2IDEyODcuNyAxMzUuMjEzQzEyODQuNzkgMTMwLjkzIDEyODMuMzQgMTI1LjYxOCAxMjgzLjM0IDExOS4yNzlDMTI4My4zNCAxMTEuMjI2IDEyODUuNTYgMTA0LjI4NyAxMjkwLjAyIDk4LjQ2MkMxMjk0LjQ3IDkyLjQ2NTMgMTMwMC41NSA4Ny44MzkzIDEzMDguMjYgODQuNTg0QzEzMTUuOTcgODEuMzI4NiAxMzI0LjYzIDc5LjcwMSAxMzM0LjIyIDc5LjcwMUMxMzQ1LjcgNzkuNzAxIDEzNTUuNjQgODIuMDk5NiAxMzY0LjAzIDg2Ljg5N0MxMzcyLjQzIDkxLjY5NDMgMTM3OC41MSA5OC43MTkgMTM4Mi4yOCAxMDcuOTcxTDEzNTYuODQgMTE2LjE5NUMxMzU1LjY0IDExMy43OTYgMTM1My44NCAxMTEuNzQgMTM1MS40NCAxMTAuMDI3QzEzNDkuMjEgMTA4LjMxNCAxMzQ2LjQ3IDEwNy4xMTQgMTM0My4yMiAxMDYuNDI5QzEzNDAuMTMgMTA1LjU3MiAxMzM2Ljk2IDEwNS4xNDQgMTMzMy43MSAxMDUuMTQ0QzEzMjguMjMgMTA1LjE0NCAxMzIzLjYgMTA2LjI1OCAxMzE5LjgzIDEwOC40ODVDMTMxNi4wNiAxMTAuNzEyIDEzMTQuMTggMTEzLjg4MiAxMzE0LjE4IDExNy45OTRDMTMxNC4xOCAxMjAuMDUgMTMxNC43OCAxMjEuODQ5IDEzMTUuOTcgMTIzLjM5MUMxMzE3LjM1IDEyNC45MzMgMTMxOS4xNCAxMjYuMjE4IDEzMjEuMzcgMTI3LjI0NkMxMzIzLjYgMTI4LjEwMyAxMzI2LjI1IDEyOC45NTkgMTMyOS4zNCAxMjkuODE2QzEzMzIuNDIgMTMwLjUwMSAxMzM1LjY4IDEzMS4zNTggMTMzOS4xIDEzMi4zODZDMTM0NC41OSAxMzMuOTI4IDEzNDkuOTggMTM1LjY0MSAxMzU1LjMgMTM3LjUyNkMxMzYwLjc4IDEzOS4yMzkgMTM2NS43NSAxNDEuNDY3IDEzNzAuMiAxNDQuMjA4QzEzNzQuODMgMTQ2Ljk0OSAxMzc4LjQzIDE1MC41NDcgMTM4MSAxNTUuMDAyQzEzODMuNzQgMTU5LjQ1NyAxMzg1LjI4IDE2NS4xMTEgMTM4NS42MiAxNzEuOTY0QzEzODUuNjIgMTc5LjMzMSAxMzgzLjQ4IDE4Ni4wOTkgMTM3OS4yIDE5Mi4yNjdDMTM3NC45MSAxOTguMjY0IDEzNjguNzUgMjAzLjA2MSAxMzYwLjY5IDIwNi42NTlDMTM1Mi44MSAyMTAuMDg2IDEzNDMuMzkgMjExLjc5OSAxMzMyLjQyIDIxMS43OTlDMTMxOS43NCAyMTEuNzk5IDEzMDguODYgMjA5LjA1OCAxMjk5Ljc4IDIwMy41NzVDMTI5MC43IDE5OC4wOTIgMTI4NC41NCAxODkuMjY5IDEyODEuMjggMTc3LjEwNEwxMzA2LjcyIDE2OC42MjNaIiBmaWxsPSIjMjAyMDIwIi8+CjxwYXRoIGQ9Ik0xNTUzLjI4IDgxLjVIMTU3OS40OVYxOTAuNzI1QzE1NzkuNDkgMjA1LjI4OCAxNTc1LjkgMjE3Ljc5NiAxNTY4LjcgMjI4LjI0N0MxNTYxLjUgMjM4Ljg3IDE1NTEuMTQgMjQ3LjAwOCAxNTM3LjYgMjUyLjY2MkMxNTI0LjA3IDI1OC40ODcgMTUwNy43OSAyNjEuNCAxNDg4Ljc3IDI2MS40TDE0ODQuNCAyMzYuNDcxQzE1MDUuOTkgMjM1Ljk1NyAxNTIyLjM2IDIzMS44NDUgMTUzMy40OSAyMjQuMTM1QzE1NDQuOCAyMTYuNDI1IDE1NTAuNDUgMjA1LjM3NCAxNTUwLjQ1IDE5MC45ODJWMTkwLjcyNUgxNTUzLjc5QzE1NDkuODUgMTk2LjU1IDE1NDQuMTEgMjAxLjUxOSAxNTM2LjU4IDIwNS42MzFDMTUyOS4yMSAyMDkuNzQzIDE1MjAuMzggMjExLjc5OSAxNTEwLjEgMjExLjc5OUMxNDk4LjggMjExLjc5OSAxNDg4Ljc3IDIwOS4wNTggMTQ4MC4wNCAyMDMuNTc1QzE0NzEuMyAxOTguMDkyIDE0NjQuNDQgMTkwLjM4MiAxNDU5LjQ4IDE4MC40NDVDMTQ1NC42OCAxNzAuNTA4IDE0NTIuMjggMTU4Ljk0MyAxNDUyLjI4IDE0NS43NUMxNDUyLjI4IDEzMi41NTcgMTQ1NC42OCAxMjAuOTkyIDE0NTkuNDggMTExLjA1NUMxNDY0LjQ0IDEwMS4xMTggMTQ3MS4zIDkzLjQwNzYgMTQ4MC4wNCA4Ny45MjVDMTQ4OC43NyA4Mi40NDIzIDE0OTguOCA3OS43MDEgMTUxMC4xIDc5LjcwMUMxNTE2LjQ0IDc5LjcwMSAxNTIyLjE4IDgwLjU1NzYgMTUyNy4zMiA4Mi4yNzFDMTUzMi42NCA4My44MTMgMTUzNy4yNiA4NS45NTQ2IDE1NDEuMiA4OC42OTZDMTU0NS4zMSA5MS4yNjYgMTU0OC42NSA5NC4xNzg2IDE1NTEuMjIgOTcuNDM0TDE1NTMuMjggODEuNVpNMTQ4My4zOCAxNDUuNzVDMTQ4My4zOCAxNTcuNTcyIDE0ODYuNDYgMTY3LjE2NyAxNDkyLjYzIDE3NC41MzRDMTQ5OC44IDE4MS45MDEgMTUwNy4wMiAxODUuNTg1IDE1MTcuMyAxODUuNTg1QzE1MjMuMyAxODUuNTg1IDE1MjguNzggMTg0LjA0MyAxNTMzLjc1IDE4MC45NTlDMTUzOC43MiAxNzcuNzA0IDE1NDIuNzQgMTczLjA3OCAxNTQ1LjgzIDE2Ny4wODFDMTU0OC45MSAxNjEuMDg0IDE1NTAuNDUgMTUzLjk3NCAxNTUwLjQ1IDE0NS43NUMxNTUwLjQ1IDEzNy4xODMgMTU0OC45MSAxMjkuOTg3IDE1NDUuODMgMTI0LjE2MkMxNTQyLjc0IDExOC4xNjUgMTUzOC42MyAxMTMuNjI1IDE1MzMuNDkgMTEwLjU0MUMxNTI4LjUyIDEwNy40NTcgMTUyMy4xMyAxMDUuOTE1IDE1MTcuMyAxMDUuOTE1QzE1MDcuMDIgMTA1LjkxNSAxNDk4LjggMTA5LjU5OSAxNDkyLjYzIDExNi45NjZDMTQ4Ni40NiAxMjQuMTYyIDE0ODMuMzggMTMzLjc1NyAxNDgzLjM4IDE0NS43NVoiIGZpbGw9IiMyMDIwMjAiLz4KPHBhdGggZD0iTTE0MDQuMzMgODEuNUgxNDMzLjM3VjIxMEgxNDA0LjMzVjgxLjVaTTE0MTguOTggNjEuOTY4QzE0MTMuNjcgNjEuOTY4IDE0MDkuMjEgNjAuMTY5IDE0MDUuNjIgNTYuNTcxQzE0MDIuMDIgNTIuOTczIDE0MDAuMjIgNDguNjg5NiAxNDAwLjIyIDQzLjcyMUMxNDAwLjIyIDM4LjQwOTYgMTQwMi4wMiAzMy45NTUgMTQwNS42MiAzMC4zNTdDMTQwOS4yMSAyNi43NTkgMTQxMy42NyAyNC45NiAxNDE4Ljk4IDI0Ljk2QzE0MjQuMTIgMjQuOTYgMTQyOC40OSAyNi43NTkgMTQzMi4wOSAzMC4zNTdDMTQzNS42OCAzMy45NTUgMTQzNy40OCAzOC40MDk2IDE0MzcuNDggNDMuNzIxQzE0MzcuNDggNDguNjg5NiAxNDM1LjY4IDUyLjk3MyAxNDMyLjA5IDU2LjU3MUMxNDI4LjQ5IDYwLjE2OSAxNDI0LjEyIDYxLjk2OCAxNDE4Ljk4IDYxLjk2OFoiIGZpbGw9IiMyMDIwMjAiLz4KPHBhdGggZD0iTTE1OTMuMjIgODEuNUgxNjE5LjQzTDE2MjEuNDkgOTQuMDkzQzE2MjUuNzcgODkuNjM4MyAxNjMwLjgzIDg2LjEyNiAxNjM2LjY1IDgzLjU1NkMxNjQyLjY1IDgwLjk4NiAxNjQ5LjA3IDc5LjcwMSAxNjU1LjkzIDc5LjcwMUMxNjY2LjA0IDc5LjcwMSAxNjc0LjY5IDgxLjg0MjYgMTY4MS44OCA4Ni4xMjZDMTY4OS4yNSA5MC4yMzggMTY5NC45MSA5Ni40MDYgMTY5OC44NSAxMDQuNjNDMTcwMi43OSAxMTIuNjgzIDE3MDQuNzYgMTIyLjc5MSAxNzA0Ljc2IDEzNC45NTZWMjEwSDE2NzUuNzJWMTM4LjgxMUMxNjc1LjcyIDEyOC4wMTcgMTY3My40OSAxMTkuODc5IDE2NjkuMDMgMTE0LjM5NkMxNjY0Ljc1IDEwOC45MTMgMTY1OC4yNCAxMDYuMTcyIDE2NDkuNSAxMDYuMTcyQzE2NDAuNTkgMTA2LjE3MiAxNjMzLjgyIDEwOC45OTkgMTYyOS4yIDExNC42NTNDMTYyNC41NyAxMjAuMTM2IDE2MjIuMjYgMTI4LjI3NCAxNjIyLjI2IDEzOS4wNjhWMjEwSDE1OTMuMjJWODEuNVoiIGZpbGw9IiMyMDIwMjAiLz4KPHBhdGggZD0iTTQ0MS4wMDEgMjExLjc5OUM0MjguMzIyIDIxMS43OTkgNDE2LjQxNCAyMDkuNTcxIDQwNS4yNzggMjA1LjExN0MzOTQuMTQxIDIwMC42NjIgMzg0LjM3NSAxOTQuNDA4IDM3NS45OCAxODYuMzU2QzM2Ny43NTYgMTc4LjEzMiAzNjEuMjQ1IDE2OC40NTEgMzU2LjQ0OCAxNTcuMzE1QzM1MS44MjIgMTQ2LjAwNyAzNDkuNTA5IDEzMy41ODUgMzQ5LjUwOSAxMjAuMDVDMzQ5LjUwOSAxMDYuNjg2IDM1MS44MjIgOTQuNDM1NCAzNTYuNDQ4IDgzLjI5ODhDMzYxLjI0NSA3MS45OTA4IDM2Ny43NTYgNjIuMjI0OCAzNzUuOTggNTQuMDAwOEMzODQuMzc1IDQ1Ljc3NjggMzk0LjE0MSAzOS40Mzc0IDQwNS4yNzggMzQuOTgyOEM0MTYuNDE0IDMwLjUyODEgNDI4LjMyMiAyOC4zMDA4IDQ0MS4wMDEgMjguMzAwOEM0NTMuNjc5IDI4LjMwMDggNDY1LjUwMSAzMC41MjgxIDQ3Ni40NjcgMzQuOTgyOEM0ODcuNjAzIDM5LjQzNzQgNDk3LjI4NCA0NS43NzY4IDUwNS41MDggNTQuMDAwOEM1MTMuOTAzIDYyLjIyNDggNTIwLjQxNCA3MS45OTA4IDUyNS4wNCA4My4yOTg4QzUyOS44MzcgOTQuNDM1NCA1MzIuMjM2IDEwNi42ODYgNTMyLjIzNiAxMjAuMDVDNTMyLjIzNiAxMzMuNTg1IDUyOS44MzcgMTQ2LjAwNyA1MjUuMDQgMTU3LjMxNUM1MjAuNDE0IDE2OC40NTEgNTEzLjkwMyAxNzguMTMyIDUwNS41MDggMTg2LjM1NkM0OTcuMjg0IDE5NC40MDggNDg3LjYwMyAyMDAuNjYyIDQ3Ni40NjcgMjA1LjExN0M0NjUuNTAxIDIwOS41NzEgNDUzLjY3OSAyMTEuNzk5IDQ0MS4wMDEgMjExLjc5OVpNNDQxLjAwMSAxODUuODQyQzQ1Mi42NTEgMTg1Ljg0MiA0NjMuMDE3IDE4My4xODYgNDcyLjA5OCAxNzcuODc1QzQ4MS4xNzggMTcyLjM5MiA0ODguMjg5IDE2NC43NjggNDkzLjQyOSAxNTUuMDAyQzQ5OC41NjkgMTQ1LjA2NCA1MDEuMTM5IDEzMy40MTQgNTAxLjEzOSAxMjAuMDVDNTAxLjEzOSAxMDYuNTE0IDQ5OC41NjkgOTQuODYzOCA0OTMuNDI5IDg1LjA5NzhDNDg4LjI4OSA3NS4zMzE4IDQ4MS4xNzggNjcuNzkzMSA0NzIuMDk4IDYyLjQ4MThDNDYzLjAxNyA1Ni45OTkxIDQ1Mi42NTEgNTQuMjU3OCA0NDEuMDAxIDU0LjI1NzhDNDI5LjM1IDU0LjI1NzggNDE4Ljk4NCA1Ni45OTkxIDQwOS45MDQgNjIuNDgxOEM0MDAuODIzIDY3Ljc5MzEgMzkzLjYyNyA3NS4zMzE4IDM4OC4zMTYgODUuMDk3OEMzODMuMTc2IDk0Ljg2MzggMzgwLjYwNiAxMDYuNTE0IDM4MC42MDYgMTIwLjA1QzM4MC42MDYgMTMzLjQxNCAzODMuMTc2IDE0NS4wNjQgMzg4LjMxNiAxNTUuMDAyQzM5My42MjcgMTY0Ljc2OCA0MDAuODIzIDE3Mi4zOTIgNDA5LjkwNCAxNzcuODc1QzQxOC45ODQgMTgzLjE4NiA0MjkuMzUgMTg1Ljg0MiA0NDEuMDAxIDE4NS44NDJaIiBmaWxsPSIjMjAyMDIwIi8+CjxwYXRoIGQ9Ik03NTQuNzg3IDIxMS43OTlDNzQxLjkzNyAyMTEuNzk5IDczMC42MjkgMjA4Ljk3MiA3MjAuODYzIDIwMy4zMThDNzExLjI2OCAxOTcuNjY0IDcwMy43MjkgMTg5Ljc4MiA2OTguMjQ3IDE3OS42NzRDNjkyLjkzNSAxNjkuNTY1IDY5MC4yOCAxNTcuOTE0IDY5MC4yOCAxNDQuNzIyQzY5MC4yOCAxMzIuMjE0IDY5Mi45MzUgMTIxLjA3OCA2OTguMjQ3IDExMS4zMTJDNzAzLjU1OCAxMDEuNTQ2IDcxMC45MjUgOTMuODM1OCA3MjAuMzQ5IDg4LjE4MThDNzI5Ljc3MiA4Mi41Mjc4IDc0MC40OCA3OS43MDA4IDc1Mi40NzQgNzkuNzAwOEM3NjQuNjM4IDc5LjcwMDggNzc1LjM0NyA4Mi4zNTY0IDc4NC41OTkgODcuNjY3OEM3OTMuODUxIDkyLjk3OTEgODAxLjA0NyAxMDAuNDMyIDgwNi4xODcgMTEwLjAyN0M4MTEuNDk4IDExOS40NSA4MTQuMTU0IDEzMC40MTUgODE0LjE1NCAxNDIuOTIzQzgxNC4xNTQgMTQ0Ljk3OSA4MTQuMDY4IDE0Ny4yMDYgODEzLjg5NyAxNDkuNjA1QzgxMy43MjUgMTUxLjgzMiA4MTMuNDY4IDE1NC4yMzEgODEzLjEyNiAxNTYuODAxSDcyMS42MzRDNzIyLjQ5IDE2Mi43OTcgNzI0LjM3NSAxNjguMDIzIDcyNy4yODggMTcyLjQ3OEM3MzAuMzcyIDE3Ni43NjEgNzM0LjIyNyAxODAuMTAyIDczOC44NTMgMTgyLjUwMUM3NDMuNDc5IDE4NC44OTkgNzQ4Ljc5IDE4Ni4wOTkgNzU0Ljc4NyAxODYuMDk5Qzc2MS45ODMgMTg2LjA5OSA3NjguNDA4IDE4NC42NDIgNzc0LjA2MiAxODEuNzNDNzc5Ljg4NyAxNzguODE3IDc4My45MTMgMTc0Ljk2MiA3ODYuMTQxIDE3MC4xNjVMODExLjU4NCAxNzguNjQ2QzgwNi40NDQgMTg4LjkyNiA3OTguODE5IDE5Ny4wNjQgNzg4LjcxMSAyMDMuMDYxQzc3OC42MDIgMjA4Ljg4NiA3NjcuMjk0IDIxMS43OTkgNzU0Ljc4NyAyMTEuNzk5Wk03ODIuNTQzIDEzMy4xNTdDNzgyLjM3MSAxMjcuODQ1IDc4MC45MTUgMTIzLjA0OCA3NzguMTc0IDExOC43NjVDNzc1LjQzMiAxMTQuNDgxIDc3MS44MzQgMTExLjE0IDc2Ny4zOCAxMDguNzQyQzc2Mi45MjUgMTA2LjE3MiA3NTcuOTU2IDEwNC44ODcgNzUyLjQ3NCAxMDQuODg3Qzc0Ny42NzYgMTA0Ljg4NyA3NDMuMTM2IDEwNi4wODYgNzM4Ljg1MyAxMDguNDg1QzczNC41NjkgMTEwLjg4MyA3MzAuODg2IDExNC4yMjQgNzI3LjgwMiAxMTguNTA4QzcyNC44ODkgMTIyLjYyIDcyMy4wMDQgMTI3LjUwMyA3MjIuMTQ4IDEzMy4xNTdINzgyLjU0M1oiIGZpbGw9IiMyMDIwMjAiLz4KPHBhdGggZD0iTTgyOC4yMTkgODEuNDk5OEg4NTQuNDMzTDg1Ni40ODkgOTQuMDkyOEM4NjAuNzcyIDg5LjYzODEgODY1LjgyNiA4Ni4xMjU4IDg3MS42NTIgODMuNTU1OEM4NzcuNjQ4IDgwLjk4NTggODg0LjA3MyA3OS43MDA4IDg5MC45MjcgNzkuNzAwOEM5MDEuMDM1IDc5LjcwMDggOTA5LjY4OCA4MS44NDI0IDkxNi44ODQgODYuMTI1OEM5MjQuMjUxIDkwLjIzNzggOTI5LjkwNSA5Ni40MDU4IDkzMy44NDYgMTA0LjYzQzkzNy43ODYgMTEyLjY4MiA5MzkuNzU3IDEyMi43OTEgOTM5Ljc1NyAxMzQuOTU2VjIxMEg5MTAuNzE2VjEzOC44MTFDOTEwLjcxNiAxMjguMDE3IDkwOC40ODggMTE5Ljg3OCA5MDQuMDM0IDExNC4zOTZDODk5Ljc1IDEwOC45MTMgODkzLjI0IDEwNi4xNzIgODg0LjUwMiAxMDYuMTcyQzg3NS41OTIgMTA2LjE3MiA4NjguODI1IDEwOC45OTkgODY0LjE5OSAxMTQuNjUzQzg1OS41NzMgMTIwLjEzNSA4NTcuMjYgMTI4LjI3NCA4NTcuMjYgMTM5LjA2OFYyMTBIODI4LjIxOVY4MS40OTk4WiIgZmlsbD0iIzIwMjAyMCIvPgo8cGF0aCBkPSJNNTczLjkxOSAxOTAuOTgyTDU3Ny4yNiAxOTAuMjExVjI2MS40SDU0OC4yMTlWODEuNDk5OEg1NzQuNDMzTDU3Ni40ODkgOTcuNDMzOEM1ODAuNzcyIDkyLjQ2NTEgNTg2LjM0IDg4LjI2NzQgNTkzLjE5NCA4NC44NDA4QzYwMC4wNDcgODEuNDE0MSA2MDguMzU3IDc5LjcwMDggNjE4LjEyMyA3OS43MDA4QzYyOS4yNTkgNzkuNzAwOCA2MzkuMTExIDgyLjQ0MjEgNjQ3LjY3OCA4Ny45MjQ4QzY1Ni40MTYgOTMuNDA3NCA2NjMuMTgzIDEwMS4xMTcgNjY3Ljk4MSAxMTEuMDU1QzY3Mi45NDkgMTIwLjgyMSA2NzUuNDM0IDEzMi4zODYgNjc1LjQzNCAxNDUuNzVDNjc1LjQzNCAxNTguOTQyIDY3Mi45NDkgMTcwLjUwNyA2NjcuOTgxIDE4MC40NDVDNjYzLjE4MyAxOTAuMzgyIDY1Ni41MDEgMTk4LjA5MiA2NDcuOTM1IDIwMy41NzVDNjM5LjM2OCAyMDkuMDU3IDYyOS40MzEgMjExLjc5OSA2MTguMTIzIDIxMS43OTlDNjA3Ljg0MyAyMTEuNzk5IDU5OC45MzMgMjA5LjgyOCA1OTEuMzk1IDIwNS44ODhDNTgzLjg1NiAyMDEuNzc2IDU3OC4wMzEgMTk2LjgwNyA1NzMuOTE5IDE5MC45ODJaTTY0NC4zMzcgMTQ1Ljc1QzY0NC4zMzcgMTMzLjkyOCA2NDEuMTY3IDEyNC4zMzMgNjM0LjgyOCAxMTYuOTY2QzYyOC42NiAxMDkuNTk4IDYyMC42OTMgMTA1LjkxNSA2MTAuOTI3IDEwNS45MTVDNjA0Ljc1OSAxMDUuOTE1IDU5OS4xMDUgMTA3LjQ1NyA1OTMuOTY1IDExMC41NDFDNTg4Ljk5NiAxMTMuNjI1IDU4NC45NyAxMTguMDc5IDU4MS44ODYgMTIzLjkwNUM1NzguODAyIDEyOS43MyA1NzcuMjYgMTM3LjAxMiA1NzcuMjYgMTQ1Ljc1QzU3Ny4yNiAxNTQuMzE2IDU3OC44MDIgMTYxLjU5OCA1ODEuODg2IDE2Ny41OTVDNTg0Ljk3IDE3My40MiA1ODguOTk2IDE3Ny44NzUgNTkzLjk2NSAxODAuOTU5QzU5OS4xMDUgMTg0LjA0MyA2MDQuNzU5IDE4NS41ODUgNjEwLjkyNyAxODUuNTg1QzYyMC42OTMgMTg1LjU4NSA2MjguNjYgMTgxLjkwMSA2MzQuODI4IDE3NC41MzRDNjQxLjE2NyAxNjcuMTY2IDY0NC4zMzcgMTU3LjU3MiA2NDQuMzM3IDE0NS43NVoiIGZpbGw9IiMyMDIwMjAiLz4KPHBhdGggZmlsbC1ydWxlPSJldmVub2RkIiBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0xNDUuNSAwQzIyNS44NTcgMCAyOTEgNjUuMTQyNiAyOTEgMTQ1LjVDMjkxIDIyNS44NTcgMjI1Ljg1NyAyOTEgMTQ1LjUgMjkxSDE5LjM1ODFDOC42NDM4NSAyOTEgMC4wMDA2ODE5ODIgMjgyLjM1OCAwLjAwMDYxNjQ0MiAyNzEuNjQ0QzAuMDAwNDE3OTM5IDIzOS4xOTMgMS41MDYyNGUtMDkgMTc0LjUyMyAwIDE0NS41QzAgNjUuMTQyNiA2NS4xNDI2IDUuMjA2OWUtMDYgMTQ1LjUgMFpNMTQ1LjUwMSAyOS4xMDA0QzgxLjIxNDcgMjkuMTAwNCAyOS4xMDA0IDgxLjIxNDcgMjkuMTAwNCAxNDUuNTAxQzI5LjEwMDUgMjA5Ljc4NiA4MS4yMTQ3IDI2MS45IDE0NS41MDEgMjYxLjlDMjA5Ljc4NiAyNjEuOSAyNjEuOSAyMDkuNzg2IDI2MS45IDE0NS41MDFDMjYxLjkgODEuMjE0NyAyMDkuNzg2IDI5LjEwMDQgMTQ1LjUwMSAyOS4xMDA0WiIgZmlsbD0iIzIwMjAyMCIvPgo8cGF0aCBkPSJNMTM3LjkzNCAyMTUuMDRMOTQuMzExOSAxMDAuMjQ3QzkyLjkwMDIgOTYuNTMxNyA5Ni41Mjg2IDkyLjg4OTUgMTAwLjIxOSA5NC4zMTcyTDIxNS4wNjcgMTM4Ljc0OUMyMTkuNzkzIDE0MC41NzggMjE4LjQ5MSAxNDcuNjMzIDIxMy40MjcgMTQ3LjYzM0gxNDYuNzY5VjIxMy40QzE0Ni43NjkgMjE4LjQ5OSAxMzkuNzQ0IDIxOS44MDQgMTM3LjkzNCAyMTUuMDRaIiBmaWxsPSIjMjAyMDIwIi8+CjwvZz4KPGRlZnM+CjxjbGlwUGF0aCBpZD0iY2xpcDBfMTM4OV81NzQiPgo8cmVjdCB3aWR0aD0iMTcwNSIgaGVpZ2h0PSIyOTEiIGZpbGw9IndoaXRlIi8+CjwvY2xpcFBhdGg+CjwvZGVmcz4KPC9zdmc+Cg==";
+        const VERT = "\nprecision highp float;\nattribute vec3 position;\nvoid main() { gl_Position = vec4(position, 1.0); }\n";
+        const FRAG = "\nprecision highp float;\nuniform sampler2D src;\nuniform vec2 resolution;\nuniform vec2 offset;\nuniform float time;\nuniform float enterTime;\nuniform float leaveTime;\n\nuniform int mode;\nuniform float speed;\nuniform float delay;\nuniform float width;\nuniform vec3 accent;\nuniform vec3 accent2;\nuniform vec3 baseCol;\nuniform vec2 mouse;\nuniform float hover;\nuniform float spot;\n\n#define TRAIL 24\nuniform vec2 trail[TRAIL];\nuniform float trailW[TRAIL];\n\n#define W width\n#define LAYERS 3.0\n\nvec4 readTex(vec2 uv) {\n  if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1.) return vec4(0);\n  return texture2D(src, uv);\n}\nfloat hash(vec2 p) { return fract(sin(dot(p, vec2(4859., 3985.))) * 3984.); }\nfloat sdBox(vec2 p, float r) { vec2 q = abs(p) - r; return min(length(q), max(q.y, q.x)); }\n\nfloat dir = 1.;\nvec2 mp = vec2(0.);\nvec2 tp[TRAIL];\n\nvec2 pxToP(vec2 px) {\n  vec2 uv = (px - offset) / resolution;\n  vec2 q = uv * 2. - 1.;\n  q.y *= resolution.y / resolution.x;\n  return q;\n}\n\nfloat toRangeT(vec2 p, float scale) {\n  float d;\n  if (mode == 0) d = p.x / (scale * 2.) + .5;\n  else if (mode == 1) d = 1. - (p.y / (scale * 2.) + .5);\n  else if (mode == 2) d = length(p) / scale;\n\n  else d = dot(p, vec2(0.7071, 0.7071)) / (scale * 2.) + .5;\n  d = dir > 0. ? d : (1. - d);\n  return d;\n}\n\nvec4 cell(vec2 p, vec2 pi, float scale, float t, float edge) {\n  vec2 pc = pi + .5;\n\n  vec2 uvc = pc / scale;\n  uvc.y /= resolution.y / resolution.x;\n  uvc = uvc * 0.5 + 0.5;\n  if (uvc.x < 0. || uvc.x > 1. || uvc.y < 0. || uvc.y > 1.) return vec4(0);\n  float alpha = smoothstep(.0, .1, texture2D(src, uvc).a);\n\n  float x = toRangeT(pi, scale);\n  float n = hash(pi);\n  float SPREAD = W * 2.2;\n  float anim = smoothstep(W * 2., .0, abs(x + n * SPREAD - t));\n\n  vec2 cellP = pc / scale;\n  float spotA = 0.;\n  for (int i = 0; i < TRAIL; i++) {\n    float w = trailW[i];\n    if (w <= 0.) continue;\n    vec2 rel = cellP - tp[i];\n    float ang = atan(rel.y, rel.x);\n    float wob = 1.\n      + 0.30 * sin(3. * ang + time * 1.6)\n      + 0.16 * sin(5. * ang - time * 1.1 + 1.3);\n    float reach = spot * 0.8 * wob;\n    spotA = max(spotA, smoothstep(reach, reach * 0.4, length(rel)) * w);\n  }\n  anim = max(anim, spotA * hover);\n\n  float tone = 0.5 + 0.5 * sin(time * 2.0 + n * 6.2831)\n                   + 0.18 * sin(time * 3.7 + n * 12.566);\n  tone = clamp(tone, 0., 1.);\n  vec3 cellAccent = mix(accent, accent2, tone);\n  vec4 color = vec4(mix(baseCol, cellAccent, anim), 1.) * anim;\n\n  float pull = hover * smoothstep(spot * 1.4, 0., length(cellP - mp));\n  vec2 mag = normalize(mp - cellP + 1e-5) * pull * 0.18;\n  vec2 bp = p - pc - mag;\n\n  float sd = sdBox(bp, .38);\n  color *= mix(1., clamp(.3 / abs(sd), 0., 10.), edge * pow(anim, 9.));\n  color += vec4(cellAccent, 1.) * anim * smoothstep(.55, .0, abs(sd)) * 0.07;\n\n  return color * alpha;\n}\n\nvec4 cellsColor(vec2 p, float scale, float t) {\n  vec2 pi = floor(p);\n  vec2 d = vec2(0, 1);\n  vec4 cc = vec4(0);\n  cc += cell(p, pi, scale, t, .2) * 4.;\n  cc += cell(p, pi + d.xy, scale, t, .9);\n  cc += cell(p, pi - d.xy, scale, t, .9);\n  cc += cell(p, pi + d.yx, scale, t, .9);\n  cc += cell(p, pi - d.yx, scale, t, .9);\n  return cc / 8.;\n}\n\nvec4 draw(vec2 uv, vec2 p, float t, float scale) {\n  vec4 c = readTex(uv);\n  vec2 pi = floor(p * scale);\n  float n = hash(pi);\n  t = t * (1. + W * 4.) - W * 2.;\n  float x = toRangeT(pi, scale);\n  float a1 = smoothstep(t, t - W, x + n * W);\n  c *= a1;\n  c += cellsColor(p * scale, scale, t) * 1.1;\n  return c;\n}\n\nvoid main() {\n  vec2 uv = (gl_FragCoord.xy - offset) / resolution;\n  vec2 p = uv * 2. - 1.;\n  p.y *= resolution.y / resolution.x;\n\n  mp = pxToP(mouse);\n  for (int i = 0; i < TRAIL; i++) tp[i] = pxToP(trail[i]);\n\n  float t;\n  if (leaveTime > 0.) { dir = -1.; t = clamp(leaveTime * speed, 0., 1.); }\n  else { t = clamp((enterTime - delay) * speed, 0., 1.); }\n  t = (fract(t * .99999) - 0.5) * dir + 0.5;\n\n  for (float i = 0.; i < LAYERS; i++) {\n    float s = cos(i) * 11. + 32.;\n    gl_FragColor += draw(uv, p, t, abs(s));\n  }\n  gl_FragColor /= LAYERS;\n  gl_FragColor *= smoothstep(0., 0.01, t);\n}\n";
+
+        const ACCENT = [0.529, 0.918, 0.361];
+        const ACCENT2 = [0.816, 1.0, 0.71];
+        const BASE = [0.184, 0.471, 0.114];
+        const TRAIL = 24;
+        const ENTRANCE_SECONDS = 2.6;
+        const MIN_ENTER = 0.06;
+
         let stopped = false;
         let freezeStatic = false;
+        let playedOnce = false;
+        let dpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+        const wordImg = new Image();
+        const wordCanvas = document.createElement('canvas');
+        let gl = null;
+        let program = null;
+        let vertexBuffer = null;
+        let texture = null;
+        let uni = {};
+        let raf = 0;
+        let startTime = 0;
+        let playStartTime = 0;
+        let elapsedBeforePause = 0;
+        let sizedW = 0;
+        let sizedH = 0;
+        let resizeObserver = null;
+
+        function buildThemedLogoSrc(theme) {
+          const ink = theme === 'dark' ? '#eef0ed' : '#202020';
+          const svg = atob(LOGO_SVG_B64).replace(/#202020/g, ink);
+          return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        }
+
+        function hostSize() {
+          if (!logoHost) return { w: 0, h: 0 };
+          const rect = logoHost.getBoundingClientRect();
+          return {
+            w: Math.max(1, Math.round(rect.width)),
+            h: Math.max(1, Math.round(rect.height)),
+          };
+        }
+
+        function rasteriseWordmark(size) {
+          wordCanvas.width = Math.max(1, Math.round(size.w * dpr));
+          wordCanvas.height = Math.max(1, Math.round(size.h * dpr));
+          const ctx = wordCanvas.getContext('2d');
+          if (!ctx) return;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.clearRect(0, 0, size.w, size.h);
+          if (wordImg.naturalWidth > 0 && wordImg.naturalHeight > 0) {
+            const s = Math.min(size.w / wordImg.naturalWidth, size.h / wordImg.naturalHeight);
+            const dw = wordImg.naturalWidth * s;
+            const dh = wordImg.naturalHeight * s;
+            ctx.drawImage(wordImg, (size.w - dw) / 2, (size.h - dh) / 2, dw, dh);
+          }
+        }
+
+        function drawStatic() {
+          if (!logoCanvas) return;
+          const size = hostSize();
+          if (size.w < 2 || size.h < 2) return;
+          logoCanvas.width = Math.max(1, Math.round(size.w * dpr));
+          logoCanvas.height = Math.max(1, Math.round(size.h * dpr));
+          let ctx = null;
+          try {
+            ctx = logoCanvas.getContext('2d');
+          } catch {
+            ctx = null;
+          }
+          if (!ctx || !wordImg.naturalWidth) return;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.clearRect(0, 0, size.w, size.h);
+          const s = Math.min(size.w / wordImg.naturalWidth, size.h / wordImg.naturalHeight);
+          const dw = wordImg.naturalWidth * s;
+          const dh = wordImg.naturalHeight * s;
+          ctx.drawImage(wordImg, (size.w - dw) / 2, (size.h - dh) / 2, dw, dh);
+        }
+
+        function compileShader(type, source) {
+          if (!gl) return null;
+          const shader = gl.createShader(type);
+          if (!shader) return null;
+          gl.shaderSource(shader, source);
+          gl.compileShader(shader);
+          if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('[splash] shader compile failed:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+          }
+          return shader;
+        }
+
+        function uploadTexture() {
+          if (!gl || !texture) return;
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, wordCanvas);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        }
+
+        function renderWebglFrame(timeSec, enterTime) {
+          if (!gl || !sizedW) return;
+          gl.uniform1f(uni.time, timeSec);
+          gl.uniform1f(uni.enterTime, enterTime);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+        }
+
+        function cancelLogoRaf() {
+          if (raf) {
+            cancelAnimationFrame(raf);
+            raf = 0;
+          }
+        }
+
+        function renderSettledWordmark() {
+          playedOnce = true;
+          cancelLogoRaf();
+          document.documentElement.setAttribute('data-logo-static', 'true');
+          if (gl) {
+            resizeLogo();
+            if (sizedW) {
+              renderWebglFrame(ENTRANCE_SECONDS, 2);
+            }
+          } else {
+            drawStatic();
+          }
+        }
+
+        function resizeLogo() {
+          if (!logoCanvas) return;
+          const nextDpr = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+          const size = hostSize();
+          if (size.w < 2 || size.h < 2) return;
+          if (size.w === sizedW && size.h === sizedH && nextDpr === dpr) return;
+          dpr = nextDpr;
+          sizedW = size.w;
+          sizedH = size.h;
+          if (!gl) {
+            drawStatic();
+            return;
+          }
+          logoCanvas.width = Math.max(1, Math.round(size.w * dpr));
+          logoCanvas.height = Math.max(1, Math.round(size.h * dpr));
+          gl.viewport(0, 0, logoCanvas.width, logoCanvas.height);
+          rasteriseWordmark(size);
+          uploadTexture();
+          gl.uniform2f(uni.resolution, logoCanvas.width, logoCanvas.height);
+          if (playedOnce) {
+            renderWebglFrame(ENTRANCE_SECONDS, 2);
+          }
+        }
+
+        function frame() {
+          raf = 0;
+          if (stopped) return;
+          if (freezeStatic || motionQuery.matches || playedOnce) {
+            renderSettledWordmark();
+            return;
+          }
+          if (document.hidden) return;
+          resizeLogo();
+          if (!sizedW) {
+            raf = requestAnimationFrame(frame);
+            return;
+          }
+          const now = performance.now();
+          const elapsed = elapsedBeforePause + (now - playStartTime) / 1000;
+          if (elapsed >= ENTRANCE_SECONDS) {
+            // Play strictly once: settle onto the finished static wordmark and stop rAF.
+            renderSettledWordmark();
+            return;
+          }
+          const x = Math.min(1, Math.max(0, elapsed / ENTRANCE_SECONDS));
+          const eased = 1 - (1 - x) * (1 - x);
+          const enterTime = MIN_ENTER + eased * (1 - MIN_ENTER);
+          renderWebglFrame((now - startTime) / 1000, enterTime);
+          raf = requestAnimationFrame(frame);
+        }
 
         function syncLogoAnimationState() {
-          const isStatic = stopped || freezeStatic || document.hidden || motionQuery.matches;
-          document.documentElement.setAttribute('data-logo-static', isStatic ? 'true' : 'false');
+          const shouldBeStatic = stopped || freezeStatic || motionQuery.matches || playedOnce;
+          document.documentElement.setAttribute('data-logo-static', shouldBeStatic ? 'true' : 'false');
+          if (stopped) {
+            cancelLogoRaf();
+            return;
+          }
+          if (freezeStatic || motionQuery.matches) {
+            renderSettledWordmark();
+            return;
+          }
+          if (document.hidden) {
+            if (!playedOnce && raf) {
+              elapsedBeforePause += (performance.now() - playStartTime) / 1000;
+              cancelLogoRaf();
+            }
+            return;
+          }
+          if (gl && !playedOnce && !raf) {
+            playStartTime = performance.now();
+            raf = requestAnimationFrame(frame);
+          }
         }
+
+        function startLogoWebgl() {
+          if (!logoHost || !logoCanvas || stopped) return;
+          try {
+            gl = logoCanvas.getContext('webgl', {
+              alpha: true,
+              antialias: false,
+              premultipliedAlpha: true,
+              preserveDrawingBuffer: true,
+            });
+          } catch {
+            gl = null;
+          }
+          if (!gl) {
+            playedOnce = true;
+            drawStatic();
+            return;
+          }
+          const vs = compileShader(gl.VERTEX_SHADER, VERT);
+          const fs = compileShader(gl.FRAGMENT_SHADER, FRAG);
+          if (!vs || !fs) {
+            gl = null;
+            playedOnce = true;
+            drawStatic();
+            return;
+          }
+          program = gl.createProgram();
+          gl.attachShader(program, vs);
+          gl.attachShader(program, fs);
+          gl.linkProgram(program);
+          gl.deleteShader(vs);
+          gl.deleteShader(fs);
+          if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('[splash] program link failed:', gl.getProgramInfoLog(program));
+            gl = null;
+            playedOnce = true;
+            drawStatic();
+            return;
+          }
+          gl.useProgram(program);
+
+          vertexBuffer = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+          gl.bufferData(
+            gl.ARRAY_BUFFER,
+            new Float32Array([-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0]),
+            gl.STATIC_DRAW,
+          );
+          const loc = gl.getAttribLocation(program, 'position');
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.enable(gl.BLEND);
+          gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+          uni = {};
+          const names = [
+            'src', 'resolution', 'offset', 'time', 'enterTime', 'leaveTime',
+            'mode', 'speed', 'delay', 'width', 'accent', 'accent2', 'baseCol',
+            'mouse', 'hover', 'spot',
+          ];
+          for (let i = 0; i < names.length; i++) {
+            uni[names[i]] = gl.getUniformLocation(program, names[i]);
+          }
+          uni.trail = gl.getUniformLocation(program, 'trail[0]');
+          uni.trailW = gl.getUniformLocation(program, 'trailW[0]');
+
+          texture = gl.createTexture();
+          gl.activeTexture(gl.TEXTURE0);
+          gl.uniform1i(uni.src, 0);
+
+          gl.uniform2f(uni.offset, 0, 0);
+          gl.uniform1f(uni.leaveTime, 0);
+          gl.uniform1i(uni.mode, 3);
+          gl.uniform1f(uni.speed, 1);
+          gl.uniform1f(uni.delay, 0);
+          gl.uniform1f(uni.width, 0.2);
+          gl.uniform3f(uni.accent, ACCENT[0], ACCENT[1], ACCENT[2]);
+          gl.uniform3f(uni.accent2, ACCENT2[0], ACCENT2[1], ACCENT2[2]);
+          gl.uniform3f(uni.baseCol, BASE[0], BASE[1], BASE[2]);
+          gl.uniform2f(uni.mouse, -10000, -10000);
+          gl.uniform1f(uni.hover, 0);
+          gl.uniform1f(uni.spot, 0.28);
+          const trail = new Float32Array(TRAIL * 2);
+          for (let t = 0; t < trail.length; t++) trail[t] = -10000;
+          gl.uniform2fv(uni.trail, trail);
+          gl.uniform1fv(uni.trailW, new Float32Array(TRAIL));
+
+          sizedW = 0;
+          sizedH = 0;
+          resizeLogo();
+          if (playedOnce || freezeStatic || motionQuery.matches) {
+            renderSettledWordmark();
+            return;
+          }
+          startTime = performance.now();
+          playStartTime = startTime;
+          if (!document.hidden) {
+            raf = requestAnimationFrame(frame);
+          }
+        }
+
+        function onContextLost(event) {
+          event.preventDefault();
+          cancelLogoRaf();
+          gl = null;
+          sizedW = 0;
+          sizedH = 0;
+          drawStatic();
+        }
+
+        function onContextRestored() {
+          if (stopped) return;
+          startLogoWebgl();
+        }
+
+        if (logoCanvas) {
+          logoCanvas.addEventListener('webglcontextlost', onContextLost);
+          logoCanvas.addEventListener('webglcontextrestored', onContextRestored);
+        }
+        window.addEventListener('resize', resizeLogo);
+        if (typeof ResizeObserver === 'function' && logoHost) {
+          resizeObserver = new ResizeObserver(() => resizeLogo());
+          resizeObserver.observe(logoHost);
+        }
+
+        wordImg.onload = startLogoWebgl;
+        wordImg.onerror = () => {
+          console.error('[splash] logo failed to load');
+        };
+        wordImg.src = buildThemedLogoSrc(activeTheme);
 
         function onReducedMotionChange() {
           syncLogoAnimationState();
@@ -651,8 +877,10 @@
 
         window.__omSplashStopLogo = function () {
           stopped = true;
+          cancelLogoRaf();
           syncLogoAnimationState();
         };
+        window.__odSplashStopLogo = window.__omSplashStopLogo;
 
         // Splash stage + integrated sign-in / recovery controller
         const STEP_META = {
@@ -902,9 +1130,28 @@
 
         function teardownSplashResources() {
           stopped = true;
+          cancelLogoRaf();
           if (pollTimer) {
             clearInterval(pollTimer);
             pollTimer = null;
+          }
+          if (resizeObserver) {
+            resizeObserver.disconnect();
+            resizeObserver = null;
+          }
+          window.removeEventListener('resize', resizeLogo);
+          if (logoCanvas) {
+            logoCanvas.removeEventListener('webglcontextlost', onContextLost);
+            logoCanvas.removeEventListener('webglcontextrestored', onContextRestored);
+          }
+          if (gl) {
+            if (texture) gl.deleteTexture(texture);
+            if (vertexBuffer) gl.deleteBuffer(vertexBuffer);
+            if (program) gl.deleteProgram(program);
+            texture = null;
+            vertexBuffer = null;
+            program = null;
+            gl = null;
           }
           motionQuery.removeEventListener('change', onReducedMotionChange);
           document.removeEventListener('visibilitychange', onVisibilityChange);
