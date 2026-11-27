@@ -137,12 +137,16 @@ These fields describe the local OM result; AMR handoff attribution is separate.
 
 `entitlement_refresh_result` reports Studio's automatic `account/summary?refresh=true` sync when the user returns to the window after opening an external Pricing/Upgrade/Black Friday flow (`outcome`: `success` | `failure`, optional `hook_id`, `entry_id`, `plan_before`, `plan_after`, plus optional monetization attribution fields `model_id`, `model_provider`, `modality`, `studio_id`, `scene_id`, `gate_reason`, `user_plan`). Unavailable billing responses and placeholder plans (`cloud`/`unknown`) report `outcome=failure` without `plan_after`. Inline monetization gates (`FreePlanGenerationGate`, `InsufficientBalanceFailureGate`) also report `surface_view` (`area=entitlement_gate`, `element=banner`) with a fresh `entry_id` and the same attribution fields, joining the impression, click, modal (`area=entitlement_modal`), Pricing handoff, and checkout-return refresh; subsequent clicks rotate `entry_id` so each Pricing visit keeps a unique `od_entry_id`.
 
-The account and subscription settings' **Manage subscription** action, and the Free / Go
-plan card's **Upgrade to Plus** action, carry `od_origin=openmotion`,
+The account and subscription settings' **Manage subscription** action, the Free / Go
+plan card's **Upgrade to Plus** action, and the console-aligned plan-usage card's
+**Go to console**, **Upgrade**, and **Top up** actions carry `od_origin=openmotion`,
 `od_entry_source=openmotion_manage_subscription`, and a fresh `od_entry_id` / UTC
 `od_entry_at` for each click. The local service builds that page address and opens it in the
-system browser through a one-time account intent (`/login?intentId=…`) when it can. The two actions share that registered entry
-source; their `ui_click` elements (`manage_subscription` and `view_plans`) tell them apart.
+system browser through a one-time account intent (`/login?intentId=…`) when it can (or routes
+signed-in OIDC web clicks through `/auth/upgrade-handoff` when enabled). These settings actions
+share that registered entry source; their `ui_click` elements (`manage_subscription`,
+`view_plans`, `open_console`, and `recharge`) tell them apart (with `view_plans` also carrying
+`campaign_id=black_friday_2026` during the Black Friday window).
 A dedicated upgrade source needs AMR to register it first. The page address
 retains `billing=plan` and contains no account, installation or credential data.
 AMR must accept the OpenMotion origin and entry source in its attribution
