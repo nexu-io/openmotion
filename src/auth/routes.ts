@@ -52,6 +52,7 @@ import {
   verifyCsrfOrigin,
 } from './session.ts';
 import { assertSafeReturnTo, randomBase64Url, sha256Hex, timingSafeStringEqual } from './store.ts';
+import { resolveClientIp } from '../infra/client-ip.ts';
 
 const OAUTH_CONSENT_TTL_SEC = 600;
 const ONETAP_CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
@@ -1466,10 +1467,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     if (oauthCfg.mode !== 'proxy') {
       return c.json({ error: 'unsupported_operation', error_description: 'DCR is delegated to external IdP' }, 404);
     }
-    const clientIp =
-      (deps.config.TRUST_PROXY_HOPS > 0 ? c.req.header('x-forwarded-for')?.split(',')[0]?.trim() : undefined) ||
-      c.req.header('x-real-ip')?.trim() ||
-      'local';
+    const clientIp = resolveClientIp(c.req.raw.headers, deps.config.TRUST_PROXY_HOPS);
     if (!(await checkDcrRateLimit(clientIp))) {
       c.header('Retry-After', '60');
       return c.json(

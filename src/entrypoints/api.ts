@@ -102,6 +102,7 @@ import { asInsert, asUpdate } from '../db/helpers.ts';
 import { jobs } from '../db/schema/jobs.ts';
 import { projects } from '../db/schema/projects.ts';
 import { getConfig, type AppConfig } from '../infra/config.ts';
+import { resolveClientIp } from '../infra/client-ip.ts';
 import { createLogger, type Logger } from '../infra/logger.ts';
 import { QueueService } from '../infra/queues.ts';
 import {
@@ -2805,24 +2806,9 @@ export function createApiApp(deps: CreateApiAppDeps): {
         return c.json({ error: 'Cross-origin tracking rejected' }, 403);
       }
     }
-    const resolveClientIp = (): string => {
-      if (config.TRUST_PROXY_HOPS > 0) {
-        const forwarded = c.req.header('x-forwarded-for');
-        if (forwarded) {
-          const hops = forwarded
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean);
-          if (hops.length > 0) {
-            return hops[Math.max(0, hops.length - config.TRUST_PROXY_HOPS)] ?? 'local';
-          }
-        }
-        const realIp = c.req.header('x-real-ip')?.trim();
-        if (realIp) return realIp;
-      }
-      return 'local';
-    };
-    if (!(await checkTrackingRateLimit(resolveClientIp()))) {
+    const resolveClientIpForRequest = (): string =>
+      resolveClientIp(c.req.raw.headers, config.TRUST_PROXY_HOPS);
+    if (!(await checkTrackingRateLimit(resolveClientIpForRequest()))) {
       return c.json({ error: 'Too many tracking requests' }, 429);
     }
     if (!cloudTracking.isPosthogEnabled()) {
