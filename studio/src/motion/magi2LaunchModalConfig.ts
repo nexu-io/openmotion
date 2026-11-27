@@ -11,7 +11,7 @@ import {
 export const MAGI2_MODAL_CAMPAIGN_ID = BLACK_FRIDAY_CAMPAIGN;
 export const MAGI2_MODAL_SEEN_COOKIE = 'od_bf_magi2_modal_seen';
 export const MAGI2_MODAL_SEEN_PARAM = 'od_bf_seen';
-export const MAGI2_MODAL_DISMISSED_KEY = 'od_bf_magi2_modal_seen';
+export const MAGI2_MODAL_DISMISSED_KEY = MAGI2_MODAL_SEEN_COOKIE;
 export const MAGI2_MODAL_OPEN_EVENT = 'om:magi2-modal-change';
 export const MAGI2_MODAL_AUDIENCE_TIMEOUT_MS = 5000;
 export const DEFAULT_CONSOLE_PLAN_URL = 'https://open-design.ai/cloud/dashboard?billing=plan';
