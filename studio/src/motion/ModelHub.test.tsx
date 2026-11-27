@@ -16,6 +16,7 @@ vi.mock('./AccountSettings', () => ({ useAccountSummary: () => ({ account: { sta
 vi.mock('./useMediaCatalog', () => ({ useMediaCatalog: () => ({ catalog: catalogState.catalog, failed: catalogState.failed, retry: () => {} }) }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn(async () => 'queued') }));
 import { ModelHub } from './ModelHub';
+import { BLACK_FRIDAY_STARTS_AT } from './campaignAttribution';
 import { findModelHub } from './modelHubs';
 import { creationModels } from './creationModels';
 import { mediaEditorDestination } from './creativeStudios';
@@ -32,6 +33,7 @@ afterEach(() => {
     root = undefined;
   }
   container?.remove();
+  vi.useRealTimers();
   catalogState.catalog = defaultCatalog;
   catalogState.failed = false;
 });
@@ -79,6 +81,8 @@ it('guides guests to sign in on Open in Motion Studio and always surfaces Connec
 });
 
 it('renders curated Seedance 2.5 and GPT Image 2.0 showcase galleries with lightbox preview and remix handoff', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(BLACK_FRIDAY_STARTS_AT + 60_000);
   for (const hubId of ['seedance-2-5', 'gpt-image-2-6'] as const) {
     const hub = findModelHub(hubId)!;
     const firstCase = hub.cases![0];
@@ -92,8 +96,9 @@ it('renders curated Seedance 2.5 and GPT Image 2.0 showcase galleries with light
     ));
 
     const promoPill = container.querySelector<HTMLAnchorElement>('.om-hub-promo-pill');
-    expect(promoPill?.getAttribute('target')).toBeNull();
-    expect(promoPill?.getAttribute('rel')).toBeNull();
+    expect(promoPill).not.toBeNull();
+    expect(promoPill!.getAttribute('target')).toBeNull();
+    expect(promoPill!.getAttribute('rel')).toBeNull();
 
     const cards = container.querySelectorAll<HTMLElement>('.om-hub-showcase-card');
     expect(cards.length).toBe(hubId === 'seedance-2-5' ? 70 : 35);
