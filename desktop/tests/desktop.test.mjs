@@ -484,6 +484,7 @@ test('splash.html uses single-play WebGL startup logo animation and thin-shell o
   assert.match(splashHtml, /getContext\('webgl'/);
   assert.match(splashHtml, /gl_FragColor/);
   assert.match(splashHtml, /let playedOnce = false/);
+  assert.match(splashHtml, /const ENTRANCE_SECONDS = 0\.5;/, 'Splash logo reveal must finish within 0.5s');
   assert.match(splashHtml, /renderSettledWordmark\(\)/);
   assert.match(splashHtml, /function drawStatic\(\)/);
   assert.match(splashHtml, /window\.__omSplashStopLogo\s*=/);
