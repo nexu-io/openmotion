@@ -43,7 +43,7 @@ export async function apply(ctx: HostContext, config: Config) {
   };
   const { stdout } = await execute(
     executable,
-    ["--experimental-strip-types", "preview.ts"],
+    ["--experimental-strip-types", path.join(root, "preview.ts")],
     { cwd: root, env, timeout: 120_000 },
   );
   const origin = studioOrigin(JSON.parse(stdout).previewUrl);
