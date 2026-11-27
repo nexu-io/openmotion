@@ -507,18 +507,28 @@ test('buildAppIconSvg, buildLiquidGlassIconBundle, and packPngFramesAsIco produc
   const brandSvg = path.resolve(desktopRoot, '..', 'packages', 'design-system', 'brand', 'loading-mark.svg');
   const iconSvg = buildAppIconSvg(brandSvg);
   assert.match(iconSvg, /viewBox="0 0 1024 1024"/);
-  assert.match(iconSvg, /#00e608|#58ff5e/);
+  assert.match(iconSvg, /#444238/);
+  assert.match(iconSvg, /#141208/);
+  assert.match(iconSvg, /#ffffff/);
+  assert.equal(iconSvg.includes('#00e608'), false, 'Converged OpenDesign desktop icon must use monochrome white mark instead of neon green');
+  assert.equal(iconSvg.includes('#00ff08'), false, 'Converged OpenDesign desktop icon must omit green radial aura');
 
   const tmpIconDir = path.join(os.tmpdir(), `om-liquid-glass-test-${Date.now()}`, `${LIQUID_GLASS_ICON_NAME}.icon`);
   try {
     const { iconDir, iconManifest } = buildLiquidGlassIconBundle(brandSvg, tmpIconDir);
     assert.ok(existsSync(path.join(iconDir, 'icon.json')));
-    assert.ok(existsSync(path.join(iconDir, 'Assets', 'aura.svg')));
+    assert.ok(existsSync(path.join(iconDir, 'Assets', 'sheen.svg')));
     assert.ok(existsSync(path.join(iconDir, 'Assets', 'ring.svg')));
     assert.ok(existsSync(path.join(iconDir, 'Assets', 'arrow.svg')));
+    assert.equal(
+      readFileSync(path.join(iconDir, 'Assets', 'arrow.svg'), 'utf8').includes('#00e608'),
+      false,
+      'Liquid Glass arrow layer must be monochrome white/silver',
+    );
     assert.equal(iconManifest['supported-platforms']?.squares, 'shared');
     assert.ok(Array.isArray(iconManifest['fill-specializations']));
     assert.ok(iconManifest['fill-specializations'].some(spec => spec.appearance === 'dark'));
+    assert.ok(iconManifest['fill-specializations'].some(spec => spec.appearance === 'tinted'));
     const glassGroup = iconManifest.groups.find(group => group.specular === true);
     assert.ok(glassGroup);
     assert.ok(glassGroup.layers.every(layer => layer.glass === true));
