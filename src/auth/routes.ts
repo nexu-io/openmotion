@@ -54,6 +54,20 @@ import {
 import { assertSafeReturnTo, randomBase64Url, sha256Hex, timingSafeStringEqual } from './store.ts';
 
 const OAUTH_CONSENT_TTL_SEC = 600;
+
+/**
+ * Turns a thrown authorize error into the OAuth 2.1 error pair clients act on.
+ *
+ * `validateAuthorizeRequest` marks scope failures with an `invalid_scope:` message prefix, the same
+ * convention the token route uses for `unsupported_grant_type`. Every other failure is a generic
+ * `invalid_request`. The prefix is stripped from the description so the client reads a sentence
+ * rather than a machine tag.
+ */
+function oauthAuthorizeError(error: { message: string }): { error: string; description: string } {
+  const match = /^(invalid_scope|invalid_request):\s*(.*)$/.exec(error.message);
+  if (!match) return { error: 'invalid_request', description: error.message };
+  return { error: match[1], description: match[2] || match[1] };
+}
 const ONETAP_CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
 const UPGRADE_ALLOWED_TARGET_PREFIXES = [
   '/dashboard',
@@ -1515,7 +1529,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       });
     } catch (error) {
       if (isCloudError(error)) {
-        return c.json({ error: 'invalid_request', error_description: error.message }, 400);
+        const authorizeError = oauthAuthorizeError(error);
+        return c.json({ error: authorizeError.error, error_description: authorizeError.description }, 400);
       }
       throw error;
     }
@@ -1715,7 +1730,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       });
     } catch (error) {
       if (isCloudError(error)) {
-        return c.json({ error: 'invalid_request', error_description: error.message }, 400);
+        const authorizeError = oauthAuthorizeError(error);
+        return c.json({ error: authorizeError.error, error_description: authorizeError.description }, 400);
       }
       throw error;
     }

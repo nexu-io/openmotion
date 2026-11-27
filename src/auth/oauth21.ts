@@ -244,6 +244,13 @@ export function isOAuthAccessToken(token: string): boolean {
   return token.startsWith(OAUTH_ACCESS_TOKEN_PREFIX) && token.length >= 40;
 }
 
+/**
+ * Parses an OAuth `scope` string.
+ *
+ * An omitted scope keeps the historical behaviour of granting the caller's default set. An explicit
+ * request that names no supported scope returns an empty list so the caller can fail closed with
+ * `invalid_scope`; it must never be widened to the default set.
+ */
 export function parseScopeString(raw: string | null | undefined, fallback: readonly PatScope[]): PatScope[] {
   if (!raw || !raw.trim()) return [...fallback];
   const scopes: PatScope[] = [];
@@ -252,7 +259,7 @@ export function parseScopeString(raw: string | null | undefined, fallback: reado
       scopes.push(part);
     }
   }
-  return scopes.length > 0 ? scopes : [...fallback];
+  return scopes;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,10 +416,19 @@ export async function validateAuthorizeRequest(
     }
   }
 
-  // Self-registered MCP clients must never be granted workspace:admin.
+  // Self-registered MCP clients must never be granted workspace:admin. An explicit scope request
+  // that names no supported scope fails with invalid_scope instead of receiving the default set.
+  const requestedScope = params.scope?.trim() ?? '';
   const scopes = parseScopeString(params.scope, cfg.supportedScopes).filter(
     (s) => s !== 'workspace:admin',
   );
+  if (requestedScope && scopes.length === 0) {
+    throw new CloudError(
+      'INVALID_ARGUMENT',
+      'invalid_scope: none of the requested scopes are supported',
+      { status: 400 },
+    );
+  }
   const safeScopes = scopes.length > 0 ? scopes : [...cfg.supportedScopes];
   return {
     client,
