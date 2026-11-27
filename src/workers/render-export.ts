@@ -1456,7 +1456,8 @@ export async function processExportRenderJob(
           failureCode = 'EXPORT_VERIFICATION_BLOCKED';
         }
         const firstFailure = checks.find(check => check.status === 'failed');
-        throw new Error(`EXPORT_VERIFICATION_FAILED: ${firstFailure?.details ?? JSON.stringify(checks)}`);
+        const reason = firstFailure ? `${firstFailure.name}: ${firstFailure.details}` : JSON.stringify(checks);
+        throw new Error(`EXPORT_VERIFICATION_FAILED: ${reason}`);
       }
     }
 

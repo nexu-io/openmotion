@@ -798,7 +798,7 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
         const result = updates.find(row => row.state === 'completed')?.resultJson as { verification: { expected: { audio: string } } };
         assert.equal(result.verification.expected.audio, audio ?? 'optional');
       } else {
-        await assert.rejects(job, audio === 'required' ? /Missing required audio track/ : /policy=silent/);
+        await assert.rejects(job, audio === 'required' ? /audio: Missing required audio track/ : /audio: .*policy=silent/);
         const failed = updates.find(row => row.state === 'failed');
         assert.equal(failed?.errorCode, 'EXPORT_VERIFICATION_FAILED');
         const result = failed?.resultJson as { verification: { expected: { audio: string } } };
