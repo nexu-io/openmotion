@@ -340,6 +340,18 @@ export function Magi2LaunchModal({
                 }}
               >
                 <span className={styles.ctaText}>{copy.cta}</span>
+                <svg
+                  className={styles.ctaArrow}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h14m-6-6 6 6-6 6" />
+                </svg>
               </a>
             </div>
 
@@ -351,13 +363,14 @@ export function Magi2LaunchModal({
             >
               <span className={styles.countdownLabel}>{copy.countdownPrefix}</span>
               <span className={styles.countdownTime}>
-                <span ref={hrsRef}>{String(initH).padStart(2, '0')}</span>
+                <span className={styles.digitSeg} ref={hrsRef}>{String(initH).padStart(2, '0')}</span>
                 <span className={styles.colon} aria-hidden="true">:</span>
-                <span ref={minRef}>{String(initM).padStart(2, '0')}</span>
+                <span className={styles.digitSeg} ref={minRef}>{String(initM).padStart(2, '0')}</span>
                 <span className={styles.colon} aria-hidden="true">:</span>
-                <span ref={secRef}>{String(initS).padStart(2, '0')}</span>
+                <span className={styles.digitSeg} ref={secRef}>{String(initS).padStart(2, '0')}</span>
                 <span className={styles.msGroup}>
-                  .<span ref={msRef} data-testid="magi2-launch-modal-ms">{String(initCs).padStart(2, '0')}</span>
+                  <span className={styles.dot} aria-hidden="true">.</span>
+                  <span className={styles.digitSeg} ref={msRef} data-testid="magi2-launch-modal-ms">{String(initCs).padStart(2, '0')}</span>
                 </span>
               </span>
             </time>
