@@ -135,6 +135,7 @@ export function createExportRoutes(deps: ExportRoutesDeps): Hono {
         body.settings && typeof body.settings === 'object' && !Array.isArray(body.settings)
           ? (body.settings as Record<string, unknown>)
           : undefined,
+      audio: body.audio,
       expected: body.expected as ExportExpectation | undefined,
       workId: body.workId as string | undefined,
       exportRoute: 'studio',

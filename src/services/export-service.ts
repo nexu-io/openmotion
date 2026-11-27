@@ -12,7 +12,7 @@ import type { CloudTrackingHandle } from '../cloud-tracking.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError, revisionConflict } from '../contracts/errors.ts';
 import type { JobCancelEvent, JobProgressEvent, ProjectEvent } from '../contracts/events.ts';
-import type { JobState } from '../contracts/jobs.ts';
+import { exportRenderPayloadSchema, type ExportLintFinding, type JobState } from '../contracts/jobs.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import { freezeProjectSnapshot } from './project-snapshot.ts';
 import type { Database } from '../db/client.ts';
@@ -50,6 +50,7 @@ export interface StartExportOptions {
   format?: ExportFormat;
   phase1?: boolean;
   settings?: Record<string, unknown>;
+  audio?: unknown;
   expected?: ExportExpectation;
   workId?: string;
   exportRoute?: 'mcp' | 'studio';
@@ -78,6 +79,7 @@ export interface ExportJobRecord {
   durationMs?: number;
   audioLoweredDb?: number;
   verification?: Record<string, unknown>;
+  lintFindings?: ExportLintFinding[];
   errorCode: string | null;
   errorMessage: string | null;
   createdAt: string;
@@ -176,6 +178,7 @@ function toExportJobRecord(row: typeof jobs.$inferSelect): ExportJobRecord {
     ...(result.verification && typeof result.verification === 'object'
       ? { verification: result.verification as Record<string, unknown> }
       : {}),
+    ...(row.state === 'failed' && Array.isArray(result.lintFindings) && { lintFindings: result.lintFindings }),
     errorCode: row.errorCode ?? null,
     errorMessage: row.errorMessage ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -260,6 +263,15 @@ export class ExportService {
       }
     }
 
+    const policy = exportRenderPayloadSchema.shape.audio.safeParse(opts.audio);
+    if (!policy.success) {
+      throw new CloudError('INVALID_ARGUMENT', 'audio must be required, silent or optional', { status: 400 });
+    }
+    const audio = policy.data;
+    if (audio !== undefined && (format !== 'mp4' || (validatedExpected && validatedExpected.audio !== audio))) {
+      throw new CloudError('INVALID_ARGUMENT', 'audio requires MP4 and must match expected.audio when supplied', { status: 400 });
+    }
+
     const requestId = opts.requestId !== undefined ? validateStableRequestId(opts.requestId) : undefined;
     const idempotencyKey =
       opts.idempotencyKey !== undefined
@@ -277,6 +289,7 @@ export class ExportService {
           phase1: opts.phase1 ?? true,
           settings: opts.settings ?? null,
           expected: validatedExpected ?? null,
+          ...(audio && audio !== 'optional' ? { audio } : {}),
         }),
       )
       .digest('hex');
@@ -463,6 +476,7 @@ export class ExportService {
                 userId: actorUserId,
                 exportRoute,
                 ...(opts.settings ? { settings: opts.settings } : {}),
+                ...(audio !== undefined ? { audio } : {}),
                 ...(validatedExpected ? { expected: validatedExpected } : {}),
                 studioManifests: includedStudioManifests,
               },
@@ -544,6 +558,7 @@ export class ExportService {
             ...(opts.workId ? { workId: opts.workId } : {}),
             exportRoute,
             ...(opts.settings ? { settings: opts.settings } : {}),
+            ...(audio !== undefined ? { audio } : {}),
             ...(validatedExpected ? { expected: validatedExpected } : {}),
           },
           { attempts: 1 },

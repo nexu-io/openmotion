@@ -98,7 +98,9 @@ export async function verifyExport(filename: string, expectation: number | Expor
   check('frame-rate', Math.abs(rate(video[0]?.r_frame_rate) - fps) < 0.001 && Math.abs(rate(video[0]?.avg_frame_rate) - fps) < 0.001,
     `nominal=${video[0]?.r_frame_rate}; average=${video[0]?.avg_frame_rate}`);
   check('audio', (expected.audio === 'silent' ? audio.length === 0 : expected.audio === 'required' ? audio.length > 0 : true)
-    && audio.every((stream: any) => stream.codec_name === 'aac'), `${audio.length} audio stream(s); policy=${expected.audio}; codecs=${audio.map((stream: any) => stream.codec_name).join(',')}`);
+    && audio.every((stream: any) => stream.codec_name === 'aac'), expected.audio === 'required' && audio.length === 0
+      ? 'Missing required audio track: the MP4 contains no audio streams.'
+      : `${audio.length} audio stream(s); policy=${expected.audio}; codecs=${audio.map((stream: any) => stream.codec_name).join(',')}`);
   const containerSeconds = Number(probe.format?.duration ?? NaN);
   const seconds = Number(video[0]?.duration ?? containerSeconds);
   const tolerance = Math.max(0.1, 1 / fps);
