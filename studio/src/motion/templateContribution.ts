@@ -1,4 +1,5 @@
-export const templateContributionUrl = 'https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md';
+export const templateContributionUrl = 'https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md#submit-a-template-with-your-agent';
+export const brandKitContributionUrl = 'https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md#submit-a-brand-kit';
 
 /** Keep the selected template and environment-specific handoff intact. */
 export function templateSubmissionPrompt(recreatePrompt: string, locale = 'en'): string {
