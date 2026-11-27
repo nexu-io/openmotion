@@ -488,7 +488,7 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(html.includes('查看详细权限标识 (7)'));
     assert.ok(html.includes('name="consent_token" value="tok-123"'));
     assert.ok(html.includes('value="approve"') && html.includes('value="deny"'));
-    assert.ok(!html.includes('class="redirect-warning"'), 'loopback redirects need no host warning');
+    assert.ok(!html.includes('ui-badge--warning'), 'loopback redirects need no host warning');
   });
 
   it('warns on the OAuth consent page only for unverified HTTPS redirect hosts', () => {
@@ -503,16 +503,12 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
         hiddenFields: { consent_token: 'tok-123' },
       });
 
-    const unverified = render('https://cb.phish.example/oauth/callback', false);
-    assert.ok(unverified.includes('class="redirect-warning"'));
-    assert.ok(unverified.includes('回调域名未经 OpenMotion 验证'));
-    assert.ok(unverified.includes('<b class="redirect-warning-host">cb.phish.example</b>'));
-
-    const doubao = render('https://api.doubao-dev.com/api/oauth/v1/callback/personal/cb_ah_1', false);
-    assert.ok(doubao.includes('<b class="redirect-warning-host">api.doubao-dev.com</b>'));
+    const unverified = render('https://api.doubao-dev.com/api/oauth/v1/callback/personal/cb_ah_1', false);
+    assert.ok(unverified.includes('<span class="ui-badge ui-badge--warning">域名未验证</span>'));
+    assert.ok(unverified.includes('<b class="redirect-host">api.doubao-dev.com</b>'));
 
     const verified = render('https://chatgpt.com/connector_platform_oauth_redirect', true);
-    assert.ok(!verified.includes('class="redirect-warning"'));
+    assert.ok(!verified.includes('ui-badge--warning'));
     assert.ok(verified.includes('回调至 chatgpt.com'));
   });
 });

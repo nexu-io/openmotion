@@ -882,12 +882,13 @@ export function renderOAuthConsentHtml(input: {
     : 'Local application';
   const unverifiedHttpsHost =
     input.redirectUri && !input.redirectHostVerified ? httpsRedirectHostname(input.redirectUri) : null;
-  const redirectWarningHtml = unverifiedHttpsHost
-    ? `<div class="redirect-warning" role="note">
-          <strong class="redirect-warning-title">回调域名未经 OpenMotion 验证</strong>
-          <span>同意后，授权凭证会发送到 <b class="redirect-warning-host">${escapeHtml(unverifiedHttpsHost)}</b>。请确认这是你正在使用的应用的域名，不认识就点「拒绝」。</span>
-        </div>`
-    : '';
+  const clientSubHtml = unverifiedHttpsHost
+    ? `<span class="ui-badge ui-badge--warning">域名未验证</span>
+        <span>·</span>
+        <span>回调至 <b class="redirect-host">${escapeHtml(unverifiedHttpsHost)}</b></span>`
+    : `<span class="ui-badge unverified-pill">应用名未经验证</span>
+        <span>·</span>
+        <span>回调至 ${escapeHtml(redirectHostLabel)}</span>`;
   const primaryAccountName = input.userDisplayName || input.userEmail || '当前登录账号';
   const secondaryAccountEmail =
     input.userEmail && input.userEmail !== primaryAccountName ? input.userEmail : null;
@@ -1042,24 +1043,8 @@ export function renderOAuthConsentHtml(input: {
     .unverified-pill {
       background: var(--motion-panel);
     }
-    .redirect-warning {
-      display: flex;
-      flex-direction: column;
-      gap: var(--motion-space-4);
-      margin: 0 0 var(--motion-space-18);
-      padding: var(--motion-space-12) var(--motion-space-14);
-      border-radius: var(--motion-radius-md);
-      background: var(--motion-warning-soft);
+    .redirect-host {
       color: var(--motion-strong);
-      font-size: var(--motion-text-sm);
-      line-height: var(--motion-leading-body);
-      text-align: left;
-    }
-    .redirect-warning-title {
-      color: var(--motion-warning);
-      font-weight: var(--motion-weight-bold);
-    }
-    .redirect-warning-host {
       font-weight: var(--motion-weight-bold);
       overflow-wrap: anywhere;
     }
@@ -1272,11 +1257,8 @@ export function renderOAuthConsentHtml(input: {
       </div>
       <h1>授权 ${escapeHtml(input.clientName)} 连接 OpenMotion</h1>
       <p class="client-sub">
-        <span class="ui-badge unverified-pill">应用名未经验证</span>
-        <span>·</span>
-        <span>回调至 ${escapeHtml(redirectHostLabel)}</span>
+        ${clientSubHtml}
       </p>
-      ${redirectWarningHtml}
       <form method="POST" action="${escapeHtml(input.formAction)}">
         ${hiddenInputs}
         <div class="card">
