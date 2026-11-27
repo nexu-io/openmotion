@@ -70,6 +70,7 @@ import { isWorkspacePageOpen, resolveNavTrackingPage, resolveRouteArrival } from
 import { RouteViewport } from '../router/RouteViewport';
 import { OverlayLayer } from '../router/OverlayLayer';
 import { EntitlementModalHost } from './EntitlementModalHost';
+import { Magi2LaunchModal } from './Magi2LaunchModal';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { StudioRouterProvider } from '../router/createAppRouter';
 import { useWorkspaceBlocker } from '../router/useWorkspaceBlocker';
@@ -875,6 +876,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     </Dialog.Root>
     <OverlayLayer {...overlaySharedProps} placement="portal" />
     <EntitlementModalHost />
+    <Magi2LaunchModal trackingPage={navTrackingPage} suppressed={hostChrome || presentation.embedded} />
   </WorkspaceChromeContext.Provider>;
 }
 
