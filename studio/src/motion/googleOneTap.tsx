@@ -615,6 +615,8 @@ export interface UseMotionGoogleOneTapOptions {
   locale?: string;
   /** Opens Pricing after a Free/Go sign-in. Defaults to a same-tab navigation. */
   navigateToPricing?: (url: string) => void;
+  /** Milliseconds since the page was entered; the prompt waits until the page is `delayMs` old. */
+  pageAgeMs?: () => number;
   delayMs?: number;
   loadTimeoutMs?: number;
   exchangeTimeoutMs?: number;
@@ -622,6 +624,10 @@ export interface UseMotionGoogleOneTapOptions {
 
 function navigateCurrentTab(url: string): void {
   window.location.assign(url);
+}
+
+function currentPageAgeMs(): number {
+  return typeof performance === 'undefined' ? Number.POSITIVE_INFINITY : performance.now();
 }
 
 export function useMotionGoogleOneTap({
@@ -634,6 +640,7 @@ export function useMotionGoogleOneTap({
   onSuccess,
   locale = 'en',
   navigateToPricing = navigateCurrentTab,
+  pageAgeMs = currentPageAgeMs,
   delayMs = MOTION_ONETAP_DELAY_MS,
   loadTimeoutMs = GOOGLE_GIS_LOAD_TIMEOUT_MS,
   exchangeTimeoutMs = ONETAP_EXCHANGE_TIMEOUT_MS,
@@ -652,6 +659,8 @@ export function useMotionGoogleOneTap({
   localeRef.current = locale;
   const navigateToPricingRef = useRef(navigateToPricing);
   navigateToPricingRef.current = navigateToPricing;
+  const pageAgeRef = useRef(pageAgeMs);
+  pageAgeRef.current = pageAgeMs;
   const [retrySeq, setRetrySeq] = useState(0);
 
   // Capture landing attribution on initial mount before user navigates within Studio.
@@ -765,276 +774,291 @@ export function useMotionGoogleOneTap({
     activeCancelHooks.add(cancelRun);
 
     const isStale = () => disposed || generationAtStart !== oneTapGeneration;
-    const effectiveDelay = isExplicitRetry ? 0 : delayMs;
+    // Business pages prompt no earlier than `delayMs` after the page was entered (an explicit retry prompts at
+    // once). The challenge and the GIS script are fetched in parallel right away, so their round trips overlap
+    // that wait instead of following it.
+    const promptNotBefore = Date.now() + (isExplicitRetry ? 0 : Math.max(0, delayMs - pageAgeRef.current()));
 
-    timerId = window.setTimeout(() => {
-      timerId = null;
-      if (isStale()) return;
+    void (async () => {
+      // Load the official Google GIS script (5000ms timeout) while the challenge is requested.
+      const gisLoad = loadGoogleGisScript(loadTimeoutMs).then(
+        api => api,
+        () => null,
+      );
 
-      void (async () => {
-        // 1. Acquire one-time anti-replay challenge bound to same-origin HttpOnly cookie.
-        let challenge: { challengeId: string; nonce: string; clientId: string; expiresAt: string };
-        try {
-          const challengeRes = await fetch('/auth/one-tap/challenge', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ attemptId }),
-            signal: createFetchSignal(abortController.signal, exchangeTimeoutMs),
-          });
-          if (!challengeRes.ok) {
-            if (challengeRes.status !== 404 && !isStale()) {
-              const errData = (await challengeRes.json().catch(() => null)) as {
-                code?: string;
-                message?: string;
-                error?: string;
-              } | null;
-              void trackMotion('onetap_login_failed', {
-                surface: 'motion_web',
-                attempt_id: attemptId,
-                error_code: normalizeLoginErrorCode(errData?.code ?? 'AUTH_UNAVAILABLE'),
-              });
-              // Prompt was never shown and the user never clicked One Tap; degrade
-              // silently without showing a failure alert (ERR-01/06).
-            }
-            return;
-          }
-          const payload = (await challengeRes.json()) as Partial<typeof challenge>;
-          if (!payload.challengeId || !payload.nonce || !payload.clientId) {
-            if (!isStale()) {
-              void trackMotion('onetap_login_failed', {
-                surface: 'motion_web',
-                attempt_id: attemptId,
-                error_code: 'ONE_TAP_UNAVAILABLE',
-              });
-            }
-            return;
-          }
-          challenge = {
-            challengeId: payload.challengeId,
-            nonce: payload.nonce,
-            clientId: payload.clientId,
-            expiresAt: payload.expiresAt ?? '',
-          };
-        } catch (err) {
-          if (!isStale()) {
-            const isTimeout =
-              err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      // Acquire a one-time anti-replay challenge bound to a same-origin HttpOnly cookie.
+      let challenge: { challengeId: string; nonce: string; clientId: string; expiresAt: string };
+      try {
+        const challengeRes = await fetch('/auth/one-tap/challenge', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ attemptId }),
+          signal: createFetchSignal(abortController.signal, exchangeTimeoutMs),
+        });
+        if (!challengeRes.ok) {
+          if (challengeRes.status !== 404 && !isStale()) {
+            const errData = (await challengeRes.json().catch(() => null)) as {
+              code?: string;
+              message?: string;
+              error?: string;
+            } | null;
             void trackMotion('onetap_login_failed', {
               surface: 'motion_web',
               attempt_id: attemptId,
-              error_code: isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE',
+              error_code: normalizeLoginErrorCode(errData?.code ?? 'AUTH_UNAVAILABLE'),
             });
+            // Prompt was never shown and the user never clicked One Tap; degrade
+            // silently without showing a failure alert (ERR-01/06).
           }
           return;
         }
-
-        if (isStale()) return;
-
-        // 2. Dynamically load official Google GIS script with 5000ms timeout.
-        let gis: GoogleAccountsIdApi;
-        try {
-          gis = await loadGoogleGisScript(loadTimeoutMs);
-        } catch {
+        const payload = (await challengeRes.json()) as Partial<typeof challenge>;
+        if (!payload.challengeId || !payload.nonce || !payload.clientId) {
           if (!isStale()) {
-            void trackMotion('onetap_prompt_observed', {
+            void trackMotion('onetap_login_failed', {
               surface: 'motion_web',
               attempt_id: attemptId,
-              outcome: 'script_load_failed',
-              reason: 'script_load_failed',
+              error_code: 'ONE_TAP_UNAVAILABLE',
             });
           }
           return;
         }
-
-        if (isStale()) return;
-
-        const isDesktopViewport = window.innerWidth >= ONETAP_DESKTOP_MIN_WIDTH;
-        const currentDeviceType: 'desktop' | 'mobile' = isDesktopViewport ? 'desktop' : 'mobile';
-        if (isDesktopViewport) {
-          syncOneTapAnchorPosition(bfBannerRef.current);
-        } else {
-          removeOneTapAnchor();
+        challenge = {
+          challengeId: payload.challengeId,
+          nonce: payload.nonce,
+          clientId: payload.clientId,
+          expiresAt: payload.expiresAt ?? '',
+        };
+      } catch (err) {
+        if (!isStale()) {
+          const isTimeout =
+            err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+          void trackMotion('onetap_login_failed', {
+            surface: 'motion_web',
+            attempt_id: attemptId,
+            error_code: isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE',
+          });
         }
+        return;
+      }
 
-        const observedOutcomes = new Set<string>();
-        const reportObserved = (
-          outcome: 'displayed' | 'dismissed' | 'skipped',
-          rawReason?: string,
-        ) => {
-          if (observedOutcomes.has(outcome)) return;
-          observedOutcomes.add(outcome);
+      if (isStale()) return;
+
+      const gis = await gisLoad;
+      if (!gis) {
+        if (!isStale()) {
           void trackMotion('onetap_prompt_observed', {
             surface: 'motion_web',
             attempt_id: attemptId,
-            outcome,
-            reason: sanitizeTelemetryCode(rawReason) ?? 'unknown',
+            outcome: 'script_load_failed',
+            reason: 'script_load_failed',
           });
-        };
+        }
+        return;
+      }
 
-        // 3. Initialize GIS (no deprecated use_fedcm_for_prompt; auto_select=false; cancel_on_tap_outside=false).
-        gis.initialize({
-          client_id: challenge.clientId,
-          nonce: challenge.nonce,
-          auto_select: false,
-          cancel_on_tap_outside: false,
-          ...(isDesktopViewport ? { prompt_parent_id: ONETAP_ANCHOR_ID } : {}),
-          callback: (credentialResponse: GoogleCredentialResponse) => {
-            if (isStale()) return;
-            const idToken = credentialResponse.credential?.trim();
-            if (!idToken) return;
+      if (isStale()) return;
 
-            void trackMotion('onetap_credential_received', {
-              surface: 'motion_web',
-              attempt_id: attemptId,
-              select_by: sanitizeTelemetryCode(credentialResponse.select_by) ?? 'unknown',
-            });
-
-            void (async () => {
-              const { attribution, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm } =
-                collectOneTapAttribution();
-
-              let exchangeRes: Response;
-              try {
-                exchangeRes = await fetch('/auth/one-tap', {
-                  method: 'POST',
-                  credentials: 'same-origin',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({
-                    challengeId: challenge.challengeId,
-                    idToken,
-                    attribution,
-                    ...(referralCode ? { referralCode } : {}),
-                  }),
-                  signal: createFetchSignal(abortController.signal, exchangeTimeoutMs),
-                });
-              } catch (err) {
-                if (isStale()) return;
-                const isTimeout =
-                  err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
-                const errorCode: RegisteredLoginErrorCode = isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE';
-                void trackMotion('onetap_login_failed', {
-                  surface: 'motion_web',
-                  attempt_id: attemptId,
-                  error_code: errorCode,
-                });
-                onErrorRef.current?.(
-                  'Sign-in failed. Please try again or choose another sign-in method.',
-                  errorCode,
-                );
-                return;
-              }
-
-              if (isStale()) return;
-
-              const data = (await exchangeRes.json().catch(() => null)) as {
-                authenticated?: boolean;
-                user?: { id?: string; appUserId?: string | null; email?: string | null; displayName?: string };
-                activeWorkspaceId?: string;
-                isNewUser?: boolean;
-                planTier?: string;
-                code?: string;
-                message?: string;
-                error?: string;
-              } | null;
-
-              if (!exchangeRes.ok || !data?.authenticated) {
-                const errorCode = normalizeLoginErrorCode(data?.code);
-                void trackMotion('onetap_login_failed', {
-                  surface: 'motion_web',
-                  attempt_id: attemptId,
-                  error_code: errorCode,
-                });
-                const fallbackMessage =
-                  errorCode === 'ACCOUNT_BANNED'
-                    ? data?.message || 'Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.'
-                    : 'Sign-in failed. Please try again or choose another sign-in method.';
-                onErrorRef.current?.(fallbackMessage, errorCode);
-                return;
-              }
-
-              if (isStale()) return;
-
-              // Identify the new account before reporting the sign-in so Tracert attributes it; PostHog
-              // attribution comes from the session cookie this exchange just set.
-              const appUserId = data.user?.appUserId ?? null;
-              if (appUserId) {
-                syncMotionTrackingIdentity({ signedIn: true, userId: appUserId });
-              }
-
-              const safeRef = sanitizeTelemetryCode(referralCode);
-              const safeUtmSource = sanitizeTelemetryCode(utmSource);
-              const safeUtmMedium = sanitizeTelemetryCode(utmMedium);
-              const safeUtmCampaign = sanitizeTelemetryCode(utmCampaign);
-              const safeUtmContent = sanitizeTelemetryCode(utmContent);
-              const safeUtmTerm = sanitizeTelemetryCode(utmTerm);
-
-              // OPEND-5751 post-login destination: Free and Go accounts continue to Pricing, while paid accounts and
-              // unknown tiers stay signed in on the current page.
-              const planTier = normalizeDesktopHandoffPlanTier(data.planTier);
-              const redirectToPricing = planTier === 'free' || planTier === 'go';
-
-              const successTracked = trackMotion('onetap_login_success', {
-                surface: 'motion_web',
-                attempt_id: attemptId,
-                is_new_user: Boolean(data.isNewUser),
-                plan_tier: planTier,
-                post_login_action: redirectToPricing ? 'redirect_pricing' : 'in_place',
-                ...(safeRef ? { ref: safeRef } : {}),
-                ...(safeUtmSource ? { utm_source: safeUtmSource } : {}),
-                ...(safeUtmMedium ? { utm_medium: safeUtmMedium } : {}),
-                ...(safeUtmCampaign ? { utm_campaign: safeUtmCampaign } : {}),
-                ...(safeUtmContent ? { utm_content: safeUtmContent } : {}),
-                ...(safeUtmTerm ? { utm_term: safeUtmTerm } : {}),
-              });
-
-              removeOneTapAnchor();
-              onSuccessRef.current?.();
-              clearPrivateSwrCache();
-              await refreshRef.current();
-              window.dispatchEvent(new Event('motion:account-changed'));
-
-              // The refreshed signed-in account ends this prompt run, so only a logout since it started cancels
-              // the Pricing redirect. The page is refreshed first so Back from Pricing shows the signed-in state.
-              if (!redirectToPricing || generationAtStart !== oneTapGeneration) return;
-              await successTracked.catch(() => undefined);
-              if (generationAtStart !== oneTapGeneration) return;
-              const currentAccount = accountRef.current;
-              const useUpgradeHandoff =
-                currentAccount?.authMode !== 'dev' && currentAccount?.upgradeHandoffEnabled !== false;
-              navigateToPricingRef.current(
-                campaignPricingHref(localeRef.current, 'openmotion_onetap', newCampaignEntryId(), useUpgradeHandoff, {
-                  requireAuth: true,
-                  expectedAppUserId: appUserId,
-                }),
-              );
-            })();
-          },
+      // Wait out the rest of the page-entry delay before showing the prompt.
+      const remainingDelayMs = promptNotBefore - Date.now();
+      if (remainingDelayMs > 0) {
+        await new Promise<void>(resolve => {
+          timerId = window.setTimeout(() => {
+            timerId = null;
+            resolve();
+          }, remainingDelayMs);
+          abortController.signal.addEventListener('abort', () => resolve(), { once: true });
         });
+      }
 
-        if (isStale()) return;
+      if (isStale()) return;
 
-        void trackMotion('onetap_prompt_attempt', {
+      const isDesktopViewport = window.innerWidth >= ONETAP_DESKTOP_MIN_WIDTH;
+      const currentDeviceType: 'desktop' | 'mobile' = isDesktopViewport ? 'desktop' : 'mobile';
+      if (isDesktopViewport) {
+        syncOneTapAnchorPosition(bfBannerRef.current);
+      } else {
+        removeOneTapAnchor();
+      }
+
+      const observedOutcomes = new Set<string>();
+      const reportObserved = (
+        outcome: 'displayed' | 'dismissed' | 'skipped',
+        rawReason?: string,
+      ) => {
+        if (observedOutcomes.has(outcome)) return;
+        observedOutcomes.add(outcome);
+        void trackMotion('onetap_prompt_observed', {
           surface: 'motion_web',
           attempt_id: attemptId,
-          device_type: currentDeviceType,
-          suppressed: false,
+          outcome,
+          reason: sanitizeTelemetryCode(rawReason) ?? 'unknown',
         });
+      };
 
-        gis.prompt((notification: GooglePromptMomentNotification) => {
+      // Initialize GIS (no deprecated use_fedcm_for_prompt; auto_select=false; cancel_on_tap_outside=false).
+      gis.initialize({
+        client_id: challenge.clientId,
+        nonce: challenge.nonce,
+        auto_select: false,
+        cancel_on_tap_outside: false,
+        ...(isDesktopViewport ? { prompt_parent_id: ONETAP_ANCHOR_ID } : {}),
+        callback: (credentialResponse: GoogleCredentialResponse) => {
           if (isStale()) return;
-          if (notification?.isDisplayed?.()) {
-            reportObserved('displayed', 'displayed');
-          } else if (notification?.isDismissedMoment?.()) {
-            reportObserved('dismissed', notification.getDismissedReason?.());
-          } else if (notification?.isNotDisplayed?.()) {
-            reportObserved('skipped', notification.getNotDisplayedReason?.());
-          } else if (notification?.isSkippedMoment?.()) {
-            reportObserved('skipped', notification.getSkippedReason?.());
-          }
-        });
-      })();
-    }, effectiveDelay);
+          const idToken = credentialResponse.credential?.trim();
+          if (!idToken) return;
+
+          void trackMotion('onetap_credential_received', {
+            surface: 'motion_web',
+            attempt_id: attemptId,
+            select_by: sanitizeTelemetryCode(credentialResponse.select_by) ?? 'unknown',
+          });
+
+          void (async () => {
+            const { attribution, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm } =
+              collectOneTapAttribution();
+
+            let exchangeRes: Response;
+            try {
+              exchangeRes = await fetch('/auth/one-tap', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  challengeId: challenge.challengeId,
+                  idToken,
+                  attribution,
+                  ...(referralCode ? { referralCode } : {}),
+                }),
+                signal: createFetchSignal(abortController.signal, exchangeTimeoutMs),
+              });
+            } catch (err) {
+              if (isStale()) return;
+              const isTimeout =
+                err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+              const errorCode: RegisteredLoginErrorCode = isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE';
+              void trackMotion('onetap_login_failed', {
+                surface: 'motion_web',
+                attempt_id: attemptId,
+                error_code: errorCode,
+              });
+              onErrorRef.current?.(
+                'Sign-in failed. Please try again or choose another sign-in method.',
+                errorCode,
+              );
+              return;
+            }
+
+            if (isStale()) return;
+
+            const data = (await exchangeRes.json().catch(() => null)) as {
+              authenticated?: boolean;
+              user?: { id?: string; appUserId?: string | null; email?: string | null; displayName?: string };
+              activeWorkspaceId?: string;
+              isNewUser?: boolean;
+              planTier?: string;
+              code?: string;
+              message?: string;
+              error?: string;
+            } | null;
+
+            if (!exchangeRes.ok || !data?.authenticated) {
+              const errorCode = normalizeLoginErrorCode(data?.code);
+              void trackMotion('onetap_login_failed', {
+                surface: 'motion_web',
+                attempt_id: attemptId,
+                error_code: errorCode,
+              });
+              const fallbackMessage =
+                errorCode === 'ACCOUNT_BANNED'
+                  ? data?.message || 'Account temporarily suspended. We detected abnormal payment risk on this account and have temporarily suspended account access. If you believe this is a mistake, please contact support@open-design.ai and we will help investigate.'
+                  : 'Sign-in failed. Please try again or choose another sign-in method.';
+              onErrorRef.current?.(fallbackMessage, errorCode);
+              return;
+            }
+
+            if (isStale()) return;
+
+            // Identify the new account before reporting the sign-in so Tracert attributes it; PostHog
+            // attribution comes from the session cookie this exchange just set.
+            const appUserId = data.user?.appUserId ?? null;
+            if (appUserId) {
+              syncMotionTrackingIdentity({ signedIn: true, userId: appUserId });
+            }
+
+            const safeRef = sanitizeTelemetryCode(referralCode);
+            const safeUtmSource = sanitizeTelemetryCode(utmSource);
+            const safeUtmMedium = sanitizeTelemetryCode(utmMedium);
+            const safeUtmCampaign = sanitizeTelemetryCode(utmCampaign);
+            const safeUtmContent = sanitizeTelemetryCode(utmContent);
+            const safeUtmTerm = sanitizeTelemetryCode(utmTerm);
+
+            // OPEND-5751 post-login destination: Free and Go accounts continue to Pricing, while paid accounts and
+            // unknown tiers stay signed in on the current page.
+            const planTier = normalizeDesktopHandoffPlanTier(data.planTier);
+            const redirectToPricing = planTier === 'free' || planTier === 'go';
+
+            const successTracked = trackMotion('onetap_login_success', {
+              surface: 'motion_web',
+              attempt_id: attemptId,
+              is_new_user: Boolean(data.isNewUser),
+              plan_tier: planTier,
+              post_login_action: redirectToPricing ? 'redirect_pricing' : 'in_place',
+              ...(safeRef ? { ref: safeRef } : {}),
+              ...(safeUtmSource ? { utm_source: safeUtmSource } : {}),
+              ...(safeUtmMedium ? { utm_medium: safeUtmMedium } : {}),
+              ...(safeUtmCampaign ? { utm_campaign: safeUtmCampaign } : {}),
+              ...(safeUtmContent ? { utm_content: safeUtmContent } : {}),
+              ...(safeUtmTerm ? { utm_term: safeUtmTerm } : {}),
+            });
+
+            removeOneTapAnchor();
+            onSuccessRef.current?.();
+            clearPrivateSwrCache();
+            await refreshRef.current();
+            window.dispatchEvent(new Event('motion:account-changed'));
+
+            // The refreshed signed-in account ends this prompt run, so only a logout since it started cancels
+            // the Pricing redirect. The page is refreshed first so Back from Pricing shows the signed-in state.
+            if (!redirectToPricing || generationAtStart !== oneTapGeneration) return;
+            await successTracked.catch(() => undefined);
+            if (generationAtStart !== oneTapGeneration) return;
+            const currentAccount = accountRef.current;
+            const useUpgradeHandoff =
+              currentAccount?.authMode !== 'dev' && currentAccount?.upgradeHandoffEnabled !== false;
+            navigateToPricingRef.current(
+              campaignPricingHref(localeRef.current, 'openmotion_onetap', newCampaignEntryId(), useUpgradeHandoff, {
+                requireAuth: true,
+                expectedAppUserId: appUserId,
+              }),
+            );
+          })();
+        },
+      });
+
+      if (isStale()) return;
+
+      void trackMotion('onetap_prompt_attempt', {
+        surface: 'motion_web',
+        attempt_id: attemptId,
+        device_type: currentDeviceType,
+        suppressed: false,
+      });
+
+      gis.prompt((notification: GooglePromptMomentNotification) => {
+        if (isStale()) return;
+        if (notification?.isDisplayed?.()) {
+          reportObserved('displayed', 'displayed');
+        } else if (notification?.isDismissedMoment?.()) {
+          reportObserved('dismissed', notification.getDismissedReason?.());
+        } else if (notification?.isNotDisplayed?.()) {
+          reportObserved('skipped', notification.getNotDisplayedReason?.());
+        } else if (notification?.isSkippedMoment?.()) {
+          reportObserved('skipped', notification.getSkippedReason?.());
+        }
+      });
+    })();
 
     return () => {
       activeCancelHooks.delete(cancelRun);

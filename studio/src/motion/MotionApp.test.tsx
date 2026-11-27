@@ -15,6 +15,8 @@ vi.mock('./MotionProjectEditor', () => ({ preloadMotionProjectEditor: vi.fn() })
 vi.mock('../App', () => ({ StudioApp: ({ resolvedProjectId }: { resolvedProjectId: string }) => <div data-viewer-project={resolvedProjectId} /> }));
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: { projectId: string } }) => <div data-viewer-project={artifact.projectId} /> }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
+// Guest renders mount Google One Tap, which now requests its challenge at once; it is covered by googleOneTap.test.tsx.
+vi.mock('./googleOneTap', async importOriginal => ({ ...await importOriginal<typeof import('./googleOneTap')>(), MotionGoogleOneTap: () => null }));
 const id = '11111111-1111-1111-1111-111111111111';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeAll(() => preloadAllWorkspacePages());

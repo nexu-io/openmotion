@@ -9,6 +9,8 @@ import { preloadAllWorkspacePages } from '../router/lazyPages';
 
 const editor = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
+// Guest renders mount Google One Tap, which now requests its challenge at once; it is covered by googleOneTap.test.tsx.
+vi.mock('./googleOneTap', async importOriginal => ({ ...await importOriginal<typeof import('./googleOneTap')>(), MotionGoogleOneTap: () => null }));
 // Keep workspace routing, polling and the library real; replace only the native editor.
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => {
   const { openLibrary } = useWorkspaceChrome();

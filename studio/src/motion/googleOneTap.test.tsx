@@ -93,6 +93,7 @@ function mountOneTap(props: Partial<Parameters<typeof MotionGoogleOneTap>[0]> = 
     accountError: false,
     bfBannerVisible: false,
     refreshAccount: vi.fn(async () => {}),
+    pageAgeMs: () => 0,
     ...props,
   };
   act(() => {
@@ -129,7 +130,7 @@ it('skips Google One Tap completely inside the Electron desktop app', async () =
   expect(document.getElementById(ONETAP_ANCHOR_ID)).toBeNull();
 });
 
-it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Friday banner, and sends a Free account to Pricing after sign-in', async () => {
+it('prefetches the challenge and fixed GIS URL at once, prompts 2000ms after page entry, positions desktop anchor for Black Friday banner, and sends a Free account to Pricing after sign-in', async () => {
   expect(MOTION_ONETAP_DELAY_MS).toBe(2000);
   let initConfig: GoogleAccountsIdInitializeConfig | null = null;
   let promptListener: ((n: GooglePromptMomentNotification) => void) | undefined;
@@ -181,15 +182,8 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
 
   const { container } = mountOneTap({ bfBannerVisible: true, refreshAccount, navigateToPricing, locale: 'zh-CN' });
 
-  // Before 2500ms delay -> no challenge call yet
+  // Immediately -> challenge fetched and GIS script appended with exact constant URL, in parallel
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS - 1);
-  });
-  expect(fetchSpy).not.toHaveBeenCalled();
-
-  // Trigger at 2500ms -> challenge fetched + GIS script appended with exact constant URL
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(1);
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -218,6 +212,16 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
     scriptEl!.dispatchEvent(new Event('load'));
     await Promise.resolve();
     await Promise.resolve();
+  });
+
+  // Challenge and GIS are ready, but the prompt waits until the page is 2000ms old
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS - 1);
+  });
+  expect(initConfig).toBeNull();
+  expect(document.getElementById(ONETAP_ANCHOR_ID)).toBeNull();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
   });
 
   // Desktop anchor exists at top: 112px when Black Friday banner is visible
@@ -317,6 +321,41 @@ it('delays 2000ms, loads fixed GIS URL, positions desktop anchor for Black Frida
   expect(container).toBeTruthy();
 });
 
+it('prompts as soon as the challenge and GIS are ready when the page is already older than the entry delay', async () => {
+  const fetchSpy = vi.fn(async () =>
+    Response.json({
+      challengeId: 'otc_late',
+      nonce: 'nonce_late',
+      clientId: 'gid-late',
+      expiresAt: '2026-11-24T12:00:00.000Z',
+    }),
+  );
+  vi.stubGlobal('fetch', fetchSpy);
+  const initialize = vi.fn();
+  const prompt = vi.fn();
+
+  mountOneTap({ pageAgeMs: () => MOTION_ONETAP_DELAY_MS + 3000 });
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  const scriptEl = document.querySelector<HTMLScriptElement>(`script[src="${GOOGLE_GIS_SCRIPT_URL}"]`);
+  expect(scriptEl).not.toBeNull();
+
+  window.google = { accounts: { id: { initialize, prompt, disableAutoSelect: vi.fn(), cancel: vi.fn() } } };
+  await act(async () => {
+    scriptEl!.dispatchEvent(new Event('load'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  // No timer advance needed: the page-entry delay has already elapsed
+  expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'gid-late', nonce: 'nonce_late' }));
+  expect(prompt).toHaveBeenCalledTimes(1);
+});
+
 it('omits prompt_parent_id on mobile viewports (< 768px) and reports script_load_failed on 5000ms timeout', async () => {
   setViewportWidth(390);
   vi.stubGlobal(
@@ -333,12 +372,11 @@ it('omits prompt_parent_id on mobile viewports (< 768px) and reports script_load
 
   mountOneTap();
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS);
     await Promise.resolve();
     await Promise.resolve();
   });
 
-  // Never dispatch 'load' on script -> still waiting at 4999ms, times out at 5000ms
+  // Never dispatch 'load' on script (requested at once) -> still waiting at 4999ms, times out at 5000ms
   await act(async () => {
     await vi.advanceTimersByTimeAsync(GOOGLE_GIS_LOAD_TIMEOUT_MS - 1);
     await Promise.resolve();
