@@ -1652,7 +1652,7 @@ it('keeps Agent Skills available while the 3D studio is pending and preserves th
   expect(container.querySelector('.om-studio-coming-soon')).toBeNull();
   const banner = container.querySelector('.om-studio-landing-hero')!;
   expect(banner.querySelector('h1')?.textContent).toBe('3D Studio');
-  expect(banner.querySelector('.om-specialty-status')?.textContent).toBe('Coming soon');
+  expect(banner.querySelector('.om-coming-soon-status')?.textContent).toBe('Coming soon');
   expect(banner.querySelector<HTMLAnchorElement>('.om-coming-soon-actions a')?.href).toBe('https://github.com/nexu-io/openmotion');
   expect(banner.querySelector('[data-primary="media"]')).toBeNull();
   expect(container.querySelector('.om-studio-template-shelf')).not.toBeNull();

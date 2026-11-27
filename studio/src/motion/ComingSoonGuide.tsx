@@ -14,7 +14,7 @@ export function ComingSoonGuide({ description, action, compact = false, showStat
   const { t } = useI18n();
   return <div className={compact ? 'om-coming-soon-guide om-coming-soon-guide-compact' : 'om-coming-soon-guide'}>
     {description && <p className="om-coming-soon-copy om-studio-coming-soon-copy">{t(description)}</p>}
-    {showStatus && <p className="om-coming-soon-status om-studio-coming-soon-status om-specialty-status">{t('Coming soon')}</p>}
+    {showStatus && <p className="om-coming-soon-status om-studio-coming-soon-status">{t('Coming soon')}</p>}
     <div className="om-coming-soon-actions om-studio-coming-soon-actions">
       {action && <Button variant="ghost" className="om-button h-auto" data-primary onClick={action.onClick}><RemixIcon name={action.icon ?? 'sparkling-line'} size={16} />{t(action.label)}</Button>}
       <a className="om-button" href={GITHUB_REPOSITORY} target="_blank" rel="noopener noreferrer"><GitHubMark />{t('Star us on GitHub')}</a>
