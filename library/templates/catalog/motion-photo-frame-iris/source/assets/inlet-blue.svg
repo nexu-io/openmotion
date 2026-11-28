@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1296" height="1272" viewBox="0 0 1296 1272" role="img" aria-labelledby="artwork-title">
+  <title id="artwork-title">The same inlet illustration in a lake-blue mat</title>
+  <metadata>Original vector illustration created with Codex for this contribution. SPDX-License-Identifier: Apache-2.0</metadata>
+  <rect width="1296" height="1272" fill="#809baf"/>
+  <text x="48" y="92" font-family="sans-serif" font-weight="600" font-size="24" letter-spacing="5" fill="#122b3d">INLET STUDIES</text>
+  <rect x="40" y="132" width="1216" height="916" fill="#f7f4e8"/>
+  <svg x="48" y="140" width="1200" height="900" viewBox="0 0 1200 900" overflow="hidden">
+    <defs>
+      <linearGradient id="sky" x2="0%" y2="100%">
+        <stop stop-color="#757799"/><stop offset=".55" stop-color="#e6ac9c"/><stop offset="1" stop-color="#f3c591"/>
+      </linearGradient>
+      <linearGradient id="water" x2="0%" y2="100%">
+        <stop stop-color="#aabac1"/><stop offset=".56" stop-color="#7796a9"/><stop offset="1" stop-color="#5c7e96"/>
+      </linearGradient>
+    </defs>
+    <g id="dusk-sky">
+      <rect width="1200" height="570" fill="url(#sky)"/>
+      <circle cx="815" cy="326" r="104" fill="#ffe7ab"/>
+      <g fill="#f5d2bd" opacity=".48">
+        <path d="M128 232h207l-29 4H110z"/><path d="M185 244h209l-24 3H173z"/>
+        <path d="M953 152h147l-23 3H940z"/>
+      </g>
+    </g>
+    <g id="hills">
+      <path d="M0 426l125 19 128-42 91 28 100-71 84 44 113-61 73 56 100-43 78 42 104-64 88 42 116-62v241H0z" fill="#9d8e9c"/>
+      <path d="M0 449l132-57 95 50 101-28 79 43 99-18 63 30 94-15 95-47 98 31 89-60 106 31 149-56v200H0z" fill="#797e90"/>
+      <path d="M0 499l164-47 140 17 128 32 119-8 70 13 143-19 134-57 96 19 91-39 115 20v117H0z" fill="#525d73"/>
+      <path d="M0 523l160-19 170 21 134 14 126-9 98 7 118-12 147-38 147-23 100 11v82H0z" fill="#3e5163"/>
+    </g>
+    <g id="inlet">
+      <rect y="546" width="1200" height="354" fill="url(#water)"/>
+      <path d="M0 558l262 4-147 5 193 5-95 3H0zm1200 8H947l101 4-138 7 290-4z" fill="#728899"/>
+      <path d="M740 550l132-1-21 5-98 2zm39 9h117l-16 5-133 3zm-19 13l108-2-15 7-117 3zm-29 13l153-3-13 6-115 3zm37 12l107 1-48 6-89-3zm-38 16l133-1-27 5-132 5zm61 12l97-1-12 4-99 5zm-59 18l99-2-14 5-81 4zm57 16l66-2-33 6-54 2zm-27 17l63-1-12 3-64 4z" fill="#f6dbb4" opacity=".91"/>
+      <g fill="#c6ced0" opacity=".75">
+        <path d="M45 600l163-1-28 4H21zm266 35l113-2-25 5-101 1z"/>
+        <path d="M1013 622l130-3-17 5-149 2zM35 693l220-2-35 5H18z"/>
+        <path d="M544 706l105-2-10 4-125 2zm327 46l166-2-37 5-139 1z"/>
+        <path d="M139 816l140-2-24 4-137 1zm348 42l213-1-34 4-207-1z"/>
+      </g>
+      <g fill="#567689" opacity=".83">
+        <path d="M0 633l150-2-26 5H0zm482 17h114l-20 4-127 1zm494 38l224-2v5z"/>
+        <path d="M20 761l332-2-23 4-307 3zm372 40l175-3-29 4-179 4z"/>
+        <path d="M723 844l190-3-26 5-195 4zm342-41l135-5v6z"/>
+      </g>
+    </g>
+    <g id="sailboat">
+      <path d="M399 684V478" fill="none" stroke="#313e50" stroke-width="5"/>
+      <path d="M393 488l-108 177 108 4z" fill="#e16e54"/>
+      <path d="M390 502l-52 155-49 7z" fill="#bf594b"/>
+      <path d="M404 510l65 157-64 3z" fill="#f8e7c8"/>
+      <path d="M404 516l37 141 24 8z" fill="#e0c5a7"/>
+      <path d="M277 679l205-3-35 20-133 2z" fill="#2e4152"/>
+      <path d="M280 678l201-4-7 6-178 5z" fill="#ecae83"/>
+      <path d="M313 705l128-2-19 4-116 2zm32 9h83l-21 4-70-1z" fill="#4f6d83"/>
+    </g>
+  </svg>
+  <text x="48" y="1152" font-family="serif" font-size="66" fill="#122b3d">The last sail</text>
+  <text x="50" y="1208" font-family="sans-serif" font-size="24" fill="#1f3845">Evening light on the inlet</text>
+  <g transform="translate(1018 1140)">
+    <rect width="70" height="21" fill="#e16e54"/><rect x="77" width="70" height="21" fill="#8c92a0"/><rect x="154" width="70" height="21" fill="#3e5163"/>
+  </g>
+</svg>

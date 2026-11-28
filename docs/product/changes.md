@@ -1,5 +1,9 @@
 # 公开变更记录
 
+## 2026-11-28 · Photo Frame Iris template
+
+- Added an editable seven-scene photo-framing walkthrough to the [template catalog](../../library/templates/catalog/motion-photo-frame-iris/TEMPLATE.md), with a simulated library and palette, three artwork studies, a paper-to-blue framing comparison and a silent preview.
+
 ## 2026-11-25 · Keep hosted project file reads current
 
 - A second Studio can read the latest saved source through a private, revalidated API response even when the filename has a cacheable asset extension.

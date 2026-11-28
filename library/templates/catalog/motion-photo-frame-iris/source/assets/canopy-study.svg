@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200" role="img" aria-labelledby="print-title">
+  <title id="print-title">Late sunlight through the canopy</title>
+  <metadata>Original vector illustration created with Codex for this contribution. SPDX-License-Identifier: Apache-2.0</metadata>
+  <defs>
+    <linearGradient id="hillside-sky" x2="0%" y2="100%"><stop stop-color="#788f9c"/><stop offset=".57" stop-color="#e3cc96"/><stop offset="1" stop-color="#e8ad72"/></linearGradient>
+    <clipPath id="canopy-field"><rect width="900" height="977"/></clipPath>
+    <g id="needles">
+      <path d="M0 118 9 58-11 67 10 37-3 43 24 3 26-24 32-4 54 27 43 23 67 58 53 56 76 81 46 76 50 111Z" fill="currentColor"/>
+      <path d="m27 0 5 68-21 19 20-8-3 42 17 2-1-54 34 14-28-26 14 1-26-31 8 3Z" fill="#344e4c" opacity=".24"/>
+    </g>
+  </defs>
+  <g id="woodland" clip-path="url(#canopy-field)">
+    <rect width="900" height="977" fill="url(#hillside-sky)"/>
+    <circle cx="603" cy="405" r="112" fill="#f5d392"/>
+    <path d="M0 536 105 512 229 527 385 476 493 481 642 457 766 482 900 444v250H0Z" fill="#acaa8f"/>
+    <path d="M0 598 112 576 207 592 310 558 421 576 530 523 695 547 777 513 900 536v196H0Z" fill="#939c87"/>
+    <path d="M0 683 139 629 271 642 380 623 499 633 601 598 706 614 900 549v241H0Z" fill="#7b8877"/>
+    <g id="far-pines" color="#748471">
+      <use href="#needles" transform="translate(-20 636) scale(0.67)"/>
+      <use href="#needles" transform="translate(22 645) scale(0.88)"/>
+      <use href="#needles" transform="translate(64 654) scale(1.02)"/>
+      <use href="#needles" transform="translate(106 661) scale(1.01)"/>
+      <use href="#needles" transform="translate(148 666) scale(0.86)"/>
+      <use href="#needles" transform="translate(190 668) scale(0.65)"/>
+      <use href="#needles" transform="translate(232 667) scale(0.51)"/>
+      <use href="#needles" transform="translate(274 663) scale(0.53)"/>
+      <use href="#needles" transform="translate(316 656) scale(0.7)"/>
+      <use href="#needles" transform="translate(358 648) scale(0.9)"/>
+      <use href="#needles" transform="translate(400 638) scale(1.03)"/>
+      <use href="#needles" transform="translate(442 629) scale(1.0)"/>
+      <use href="#needles" transform="translate(484 621) scale(0.83)"/>
+      <use href="#needles" transform="translate(526 615) scale(0.62)"/>
+      <use href="#needles" transform="translate(568 612) scale(0.51)"/>
+      <use href="#needles" transform="translate(610 612) scale(0.55)"/>
+      <use href="#needles" transform="translate(652 615) scale(0.72)"/>
+      <use href="#needles" transform="translate(694 621) scale(0.93)"/>
+      <use href="#needles" transform="translate(736 629) scale(1.04)"/>
+      <use href="#needles" transform="translate(778 638) scale(0.99)"/>
+      <use href="#needles" transform="translate(820 648) scale(0.8)"/>
+      <use href="#needles" transform="translate(862 656) scale(0.6)"/>
+      <use href="#needles" transform="translate(904 663) scale(0.5)"/>
+    </g>
+    <path d="M0 726Q217 632 446 696T900 619V980H0Z" fill="#61756b"/>
+    <g id="middle-pines" color="#526b61"><use href="#needles" transform="translate(-25 704) scale(0.97)"/>
+<use href="#needles" transform="translate(31 719) scale(1.23)"/>
+<use href="#needles" transform="translate(87 732) scale(1.44)"/>
+<use href="#needles" transform="translate(143 740) scale(1.52)"/>
+<use href="#needles" transform="translate(199 740) scale(1.44)"/>
+<use href="#needles" transform="translate(255 733) scale(1.23)"/>
+<use href="#needles" transform="translate(311 721) scale(0.97)"/>
+<use href="#needles" transform="translate(367 706) scale(0.75)"/>
+<use href="#needles" transform="translate(423 692) scale(0.66)"/>
+<use href="#needles" transform="translate(479 683) scale(0.72)"/>
+<use href="#needles" transform="translate(535 681) scale(0.92)"/>
+<use href="#needles" transform="translate(591 686) scale(1.18)"/>
+<use href="#needles" transform="translate(647 698) scale(1.41)"/>
+<use href="#needles" transform="translate(703 712) scale(1.52)"/>
+<use href="#needles" transform="translate(759 727) scale(1.47)"/>
+<use href="#needles" transform="translate(815 737) scale(1.28)"/>
+<use href="#needles" transform="translate(871 741) scale(1.02)"/></g>
+    <path d="M0 822Q187 708 397 769T900 695V980H0Z" fill="#475e55"/>
+    <path d="M542 489 677 977H442L581 494ZM649 485 884 977h-84Z" fill="#f5d39b" opacity=".17"/>
+    <path d="M0 948Q219 825 444 865T900 803V980H0Z" fill="#374e49"/>
+    <g id="near-pines" color="#344c47">
+      <use href="#needles" transform="translate(82 654) scale(2.45)"/>
+      <use href="#needles" transform="translate(168 749) scale(1.58)"/>
+      <use href="#needles" transform="translate(-53 778) scale(2.11)"/>
+      <use href="#needles" transform="translate(817 729) scale(1.94)"/>
+      <use href="#needles" transform="translate(733 821) scale(1.45)"/>
+    </g>
+    <path d="M-20 0H397Q300 54 285 118Q260 193 176 248Q113 317 100 401Q86 456-20 482Z" fill="#384d4a"/>
+    <path d="M-20 0h400l-46 31 40 1-69 27 36 4-73 36 41-4-71 51 42-6-83 53 29 2-55 46 25-4-62 55 18-3-42 59 23-4-43 51-18 42-39 16z" fill="#4b6256"/>
+    <path d="M-5 258Q113 190 196 109T351 7M49 223 145 221M118 174 132 108M180 121l81-10" fill="none" stroke="#354a45" stroke-width="9" stroke-linecap="round"/>
+    <path d="M689 0h211v255l-31-40 7 26-41-73 1 23-24-43-34-9 13-4-67-52 31 6-68-54 24 5-44-32Z" fill="#4f6759"/>
+  </g>
+  <g id="edition-caption">
+    <rect y="977" width="900" height="223" fill="#394c45"/>
+    <text x="54" y="1084" font-family="serif" font-size="62" fill="#f6ead3">Canopy</text>
+    <text x="57" y="1140" font-family="sans-serif" font-size="23" fill="#d5d6b8">Late sun in the pinewood</text>
+    <rect x="590" y="1070" width="48" height="20" rx="2" fill="#E9B96E"/><rect x="642" y="1070" width="48" height="20" rx="2" fill="#C8B58D"/><rect x="694" y="1070" width="48" height="20" rx="2" fill="#778466"/><rect x="746" y="1070" width="48" height="20" rx="2" fill="#526B61"/><rect x="798" y="1070" width="48" height="20" rx="2" fill="#344C47"/>
+  </g>
+</svg>

@@ -1,0 +1,127 @@
+{
+  "schema": "motion-package-v1",
+  "purpose": "editable-project",
+  "canvas": {
+    "width": 1280,
+    "height": 720
+  },
+  "fps": 30,
+  "durationSeconds": 33.8,
+  "provenance": {
+    "adaptedFrom": "motion-dac924da-010f-4445-baf3-a39cb033e48f",
+    "reference": "https://x.com/claudeai/status/2080376094939603366",
+    "artwork": "Original geometric inlet, paper and blue frames, blossom, canopy and rooftop illustrations, and schematic user interfaces by nextdiy with Codex. The new source and artwork are Apache-2.0; GSAP retains the accompanying Webflow license."
+  },
+  "files": [
+    {
+      "path": "assets/blossom-study.svg",
+      "bytes": 5478,
+      "sha256": "9c0f083a40a266d999b619cb33107092fbc11a72a5651f8b123dc7d0d58eb2cb"
+    },
+    {
+      "path": "assets/canopy-study.svg",
+      "bytes": 6115,
+      "sha256": "8d1b91f6bedaa24ed43a6ddae0e2d7fdf1173ea1375f173cf4b2f49501100e87"
+    },
+    {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
+      "path": "assets/gsap.min.js",
+      "bytes": 72927,
+      "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
+    },
+    {
+      "path": "assets/inlet-before.svg",
+      "bytes": 3259,
+      "sha256": "9ff5bd4db458b1eb85585b8b728f182fe7a85c824e3459d80bc30079c5289172"
+    },
+    {
+      "path": "assets/inlet-blue.svg",
+      "bytes": 3940,
+      "sha256": "98f59039893df801e076494364702e5430bf16db01c2422787eeeb1451434559"
+    },
+    {
+      "path": "assets/inlet-framed.svg",
+      "bytes": 3876,
+      "sha256": "3709f32d76b94106536165edc6f43a3b85850ee038dc322aa0d38816906e5e6d"
+    },
+    {
+      "path": "assets/lfs/preview.mp4",
+      "bytes": 2428102,
+      "sha256": "b1444a4c7a374e982f514c4303c9d59d4ac9a67ecc554f0b4bd28382811c7ffe"
+    },
+    {
+      "path": "assets/motion.js",
+      "bytes": 217,
+      "sha256": "0a1e39cf88cc95187bdc255616b169cfe0fe7b306a29230463b8d9c7e4ff6033"
+    },
+    {
+      "path": "assets/poster.webp",
+      "bytes": 21772,
+      "sha256": "1eb5009768bf803ca775c663674690e2ecac72feb145513001a14c2e415753b0"
+    },
+    {
+      "path": "assets/rooftop-study.svg",
+      "bytes": 3446,
+      "sha256": "9a7fc3a73a6ef49da053f54c02f5aa0b8631f2983a75a4624611453b8ba66d5b"
+    },
+    {
+      "path": "assets/style.css",
+      "bytes": 5249,
+      "sha256": "a946c698c7cbd5e49f2c4e90426c50124ef8a1d89b3ac937eb2c509fb1fb2623"
+    },
+    {
+      "path": "compositions/canopy.html",
+      "bytes": 1473,
+      "sha256": "d8de4fd2d30259d0635c96a49f960230c40fcb43131402c3d24bb015da081548"
+    },
+    {
+      "path": "compositions/color.html",
+      "bytes": 3301,
+      "sha256": "0c790b9840c4acb6704f6784921a135bb93913155e35b5f2a5ecd9b6671887c0"
+    },
+    {
+      "path": "compositions/eaves.html",
+      "bytes": 1465,
+      "sha256": "605418498f923f9b2560c9e774e24897404738e7e5123cbf4ba6ad97f648a0de"
+    },
+    {
+      "path": "compositions/edition.html",
+      "bytes": 1779,
+      "sha256": "edff0844fef4ebe9b055d838c00de9eb0bc3e8f749a1647911839cbda51b17ed"
+    },
+    {
+      "path": "compositions/lake.html",
+      "bytes": 1822,
+      "sha256": "253459cffc110325549eb49465dc1d77ec03699b0c9aeab5ff8e5da0fdf539d7"
+    },
+    {
+      "path": "compositions/library.html",
+      "bytes": 4701,
+      "sha256": "5f0c684e2c3072bfcb38f96c377d80e81bd9e84848b35841f353b00c56c6c6b7"
+    },
+    {
+      "path": "compositions/petal.html",
+      "bytes": 1457,
+      "sha256": "21f88439e45e9bfc2200065d33920a972505fcc04937e53571cd07034a30f42e"
+    },
+    {
+      "path": "index.html",
+      "bytes": 2373,
+      "sha256": "88097c2efab95e1708c8b3a8e32da43360a7069411772b7b9fbae0ef1231161d"
+    },
+    {
+      "path": "motion.md",
+      "bytes": 1588,
+      "sha256": "a414769a3daca3eadf44266da99e268f9e81c956f214d7308f9c7864a4838c4e"
+    },
+    {
+      "path": "preview.html",
+      "bytes": 876,
+      "sha256": "d5a51ec7f105130226912ce73bd833e20cf8a5b67326e329169dbed043f1273f"
+    }
+  ]
+}

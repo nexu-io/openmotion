@@ -1,0 +1,23 @@
+<template>
+  <div id="petal" class="scene" data-hf-id="scene-petal" data-composition-id="petal" data-width="1280" data-height="720" data-layout-allow-overflow>
+    <header class="copy" data-hf-id="petal-copy" id="petal-copy">
+      <div class="copy-inner" data-hf-id="petal-typeset" id="petal-typeset">
+        <div class="series" data-hf-id="petal-series" id="petal-series">Botanical study</div>
+        <h2 data-hf-id="petal-title" id="petal-title">Magnolia.</h2>
+        <p data-hf-id="petal-description" id="petal-description">Petals gathered in evening light.</p>
+      </div>
+    </header>
+    <figure class="print work-print" data-hf-id="petal-paper" id="petal-paper">
+      <img class="clip printed" src="assets/blossom-study.svg" alt="Magnolia study with its complete printed caption" data-hf-id="petal-art" id="petal-art" data-start="0" data-duration="3.6" data-track-index="1">
+    </figure>
+  </div>
+  <script>
+    (() => {
+      const timeline = gsap.timeline({ paused: true });
+      timeline.fromTo("#petal-paper", { scale: 1.82, x: 54, y: 62, clipPath: "inset(10% 8% 28% 8%)" }, { scale: 1, x: 0, y: 0, clipPath: "inset(0% 0% 0% 0%)", duration: 1.30, ease: "power3.inOut" }, 0.26);
+    timeline.fromTo("#petal-typeset", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.54, ease: "power2.out" }, 0.49);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["petal"] = timeline;
+    })();
+  </script>
+</template>

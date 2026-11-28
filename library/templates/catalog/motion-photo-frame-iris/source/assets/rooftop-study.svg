@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200" role="img" aria-labelledby="print-title">
+  <title id="print-title">Sunset over a roof and its arcades</title>
+  <metadata>Original vector illustration created with Codex for this contribution. SPDX-License-Identifier: Apache-2.0</metadata>
+  <defs>
+    <linearGradient id="courtyard-sky" x2="0%" y2="100%"><stop stop-color="#748d9c"/><stop offset=".63" stop-color="#dfb49a"/><stop offset="1" stop-color="#edc193"/></linearGradient>
+    <clipPath id="courtyard-field"><rect width="900" height="977"/></clipPath>
+  </defs>
+  <g id="courtyard" clip-path="url(#courtyard-field)">
+    <rect width="900" height="977" fill="url(#courtyard-sky)"/>
+    <circle cx="705" cy="227" r="90" fill="#f3d8a8"/>
+    <path d="M6 321h238l-29 4H2zm541-171h105l-14 3h-99zm183 153h143l-23 4H711z" fill="#edcdb1"/>
+    <path d="M0 487 138 449 247 457 394 387 541 427 676 385 900 428v208H0Z" fill="#9d8b8b"/>
+    <path d="M0 545 135 486 267 506 391 477 537 500 701 457 900 483v222H0Z" fill="#78818a"/>
+    <g id="rear-building">
+      <path d="m393 486 203-96 276 47-11 18-283-21-185 78Z" fill="#9c5e51"/>
+      <path d="M393 511 579 433 862 457v294l-470-21Z" fill="#e7b78e"/>
+      <path d="M579 433 862 457v291l-283-26Z" fill="#c58d78"/>
+      <path d="M706 556q0-31 22-28t23 32v54l-45-7z" fill="#5e6370"/>
+      <path d="m739 408 1-57 45 6v58Z" fill="#ca9277"/>
+      <path d="m733 352 6-13 51 6-1 13z" fill="#996156"/>
+    </g>
+    <g id="terracotta-roof">
+      <path d="M-47 615 220 402 695 514 422 556 99 662Z" fill="#c17a5c"/>
+      <path d="m220 402 475 112-64 4-427-97z" fill="#e1a476"/>
+      <g stroke="#a76c59" stroke-width="5" opacity=".73">
+        <path d="m24 607 237-194m-152 192 211-179m-156 169 219-153m-133 143 201-129m-130 113 195-99m-127 80 169-71"/>
+      </g>
+      <path d="m-24 629 446-91 285-27-10 19-272 39L-21 666Z" fill="#854f46"/>
+      <path d="M0 663 426 566l271-36v270L0 915Z" fill="#dfaa82"/>
+      <path d="m426 566 271-36v273l-271 50Z" fill="#c18870"/>
+    </g>
+    <g id="arcade">
+      <path d="M-26 802 900 633v339H0Z" fill="#566674"/>
+      <path d="M-10 827q18-71 66-80 50-11 70 56v96l29-6V778q24-75 73-81 48-8 65 55v112l31-5v-131q21-68 70-77 43-7 62 58v124l32-6V690q19-65 68-73 42-8 59 52v130l35-8V654q19-62 63-71 36-5 55 50v142l37-8V616q16-60 57-67 41-7 57 48V493L-10 684Z" fill="#edbd93"/>
+      <path d="m-12 685 931-199v11L-12 705Z" fill="#f4d0a0"/>
+      <path d="m0 907 900-161v231H0Z" fill="#a67767"/>
+      <path d="m0 925 900-163v15L0 945Z" fill="#ce9879"/>
+      <path d="M160 977 900 843v19L272 977Z" fill="#735d59"/>
+      <path d="m615 977 285-56v13l-214 43Z" fill="#d2a484"/>
+    </g>
+    <path d="m0 899 237-46-116 124H0Z" fill="#404f58" opacity=".58"/>
+  </g>
+  <g id="edition-caption">
+    <rect y="977" width="900" height="223" fill="#f3ecdf"/>
+    <text x="54" y="1084" font-family="serif" font-size="62" fill="#403936">Courtyard</text>
+    <text x="57" y="1140" font-family="sans-serif" font-size="23" fill="#685950">Terracotta in the last light</text>
+    <rect x="590" y="1070" width="48" height="20" rx="2" fill="#BC725A"/><rect x="642" y="1070" width="48" height="20" rx="2" fill="#DFAB80"/><rect x="694" y="1070" width="48" height="20" rx="2" fill="#E8C49D"/><rect x="746" y="1070" width="48" height="20" rx="2" fill="#788793"/><rect x="798" y="1070" width="48" height="20" rx="2" fill="#455E73"/>
+  </g>
+</svg>
