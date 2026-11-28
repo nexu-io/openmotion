@@ -34,6 +34,7 @@ import {
 } from '../../scripts/verify-export.ts';
 import { projectPath } from '../../shared/project-validation.ts';
 import type { CloudTrackingHandle } from '../cloud-tracking.ts';
+import { classifyRenderFailure } from '../../shared/render-failure.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { JobProgressEvent, ProjectEvent, RenderWorkerHealth } from '../contracts/events.ts';
 import type { RenderExportJobName, RenderExportPayloadMap } from '../contracts/jobs.ts';
@@ -1027,6 +1028,7 @@ export async function processExportRenderJob(
   const startedMs = Date.now();
   let unsubscribeCancel: (() => Promise<void>) | null = null;
   let claimed = false;
+  let renderReason: ReturnType<typeof classifyRenderFailure> | undefined;
   let failureStage = 'hydrating';
   let failureCode = 'EXPORT_HYDRATION_FAILED';
   let uploadedOutputKey: string | null = null;
@@ -1052,7 +1054,7 @@ export async function processExportRenderJob(
       durationMs: params.durationMs,
       technicalCheck: params.technicalCheck,
       ...(params.jobState === 'failed'
-        ? { failureStage: params.failureStage, errorCode: params.errorCode }
+        ? { renderReason, failureStage: params.failureStage, errorCode: params.errorCode }
         : {}),
       userId: actorUserId,
     });
@@ -1401,6 +1403,7 @@ export async function processExportRenderJob(
     await deps.storage.putObject(logKey, logBytes, 'text/plain; charset=utf-8', logBytes.byteLength).catch(() => {});
 
     if (renderResult.code !== 0) {
+      renderReason = classifyRenderFailure(renderLogContent);
       throw new Error(
         `Hyperframes render exited with code ${renderResult.code}: ${(renderResult.stderr || renderResult.stdout).slice(-1800)}`,
       );

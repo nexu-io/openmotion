@@ -905,6 +905,7 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
       queues: {
         enqueueRenderExport: async (name, payload, options) => {
           enqueuedRenders.push({ name, payload, options });
+          if (enqueuedRenders.length === 1) throw Object.assign(new Error('Redis acknowledgment lost'), { code: 'ECONNRESET' });
           return {} as never;
         },
         renderExport: {
@@ -924,7 +925,8 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
       '.hyperframes/studio-motion.json',
     ]);
     assert.equal(insertedVersionFiles.length, 3);
-    assert.equal(enqueuedRenders.length, 1);
+    assert.equal(enqueuedRenders.length, 2);
+    assert.deepEqual(enqueuedRenders[0], enqueuedRenders[1]);
     assert.equal(enqueuedRenders[0].name, 'export_render');
     assert.deepEqual(enqueuedRenders[0].options, { attempts: 1 });
 

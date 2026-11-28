@@ -1,3 +1,4 @@
+import type { WebLoginStage } from '../../tracking/tool-fields.ts';
 import { createHmac, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { isCloudError } from '../contracts/errors.ts';
@@ -546,7 +547,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     if (!deps.oidc) {
       return c.json({ code: 'SERVICE_UNAVAILABLE', error: 'OIDC service is not configured' }, 503);
     }
-    const { authorizationUrl, txCookieValue } = await deps.oidc.startLogin(returnTo, { prompt });
+    const { authorizationUrl, txCookieValue } = await deps.oidc.startLogin(returnTo, { prompt }).catch(error => {
+      if (hookId || entryId || deviceId) deps.cloudTracking?.trackWebSignInResult({
+        outcome: 'failure', failedStage: 'authorization_start', hookId, entryId, deviceId,
+      });
+      throw error;
+    });
     const headers = new Headers();
     if (switchAccount) {
       headers.append('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie, '/'));
@@ -598,6 +604,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const txCookieValue = cookies[OIDC_TX_COOKIE_NAME] ?? null;
     const authAttribution = parseAuthAttributionCookie(cookies[AUTH_ATTR_COOKIE_NAME]);
 
+    let failedStage: WebLoginStage | undefined;
     try {
       if (oauthError) {
         const { returnTo, verified } = await deps.oidc.resolveCancelledCallback({
@@ -634,8 +641,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         iss,
         error: oauthError,
         amrIdentity: deps.amrIdentity,
+        onVerifiedStage: stage => { failedStage = stage; },
       });
 
+      failedStage = 'session_creation';
       const session = await createBrowserSession(deps.store, {
         userId: membership.user.id,
         workspaceId: membership.workspace.id,
@@ -646,6 +655,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         await saveSessionProof(session.tokenHash, motionSessionProof, SESSION_PROOF_TTL_SEC);
       }
 
+      failedStage = undefined;
       if (authAttribution.hookId || authAttribution.entryId || authAttribution.deviceId) {
         deps.cloudTracking?.trackWebSignInResult({
           outcome: 'success',
@@ -694,6 +704,13 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       headers.set('Location', returnTo);
       return new Response(null, { status: 302, headers });
     } catch (error) {
+      if (failedStage && (authAttribution.hookId || authAttribution.entryId || authAttribution.deviceId)) {
+        deps.cloudTracking?.trackWebSignInResult({
+          outcome: 'failure', failedStage, hookId: authAttribution.hookId, entryId: authAttribution.entryId,
+          deviceId: authAttribution.deviceId,
+          durationMs: authAttribution.startedAt ? Date.now() - authAttribution.startedAt : 0,
+        });
+      }
       if (isCloudError(error)) {
         c.header('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'), { append: true });
         c.header('Set-Cookie', clearCookie(AUTH_ATTR_COOKIE_NAME, secureCookie, '/auth'), { append: true });

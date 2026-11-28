@@ -528,7 +528,7 @@ export class ExportService {
       const actorUserId = ctx.appUserId ?? ctx.userId;
       const exportRoute: 'mcp' | 'studio' = opts.exportRoute ?? (ctx.entry === 'mcp' ? 'mcp' : 'studio');
       try {
-        await this.queues.enqueueRenderExport(
+        const enqueue = () => this.queues.enqueueRenderExport(
           'export_render',
           {
             jobId: txOutcome.row.id,
@@ -548,6 +548,15 @@ export class ExportService {
           },
           { attempts: 1 },
         );
+        try {
+          await enqueue();
+        } catch (error) {
+          // BullMQ deduplicates exports by the persisted job ID, including when
+          // Redis received the first request but the acknowledgment was lost.
+          const code = (error as NodeJS.ErrnoException | undefined)?.code;
+          if (!code || !['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE'].includes(code)) throw error;
+          await enqueue();
+        }
       } catch (error) {
         // Release the single-active-export lock if Redis enqueue fails so the project is not stuck.
         await this.db
@@ -563,7 +572,7 @@ export class ExportService {
               updatedAt: new Date(),
             }),
           )
-          .where(and(eq(jobs.id, txOutcome.row.id), eq(jobs.workspaceId, ctx.workspaceId)));
+          .where(and(eq(jobs.id, txOutcome.row.id), eq(jobs.workspaceId, ctx.workspaceId), eq(jobs.state, 'queued')));
         throw error;
       }
 

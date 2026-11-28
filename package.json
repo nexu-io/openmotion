@@ -7,6 +7,7 @@
     "node": ">=22.18.0"
   },
   "scripts": {
+    "predev": "node scripts/check-source-update.mjs",
     "dev": "npm run build:studio && node --env-file=.env.development --experimental-strip-types src/entrypoints/api.ts",
     "studio:dev": "vite --config studio/vite.dev.config.ts",
     "start": "node --experimental-strip-types src/entrypoints/api.ts",
