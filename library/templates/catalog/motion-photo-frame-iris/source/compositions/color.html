@@ -1,0 +1,41 @@
+<template>
+  <div id="color" class="scene" data-hf-id="scene-color" data-composition-id="color" data-width="1280" data-height="720" data-layout-allow-overflow>
+    <header class="copy" data-hf-id="color-copy" id="color-copy">
+      <div class="copy-inner" data-hf-id="color-typeset" id="color-typeset">
+        <div class="series" data-hf-id="color-series" id="color-series">Colour editor</div>
+        <h2 data-hf-id="color-title" id="color-title">Pick<br>a colour.</h2>
+        <p data-hf-id="color-description" id="color-description">Sample a tone from the artwork and carry it into the mat.</p>
+      </div>
+    </header>
+    <div class="panel" data-hf-id="color-panel" id="color-panel">
+      <div class="panel-head" data-hf-id="color-head" id="color-head"><h3 data-hf-id="color-ui-title" id="color-ui-title">Mat colour</h3><span class="panel-count" data-hf-id="color-ui-note" id="color-ui-note">Inlet study</span></div>
+      <div class="picker-body" data-hf-id="color-preview" id="color-preview">
+        <div class="picker-print" data-hf-id="color-paper" id="color-paper"><div class="picker-art" data-hf-id="color-crop" id="color-crop"><img src="assets/inlet-before.svg" alt="Inlet with a sampled colour surround" data-hf-id="color-image" id="color-image" class="clip" data-start="0" data-duration="6.6" data-track-index="1"><i class="sample-spot" aria-hidden="true" data-hf-id="color-sample-point" id="color-sample-point"></i></div></div>
+      </div>
+      <div class="picker-tools" data-hf-id="color-tools" id="color-tools">
+        <p class="picker-label" data-hf-id="color-tools-title" id="color-tools-title">From the artwork</p>
+        <div class="swatches" data-hf-id="color-swatches" id="color-swatches">
+          <span class="swatch warm" data-hf-id="color-swatch-0" id="color-swatch-0"><i class="swatch-ring" data-hf-id="color-selection" id="color-selection"></i></span>
+          <span class="swatch ochre" data-hf-id="color-swatch-1" id="color-swatch-1"></span>
+          <span class="swatch sage" data-hf-id="color-swatch-2" id="color-swatch-2"></span>
+          <span class="swatch blue" data-hf-id="color-swatch-3" id="color-swatch-3"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const timeline = gsap.timeline({ paused: true });
+      timeline.fromTo("#color-panel", { scale: 0.98 }, { scale: 1, duration: 0.51, ease: "power2.out" }, 0);
+    timeline.fromTo("#color-paper", { backgroundColor: "#fffdf7" }, { backgroundColor: "#acb6a1", duration: 0.50, ease: "sine.inOut" }, 0.77);
+    timeline.fromTo("#color-selection", { x: 0 }, { x: 110, duration: 0.44, ease: "power3.inOut" }, 0.75);
+    timeline.fromTo("#color-sample-point", { opacity: 0, scale: 1.45 }, { opacity: 1, scale: 1, duration: 0.49, ease: "power2.out" }, 2.22);
+    timeline.to("#color-sample-point", { opacity: 0, duration: 0.30 }, 2.98);
+    timeline.to("#color-selection", { x: 165, duration: 0.43, ease: "power3.inOut" }, 2.90);
+    timeline.to("#color-paper", { backgroundColor: "#809baf", duration: 0.53, ease: "sine.inOut" }, 2.95);
+    timeline.to("#color-paper", { scale: 1.20, duration: 0.77, ease: "power2.inOut" }, 3.57);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["color"] = timeline;
+    })();
+  </script>
+</template>

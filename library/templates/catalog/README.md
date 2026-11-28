@@ -6,7 +6,7 @@ Browse imported motion guidance and original community examples. Guides, HTML ex
 
 Open [the first template's guide](motion-f4b325fd-64ba-42da-9f7e-6a6b77cfafd2/source/preview.html) in a browser and play its authored examples. No build step is needed. Templates with large reference images need an internet connection to load their CMS renditions; small images stay local. Read its [motion.md](motion-f4b325fd-64ba-42da-9f7e-6a6b77cfafd2/source/motion.md) for the motion specification; `TEMPLATE.md` links the separate reference video.
 
-Entries without project-file manifests remain **reference guidance with authored HTML examples**. Nine entries now include editable project candidates, identified by their root `index.html` file and usage notes in `TEMPLATE.md`; human visual acceptance is still pending. The four bundled Studio examples remain in `template-library/`.
+Entries without project-file manifests remain **reference guidance with authored HTML examples**. Ten entries now include editable project candidates, identified by their root `index.html` file and usage notes in `TEMPLATE.md`; human visual acceptance is still pending. The four bundled Studio examples remain in `template-library/`.
 
 For an original contribution example, open [Orbit Launch](motion-orbit-launch/TEMPLATE.md): a six-second launch-title recipe with offline HTML playback, motion rules, a small local poster and a separately stored preview video. Its metadata includes all eleven locale slots; the motion guide and example use English.
 

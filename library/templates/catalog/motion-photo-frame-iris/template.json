@@ -5,41 +5,46 @@
     "sortOrder": 288,
     "original": {
       "templateName": "Photo Frame Iris",
-      "summary": "Reveal a finished print from a matching unframed picture, then close to a title.",
+      "summary": "Show a photo becoming a print, browse a simulated gallery, choose a color, and compare the final frames across seven scenes.",
       "author": "nextdiy",
       "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-      "durationSeconds": "11.6"
+      "durationSeconds": "33.8",
+      "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+      "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+      "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+      "promotionalUseCases": "Product demo",
+      "visualPresentation": "Interface animation"
     },
     "files": [
       {
         "path": "index.html",
-        "bytes": 1991,
-        "sha256": "9b7279bdcd746ab29660afcf73ac778916a60fdb288b4a347e9a4f7cf9743e24",
+        "bytes": 2373,
+        "sha256": "88097c2efab95e1708c8b3a8e32da43360a7069411772b7b9fbae0ef1231161d",
         "mimeType": "text/html"
       },
       {
-        "path": "assets/style.css",
-        "bytes": 2365,
-        "sha256": "07f73be7dd93b9a75067c0169d3d5d3e9262a97fe860e0a48b4ea58a179ba8ab",
-        "mimeType": "text/css"
-      },
-      {
         "path": "assets/motion.js",
-        "bytes": 3312,
-        "sha256": "cdd617481b303adf9f796bd79889bc55a837c008e6c8cf0bc43c219701ebfef9",
+        "bytes": 217,
+        "sha256": "0a1e39cf88cc95187bdc255616b169cfe0fe7b306a29230463b8d9c7e4ff6033",
         "mimeType": "text/javascript"
       },
       {
-        "path": "assets/gsap.min.js",
-        "bytes": 72927,
-        "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb",
-        "mimeType": "text/javascript"
+        "path": "assets/style.css",
+        "bytes": 5249,
+        "sha256": "a946c698c7cbd5e49f2c4e90426c50124ef8a1d89b3ac937eb2c509fb1fb2623",
+        "mimeType": "text/css"
       },
       {
         "path": "assets/GSAP-LICENSE.txt",
         "bytes": 4538,
         "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c",
         "mimeType": "text/plain"
+      },
+      {
+        "path": "assets/gsap.min.js",
+        "bytes": 72927,
+        "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb",
+        "mimeType": "text/javascript"
       },
       {
         "path": "assets/inlet-before.svg",
@@ -52,6 +57,72 @@
         "bytes": 3876,
         "sha256": "3709f32d76b94106536165edc6f43a3b85850ee038dc322aa0d38816906e5e6d",
         "mimeType": "image/svg+xml"
+      },
+      {
+        "path": "assets/inlet-blue.svg",
+        "bytes": 3940,
+        "sha256": "98f59039893df801e076494364702e5430bf16db01c2422787eeeb1451434559",
+        "mimeType": "image/svg+xml"
+      },
+      {
+        "path": "assets/blossom-study.svg",
+        "bytes": 5478,
+        "sha256": "9c0f083a40a266d999b619cb33107092fbc11a72a5651f8b123dc7d0d58eb2cb",
+        "mimeType": "image/svg+xml"
+      },
+      {
+        "path": "assets/canopy-study.svg",
+        "bytes": 6115,
+        "sha256": "8d1b91f6bedaa24ed43a6ddae0e2d7fdf1173ea1375f173cf4b2f49501100e87",
+        "mimeType": "image/svg+xml"
+      },
+      {
+        "path": "assets/rooftop-study.svg",
+        "bytes": 3446,
+        "sha256": "9a7fc3a73a6ef49da053f54c02f5aa0b8631f2983a75a4624611453b8ba66d5b",
+        "mimeType": "image/svg+xml"
+      },
+      {
+        "path": "compositions/canopy.html",
+        "bytes": 1473,
+        "sha256": "d8de4fd2d30259d0635c96a49f960230c40fcb43131402c3d24bb015da081548",
+        "mimeType": "text/html"
+      },
+      {
+        "path": "compositions/color.html",
+        "bytes": 3301,
+        "sha256": "0c790b9840c4acb6704f6784921a135bb93913155e35b5f2a5ecd9b6671887c0",
+        "mimeType": "text/html"
+      },
+      {
+        "path": "compositions/eaves.html",
+        "bytes": 1465,
+        "sha256": "605418498f923f9b2560c9e774e24897404738e7e5123cbf4ba6ad97f648a0de",
+        "mimeType": "text/html"
+      },
+      {
+        "path": "compositions/edition.html",
+        "bytes": 1779,
+        "sha256": "edff0844fef4ebe9b055d838c00de9eb0bc3e8f749a1647911839cbda51b17ed",
+        "mimeType": "text/html"
+      },
+      {
+        "path": "compositions/lake.html",
+        "bytes": 1822,
+        "sha256": "253459cffc110325549eb49465dc1d77ec03699b0c9aeab5ff8e5da0fdf539d7",
+        "mimeType": "text/html"
+      },
+      {
+        "path": "compositions/library.html",
+        "bytes": 4701,
+        "sha256": "5f0c684e2c3072bfcb38f96c377d80e81bd9e84848b35841f353b00c56c6c6b7",
+        "mimeType": "text/html"
+      },
+      {
+        "path": "compositions/petal.html",
+        "bytes": 1457,
+        "sha256": "21f88439e45e9bfc2200065d33920a972505fcc04937e53571cd07034a30f42e",
+        "mimeType": "text/html"
       }
     ],
     "previewUrl": null,
@@ -59,102 +130,157 @@
     "motionDocumentUrl": null,
     "motionGuideUrl": null,
     "projectFileUrl": null,
-    "brand": "",
+    "brand": "Paper Studies",
     "width": 1280,
     "height": 720,
     "conversionStatus": "pending",
-    "conversionNotes": "Editable project with replaceable artwork. Human visual acceptance is pending."
+    "conversionNotes": "Seven-scene editable walkthrough. The library and color tools are illustrative interfaces. Human visual acceptance is pending.",
+    "colors": [
+      "blue",
+      "green",
+      "white"
+    ]
   },
   "locales": {
     "de": {
       "original": {
         "templateName": "Irisblende für Fotorahmen",
-        "summary": "Aus einem rahmenlosen Bild wird ein gerahmter Abzug. Eine Irisblende führt zum Titel.",
+        "summary": "Sieben Szenen zeigen die Umwandlung eines Fotos in einen Abzug, eine simulierte Galerie, die Farbauswahl und zwei Rahmenvarianten.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "Produktdemo",
+        "visualPresentation": "Oberflächenanimation"
       }
     },
     "en": {},
     "es": {
       "original": {
         "templateName": "Revelado de marco con iris",
-        "summary": "Una foto sin marco da paso a una copia enmarcada y un cierre circular revela el título.",
+        "summary": "Siete escenas muestran cómo enmarcar una foto, explorar una galería simulada, seleccionar un color y comparar los marcos.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "Demostración de producto",
+        "visualPresentation": "Animación de interfaz"
       }
     },
     "fr": {
       "original": {
         "templateName": "Cadre photo en iris",
-        "summary": "Une photo sans cadre devient un tirage encadré, puis un iris se referme sur le titre.",
+        "summary": "En sept scènes, transformez une photo en tirage, parcourez une galerie simulée, choisissez une couleur et comparez les cadres.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "Démonstration produit",
+        "visualPresentation": "Animation d’interface"
       }
     },
     "it": {
       "original": {
         "templateName": "Cornice fotografica a iride",
-        "summary": "Da un’immagine senza bordo emerge una stampa incorniciata. L’iride si chiude sul titolo.",
+        "summary": "Sette scene mostrano il passaggio dalla foto alla stampa, una galleria simulata, la scelta del colore e il confronto fra due cornici.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "Demo di prodotto",
+        "visualPresentation": "Animazione dell’interfaccia"
       }
     },
     "ja": {
       "original": {
         "templateName": "アイリスで見せるフォトフレーム",
-        "summary": "写真と額装した作品を重ねて見せ、円形のマスクを閉じてタイトルに切り替えます。",
+        "summary": "写真の額装、ギャラリーの操作例、色選び、仕上がりの比較を7つのシーンで紹介します。",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "製品デモ",
+        "visualPresentation": "UIアニメーション"
       }
     },
     "ko": {
       "original": {
         "templateName": "아이리스 포토 프레임",
-        "summary": "테두리 없는 사진에서 액자에 담긴 작품을 보여 준 뒤 원형 마스크를 닫아 제목을 드러냅니다.",
+        "summary": "사진이 액자 작품이 되는 과정과 갤러리 탐색 예시, 색상 선택, 액자 비교를 일곱 장면으로 보여 줍니다.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "제품 시연",
+        "visualPresentation": "인터페이스 애니메이션"
       }
     },
     "pt-br": {
       "original": {
         "templateName": "Moldura fotográfica em íris",
-        "summary": "Uma foto sem borda dá lugar a uma impressão emoldurada, e a íris se fecha para exibir o título.",
+        "summary": "Em sete cenas, transforme uma foto em uma impressão emoldurada, explore uma galeria simulada, escolha uma cor e compare as molduras.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "Demonstração de produto",
+        "visualPresentation": "Animação de interface"
       }
     },
     "ru": {
       "original": {
         "templateName": "Фоторамка с круговым переходом",
-        "summary": "Исходное изображение сменяется оформленным отпечатком, затем круговая маска закрывается и появляется заголовок.",
+        "summary": "Семь сцен показывают оформление фотографии, просмотр демонстрационной галереи, выбор цвета и сравнение двух рамок.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "Демонстрация продукта",
+        "visualPresentation": "Анимация интерфейса"
       }
     },
     "tr": {
       "original": {
         "templateName": "İris geçişli fotoğraf çerçevesi",
-        "summary": "Çerçevesiz görsel çerçeveli baskıya dönüşür, ardından dairesel maske kapanır ve başlık görünür.",
+        "summary": "Yedi sahnede fotoğrafın çerçevelenmesini, örnek galeride gezinmeyi, renk seçimini ve çerçevelerin karşılaştırmasını gösterir.",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "Ürün demosu",
+        "visualPresentation": "Arayüz animasyonu"
       }
     },
     "zh-CN": {
       "original": {
         "templateName": "照片装框 · 圆形揭示",
-        "summary": "从无边框原图拉远至装框成品，再收拢圆形遮罩，显示片尾标题。",
+        "summary": "用七段画面展示原图装框、示意图库横滑、选色、三款作品，以及白框和蓝框的对比。",
         "author": "nextdiy",
         "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
-        "durationSeconds": "11.6"
+        "durationSeconds": "33.8",
+        "styleDescription": "Warm paper, a centered circular print reveal, illustrated controls and three full-height prints.",
+        "motionTags": "photo frames, iris reveal, gallery, swatches, portfolio",
+        "reviewFocus": "Keep the image in register at both frame changes and hold each complete artwork long enough to read the imprint.",
+        "promotionalUseCases": "产品演示",
+        "visualPresentation": "界面动效"
       }
     }
   },

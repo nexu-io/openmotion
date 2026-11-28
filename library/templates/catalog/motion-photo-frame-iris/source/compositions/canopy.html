@@ -1,0 +1,23 @@
+<template>
+  <div id="canopy" class="scene flip" data-hf-id="scene-canopy" data-composition-id="canopy" data-width="1280" data-height="720" data-layout-allow-overflow>
+    <header class="copy" data-hf-id="canopy-copy" id="canopy-copy">
+      <div class="copy-inner" data-hf-id="canopy-typeset" id="canopy-typeset">
+        <div class="series" data-hf-id="canopy-series" id="canopy-series">Woodland study</div>
+        <h2 data-hf-id="canopy-title" id="canopy-title">Canopy.</h2>
+        <p data-hf-id="canopy-description" id="canopy-description">Late sun through the pinewood.</p>
+      </div>
+    </header>
+    <figure class="print work-print" data-hf-id="canopy-paper" id="canopy-paper">
+      <img class="clip printed" src="assets/canopy-study.svg" alt="Canopy study with its complete printed caption" data-hf-id="canopy-art" id="canopy-art" data-start="0" data-duration="3.6" data-track-index="1">
+    </figure>
+  </div>
+  <script>
+    (() => {
+      const timeline = gsap.timeline({ paused: true });
+      timeline.fromTo("#canopy-paper", { scale: 1.66, x: -24, y: 47, clipPath: "inset(6% 4% 23% 4%)" }, { scale: 1, x: 0, y: 0, clipPath: "inset(0% 0% 0% 0%)", duration: 1.28, ease: "power3.inOut" }, 0.23);
+    timeline.fromTo("#canopy-typeset", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.52, ease: "power2.out" }, 0.40);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["canopy"] = timeline;
+    })();
+  </script>
+</template>

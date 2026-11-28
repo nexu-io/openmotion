@@ -1,34 +1,44 @@
 # Photo Frame Iris
 
-Make a before-and-after film from one image and a finished print of that same image. The camera pulls back to reveal the border while the picture stays aligned. A circular mask closes the image and leaves a title beneath the frame icon.
+A seven-scene photo-framing walkthrough for creators introducing a gallery, color treatment or print collection. The silent film starts with an unframed image, follows a selection and color change, presents three finished works, then compares two treatments of the opening image.
 
-**Format:** editable OpenMotion / HyperFrames composition, 1280 × 720, 30 fps, 11.6 seconds, silent.
+**Project:** editable HyperFrames HTML/CSS/JavaScript, 1280 × 720, 30 fps, 33.8 seconds.
 
-## Start here
+## Play and edit
 
-Create an independent copy of **Photo Frame Iris** in the OpenMotion template catalog. The project entry is `index.html`. In the repository, the project files are under `source/`. The catalog's `source/preview.html` plays the rendered example and `source/motion.md` describes the motion.
+Create an independent copy of **Photo Frame Iris** from the OpenMotion template catalog and open its `main` composition. The root file in a project copy is `index.html`. In a repository checkout, open `source/preview.html` for the rendered walkthrough and read `source/motion.md` for the timing. The portable ZIP includes the MP4 at `assets/lfs/preview.mp4` and the same guide as `motion.md`.
 
-From a Git checkout, download this entry's preview first. The project artwork and runtime are available directly from the checkout.
+For an ordinary Git checkout, hydrate the preview for just this entry:
 
 ```sh
 git lfs pull --include="library/templates/catalog/motion-photo-frame-iris/source/assets/lfs/**" --exclude=""
 ```
 
+The sub-compositions in `compositions/`, in playback order, are `lake`, `library`, `color`, `petal`, `canopy`, `eaves` and `edition`.
+
+The gallery and color tools are schematic interface examples authored for the template. Replace their graphics and words with your own product material when adapting them to a real application.
+
 ## Replace the artwork
 
-1. Supply an unframed picture and a framed version containing the same picture at the same aspect ratio. Use a horizontally centered inner picture. Align the images using two recognizable details near opposite corners. A different crop or rotation will create a visible jump.
-2. Replace the image sources on `#original` and `#framed`. Both shipped illustrations are editable SVGs. Local JPEG, PNG or WebP images also work.
-3. Measure the inner picture's rectangle within the entire finished print. On `#film`, set `data-print-ratio` to the print width divided by its height. Set `data-photo-left` and `data-photo-width` to the inner picture's left coordinate and width divided by the print width. Divide its top coordinate and height by the print height for `data-photo-top` and `data-photo-height`. Enter fractions between 0 and 1.
-4. Choose `data-print-width` in composition pixels to fit the finished print above the caption. The example uses 554. Its print is 1296 × 1272, with a 1200 × 900 inner picture starting at (48, 140).
+| Slot | File | What to keep aligned |
+| --- | --- | --- |
+| Opening view | `assets/inlet-before.svg` | An unframed 1200 × 900 image |
+| Opening print | `assets/inlet-framed.svg` | A 1296 × 1272 print with the original view at (48, 140) and size 1200 × 900 |
+| Closing print | `assets/inlet-blue.svg` | The same outer dimensions and exactly the same inner image rectangle as the opening print |
+| Three collection works | `assets/blossom-study.svg`, `assets/canopy-study.svg`, `assets/rooftop-study.svg` | Each work is a 900 × 1200 portrait print, including its artwork and imprint |
 
-## Replace the message
+The SVGs are editable source. To use photographs, replace the corresponding image paths in the scene files under `compositions/` with local JPEG, PNG or WebP files. Matching the example dimensions is the simplest way to retain the crop. Compare two landmarks near opposite corners of the image during the pullback, then scrub through the frame change near the end. The picture should occupy the same part of both prints.
 
-Edit the two spans in `#subtitle`, the final title in `#brand` and the supporting line in `#tagline`. Keep each phrase short enough to read during the two-part reveal. In `assets/style.css`, `--paper` colors the surrounding canvas and `--ink` colors the mark and title. The typography uses locally available system fonts.
+## Adapt the walkthrough
 
-Review the first frame, the opening reveal, the caption hold at 3 seconds, and the centered closing title at 8 seconds. Scrub both directions to verify that the picture remains aligned and the captions return to the right state. Edit the phase timings in `assets/motion.js` together with the composition and clip durations if changing the length.
+- **Lake and Edition:** edit the opening copy and registered before/after pair in `compositions/lake.html`. The closing comparison and title live in `compositions/edition.html`. The white and blue versions occupy exactly the same bounds.
+- **Library:** replace the gallery thumbnails and selected work together. Check the state after the horizontal scroll and the enlarged view for continuity.
+- **Color:** edit the swatches in `.swatches` and the corresponding `.picker-print` treatment together. Preserve the selected state long enough to show which swatch produced the result.
+- **Petal, Canopy and Eaves:** update each print independently. The bundled artwork includes its own title or palette. Keep a complete frame visible during each hold.
+- **Timing and hierarchy:** `index.html` defines the seven scene boundaries; each scene file contains its copy, image references and local animation. `assets/style.css` defines the canvas, typography and layout. `assets/motion.js` registers the seekable GSAP timeline. If retiming a scene, update its clip timing, the timeline cues and the overall duration together. Inspect all six cuts after making a change.
 
 ## Source and rights
 
-- **Motion adaptation.** The starting project was OpenMotion's [Voice Circle Reveal / Voice mode](https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f). Its guide credits [Anthropic's Claude reference film](https://x.com/claudeai/status/2080376094939603366). This adaptation retains the centered circular transition, incremental phrase reveal, closing hold and seekable timeline. The reference film, original soundtrack and brand imagery remain with their respective owners and are excluded from this contribution.
-- **Editable project and example media.** The new source, documentation and original geometric inlet illustrations were prepared with Codex for this contribution by nextdiy under the repository's [Apache License 2.0](https://github.com/nexu-io/openmotion/blob/main/LICENSE). The example poster and silent video are renders of this artwork and composition. The SVGs include their license identifiers.
-- **Animation dependency.** The bundled GSAP runtime comes from the selected OpenMotion project. Webflow retains its rights under the accompanying `assets/GSAP-LICENSE.txt`. The repository's Apache license does not replace those terms.
+The opening and closing iris reference the editable OpenMotion catalog entry [Voice mode / Voice Circle Reveal](https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f). Its guide credits [Anthropic's Claude reference film](https://x.com/claudeai/status/2080376094939603366). The centered circular reveal, measured title hold and seekable timeline informed the adaptation. Its closing comparison reveals the lake-blue print through the circle and holds the complete work. The gallery, palette demonstration and collection sequence were authored for this seven-scene walkthrough.
+
+The new implementation, neutral interface examples, six original geometric SVG illustrations, documentation and their rendered previews were prepared by nextdiy with Codex for this contribution under [Apache-2.0](https://github.com/nexu-io/openmotion/blob/main/LICENSE). Each SVG includes its license. The supplied demonstration uses no customer photographs, real application screenshots, third-party reference film, soundtrack or third-party brand artwork. The GSAP runtime retained from the reference project is governed by the bundled `assets/GSAP-LICENSE.txt`. System fonts are selected locally and no font files are distributed.

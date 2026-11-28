@@ -1,0 +1,51 @@
+<template>
+  <div id="library" class="scene" data-hf-id="scene-library" data-composition-id="library" data-width="1280" data-height="720" data-layout-allow-overflow>
+    <header class="copy" data-hf-id="library-copy" id="library-copy">
+      <div class="copy-inner" data-hf-id="library-typeset" id="library-typeset">
+        <div class="series" data-hf-id="library-series" id="library-series">Print library</div>
+        <h2 data-hf-id="library-title" id="library-title">Find a<br>study.</h2>
+        <p data-hf-id="library-description" id="library-description">Browse the collection and open a print.</p>
+      </div>
+    </header>
+    <div class="panel" data-hf-id="library-panel" id="library-panel">
+      <div class="panel-head" data-hf-id="library-head" id="library-head"><h3 data-hf-id="library-ui-title" id="library-ui-title">Collection</h3><span class="panel-count" data-hf-id="library-count" id="library-count">4 studies</span></div>
+      <div class="library-port" data-hf-id="library-viewport" data-layout-allow-overflow id="library-viewport">
+        <div class="library-strip" data-hf-id="library-strip" data-layout-allow-overflow id="library-strip">
+          <figure class="library-work" data-hf-id="library-item-0" id="library-item-0">
+            <div class="library-art" data-hf-id="library-crop-0" id="library-crop-0"><img src="assets/inlet-before.svg" alt="Dusk over the inlet" data-hf-id="library-image-0" id="library-image-0" class="clip" data-start="0" data-duration="5.4" data-track-index="1"></div>
+            <figcaption data-hf-id="library-caption-0" id="library-caption-0">Inlet</figcaption>
+          </figure>
+          <figure class="library-work" data-hf-id="library-item-1" id="library-item-1">
+            <div class="library-art" data-hf-id="library-crop-1" id="library-crop-1"><img src="assets/blossom-study.svg" alt="Magnolia blossoms" data-hf-id="library-image-1" id="library-image-1" class="clip" data-start="0" data-duration="5.4" data-track-index="2"></div>
+            <figcaption data-hf-id="library-caption-1" id="library-caption-1">Magnolia</figcaption>
+          </figure>
+          <figure class="library-work current" data-hf-id="library-item-2" id="library-item-2">
+            <div class="library-art" data-hf-id="library-crop-2" id="library-crop-2"><img src="assets/canopy-study.svg" alt="Pine canopy" data-hf-id="library-image-2" id="library-image-2" class="clip" data-start="0" data-duration="5.4" data-track-index="3"></div>
+            <figcaption data-hf-id="library-caption-2" id="library-caption-2">Canopy</figcaption>
+          </figure>
+          <figure class="library-work" data-hf-id="library-item-3" id="library-item-3">
+            <div class="library-art" data-hf-id="library-crop-3" id="library-crop-3"><img src="assets/rooftop-study.svg" alt="Terracotta rooflines" data-hf-id="library-image-3" id="library-image-3" class="clip" data-start="0" data-duration="5.4" data-track-index="4"></div>
+            <figcaption data-hf-id="library-caption-3" id="library-caption-3">Courtyard</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="library-foot" data-hf-id="library-foot" id="library-foot"><span data-hf-id="library-foot-note" id="library-foot-note">Works on paper</span><span class="library-track" data-hf-id="library-track" id="library-track"><i data-hf-id="library-track-position" id="library-track-position"></i></span></div>
+      <div class="library-detail" data-hf-id="library-selected" id="library-selected">
+        <img src="assets/canopy-study.svg" alt="Selected canopy print" data-hf-id="library-selected-art" id="library-selected-art" class="clip" data-start="2.6" data-duration="2.8" data-track-index="5">
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const timeline = gsap.timeline({ paused: true });
+      timeline.fromTo("#library-panel", { opacity: 0.52, scale: 0.965 }, { opacity: 1, scale: 1, duration: 0.56, ease: "power2.out" }, 0);
+    timeline.fromTo("#library-strip", { x: 0 }, { x: -282, duration: 1.39, ease: "power3.inOut" }, 0.68);
+    timeline.fromTo("#library-track-position", { x: 0 }, { x: 78, duration: 1.39, ease: "power3.inOut" }, 0.68);
+    timeline.fromTo("#library-item-2", { scale: 1 }, { scale: 0.955, duration: 0.17, ease: "power2.in" }, 2.43);
+    timeline.fromTo("#library-selected", { opacity: 0 }, { opacity: 1, duration: 0.43, ease: "power1.inOut" }, 2.61);
+    timeline.fromTo("#library-selected-art", { x: 31, y: 12, scale: 0.80 }, { x: 0, y: 0, scale: 1.025, duration: 0.89, ease: "power3.out" }, 2.62);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["library"] = timeline;
+    })();
+  </script>
+</template>

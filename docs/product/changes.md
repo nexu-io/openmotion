@@ -2,7 +2,7 @@
 
 ## 2026-11-28 · Photo Frame Iris template
 
-- Added an editable photo-to-frame reveal to the [template catalog](../../library/templates/catalog/motion-photo-frame-iris/TEMPLATE.md), with a silent preview, replaceable artwork and notes on matching the two image crops.
+- Added an editable seven-scene photo-framing walkthrough to the [template catalog](../../library/templates/catalog/motion-photo-frame-iris/TEMPLATE.md), with a simulated library and palette, three artwork studies, a paper-to-blue framing comparison and a silent preview.
 
 ## 2026-11-25 · Keep hosted project file reads current
 

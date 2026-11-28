@@ -1,0 +1,23 @@
+<template>
+  <div id="eaves" class="scene" data-hf-id="scene-eaves" data-composition-id="eaves" data-width="1280" data-height="720" data-layout-allow-overflow>
+    <header class="copy" data-hf-id="eaves-copy" id="eaves-copy">
+      <div class="copy-inner" data-hf-id="eaves-typeset" id="eaves-typeset">
+        <div class="series" data-hf-id="eaves-series" id="eaves-series">Architectural study</div>
+        <h2 data-hf-id="eaves-title" id="eaves-title">Courtyard.</h2>
+        <p data-hf-id="eaves-description" id="eaves-description">Terracotta shapes in the last light.</p>
+      </div>
+    </header>
+    <figure class="print work-print" data-hf-id="eaves-paper" id="eaves-paper">
+      <img class="clip printed" src="assets/rooftop-study.svg" alt="Courtyard study with its complete printed caption" data-hf-id="eaves-art" id="eaves-art" data-start="0" data-duration="3.6" data-track-index="1">
+    </figure>
+  </div>
+  <script>
+    (() => {
+      const timeline = gsap.timeline({ paused: true });
+      timeline.fromTo("#eaves-paper", { scale: 1.79, x: 37, y: 57, clipPath: "inset(8% 5% 26% 5%)" }, { scale: 1, x: 0, y: 0, clipPath: "inset(0% 0% 0% 0%)", duration: 1.35, ease: "power3.inOut" }, 0.23);
+    timeline.fromTo("#eaves-typeset", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.52, ease: "power2.out" }, 0.44);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["eaves"] = timeline;
+    })();
+  </script>
+</template>

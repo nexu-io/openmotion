@@ -1,13 +1,15 @@
-# From image to print
+# A seven-scene framing walkthrough
 
-The inlet and coral sail provide two registration points across the before and after images. Both images share a camera transform so that opening the circular mask changes the border while the horizon remains level.
+Match the position of the first image inside its finished print. Carry the same artwork into the gallery and the final paper-to-blue comparison so the viewer can see what the border changes. The library and palette are original, illustrative interfaces.
 
-| Seconds | What the viewer sees |
-| --- | --- |
-| 0.00–0.50 | The unframed image is already visible. A small frame symbol appears at the center. |
-| 0.50–2.20 | A circular mask exposes the finished print as the camera pulls back. The first image fades after the picture areas have aligned. |
-| 2.20–6.00 | Two short phrases arrive in sequence. Leave enough space below the print to read them during the hold. |
-| 6.00–6.68 | The scene contracts around the same center. The frame symbol returns there. |
-| 6.68–11.60 | The title and supporting line appear. The supporting line departs first, leaving the title and symbol. |
+| Start–end (seconds) | Scene | Motion and review |
+| --- | --- | --- |
+| 0.0–5.4 | Lake | Introduce the original inlet artwork, then reveal the paper frame. Check the sail and horizon on both sides of the reveal. |
+| 5.4–10.8 | Library | Move horizontally through the example gallery and enlarge the selection. The selected artwork should be recognizable through the scale change. |
+| 10.8–17.4 | Color | Use the schematic editor to show a palette choice and its effect on the frame. Keep the swatches visible during selection. |
+| 17.4–21.0 | Petal | Present the blossom and its palette as a finished print. |
+| 21.0–24.6 | Canopy | Hold the canopy illustration long enough to read its imprint. |
+| 24.6–28.2 | Eaves | Show the architecture study and its warm roofline. |
+| 28.2–33.8 | Edition | Return to the inlet, compare the paper and blue treatments at the same registration, then hold the complete blue print and its title. |
 
-Use the clean and framed illustrations as a pair. Put the same subject in both files, set the finished print's dimensions, then measure its inner image's bounds. The complete editing instructions and source acknowledgements are in [the template guide](../TEMPLATE.md). See the [rendered example](preview.html) for the timing at normal speed.
+The two frames share a 1296 × 1272 canvas and a 1200 × 900 image window at (48, 140). The opening and closing artwork should describe the same view. Each middle print is a separate replaceable slot. Use the editing guide in the catalog entry when substituting a different crop, message or brand. [Watch the full silent preview](preview.html).

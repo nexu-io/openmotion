@@ -1,0 +1,26 @@
+<template>
+  <div id="lake" class="scene" data-hf-id="scene-lake" data-composition-id="lake" data-width="1280" data-height="720" data-layout-allow-overflow>
+    <header class="copy" data-hf-id="lake-copy" id="lake-copy">
+      <div class="copy-inner" data-hf-id="lake-typeset" id="lake-typeset">
+        <div class="series" data-hf-id="lake-series" id="lake-series">Paper studies</div>
+        <h1 data-hf-id="lake-title" id="lake-title">A view,<br>framed.</h1>
+        <p data-hf-id="lake-description" id="lake-description">One scene, from open image to finished print.</p>
+      </div>
+    </header>
+    <figure class="print hero-print" data-hf-id="lake-paper" id="lake-paper">
+      <img class="clip printed lake-mat" src="assets/inlet-framed.svg" alt="The inlet in a white paper edition" data-hf-id="lake-framed" id="lake-framed" data-start="0" data-duration="5.4" data-track-index="1">
+      <img class="clip lake-bare" src="assets/inlet-before.svg" alt="The inlet at dusk" data-hf-id="lake-original" id="lake-original" data-start="0" data-duration="5.4" data-track-index="2">
+    </figure>
+  </div>
+  <script>
+    (() => {
+      const timeline = gsap.timeline({ paused: true });
+      timeline.fromTo("#lake-paper", { x: -240, y: 22, scale: 2.30 }, { x: 0, y: 0, scale: 1, duration: 1.66, ease: "power3.inOut" }, 0.51);
+    timeline.fromTo("#lake-framed", { clipPath: "circle(0% at 50% 46.38%)" }, { clipPath: "circle(83% at 50% 46.38%)", duration: 1.26, ease: "power2.inOut" }, 0.73);
+    timeline.to("#lake-original", { opacity: 0, duration: 0.24 }, 1.89);
+    timeline.fromTo("#lake-typeset", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.62, ease: "power2.out" }, 1.55);
+      window.__timelines = window.__timelines || {};
+      window.__timelines["lake"] = timeline;
+    })();
+  </script>
+</template>
