@@ -1221,6 +1221,21 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
       assert.equal(tokenCalls, 0);
     }
 
+    // An unavailable discovery service can recover without replaying a token exchange.
+    {
+      let calls = 0;
+      const service = new OidcService({
+        issuer: VELA_ISSUER, clientId: VELA_CLIENT_ID, callbackUrl: 'https://motion.example.test/auth/callback',
+        scopes: 'openid', claimSub: 'sub', claimEmail: 'email', claimName: 'name',
+        fetcher: async () => ++calls === 1 ? new Response(null, { status: 503 }) : Response.json({
+          issuer: VELA_ISSUER, authorization_endpoint: VELA_ISSUER + '/authorize',
+          token_endpoint: VELA_ISSUER + '/token', jwks_uri: VELA_ISSUER + '/keys',
+        }),
+      }, new InMemoryAuthCache());
+      assert.equal((await service.discover()).issuer, VELA_ISSUER);
+      await service.discover();
+      assert.equal(calls, 2);
+    }
     // 4. Discovery omitting both jwks_uri and clientSecret fails with 502 SERVICE_UNAVAILABLE
     {
       const cache = new InMemoryAuthCache();
@@ -1365,6 +1380,7 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
     const { jwks, signJwt } = await createEphemeralOidcFixture();
 
     let capturedNonce = '';
+    let tokenUnavailable = false;
     const oidc = new OidcService(
       {
         issuer: 'https://idp.example.test',
@@ -1383,6 +1399,7 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
         },
         jwks,
         fetcher: async () => {
+          if (tokenUnavailable) return new Response(null, { status: 503 });
           const idToken = await signJwt({
             sub: 'opendesign-device-user',
             email: 'dev@example.test',
@@ -1460,5 +1477,20 @@ describe('AUTH_MODE=oidc HS256 ID Token Interop (OpenDesign / Vela Better Auth) 
     assert.equal(signInCalls[1]?.hookId, 'bf_banner');
     assert.equal(signInCalls[1]?.entryId, entryId);
     assert.equal(signInCalls[1]?.deviceId, browserDeviceId);
+
+    tokenUnavailable = true;
+    const retryLogin = await app.request('/auth/login?device_id=' + browserDeviceId);
+    const retryState = new URL(retryLogin.headers.get('location')!).searchParams.get('state');
+    const cookies = retryLogin.headers.getSetCookie();
+    const callback = () => app.request('/auth/callback?code=fixture&state=' + retryState, {
+      headers: { Cookie: ['om_oidc_tx', 'om_auth_attr'].map(name =>
+        name + '=' + encodeURIComponent(extractCookieValue(cookies, name)!)).join('; ') },
+    });
+    assert.equal((await callback()).status, 401);
+    assert.equal(signInCalls[2]?.failedStage, 'token_exchange');
+    assert.equal(signInCalls[2]?.outcome, 'failure');
+    await callback();
+    assert.equal(signInCalls.length, 3);
+
   });
 });

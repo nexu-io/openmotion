@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
+import { classifyRenderFailure } from '../../shared/render-failure.ts';
 import { bundleToSingleHtml } from '@hyperframes/core/compiler';
 import {
   executeIsolated,
@@ -201,6 +202,16 @@ function createFakeRenderDb(snapshotFiles: unknown[], onUpdate?: (values: Record
   };
   return exec as unknown as Database;
 }
+
+it('classifies renderer output without retaining private log text', () => {
+  const cases = [
+    ['Failed to launch the browser: listen EACCES 127.0.0.1', 'local_port_denied'],
+    ['Chrome cannot start', 'browser_start'],
+    ['Error while opening encoder', 'encoder'],
+    ['private process output', 'unclassified'],
+  ] as const;
+  for (const [log, expected] of cases) assert.equal(classifyRenderFailure(log), expected);
+});
 
 describe('worker-render Security Boundary: buildRenderSubprocessEnv & Isolated Spawn', () => {
   it('explicitly strips ALL secrets and injects every required HYPERFRAMES_* & runtime flag', () => {
@@ -876,6 +887,7 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
 
       // 2. Failure path (render throws): marks failed, uploads NO MP4, and STILL wipes /tmp!
       const failUpdates: Array<Record<string, unknown>> = [];
+      const failedRenderEvents: Array<{ renderReason?: string }> = [];
       const dbFail = createFakeRenderDb(snapshotRows, (vals) => {
         failUpdates.push(vals);
         return [{ id: JID_FAIL }];
@@ -889,7 +901,12 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
             logger: SILENT_LOGGER,
             workerId: 'render-test-1',
             tmpBaseDir: tmpBase,
-            runRenderCommand: async () => ({ code: 1, stdout: '', stderr: 'Chromium crashed' }),
+            cloudTracking: {
+              isEnabled: () => true,
+              trackExportResult: (event: { renderReason?: string }) => failedRenderEvents.push(event),
+              trackTaskTerminal: () => {},
+            } as never,
+            runRenderCommand: async () => ({ code: 1, stdout: '', stderr: 'Chrome cannot start' }),
           },
           {
             jobId: JID_FAIL,
@@ -904,6 +921,7 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
         ),
       );
       assert.equal(storage.objects.has(exportKey(WID_A, JID_FAIL, 'broken.mp4')), false);
+      assert.deepEqual(failedRenderEvents.map(event => event.renderReason), ['browser_start']);
       assert.ok(failUpdates.some((u) => u.state === 'failed' && u.errorCode === 'EXPORT_RENDER_FAILED'));
       await assert.rejects(() => access(path.join(tmpBase, `om-render-${JID_FAIL}`)));
 

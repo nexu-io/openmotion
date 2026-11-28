@@ -15,7 +15,7 @@ import {
 import { createTracker, deviceContext, uuid, validProperties } from '../tracking/core.ts';
 import { mcpToolNames, omEvents, studioEvents } from '../tracking/events.ts';
 import { createPosthogSender, type PosthogEventIdentity } from '../tracking/node.ts';
-import { exportFailureCodes, exportFailureStages, toolFailureFields, toolInputFields } from '../tracking/tool-fields.ts';
+import { type WebLoginStage, type renderFailureReasons, exportFailureCodes, exportFailureStages, toolFailureFields, toolInputFields } from '../tracking/tool-fields.ts';
 
 export { CLOUD_ALLOWED_STUDIO_EVENTS, CLOUD_BLOCKED_SURFACE_AREAS, isCloudFullTrackingEnabled };
 
@@ -58,6 +58,7 @@ export interface CloudTrackingHandle {
   browserConfig(): BrowserTrackingRuntimeConfig;
   acceptBrowserBatch(payload: unknown, actor?: BrowserBatchActor): number;
   trackWebSignInResult(params: {
+    failedStage?: WebLoginStage;
     outcome: 'success' | 'failure' | 'cancelled';
     hookId?: string | null;
     entryId?: string | null;
@@ -121,6 +122,7 @@ export interface CloudTrackingHandle {
     jobState: 'completed' | 'failed' | 'cancelled';
     durationMs: number;
     technicalCheck: 'passed' | 'failed' | 'unknown';
+    renderReason?: (typeof renderFailureReasons)[number];
     failureStage?: string | null;
     errorCode?: string | null;
     userId?: string | null;
@@ -591,7 +593,7 @@ export function createCloudTracking(
       }
       return accepted;
     },
-    trackWebSignInResult({ outcome, hookId, entryId, deviceId, userId, durationMs }) {
+    trackWebSignInResult({ outcome, failedStage, hookId, entryId, deviceId, userId, durationMs }) {
       const attemptId = crypto.randomUUID();
       const safeHook: EntitlementHookId | 'openmotion_editor_login' =
         sanitizeHookId(hookId) ?? 'openmotion_editor_login';
@@ -614,6 +616,8 @@ export function createCloudTracking(
           source_detail: safeHook,
           ...(safeEntry ? { entry_id: safeEntry } : {}),
           ...(safeAmrUserId ? { amr_user_id: safeAmrUserId } : {}),
+          diagnostics_version: 1,
+          ...(outcome === 'failure' && failedStage ? { web_failed_stage: failedStage } : {}),
           connector_version: 'web-oidc',
           resumed: false,
           duration_ms: clampDurationMs(durationMs ?? 0),
@@ -762,6 +766,7 @@ export function createCloudTracking(
       durationMs,
       technicalCheck,
       failureStage,
+      renderReason,
       errorCode,
       userId,
     }) {
@@ -773,6 +778,8 @@ export function createCloudTracking(
         anonymousId: jobId,
         properties: {
           job_id: jobId,
+          diagnostics_version: 1,
+          ...(renderReason ? { render_reason: renderReason } : {}),
           job_state: jobState,
           duration_ms: clampDurationMs(durationMs),
           technical_check: technicalCheck,

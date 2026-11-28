@@ -2148,6 +2148,8 @@ function createMainWindow(): BrowserWindow {
 }
 
 const STARTUP_UPDATE_CHECK_DELAY_MS = 8_000;
+const DAILY_UPDATE_CHECK_MS = 24 * 60 * 60_000;
+let dailyUpdateCheckTimer: ReturnType<typeof setInterval> | null = null;
 let startupUpdateCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
 function preconnectStudioOrigin(): void {
@@ -2338,6 +2340,15 @@ async function bootDesktop(): Promise<void> {
   await loadPromise;
 
   scheduleStartupUpdateCheck();
+  if (app.isPackaged && !dailyUpdateCheckTimer) {
+    dailyUpdateCheckTimer = setInterval(() => {
+      const state = updater.getState();
+      if (shuttingDown || (!isAutoCheckUpdatesEnabled() && !state.mandatory)) return;
+      if (['checking', 'available', 'downloading', 'downloaded'].includes(state.status)) return;
+      void updater.checkForUpdates().catch(() => {});
+    }, DAILY_UPDATE_CHECK_MS);
+    dailyUpdateCheckTimer.unref();
+  }
 
   if (!signedConfigRefreshTimer) {
     signedConfigRefreshTimer = setInterval(() => {
@@ -2466,6 +2477,8 @@ app.on('before-quit', event => {
     clearInterval(signedConfigRefreshTimer);
     signedConfigRefreshTimer = null;
   }
+  if (dailyUpdateCheckTimer) clearInterval(dailyUpdateCheckTimer);
+  dailyUpdateCheckTimer = null;
   logger.markSessionEnded('quit');
   sessionTracker.end();
 });

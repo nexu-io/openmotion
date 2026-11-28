@@ -143,6 +143,9 @@ export function assetImportError(error: unknown) {
 }
 
 export const exportFailureStages = ['queued', 'lint', 'render', 'output', 'verification', 'finalize', 'unknown'] as const;
+export const webLoginStages = ['authorization_start', 'provider_discovery', 'token_exchange', 'identity_verification', 'workspace_access', 'session_creation'] as const;
+export type WebLoginStage = (typeof webLoginStages)[number];
+export const renderFailureReasons = ['browser_start', 'local_port_denied', 'encoder', 'unclassified'] as const;
 export const exportFailureCodes = ['EXPORT_LINT_FAILED', 'EXPORT_RENDER_FAILED', 'EXPORT_RENDER_TIMEOUT',
   'EXPORT_OUTPUT_MISSING', 'EXPORT_OUTPUT_INVALID', 'EXPORT_VERIFICATION_FAILED', 'EXPORT_VERIFICATION_BLOCKED',
   'EXPORT_FINALIZE_FAILED', 'EXPORT_DEADLINE_EXCEEDED', 'EXPORT_WORKER_INTERRUPTED', 'EXPORT_FAILED'] as const;

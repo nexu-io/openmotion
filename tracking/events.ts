@@ -1,4 +1,4 @@
-import { assetImportErrorCodes, exportFailureCodes, exportFailureStages, toolDimensions, toolFailureDimensions } from './tool-fields.ts';
+import { assetImportErrorCodes, webLoginStages, renderFailureReasons, exportFailureCodes, exportFailureStages, toolDimensions, toolFailureDimensions } from './tool-fields.ts';
 import type { Entry, Registry } from './core.ts';
 import { studioUsageEvents } from './studio-events.ts';
 import { providerSetupEntries, type ProviderSetupEntry } from '../shared/workspace-url.ts';
@@ -125,11 +125,11 @@ export const omEvents = {
   media_generation_submitted: { producers: ['worker'], fields: { ...generation, job_id: 'uuid' }, required: ['modality', 'job_id'] },
   media_generation_result: { producers: ['worker'], fields: { ...generation, job_id: 'uuid',
     job_state: ['completed', 'failed', 'cancelled'], asset_count: 'integer' }, required: ['modality', 'job_id', 'job_state', 'asset_count'] },
-  export_result: { producers: ['worker'], fields: { job_id: 'uuid', job_state: ['completed', 'failed', 'cancelled'], duration_ms: 'integer', technical_check: ['passed', 'failed', 'unknown'], failure_stage: exportFailureStages, error_code: exportFailureCodes }, required: ['job_id', 'job_state', 'duration_ms', 'technical_check'] },
+  export_result: { producers: ['worker'], fields: { diagnostics_version: 'integer', render_reason: renderFailureReasons, job_id: 'uuid', job_state: ['completed', 'failed', 'cancelled'], duration_ms: 'integer', technical_check: ['passed', 'failed', 'unknown'], failure_stage: exportFailureStages, error_code: exportFailureCodes }, required: ['job_id', 'job_state', 'duration_ms', 'technical_check'] },
   // One per finished OpenDesign sign-in attempt. `replaced` is an interrupted attempt the service refused; the same
   // sign-in continues with a new attempt. Times are milliseconds since the click. Stage values come from the connector
   // protocol; only confirmed account IDs are allowed, never links, authorization codes or credentials.
-  account_sign_in_result: { producers: ['mcp'], fields: { attempt_id: 'uuid', outcome: ['success', 'failure', 'cancelled', 'replaced'],
+  account_sign_in_result: { producers: ['mcp'], fields: { diagnostics_version: 'integer', web_failed_stage: webLoginStages, attempt_id: 'uuid', outcome: ['success', 'failure', 'cancelled', 'replaced'],
     source_product: ['openmotion'], source_detail: ['openmotion_editor_login', ...entitlementHookIds], entry_id: 'uuid', entry_occurred_at: 'timestamp', amr_user_id: 'code',
     error_code: ['connector_unavailable', 'setup_failed', 'authorization_expired', 'credentials_rejected'],
     connector_problem: ['npm_missing', 'install_failed', 'start_failed'], connector_version: 'code', resumed: 'boolean',

@@ -1,3 +1,4 @@
+import type { WebLoginStage } from '../../tracking/tool-fields.ts';
 import {
   createRemoteJWKSet,
   decodeProtectedHeader,
@@ -151,10 +152,19 @@ export class OidcService {
       return this.cachedDiscovery.doc;
     }
     const url = `${this.cfg.issuer.replace(/\/$/, '')}/.well-known/openid-configuration`;
-    const response = await this.fetcher(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(10_000),
+    // Discovery is a read-only GET. Keep both attempts inside the existing timeout
+    // and never replay the single-use authorization code exchange.
+    const signal = AbortSignal.timeout(10_000);
+    const readDiscovery = () => this.fetcher(url, { headers: { Accept: 'application/json' }, signal });
+    const firstResponse = await readDiscovery().catch((error: unknown) => {
+      if (error instanceof TypeError && !signal.aborted) return null;
+      throw error;
     });
+    let response = firstResponse;
+    if (!response || ([502, 503, 504].includes(response.status) && !signal.aborted)) {
+      await response?.body?.cancel();
+      response = await readDiscovery();
+    }
     if (!response.ok) {
       throw new CloudError(
         'SERVICE_UNAVAILABLE',
@@ -351,6 +361,7 @@ export class OidcService {
       iss?: string | null;
       error?: string | null;
       amrIdentity?: AmrIdentityClient;
+      onVerifiedStage?: (stage: WebLoginStage) => void;
     },
   ): Promise<{
     membership: MembershipResolution;
@@ -394,6 +405,7 @@ export class OidcService {
       throw new CloudError('UNAUTHORIZED', 'OIDC login state binding mismatch', { status: 401 });
     }
 
+    input.onVerifiedStage?.('provider_discovery');
     const doc = await this.discover();
     if (input.iss && input.iss !== doc.issuer) {
       throw new CloudError('UNAUTHORIZED', 'OIDC callback issuer mismatch', { status: 401 });
@@ -408,6 +420,7 @@ export class OidcService {
       form.set('client_secret', this.cfg.clientSecret);
     }
 
+    input.onVerifiedStage?.('token_exchange');
     const tokenRes = await this.fetcher(doc.token_endpoint, {
       method: 'POST',
       headers: {
@@ -433,6 +446,7 @@ export class OidcService {
       });
     }
 
+    input.onVerifiedStage?.('identity_verification');
     let payload: JWTPayload;
     try {
       payload = await this.verifyIdToken(tokenJson.id_token, doc);
@@ -448,6 +462,7 @@ export class OidcService {
     if (!sub) {
       throw new CloudError('UNAUTHORIZED', 'OIDC id_token missing subject claim', { status: 401 });
     }
+    input.onVerifiedStage?.('workspace_access');
     const email = readStringClaim(payload, this.cfg.claimEmail);
     const displayName =
       readStringClaim(payload, this.cfg.claimName) ?? email ?? `User ${sub.slice(0, 8)}`;
