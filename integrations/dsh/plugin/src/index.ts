@@ -43,7 +43,7 @@ export async function apply(ctx: HostContext, config: Config) {
   };
   const { stdout } = await execute(
     executable,
-    ["--experimental-strip-types", "preview.ts"],
+    ["--experimental-strip-types", path.join(root, "preview.ts")],
     { cwd: root, env, timeout: 120_000 },
   );
   const origin = studioOrigin(JSON.parse(stdout).previewUrl);
@@ -59,6 +59,12 @@ export async function apply(ctx: HostContext, config: Config) {
       MOTION_DATA_DIR: data,
       ...(config.templateSource
         ? { MOTION_TEMPLATE_SOURCE: config.templateSource }
+        : {}),
+      ...(process.env.OPENMOTION_TOKEN
+        ? { OPENMOTION_TOKEN: process.env.OPENMOTION_TOKEN }
+        : {}),
+      ...(process.env.OPENMOTION_PAT
+        ? { OPENMOTION_PAT: process.env.OPENMOTION_PAT }
         : {}),
     },
     failOnStartupError: true,

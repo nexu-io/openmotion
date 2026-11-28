@@ -66,7 +66,7 @@ export async function check() {
   for (const folder of ['src', 'web', 'shared', 'scripts', 'tests', 'gateway', 'tracking']) {
     await stripTypeScriptRecursive(path.join(root, folder));
   }
-  for (const file of ['server.ts', 'design-projects.ts', 'review-comments.ts', 'hyperframes.ts', 'template-library.ts', 'template-catalog.ts', 'prism-templates.ts', 'drizzle.config.ts']) {
+  for (const file of ['server.ts', 'preview.ts', 'mcp.ts', 'design-projects.ts', 'review-comments.ts', 'hyperframes.ts', 'template-library.ts', 'template-catalog.ts', 'prism-templates.ts', 'drizzle.config.ts']) {
     stripTypeScriptTypes(await readFile(path.join(root, file), 'utf8'), { mode: 'strip' });
   }
   for (const folder of ['skills', 'library/skills']) for (const entry of await readdir(path.join(root, folder), { withFileTypes: true })) {
