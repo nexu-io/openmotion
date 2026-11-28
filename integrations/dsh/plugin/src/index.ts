@@ -60,6 +60,12 @@ export async function apply(ctx: HostContext, config: Config) {
       ...(config.templateSource
         ? { MOTION_TEMPLATE_SOURCE: config.templateSource }
         : {}),
+      ...(process.env.OPENMOTION_TOKEN
+        ? { OPENMOTION_TOKEN: process.env.OPENMOTION_TOKEN }
+        : {}),
+      ...(process.env.OPENMOTION_PAT
+        ? { OPENMOTION_PAT: process.env.OPENMOTION_PAT }
+        : {}),
     },
     failOnStartupError: true,
     toolCallTimeoutMs: 180_000,

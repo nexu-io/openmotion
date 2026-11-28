@@ -52,24 +52,66 @@ export interface PreviewResult {
   previewTarget?: string;
 }
 
+const OPENMOTION_SERVICES = new Set(['api', 'motion-preview', 'openmotion']);
+
+function isOpenMotionHealth(data: unknown): data is Record<string, any> {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    typeof (data as Record<string, unknown>).service === 'string' &&
+    OPENMOTION_SERVICES.has((data as Record<string, string>).service)
+  );
+}
+
+function buildHealth(origin: string, data: Record<string, any>, ready: boolean): Health {
+  return {
+    service: 'motion-preview',
+    protocol: 2,
+    version: typeof data.version === 'string' && data.version ? data.version : VERSION,
+    ready,
+    editorReady: ready,
+    studioUrl: origin,
+    dataDirectory: process.env.MOTION_DATA_DIR,
+  };
+}
+
 export async function probe(port: number): Promise<Probe> {
   const origin = `http://127.0.0.1:${port}`;
-  // 1. Try /api/health/live (always 200 without DB/Redis dependencies)
+  // 1. Prefer /api/health/ready so readiness is gated on Postgres/Redis health
+  for (const healthPath of ['/api/health/ready', '/api/health']) {
+    try {
+      const res = await fetch(`${origin}${healthPath}`, { signal: AbortSignal.timeout(1200) });
+      if (res.ok || res.status === 503) {
+        const data = await res.json().catch(() => null);
+        if (!isOpenMotionHealth(data)) {
+          return { kind: 'busy' };
+        }
+        const isReady = res.ok && data.ok !== false;
+        return {
+          kind: 'motion',
+          health: buildHealth(origin, data, isReady),
+        };
+      }
+    } catch (error: any) {
+      const code = error?.cause?.code || error?.code;
+      if (code === 'ECONNREFUSED') return { kind: 'free' };
+      if (code === 'EPERM' || code === 'EACCES') {
+        throw new Error('Local preview permission denied. Please check local execution permissions.');
+      }
+    }
+  }
+
+  // 2. Fallback to /api/health/live only to detect that the port is ours (not ready)
   try {
     const res = await fetch(`${origin}/api/health/live`, { signal: AbortSignal.timeout(1200) });
     if (res.ok) {
-      const data = (await res.json()) as { service?: string; version?: string };
+      const data = await res.json().catch(() => null);
+      if (!isOpenMotionHealth(data)) {
+        return { kind: 'busy' };
+      }
       return {
         kind: 'motion',
-        health: {
-          service: 'motion-preview',
-          protocol: 2,
-          version: data.version || VERSION,
-          ready: true,
-          editorReady: true,
-          studioUrl: origin,
-          dataDirectory: process.env.MOTION_DATA_DIR,
-        },
+        health: buildHealth(origin, data, false),
       };
     }
   } catch (error: any) {
@@ -78,29 +120,6 @@ export async function probe(port: number): Promise<Probe> {
     if (code === 'EPERM' || code === 'EACCES') {
       throw new Error('Local preview permission denied. Please check local execution permissions.');
     }
-  }
-
-  // 2. Fallback to /api/health
-  try {
-    const res = await fetch(`${origin}/api/health`, { signal: AbortSignal.timeout(1200) });
-    if (res.ok) {
-      const data = (await res.json()) as Record<string, any>;
-      return {
-        kind: 'motion',
-        health: {
-          service: 'motion-preview',
-          protocol: 2,
-          version: data.version || VERSION,
-          ready: true,
-          editorReady: true,
-          studioUrl: origin,
-          dataDirectory: process.env.MOTION_DATA_DIR,
-        },
-      };
-    }
-  } catch (error: any) {
-    const code = error?.cause?.code || error?.code;
-    if (code === 'ECONNREFUSED') return { kind: 'free' };
   }
 
   return { kind: 'busy' };
@@ -123,7 +142,7 @@ async function launch(port: number, directory: string, _log?: string, background
           'postgresql://openmotion:openmotion_local_dev@127.0.0.1:5432/openmotion',
         REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
         AUTH_MODE: process.env.AUTH_MODE || 'dev',
-        MODEL_GATEWAY_MODE: process.env.MODEL_GATEWAY_MODE || 'mock',
+        BIND_HOST: '127.0.0.1',
         ...process.env,
         PORT: String(port),
         MOTION_DATA_DIR: directory,
@@ -187,28 +206,44 @@ export async function openPreview(
   let ready = false;
   let pid: number | undefined;
 
-  if (current.kind === 'motion') {
+  if (current.kind === 'motion' && current.health.ready) {
     reused = true;
     ready = true;
+  } else if (current.kind === 'busy') {
+    throw new Error(`Port ${port} is occupied by another service.`);
   } else {
+    let started: Started | undefined;
     try {
-      const started = await environment.launch(port, directory || process.cwd());
-      pid = started.pid;
+      if (current.kind === 'free') {
+        started = await environment.launch(port, directory || process.cwd());
+        pid = started.pid;
+      }
 
       for (let i = 0; i < environment.attempts; i++) {
-        if (!started.alive()) {
+        if (started && !started.alive()) {
           break;
         }
         const probed = await environment.probe(port);
-        if (probed.kind === 'motion') {
-          reused = false;
+        if (probed.kind === 'motion' && probed.health.ready) {
+          reused = current.kind === 'motion';
           ready = true;
           break;
         }
         await environment.wait();
       }
-    } catch {
-      // Backend startup failed or external services unavailable
+    } catch (err) {
+      started?.stop();
+      throw err;
+    }
+
+    if (!ready) {
+      const detail = started?.error();
+      started?.stop();
+      throw new Error(
+        detail
+          ? `OpenMotion service failed to become ready on port ${port}: ${detail}`
+          : `OpenMotion service failed to become ready on port ${port}.`,
+      );
     }
   }
 
