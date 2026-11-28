@@ -88,8 +88,8 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
     aria: t('Black Friday campaign banner'),
     timerLabel: t('Ends in'),
     offerBefore: t('Black Friday lowest of the year! '),
-    offerHighlight: t('7-day unlimited image gen'),
-    offerAfter: t(' · Unlimited top models · Up to 50% off'),
+    offerHighlight: t('Unlimited Magi-2, Seedream 5.5, DeepSeek v4.1 Flash'),
+    offerAfter: t(' · Up to 50% off'),
     bfCta: t('Claim offer'),
     closeLabel: t('Close campaign banner'),
   };
