@@ -629,6 +629,8 @@ test('createCloudTracking dual-writes all OPEND-5807 P0-2 server & worker result
 
   // 3. export_result + task_accepted + task_terminal (task_type='export')
   tracker.trackTaskAccepted({ taskId: exportJobId, taskType: 'export', projectId, acceptedAt: now, deadlineAt: deadline, userId, entrypoint: 'mcp' });
+  const failedExportId = crypto.randomUUID();
+  tracker.trackExportResult({ jobId: failedExportId, jobState: 'failed', durationMs: 250, technicalCheck: 'failed', failureStage: 'render', errorCode: 'EXPORT_RENDER_FAILED', renderReason: 'encoder', userId });
   tracker.trackExportResult({ jobId: exportJobId, jobState: 'completed', durationMs: 4200, technicalCheck: 'passed', userId });
   tracker.trackTaskTerminal({ taskId: exportJobId, taskType: 'export', projectId, outcome: 'success', applied: 'true', terminalAt: new Date(now.getTime() + 4200), userId, entrypoint: 'worker' });
 
@@ -707,6 +709,10 @@ test('createCloudTracking dual-writes all OPEND-5807 P0-2 server & worker result
       .map((ev) => ev.uuid),
   );
   assert.equal(exportedPosthogIds.size, 1);
+
+  const failedExport = sinks.posthogEvents.find(ev => ev.event === 'export_result' && ev.properties.job_id === failedExportId);
+  assert.equal(failedExport?.properties.render_reason, 'encoder');
+  assert.equal(failedExport?.properties.diagnostics_version, 1);
 
   const mcpEvents = sinks.posthogEvents.filter((ev) => ev.event === 'mcp_tool_finished');
   assert.equal(mcpEvents.length, 1);
