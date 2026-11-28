@@ -1,0 +1,165 @@
+{
+  "templateId": "motion-photo-frame-iris",
+  "entry": {
+    "templateId": "motion-photo-frame-iris",
+    "sortOrder": 288,
+    "original": {
+      "templateName": "Photo Frame Iris",
+      "summary": "Reveal a finished print from a matching unframed picture, then close to a title.",
+      "author": "nextdiy",
+      "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+      "durationSeconds": "11.6"
+    },
+    "files": [
+      {
+        "path": "index.html",
+        "bytes": 1991,
+        "sha256": "9b7279bdcd746ab29660afcf73ac778916a60fdb288b4a347e9a4f7cf9743e24",
+        "mimeType": "text/html"
+      },
+      {
+        "path": "assets/style.css",
+        "bytes": 2365,
+        "sha256": "07f73be7dd93b9a75067c0169d3d5d3e9262a97fe860e0a48b4ea58a179ba8ab",
+        "mimeType": "text/css"
+      },
+      {
+        "path": "assets/motion.js",
+        "bytes": 3312,
+        "sha256": "cdd617481b303adf9f796bd79889bc55a837c008e6c8cf0bc43c219701ebfef9",
+        "mimeType": "text/javascript"
+      },
+      {
+        "path": "assets/gsap.min.js",
+        "bytes": 72927,
+        "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb",
+        "mimeType": "text/javascript"
+      },
+      {
+        "path": "assets/GSAP-LICENSE.txt",
+        "bytes": 4538,
+        "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c",
+        "mimeType": "text/plain"
+      },
+      {
+        "path": "assets/inlet-before.svg",
+        "bytes": 3259,
+        "sha256": "9ff5bd4db458b1eb85585b8b728f182fe7a85c824e3459d80bc30079c5289172",
+        "mimeType": "image/svg+xml"
+      },
+      {
+        "path": "assets/inlet-framed.svg",
+        "bytes": 3876,
+        "sha256": "3709f32d76b94106536165edc6f43a3b85850ee038dc322aa0d38816906e5e6d",
+        "mimeType": "image/svg+xml"
+      }
+    ],
+    "previewUrl": null,
+    "coverUrl": null,
+    "motionDocumentUrl": null,
+    "motionGuideUrl": null,
+    "projectFileUrl": null,
+    "brand": "",
+    "width": 1280,
+    "height": 720,
+    "conversionStatus": "pending",
+    "conversionNotes": "Editable project with replaceable artwork. Human visual acceptance is pending."
+  },
+  "locales": {
+    "de": {
+      "original": {
+        "templateName": "Irisblende für Fotorahmen",
+        "summary": "Aus einem rahmenlosen Bild wird ein gerahmter Abzug. Eine Irisblende führt zum Titel.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "en": {},
+    "es": {
+      "original": {
+        "templateName": "Revelado de marco con iris",
+        "summary": "Una foto sin marco da paso a una copia enmarcada y un cierre circular revela el título.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "fr": {
+      "original": {
+        "templateName": "Cadre photo en iris",
+        "summary": "Une photo sans cadre devient un tirage encadré, puis un iris se referme sur le titre.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "it": {
+      "original": {
+        "templateName": "Cornice fotografica a iride",
+        "summary": "Da un’immagine senza bordo emerge una stampa incorniciata. L’iride si chiude sul titolo.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "ja": {
+      "original": {
+        "templateName": "アイリスで見せるフォトフレーム",
+        "summary": "写真と額装した作品を重ねて見せ、円形のマスクを閉じてタイトルに切り替えます。",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "ko": {
+      "original": {
+        "templateName": "아이리스 포토 프레임",
+        "summary": "테두리 없는 사진에서 액자에 담긴 작품을 보여 준 뒤 원형 마스크를 닫아 제목을 드러냅니다.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "pt-br": {
+      "original": {
+        "templateName": "Moldura fotográfica em íris",
+        "summary": "Uma foto sem borda dá lugar a uma impressão emoldurada, e a íris se fecha para exibir o título.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "ru": {
+      "original": {
+        "templateName": "Фоторамка с круговым переходом",
+        "summary": "Исходное изображение сменяется оформленным отпечатком, затем круговая маска закрывается и появляется заголовок.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "tr": {
+      "original": {
+        "templateName": "İris geçişli fotoğraf çerçevesi",
+        "summary": "Çerçevesiz görsel çerçeveli baskıya dönüşür, ardından dairesel maske kapanır ve başlık görünür.",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    },
+    "zh-CN": {
+      "original": {
+        "templateName": "照片装框 · 圆形揭示",
+        "summary": "从无边框原图拉远至装框成品，再收拢圆形遮罩，显示片尾标题。",
+        "author": "nextdiy",
+        "sourceUrl": "https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f",
+        "durationSeconds": "11.6"
+      }
+    }
+  },
+  "localMedia": {
+    "preview": "assets/lfs/preview.mp4",
+    "poster": "assets/poster.webp"
+  }
+}

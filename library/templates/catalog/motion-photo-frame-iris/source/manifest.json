@@ -1,0 +1,72 @@
+{
+  "schema": "motion-package-v1",
+  "purpose": "editable-project",
+  "canvas": {
+    "width": 1280,
+    "height": 720
+  },
+  "fps": 30,
+  "durationSeconds": 11.6,
+  "provenance": {
+    "adaptedFrom": "motion-dac924da-010f-4445-baf3-a39cb033e48f",
+    "reference": "https://x.com/claudeai/status/2080376094939603366",
+    "artwork": "Original inlet illustration by nextdiy with Codex. Code and artwork are Apache-2.0. GSAP retains the accompanying Webflow license."
+  },
+  "files": [
+    {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
+      "path": "assets/gsap.min.js",
+      "bytes": 72927,
+      "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
+    },
+    {
+      "path": "assets/inlet-before.svg",
+      "bytes": 3259,
+      "sha256": "9ff5bd4db458b1eb85585b8b728f182fe7a85c824e3459d80bc30079c5289172"
+    },
+    {
+      "path": "assets/inlet-framed.svg",
+      "bytes": 3876,
+      "sha256": "3709f32d76b94106536165edc6f43a3b85850ee038dc322aa0d38816906e5e6d"
+    },
+    {
+      "path": "assets/lfs/preview.mp4",
+      "bytes": 508877,
+      "sha256": "490f4861d117cc1ec67abeba8b1915bda16a414b98c96d994be918f141acd888"
+    },
+    {
+      "path": "assets/motion.js",
+      "bytes": 3312,
+      "sha256": "cdd617481b303adf9f796bd79889bc55a837c008e6c8cf0bc43c219701ebfef9"
+    },
+    {
+      "path": "assets/poster.webp",
+      "bytes": 20948,
+      "sha256": "c908ed66c21bc752e311cdf1f31e198cab4c1458dd8fbefa4984e52afa7405aa"
+    },
+    {
+      "path": "assets/style.css",
+      "bytes": 2365,
+      "sha256": "07f73be7dd93b9a75067c0169d3d5d3e9262a97fe860e0a48b4ea58a179ba8ab"
+    },
+    {
+      "path": "index.html",
+      "bytes": 1991,
+      "sha256": "9b7279bdcd746ab29660afcf73ac778916a60fdb288b4a347e9a4f7cf9743e24"
+    },
+    {
+      "path": "motion.md",
+      "bytes": 1217,
+      "sha256": "d58ecaca3a7192a10b29e9f0a4103f47c2cf5eaa7dfe793cff4614a0c5b61aa9"
+    },
+    {
+      "path": "preview.html",
+      "bytes": 920,
+      "sha256": "6d9ce8cc116a0f9553649c24fd7574cb8ed874ce9af4de6d954721e81bbd794d"
+    }
+  ]
+}

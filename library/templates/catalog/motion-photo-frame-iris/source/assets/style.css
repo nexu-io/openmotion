@@ -1,0 +1,44 @@
+/* Named system faces are optional, with generic fallbacks for portability. */
+@font-face { font-family: "PingFang SC"; src: local("PingFang SC"); }
+@font-face { font-family: "Noto Sans CJK SC"; src: local("Noto Sans CJK SC"); }
+@font-face { font-family: "Songti SC"; src: local("Songti SC"); }
+@font-face { font-family: "Noto Serif CJK SC"; src: local("Noto Serif CJK SC"); }
+/* Photo Frame Iris, adapted from the OpenMotion Voice mode editable project. */
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; }
+#film {
+  --paper: #f8f7f2; --ink: #20221e;
+  position: relative; width: 1280px; height: 720px; overflow: hidden;
+  color: var(--ink); background: var(--paper);
+  font-family: "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+}
+.scene, .morning, .card { position: absolute; inset: 0; overflow: hidden; }
+.morning { background: var(--paper); }
+.camera { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; }
+.print {
+  position: absolute; width: var(--print-width); aspect-ratio: var(--print-ratio);
+  transform: translate(-50%, var(--anchor-offset));
+}
+.print img { display: block; position: absolute; max-width: none; }
+#original { left: var(--photo-left); top: var(--photo-top); width: var(--photo-width); height: var(--photo-height); }
+#framed { inset: 0; width: 100%; height: 100%; }
+.subtitle {
+  position: absolute; left: 70px; right: 70px; bottom: 39px; margin: 0;
+  text-align: center; font-family: Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+  font-size: 38px; font-weight: 500; line-height: 1.2; letter-spacing: -.03em;
+}
+.subtitle span { display: inline-block; }
+.orb {
+  position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px;
+  display: grid; place-items: center; background: var(--ink); border-radius: 50%;
+}
+.frame-glyph { width: 25px; height: 19px; display: block; border: 2px solid var(--paper); border-radius: 2px; }
+.card { pointer-events: none; }
+.card-title {
+  position: absolute; left: 48px; right: 48px; top: calc(50% + 47px);
+  margin: 0; text-align: center; font-size: 52px; font-weight: 600; line-height: 1.12; letter-spacing: -.045em;
+}
+.card-line {
+  position: absolute; margin: 0; left: 48px; right: 48px; top: calc(50% + 123px);
+  font-size: 22px; line-height: 1.24; text-align: center; color: #585a52;
+}
